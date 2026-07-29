@@ -65,6 +65,7 @@ src/.umi-test
 .mfsu
 .swc
 .turbopack
+.turbo
 
 .claude
 Claude.md

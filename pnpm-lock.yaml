@@ -150,6 +150,9 @@ importers:
       '@types/react-dom':
         specifier: ^18.0.11
         version: 18.3.7(@types/react@18.3.31)
+      eslint:
+        specifier: ^8.35.0
+        version: 8.35.0
       lint-staged:
         specifier: ^13.2.0
         version: 13.3.0
