@@ -1,5 +1,9 @@
 {
-  "*.{js,jsx}": ["eslint --fix"],
-  "*.{css,less}": ["max lint --fix --stylelint-only"],
-  "*.ts?(x)": ["eslint --fix"]
+  "*.{js,jsx}": ["max lint --fix --eslint-only"],
+  "*.{css,less}": [
+    "max lint --fix --stylelint-only"
+  ],
+  "*.ts?(x)": [
+    "max lint --fix --eslint-only"
+  ]
 }
