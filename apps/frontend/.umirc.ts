@@ -24,11 +24,6 @@ export default defineConfig({
       path: '/access',
       component: './Access',
     },
-    {
-      name: ' CRUD 示例',
-      path: '/table',
-      component: './Table',
-    },
   ],
   npmClient: 'pnpm',
   utoopack: {},

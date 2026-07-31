@@ -6,7 +6,7 @@
     "build": "max build",
     "dev": "max dev",
     "postinstall": "max setup",
-    "lint": "eslint .",
+    "lint": "max lint",
     "setup": "max setup",
     "start": "npm run dev"
   },
