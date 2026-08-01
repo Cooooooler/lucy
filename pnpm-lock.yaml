@@ -13,6 +13,9 @@ importers:
       '@commitlint/config-conventional':
         specifier: ^21.2.0
         version: 21.2.0
+      '@eslint/js':
+        specifier: ^9.18.0
+        version: 9.39.5
       commitizen:
         specifier: ^4.3.2
         version: 4.3.2(@types/node@26.1.2)(typescript@5.9.3)
@@ -23,8 +26,17 @@ importers:
         specifier: ^3.3.0
         version: 3.3.0(@types/node@26.1.2)(typescript@5.9.3)
       eslint:
-        specifier: ^8.35.0
-        version: 8.35.0
+        specifier: ^9.18.0
+        version: 9.39.5(jiti@2.7.0)
+      eslint-config-prettier:
+        specifier: ^10.0.1
+        version: 10.1.8(eslint@9.39.5(jiti@2.7.0))
+      eslint-plugin-prettier:
+        specifier: ^5.2.2
+        version: 5.5.6(@types/eslint@9.6.1)(eslint-config-prettier@10.1.8(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0))(prettier@3.9.6)
+      globals:
+        specifier: ^17.0.0
+        version: 17.8.0
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -46,6 +58,12 @@ importers:
       turbo:
         specifier: ^2.10.7
         version: 2.10.7
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      typescript-eslint:
+        specifier: ^8.20.0
+        version: 8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
 
   apps/backend:
     dependencies:
@@ -65,12 +83,6 @@ importers:
         specifier: ^7.8.1
         version: 7.8.2
     devDependencies:
-      '@eslint/eslintrc':
-        specifier: ^3.2.0
-        version: 3.3.6
-      '@eslint/js':
-        specifier: ^9.18.0
-        version: 9.39.5
       '@nestjs/cli':
         specifier: ^11.0.0
         version: 11.0.24(@types/node@24.13.3)(prettier@3.9.6)
@@ -92,18 +104,6 @@ importers:
       '@types/supertest':
         specifier: ^7.0.0
         version: 7.2.1
-      eslint:
-        specifier: ^9.18.0
-        version: 9.39.5(jiti@2.7.0)
-      eslint-config-prettier:
-        specifier: ^10.0.1
-        version: 10.1.8(eslint@9.39.5(jiti@2.7.0))
-      eslint-plugin-prettier:
-        specifier: ^5.2.2
-        version: 5.5.6(@types/eslint@9.6.1)(eslint-config-prettier@10.1.8(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0))(prettier@3.9.6)
-      globals:
-        specifier: ^17.0.0
-        version: 17.8.0
       jest:
         specifier: ^30.0.0
         version: 30.4.2(@types/node@24.13.3)(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3))
@@ -125,12 +125,6 @@ importers:
       tsconfig-paths:
         specifier: ^4.2.0
         version: 4.2.0
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-      typescript-eslint:
-        specifier: ^8.20.0
-        version: 8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
 
   apps/frontend:
     dependencies:
@@ -153,6 +147,9 @@ importers:
       '@types/react-dom':
         specifier: ^18.0.11
         version: 18.3.7(@types/react@18.3.31)
+      eslint:
+        specifier: ^8.35.0
+        version: 8.35.0
       lint-staged:
         specifier: ^13.2.0
         version: 13.3.0
@@ -16522,43 +16519,6 @@ snapshots:
       jest-util: 30.4.1
       slash: 3.0.0
 
-  '@jest/core@30.4.2':
-    dependencies:
-      '@jest/console': 30.4.1
-      '@jest/pattern': 30.4.0
-      '@jest/reporters': 30.4.1
-      '@jest/test-result': 30.4.1
-      '@jest/transform': 30.4.1
-      '@jest/types': 30.4.1
-      '@types/node': 24.13.3
-      ansi-escapes: 4.3.2
-      chalk: 4.1.2
-      ci-info: 4.4.0
-      exit-x: 0.2.2
-      fast-json-stable-stringify: 2.1.0
-      graceful-fs: 4.2.11
-      jest-changed-files: 30.4.1
-      jest-config: 30.4.2(@types/node@24.13.3)
-      jest-haste-map: 30.4.1
-      jest-message-util: 30.4.1
-      jest-regex-util: 30.4.0
-      jest-resolve: 30.4.1
-      jest-resolve-dependencies: 30.4.2
-      jest-runner: 30.4.2
-      jest-runtime: 30.4.2
-      jest-snapshot: 30.4.1
-      jest-util: 30.4.1
-      jest-validate: 30.4.1
-      jest-watcher: 30.4.1
-      pretty-format: 30.4.1
-      slash: 3.0.0
-    transitivePeerDependencies:
-      - babel-plugin-macros
-      - esbuild-register
-      - supports-color
-      - ts-node
-    optional: true
-
   '@jest/core@30.4.2(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3))':
     dependencies:
       '@jest/console': 30.4.1
@@ -21784,7 +21744,7 @@ snapshots:
 
   jest-cli@30.4.2(@types/node@26.1.2):
     dependencies:
-      '@jest/core': 30.4.2
+      '@jest/core': 30.4.2(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3))
       '@jest/test-result': 30.4.1
       '@jest/types': 30.4.1
       chalk: 4.1.2
@@ -21800,38 +21760,6 @@ snapshots:
       - esbuild-register
       - supports-color
       - ts-node
-    optional: true
-
-  jest-config@30.4.2(@types/node@24.13.3):
-    dependencies:
-      '@babel/core': 7.29.7
-      '@jest/get-type': 30.1.0
-      '@jest/pattern': 30.4.0
-      '@jest/test-sequencer': 30.4.1
-      '@jest/types': 30.4.1
-      babel-jest: 30.4.1(@babel/core@7.29.7)
-      chalk: 4.1.2
-      ci-info: 4.4.0
-      deepmerge: 4.3.1
-      glob: 10.5.0
-      graceful-fs: 4.2.11
-      jest-circus: 30.4.2
-      jest-docblock: 30.4.0
-      jest-environment-node: 30.4.1
-      jest-regex-util: 30.4.0
-      jest-resolve: 30.4.1
-      jest-runner: 30.4.2
-      jest-util: 30.4.1
-      jest-validate: 30.4.1
-      parse-json: 5.2.0
-      pretty-format: 30.4.1
-      slash: 3.0.0
-      strip-json-comments: 3.1.1
-    optionalDependencies:
-      '@types/node': 24.13.3
-    transitivePeerDependencies:
-      - babel-plugin-macros
-      - supports-color
     optional: true
 
   jest-config@30.4.2(@types/node@24.13.3)(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)):
@@ -22176,7 +22104,7 @@ snapshots:
 
   jest@30.4.2(@types/node@26.1.2):
     dependencies:
-      '@jest/core': 30.4.2
+      '@jest/core': 30.4.2(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3))
       '@jest/types': 30.4.1
       import-local: 3.2.0
       jest-cli: 30.4.2(@types/node@26.1.2)

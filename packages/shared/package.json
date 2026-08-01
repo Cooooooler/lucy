@@ -4,7 +4,11 @@
   "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "files": [
+    "src"
+  ],
   "scripts": {
-    "lint": "eslint ."
+    "lint": "eslint \"src/**/*.ts\" --fix",
+    "typecheck": "tsc --noEmit"
   }
 }

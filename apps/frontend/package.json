@@ -5,10 +5,10 @@
   "scripts": {
     "build": "max build",
     "dev": "max dev",
-    "postinstall": "max setup",
-    "lint": "max lint",
+    "lint": "max lint --fix",
     "setup": "max setup",
-    "start": "npm run dev"
+    "start": "npm run dev",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ant-design/icons": "^5.0.1",
@@ -19,7 +19,7 @@
   "devDependencies": {
     "@types/react": "^18.0.33",
     "@types/react-dom": "^18.0.11",
-    "lint-staged": "^13.2.0",
+    "eslint": "^8.35.0",
     "typescript": "^5.0.3"
   }
 }
