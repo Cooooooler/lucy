@@ -111,6 +111,8 @@ src/
 
 要点：位图无法删除，双代轮换保证内存恒定；误报方向安全（只会误拒合法请求，不会放行非法令牌）。
 
+轮换触发：**惰性轮换**。Redis 存时间戳键 `auth:denylist:gen-ts`，请求鉴权时若距上次轮换已过一个 access TTL 窗口则触发：丢弃 `prev`、`cur`→`prev`、`RESERVE` 新 `cur`。多实例并发用 `SET NX EX` 加锁保证单点执行。
+
 ## 9. API 端点
 
 | 方法 | 路径 | 鉴权 | 说明 |
@@ -158,4 +160,4 @@ src/
 
 ## 14. 新增环境变量
 
-`REDIS_HOST=127.0.0.1`、`REDIS_PORT=6379`、`JWT_SECRET=<随机>`, `JWT_EXPIRES_IN=15m`、`REFRESH_TTL_SECONDS=604800`、`BLOOM_ERROR_RATE=0.01`、`BLOOM_CAPACITY=100000`。
+`REDIS_HOST=127.0.0.1`、`REDIS_PORT=6379`、`JWT_SECRET=<随机>`、`JWT_EXPIRES_IN=15m`、`REFRESH_TTL_SECONDS=604800`、`BLOOM_ERROR_RATE=0.01`、`BLOOM_CAPACITY=100000`。
