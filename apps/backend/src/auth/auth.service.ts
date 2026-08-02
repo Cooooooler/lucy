@@ -120,7 +120,7 @@ export class AuthService {
       );
     }
     const user = await this.usersService.findById(userId);
-    if (!user || user.status !== 1) {
+    if (user?.status !== 1) {
       throw new BusinessException(
         ErrorCode.UNAUTHORIZED,
         '账号不可用',

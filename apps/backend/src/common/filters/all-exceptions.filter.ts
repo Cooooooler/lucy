@@ -17,12 +17,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const body = exception.getResponse() as
         { code?: number; message?: string | string[] } | string;
       const code = typeof body === 'object' && body.code ? body.code : status;
-      const message =
-        typeof body === 'object'
-          ? Array.isArray(body.message)
-            ? body.message[0]
-            : (body.message ?? exception.message)
-          : body;
+      let message: string | string[];
+      if (typeof body === 'object') {
+        message = Array.isArray(body.message)
+          ? body.message[0]
+          : (body.message ?? exception.message);
+      } else {
+        message = body;
+      }
       return res.status(status).json({ code, message, data: null });
     }
     return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
