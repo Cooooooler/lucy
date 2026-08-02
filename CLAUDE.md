@@ -69,6 +69,15 @@ pnpm --filter @lucy/backend db:show              # 查看迁移执行状态
   - 基于实体 diff 生成：`pnpm --filter @lucy/backend exec typeorm-ts-node-commonjs migration:generate src/db/migrations/Name -d src/db/data-source.ts`
 - 生成迁移后必须人工审查 `up`/`down` 再执行；生产环境禁止 `synchronize`。
 
+#### Redis（Docker）
+
+Redis 通过根目录 `docker-compose.yml` 在 Docker 中运行（服务名 `redis`，容器名 `lucy-redis`），供后续登录模块做会话/令牌存储。
+
+- 连接：`127.0.0.1:6379`，仅绑定本机、无密码（如需密码在 compose 中加 `requirepass`）。
+- 持久化：命名卷 `redis-data` + AOF（`--appendonly yes`），`restart: unless-stopped`。
+- 常用命令：`docker compose up -d`、`docker compose ps`、`docker compose logs -f redis`、`docker compose down`。
+- 后端接入时在 `.env` 配 `REDIS_HOST` / `REDIS_PORT`（默认 `127.0.0.1` / `6379`）。
+
 ### apps/frontend（Umi Max）
 
 约定式目录，`@umijs/max` 会按目录自动装配插件（antd、layout、access、model、request、initialState）：
