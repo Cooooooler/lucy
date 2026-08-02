@@ -26,8 +26,20 @@ export class PasswordService {
     const N = Number(parts[1]);
     const r = Number(parts[2]);
     const p = Number(parts[3]);
+    if (
+      !Number.isInteger(N) ||
+      !Number.isInteger(r) ||
+      !Number.isInteger(p) ||
+      N < 2 ||
+      r < 1 ||
+      p < 1 ||
+      (N & (N - 1)) !== 0
+    ) {
+      return false;
+    }
     const salt = Buffer.from(parts[4], 'base64');
     const expected = Buffer.from(parts[5], 'base64');
+    if (salt.length === 0 || expected.length === 0) return false;
     const actual = await scrypt(password, salt, expected.length, { N, r, p });
     return timingSafeEqual(actual, expected);
   }

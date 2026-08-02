@@ -25,4 +25,16 @@ describe('PasswordService', () => {
   it('非法格式返回 false', async () => {
     await expect(service.verify('x', 'not-a-hash')).resolves.toBe(false);
   });
+
+  it('畸形存储串（空盐空哈希）verify 为 false', async () => {
+    await expect(service.verify('any', 'scrypt:16384:8:1::')).resolves.toBe(
+      false,
+    );
+  });
+
+  it('非数值参数 verify 为 false 而非抛错', async () => {
+    await expect(
+      service.verify('any', 'scrypt:abc:8:1:eA==:eA=='),
+    ).resolves.toBe(false);
+  });
 });
