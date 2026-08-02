@@ -52,6 +52,7 @@ export class DenylistService {
   }
 
   async add(jti: string): Promise<void> {
+    await this.ensureInitialized();
     await this.redis.call('BF.ADD', DenylistService.CUR, jti);
     await this.redis.set(
       `auth:denied:${jti}`,
@@ -71,13 +72,18 @@ export class DenylistService {
   }
 
   private async rotate(): Promise<void> {
-    await this.redis.del(DenylistService.PREV);
-    if (await this.redis.exists(DenylistService.CUR)) {
-      await this.redis.rename(DenylistService.CUR, DenylistService.PREV);
-    }
-    await this.redis.call(
-      'BF.RESERVE',
+    const script = [
+      `redis.call('DEL', KEYS[2]);`,
+      `if redis.call('EXISTS', KEYS[1]) == 1 then`,
+      `  redis.call('RENAME', KEYS[1], KEYS[2]);`,
+      `end`,
+      `redis.call('BF.RESERVE', KEYS[1], ARGV[1], ARGV[2]);`,
+    ].join('\n');
+    await this.redis.eval(
+      script,
+      2,
       DenylistService.CUR,
+      DenylistService.PREV,
       this.errorRate,
       this.capacity,
     );

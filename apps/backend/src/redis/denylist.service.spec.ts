@@ -32,6 +32,7 @@ describe('DenylistService', () => {
       'auth:denylist:lock',
       'auth:denied:spec-jti-1',
       'auth:denied:spec-jti-2',
+      'auth:denied:spec-jti-selfinit',
     );
     client.disconnect();
   });
@@ -43,5 +44,17 @@ describe('DenylistService', () => {
 
   it('未加入的 jti isDenied 为 false', async () => {
     await expect(service.isDenied('spec-jti-2')).resolves.toBe(false);
+  });
+
+  it('未初始化时 add 自动引导（自创建 cur）', async () => {
+    // 删除现有布隆键模拟全新状态
+    await client.del(
+      'auth:denylist:cur',
+      'auth:denylist:prev',
+      'auth:denylist:gen-ts',
+      'auth:denylist:lock',
+    );
+    await service.add('spec-jti-selfinit');
+    await expect(service.isDenied('spec-jti-selfinit')).resolves.toBe(true);
   });
 });
