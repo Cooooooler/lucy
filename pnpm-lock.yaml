@@ -150,9 +150,6 @@ importers:
       eslint:
         specifier: ^8.35.0
         version: 8.35.0
-      lint-staged:
-        specifier: ^13.2.0
-        version: 13.3.0
       typescript:
         specifier: ^5.0.3
         version: 5.9.3

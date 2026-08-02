@@ -1,9 +1,6 @@
-/** 统一响应码：0 为成功，其余为业务错误 */
-export type ResponseCode = number;
-
 /** 后端统一响应包裹结构，前后端共享 */
 export interface ApiResponse<T = unknown> {
-  code: ResponseCode;
+  code: number;
   message: string;
   data: T;
 }

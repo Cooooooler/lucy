@@ -1,6 +1,6 @@
-import { readdirSync, rmSync, statSync } from 'fs';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { readdirSync, rmSync, statSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -11,6 +11,7 @@ const targets = [
   '.mfsu',
   '.swc',
   'coverage',
+  'node_modules',
 ];
 const workspaces = ['apps', 'packages'];
 
