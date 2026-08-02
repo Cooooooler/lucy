@@ -32,9 +32,11 @@
 
 - **access token**：JWT，TTL 15min，载荷 `{ sub: userId, jti: 随机ID, exp }`，无状态，走 `Authorization: Bearer`。
 - **refresh token**：`crypto.randomBytes(32)` base64url 不透明串，Redis 存储，TTL 7 天。
-- **登出立即失效**：
+- **登出立即失效（混合方案）**：
   1. `DEL auth:refresh:{userId}:{jti}` → refresh 即刻作废；
-  2. `BF.ADD` 将 access 的 `jti` 写入黑名单 → 后续请求 `BF.EXISTS` 命中即 401。
+  2. `BF.ADD auth:denylist:cur <jti>` → 写入布隆快速通道；
+  3. `SET auth:denied:{jti} 1 EX <accessTtl>` → 写入精确确认存储。
+  - 鉴权时 `BF.EXISTS` 命中**不一定拒绝**，先走精确复查：精确 key 存在才拒，不存在（误报）则放行。
 
 ## 4. 技术栈决策
 
@@ -97,21 +99,34 @@ src/
 - **注册**（`@Public`）：校验 username/email 唯一 → scrypt 哈希 → 建用户 → 返回 `user`（不含 hash）。
 - **登录**（`@Public`）：`account` 自动识别 username 或 email → 查用户 → scrypt 校验 → 检查 status → 签发 access + 生成 refresh 并写入 Redis → 返回 `{ accessToken, refreshToken, user }`，refresh 同时写 httpOnly cookie。
 - **刷新**：校验 refresh（Redis 存在）→ 签发新 access + 轮换新 refresh（删旧存新）。
-- **登出**（需登录）：`DEL` refresh key + `BF.ADD` 当前 access `jti`。
-- **鉴权**：JwtAuthGuard 验签 + `BF.EXISTS`（cur 与 prev 均查），命中即 401。
+- **登出**（需登录）：`DEL` refresh key + `BF.ADD` 当前 access `jti` + `SET auth:denied:{jti} EX <accessTtl>`。
+- **鉴权**：JwtAuthGuard 验签（含 exp）→ `BF.EXISTS`（cur 与 prev 均查）→ 命中则 `GET auth:denied:{jti}` 精确复查：存在拒（40101）、不存在放行（误报无害）。
 
-## 8. 布隆过滤器（RedisBloom，双代轮换）
+## 8. 布隆过滤器（RedisBloom：混合 + 双代轮换 + TTL 对齐）
+
+设计参数：误报率 `BLOOM_ERROR_RATE=0.01`，单代容量 `BLOOM_CAPACITY=1000000`（峰值 100 万）。
+
+| 参数     | 值                                  |
+| -------- | ----------------------------------- |
+| 哈希数 k | 7                                   |
+| 位数组 m | ≈ 9.6M 位 ≈ 1.14MB/代，双代 ≈ 2.3MB |
+| 峰值登出 | 100 万 ÷ 15min ≈ 1111 次/s          |
 
 | 操作 | 命令 | 说明 |
 | --- | --- | --- |
-| 初始化 | `BF.RESERVE auth:denylist:cur 0.01 100000` | 误报率 1%，容量 10w |
-| 登出写入 | `BF.ADD auth:denylist:cur <jti>` | 写入当前代 |
-| 请求校验 | `BF.EXISTS auth:denylist:cur <jti>`、`auth:denylist:prev` | 任一代命中即拒绝 |
-| 轮换 | 每 access TTL 窗口执行一次 | `prev` 丢弃、`cur`→`prev`、`RESERVE` 新 `cur` |
+| 初始化 | `BF.RESERVE auth:denylist:cur 0.01 1000000` | 每代独立 RESERVE |
+| 登出写入 | `BF.ADD auth:denylist:cur <jti>` + `SET auth:denied:{jti} 1 EX <accessTtl>` | 布隆 + 精确确认双写 |
+| 请求校验 | `BF.EXISTS auth:denylist:cur/prev <jti>` 命中 → `GET auth:denied:{jti}` | 存在拒、不存在放行 |
+| 轮换 | 每窗口 `prev` 丢弃、`cur`→`prev`、`RESERVE` 新 `cur` | 惰性触发 + `SET NX EX` 加锁 |
 
-要点：位图无法删除，双代轮换保证内存恒定；误报方向安全（只会误拒合法请求，不会放行非法令牌）。
+**TTL 对齐规则（消除轮换漏洞）**：
 
-轮换触发：**惰性轮换**。Redis 存时间戳键 `auth:denylist:gen-ts`，请求鉴权时若距上次轮换已过一个 access TTL 窗口则触发：丢弃 `prev`、`cur`→`prev`、`RESERVE` 新 `cur`。多实例并发用 `SET NX EX` 加锁保证单点执行。
+1. 轮换窗口 `W ≥ access TTL / 2`（布隆留存 `2W ≥ access TTL`，黑名单 jti 在令牌过期前不离开布隆）；
+2. 精确 key TTL `≥ access TTL`（令牌有效期内确认数据必在）。
+
+推荐值：`W = 15min`、`access TTL = 15min`、`auth:denied:{jti}` TTL = 15min（三者对齐）。
+
+**正确性**：布隆 miss = 必不在（无漏判）→ 放行；布隆 hit → 精确复查定真假 → **零误拒、登出立即失效**。误报只会让请求多走一次确认，不破坏正确性；容量超限时退化为「全走确认」，等价精确存储，仅损失性能。
 
 ## 9. API 端点
 
@@ -160,4 +175,4 @@ src/
 
 ## 14. 新增环境变量
 
-`REDIS_HOST=127.0.0.1`、`REDIS_PORT=6379`、`JWT_SECRET=<随机>`、`JWT_EXPIRES_IN=15m`、`REFRESH_TTL_SECONDS=604800`、`BLOOM_ERROR_RATE=0.01`、`BLOOM_CAPACITY=100000`。
+`REDIS_HOST=127.0.0.1`、`REDIS_PORT=6379`、`JWT_SECRET=<随机>`、`JWT_EXPIRES_IN=15m`、`REFRESH_TTL_SECONDS=604800`、`BLOOM_ERROR_RATE=0.01`、`BLOOM_CAPACITY=1000000`、`BLOOM_ROTATION_SECONDS=900`。
