@@ -13,6 +13,8 @@ services:
       - yes
       - --loadmodule
       - /opt/redis-stack/lib/redisbloom.so
+      - --protected-mode
+      - no
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
