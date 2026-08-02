@@ -105,6 +105,7 @@ git commit -m "chore: redis 镜像切换为 redis-stack-server 以启用 RedisBl
 ```bash
 cd F:/project/lucy
 pnpm --filter @lucy/backend add @nestjs/jwt @nestjs/passport passport passport-jwt ioredis cookie-parser class-validator class-transformer
+pnpm --filter @lucy/backend add @lucy/shared@workspace:*
 pnpm --filter @lucy/backend add -D @types/passport-jwt @types/cookie-parser
 ```
 
@@ -228,13 +229,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
           : body;
       return res.status(status).json({ code, message, data: null });
     }
-    return res
-      .status(HttpStatus.INTERNAL_SERVER_ERROR)
-      .json({
-        code: ErrorCode.INTERNAL,
-        message: '服务器内部错误',
-        data: null,
-      });
+    return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+      code: ErrorCode.INTERNAL,
+      message: '服务器内部错误',
+      data: null,
+    });
   }
 }
 ```
@@ -336,7 +335,7 @@ describe('RedisService', () => {
 
   afterAll(async () => {
     const client = (service as unknown as { client: Redis }).client;
-    await client.flushdb();
+    await client.del('spec:key', 'spec:key2');
     client.disconnect();
   });
 
