@@ -64,11 +64,19 @@
 
 **文件：** 修改 `docker-compose.yml`
 
-- [ ] **步骤 1：换镜像并重启**
+- [ ] **步骤 1：换镜像并加模块加载**
+
+`redis-stack-server` 镜像默认启动脚本才加载模块，compose 的 `command` 会覆盖它，因此需同时改 image 与 command（在现有 `--appendonly yes` 上追加 `--loadmodule`）：
 
 ```yaml
 # docker-compose.yml 的 redis 服务
 image: redis/redis-stack-server:latest
+command:
+  - redis-server
+  - --appendonly
+  - yes
+  - --loadmodule
+  - /opt/redis-stack/lib/redisbloom.so
 ```
 
 ```bash
@@ -85,7 +93,7 @@ docker exec lucy-redis redis-cli BF.EXISTS bf:smoke abc    # 1
 docker exec lucy-redis redis-cli DEL bf:smoke
 ```
 
-预期：BF.ADD 返回 1，BF.EXISTS 返回 1。若 BF.RESERVE 报 `unknown command`，说明镜像不含模块，改用 `redislabs/rebloom:latest`。
+预期：BF.ADD 返回 1，BF.EXISTS 返回 1。
 
 - [ ] **步骤 3：Commit**
 
