@@ -14,7 +14,7 @@ pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/
 
 | 命令 | 说明 |
 | --- | --- |
-| `pnpm install` | 安装依赖（frontend 的 postinstall 会自动执行 `max setup`） |
+| `pnpm install` | 安装依赖（frontend 的 postinstall 会自动执行 `max setup`，生成 `.umi`；SonarCloud 依赖此 tsconfig） |
 | `pnpm dev` | Turbo 并行启动所有应用 |
 | `pnpm dev:backend` / `pnpm dev:frontend` | 只启动某个应用（`--filter`） |
 | `pnpm build` | Turbo 构建 |
@@ -31,6 +31,9 @@ pnpm --filter @lucy/backend test                 # 后端全部单测
 pnpm --filter @lucy/backend test -- --runInBand src/app.controller.spec.ts   # 单个测试文件
 pnpm --filter @lucy/backend test:e2e             # 后端 e2e（test/ 目录）
 pnpm --filter @lucy/frontend lint                # 前端 lint
+pnpm --filter @lucy/backend db:migrate           # 执行数据库迁移
+pnpm --filter @lucy/backend db:revert            # 回滚最近一次迁移
+pnpm --filter @lucy/backend db:show              # 查看迁移执行状态
 ```
 
 ## 关键约定与注意事项
@@ -46,7 +49,34 @@ pnpm --filter @lucy/frontend lint                # 前端 lint
 
 ### apps/backend（NestJS）
 
-标准 NestJS 模块化结构，目前是脚手架状态：`AppModule` → `AppController` + `AppService`。入口 `src/main.ts`，端口 `process.env.PORT ?? 3000`。单测文件与源码同目录（`*.spec.ts`），e2e 在 `test/`。
+标准 NestJS 模块化结构：`AppModule` → `AppController` + `AppService`。入口 `src/main.ts`，端口 `process.env.PORT ?? 3000`。单测文件与源码同目录（`*.spec.ts`），e2e 在 `test/`。
+
+#### 数据库（PostgreSQL + TypeORM）
+
+连接配置走 `@nestjs/config`，从 `apps/backend/.env`（已被 gitignore，参考 `.env.example`）读取：
+
+| 变量                      | 默认值      | 说明       |
+| ------------------------- | ----------- | ---------- |
+| `DB_HOST`                 | `127.0.0.1` | 数据库地址 |
+| `DB_PORT`                 | `5432`      | 端口       |
+| `DB_USER` / `DB_PASSWORD` | `postgres`  | 账号密码   |
+| `DB_NAME`                 | `lucy`      | 库名       |
+
+- `AppModule` 中 `TypeOrmModule.forRootAsync` 读取上述变量，`synchronize: false`（schema 变更只走迁移），`autoLoadEntities: true`。
+- 迁移：`src/db/data-source.ts` 是 CLI 专用 DataSource（内置 `dotenv/config`），迁移文件放 `src/db/migrations/`。`db:migrate` 等脚本见「按包执行」。
+- 新增迁移文件（脚本未内置，Windows cmd 下 `$npm_config_name` 无法展开）：
+  - 手写骨架：`pnpm --filter @lucy/backend exec typeorm-ts-node-commonjs migration:create src/db/migrations/Name`
+  - 基于实体 diff 生成：`pnpm --filter @lucy/backend exec typeorm-ts-node-commonjs migration:generate src/db/migrations/Name -d src/db/data-source.ts`
+- 生成迁移后必须人工审查 `up`/`down` 再执行；生产环境禁止 `synchronize`。
+
+#### Redis（Docker）
+
+Redis 通过根目录 `docker-compose.yml` 在 Docker 中运行（服务名 `redis`，容器名 `lucy-redis`），供后续登录模块做会话/令牌存储。
+
+- 连接：`127.0.0.1:6379`，仅绑定本机、无密码（如需密码在 compose 中加 `requirepass`）。
+- 持久化：命名卷 `redis-data` + AOF（`--appendonly yes`），`restart: unless-stopped`。
+- 常用命令：`docker compose up -d`、`docker compose ps`、`docker compose logs -f redis`、`docker compose down`。
+- 后端接入时在 `.env` 配 `REDIS_HOST` / `REDIS_PORT`（默认 `127.0.0.1` / `6379`）。
 
 ### apps/frontend（Umi Max）
 

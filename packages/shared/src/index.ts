@@ -5,6 +5,17 @@ export interface ApiResponse<T = unknown> {
   data: T;
 }
 
+export const ErrorCode = {
+  OK: 0,
+  UNAUTHORIZED: 40101,
+  INVALID_CREDENTIALS: 40102,
+  ACCOUNT_DISABLED: 40103,
+  USERNAME_TAKEN: 40901,
+  EMAIL_TAKEN: 40902,
+  INTERNAL: 50000,
+} as const;
+export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
+
 /** 通用分页请求参数 */
 export interface PageQuery {
   page: number;
