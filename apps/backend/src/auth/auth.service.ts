@@ -62,10 +62,19 @@ export class AuthService {
     const user = dto.account.includes('@')
       ? await this.usersService.findByEmail(dto.account)
       : await this.usersService.findByUsername(dto.account);
-    if (
-      !user ||
-      !(await this.passwordService.verify(dto.password, user.passwordHash))
-    ) {
+    if (!user) {
+      // 虚拟 verify：用户不存在时也执行一次 scrypt，抹平与密码错误路径的耗时差，防账号枚举
+      await this.passwordService.verify(
+        dto.password,
+        'scrypt:16384:8:1:AAAAAAAAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==',
+      );
+      throw new BusinessException(
+        ErrorCode.INVALID_CREDENTIALS,
+        '用户名或密码错误',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    if (!(await this.passwordService.verify(dto.password, user.passwordHash))) {
       throw new BusinessException(
         ErrorCode.INVALID_CREDENTIALS,
         '用户名或密码错误',
@@ -132,11 +141,7 @@ export class AuthService {
     return { accessToken, refreshToken: newRefreshToken };
   }
 
-  async logout(
-    userId: string,
-    jti: string,
-    refreshToken?: string,
-  ): Promise<void> {
+  async logout(jti: string, refreshToken?: string): Promise<void> {
     if (refreshToken) {
       await this.redis.del(this.refreshKey(refreshToken));
     }

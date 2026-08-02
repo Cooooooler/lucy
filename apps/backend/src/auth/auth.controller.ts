@@ -58,7 +58,7 @@ export class AuthController {
   ) {
     const refreshToken =
       dto.refreshToken ?? (req.cookies?.[REFRESH_COOKIE] as string | undefined);
-    await this.authService.logout(user.userId, user.jti, refreshToken);
+    await this.authService.logout(user.jti, refreshToken);
     res.clearCookie(REFRESH_COOKIE, this.cookieOptions());
     return { success: true };
   }

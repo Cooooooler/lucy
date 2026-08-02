@@ -70,6 +70,19 @@ describe('AuthService', () => {
     ).rejects.toThrow(BusinessException);
   });
 
+  it('login 用户不存在也执行一次虚拟 verify 且抛 40102', async () => {
+    usersService.findByUsername.mockResolvedValue(null);
+    passwordService.verify.mockResolvedValue(false);
+    await expect(
+      service.login({ account: 'ghost', password: 'x' }),
+    ).rejects.toThrow(BusinessException);
+    expect(passwordService.verify).toHaveBeenCalledTimes(1);
+    expect(passwordService.verify).toHaveBeenCalledWith(
+      'x',
+      expect.stringMatching(/^scrypt:16384:8:1:/),
+    );
+  });
+
   it('login email 走 findByEmail', async () => {
     usersService.findByEmail.mockResolvedValue(user);
     passwordService.verify.mockResolvedValue(true);
