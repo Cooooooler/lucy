@@ -77,7 +77,11 @@ command:
   - yes
   - --loadmodule
   - /opt/redis-stack/lib/redisbloom.so
+  - --protected-mode
+  - no
 ```
+
+> `--protected-mode no`：Redis 默认 protected mode 会拒绝来自 Docker 网桥（宿主机经端口转发）的无密码连接；端口已仅绑宿主机 `127.0.0.1`，本地开发关闭保护模式是标准做法。
 
 ```bash
 cd F:/project/lucy
