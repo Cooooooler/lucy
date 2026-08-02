@@ -6,6 +6,7 @@
     "build": "max build",
     "dev": "max dev",
     "lint": "max lint --fix",
+    "postinstall": "max setup",
     "setup": "max setup",
     "start": "npm run dev",
     "typecheck": "tsc --noEmit"

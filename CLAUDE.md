@@ -14,7 +14,7 @@ pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/
 
 | 命令 | 说明 |
 | --- | --- |
-| `pnpm install` | 安装依赖（frontend 的 postinstall 会自动执行 `max setup`） |
+| `pnpm install` | 安装依赖（frontend 的 postinstall 会自动执行 `max setup`，生成 `.umi`；SonarCloud 依赖此 tsconfig） |
 | `pnpm dev` | Turbo 并行启动所有应用 |
 | `pnpm dev:backend` / `pnpm dev:frontend` | 只启动某个应用（`--filter`） |
 | `pnpm build` | Turbo 构建 |
