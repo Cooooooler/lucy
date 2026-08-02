@@ -154,4 +154,12 @@ export class AuthService {
     }
     return this.toSafeUser(user);
   }
+
+  throwMissingRefresh(): never {
+    throw new BusinessException(
+      ErrorCode.UNAUTHORIZED,
+      '缺少刷新令牌',
+      HttpStatus.UNAUTHORIZED,
+    );
+  }
 }
