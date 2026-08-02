@@ -4,6 +4,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { CommonModule } from './common/common.module';
+import { PasswordModule } from './password/password.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -22,6 +24,8 @@ import { CommonModule } from './common/common.module';
         synchronize: false,
       }),
     }),
+    PasswordModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [AppService],
