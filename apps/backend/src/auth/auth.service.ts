@@ -1,0 +1,157 @@
+import { ErrorCode } from '@lucy/shared';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { BusinessException } from '../common/exceptions/business.exception';
+import { PasswordService } from '../password/password.service';
+import { DenylistService } from '../redis/denylist.service';
+import { RedisService } from '../redis/redis.service';
+import { User } from '../users/user.entity';
+import { UsersService } from '../users/users.service';
+
+export interface SafeUser {
+  id: string;
+  username: string;
+  email: string;
+  nickname: string | null;
+  status: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly passwordService: PasswordService,
+    private readonly jwtService: JwtService,
+    private readonly redis: RedisService,
+    private readonly denylist: DenylistService,
+    private readonly config: ConfigService,
+  ) {}
+
+  refreshTtl(): number {
+    return this.config.get<number>('REFRESH_TTL_SECONDS', 604800);
+  }
+
+  private refreshKey(token: string): string {
+    return `auth:refresh:${token}`;
+  }
+
+  private toSafeUser(user: User): SafeUser {
+    const { id, username, email, nickname, status, createdAt, updatedAt } =
+      user;
+    return { id, username, email, nickname, status, createdAt, updatedAt };
+  }
+
+  async register(input: {
+    username: string;
+    email: string;
+    password: string;
+    nickname?: string;
+  }): Promise<SafeUser> {
+    const user = await this.usersService.create(input);
+    return this.toSafeUser(user);
+  }
+
+  async login(dto: {
+    account: string;
+    password: string;
+  }): Promise<{ accessToken: string; refreshToken: string; user: SafeUser }> {
+    const user = dto.account.includes('@')
+      ? await this.usersService.findByEmail(dto.account)
+      : await this.usersService.findByUsername(dto.account);
+    if (
+      !user ||
+      !(await this.passwordService.verify(dto.password, user.passwordHash))
+    ) {
+      throw new BusinessException(
+        ErrorCode.INVALID_CREDENTIALS,
+        '用户名或密码错误',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    if (user.status !== 1) {
+      throw new BusinessException(
+        ErrorCode.ACCOUNT_DISABLED,
+        '账号已禁用',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    return this.issueTokens(user);
+  }
+
+  private async issueTokens(
+    user: User,
+  ): Promise<{ accessToken: string; refreshToken: string; user: SafeUser }> {
+    const accessToken = await this.jwtService.signAsync({
+      sub: user.id,
+      jti: randomUUID(),
+    });
+    const refreshToken = randomBytes(32).toString('base64url');
+    await this.redis.set(
+      this.refreshKey(refreshToken),
+      user.id,
+      this.refreshTtl(),
+    );
+    return { accessToken, refreshToken, user: this.toSafeUser(user) };
+  }
+
+  async refresh(refreshToken: string): Promise<{
+    accessToken: string;
+    refreshToken: string;
+  }> {
+    const userId = await this.redis.get(this.refreshKey(refreshToken));
+    if (!userId) {
+      throw new BusinessException(
+        ErrorCode.UNAUTHORIZED,
+        '刷新令牌无效',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    const user = await this.usersService.findById(userId);
+    if (!user || user.status !== 1) {
+      throw new BusinessException(
+        ErrorCode.UNAUTHORIZED,
+        '账号不可用',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    await this.redis.del(this.refreshKey(refreshToken));
+    const accessToken = await this.jwtService.signAsync({
+      sub: user.id,
+      jti: randomUUID(),
+    });
+    const newRefreshToken = randomBytes(32).toString('base64url');
+    await this.redis.set(
+      this.refreshKey(newRefreshToken),
+      user.id,
+      this.refreshTtl(),
+    );
+    return { accessToken, refreshToken: newRefreshToken };
+  }
+
+  async logout(
+    userId: string,
+    jti: string,
+    refreshToken?: string,
+  ): Promise<void> {
+    if (refreshToken) {
+      await this.redis.del(this.refreshKey(refreshToken));
+    }
+    await this.denylist.add(jti);
+  }
+
+  async me(userId: string): Promise<SafeUser> {
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new BusinessException(
+        ErrorCode.UNAUTHORIZED,
+        '用户不存在',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    return this.toSafeUser(user);
+  }
+}
