@@ -7,6 +7,9 @@
   "author": "",
   "scripts": {
     "build": "nest build",
+    "db:migrate": "typeorm-ts-node-commonjs migration:run -d src/db/data-source.ts",
+    "db:revert": "typeorm-ts-node-commonjs migration:revert -d src/db/data-source.ts",
+    "db:show": "typeorm-ts-node-commonjs migration:show -d src/db/data-source.ts",
     "dev": "nest start --watch",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "start": "nest start",
@@ -18,10 +21,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:watch": "jest --watch",
-    "typecheck": "tsc --noEmit",
-    "db:migrate": "typeorm-ts-node-commonjs migration:run -d src/db/data-source.ts",
-    "db:revert": "typeorm-ts-node-commonjs migration:revert -d src/db/data-source.ts",
-    "db:show": "typeorm-ts-node-commonjs migration:show -d src/db/data-source.ts"
+    "typecheck": "tsc --noEmit"
   },
   "jest": {
     "collectCoverageFrom": [
@@ -37,7 +37,12 @@
     "testEnvironment": "node",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
+      "^.+\\.(t|j)s$": [
+        "ts-jest",
+        {
+          "tsconfig": "tsconfig.spec.json"
+        }
+      ]
     }
   },
   "dependencies": {
