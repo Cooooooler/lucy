@@ -44,6 +44,7 @@
     "prettier": "^3.4.2",
     "prettier-plugin-organize-imports": "^3.2.4",
     "prettier-plugin-packagejson": "^2.5.22",
+    "prettier-plugin-tailwindcss": "^0.8.1",
     "standard-version": "^9.5.0",
     "turbo": "^2.10.7",
     "typescript": "~6.0.2",
