@@ -12,6 +12,7 @@
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
     "@ant-design/pro-components": "^2.8.10",
+    "@lucy/shared": "workspace:*",
     "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-router": "^1.170.18",
     "@tanstack/react-store": "^0.11.0",

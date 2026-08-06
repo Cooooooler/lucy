@@ -204,6 +204,9 @@ importers:
       '@ant-design/pro-components':
         specifier: ^2.8.10
         version: 2.8.10(antd@6.5.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(rc-field-form@2.7.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@lucy/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@tanstack/react-query':
         specifier: ^5.101.4
         version: 5.101.4(react@19.2.8)

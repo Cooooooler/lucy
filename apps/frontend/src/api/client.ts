@@ -1,6 +1,6 @@
+import type { ApiResponse, AuthTokens } from '@lucy/shared';
 import ky from 'ky';
 import { applyTokens, authStore, handleSessionExpired } from '../stores/auth';
-import type { AuthTokens } from './types';
 
 export class ApiError extends Error {
   code?: number;
@@ -14,18 +14,12 @@ export class ApiError extends Error {
   }
 }
 
-interface ApiEnvelope<T> {
-  code: number;
-  message: string;
-  data: T;
-}
-
 // 解包 { code, message, data } 信封；非 0 / 非 2xx 抛出 ApiError
 async function unwrapResponse(response: Response): Promise<Response> {
   const body = (await response
     .clone()
     .json()
-    .catch(() => null)) as ApiEnvelope<unknown> | null;
+    .catch(() => null)) as ApiResponse<unknown> | null;
   if (!response.ok || body?.code !== 0) {
     throw new ApiError(
       body?.message ?? `请求失败（${response.status}）`,

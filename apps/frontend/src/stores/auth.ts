@@ -1,12 +1,5 @@
+import type { User } from '@lucy/shared';
 import { createStore } from '@tanstack/store';
-
-export interface User {
-  id: string;
-  username: string;
-  email: string;
-  nickname: string | null;
-  status: number;
-}
 
 export interface AuthState {
   user: User | null;

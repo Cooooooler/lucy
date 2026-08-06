@@ -1,6 +1,5 @@
-import type { User } from '../stores/auth';
+import type { LoginResult, User } from '@lucy/shared';
 import { http, publicHttp } from './client';
-import type { LoginResult } from './types';
 
 export function loginApi(account: string, password: string) {
   return publicHttp
