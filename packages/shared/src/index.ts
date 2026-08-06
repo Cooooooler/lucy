@@ -30,7 +30,10 @@ export interface PageResult<T> {
   pageSize: number;
 }
 
-/** 用户公开信息（无 passwordHash 等敏感字段），前后端共享 */
+/**
+ * 用户公开信息（无 passwordHash 等敏感字段），前后端共享。
+ * @remarks createdAt/updatedAt 在 JSON 序列化后为 ISO 8601 字符串，前端消费前需 `new Date(val)` 转换。
+ */
 export interface User {
   id: string;
   username: string;

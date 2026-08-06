@@ -30,7 +30,7 @@ export class AuthService {
     return `auth:refresh:${token}`;
   }
 
-  private toSafeUser(user: User): SharedUser {
+  private toSharedUser(user: User): SharedUser {
     const { id, username, email, nickname, status, createdAt, updatedAt } =
       user;
     return { id, username, email, nickname, status, createdAt, updatedAt };
@@ -43,7 +43,7 @@ export class AuthService {
     nickname?: string;
   }): Promise<SharedUser> {
     const user = await this.usersService.create(input);
-    return this.toSafeUser(user);
+    return this.toSharedUser(user);
   }
 
   async login(dto: {
@@ -93,7 +93,7 @@ export class AuthService {
       user.id,
       this.refreshTtl(),
     );
-    return { accessToken, refreshToken, user: this.toSafeUser(user) };
+    return { accessToken, refreshToken, user: this.toSharedUser(user) };
   }
 
   async refresh(refreshToken: string): Promise<AuthTokens> {
@@ -143,7 +143,7 @@ export class AuthService {
         HttpStatus.UNAUTHORIZED,
       );
     }
-    return this.toSafeUser(user);
+    return this.toSharedUser(user);
   }
 
   throwMissingRefresh(): never {
