@@ -1,9 +1,9 @@
+import type { User } from '@lucy/shared';
 import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
-import type { SafeUser } from './auth.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
@@ -17,7 +17,7 @@ export class AuthController {
 
   @Public()
   @Post('register')
-  register(@Body() dto: RegisterDto): Promise<SafeUser> {
+  register(@Body() dto: RegisterDto): Promise<User> {
     return this.authService.register(dto);
   }
 
@@ -64,7 +64,7 @@ export class AuthController {
   }
 
   @Get('me')
-  me(@CurrentUser() user: CurrentUserPayload): Promise<SafeUser> {
+  me(@CurrentUser() user: CurrentUserPayload): Promise<User> {
     return this.authService.me(user.userId);
   }
 

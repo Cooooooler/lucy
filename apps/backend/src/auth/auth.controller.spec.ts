@@ -40,7 +40,7 @@ describe('AuthController', () => {
     controller = module.get(AuthController);
   });
 
-  it('register 委托 authService.register 并返回 SafeUser', async () => {
+  it('register 委托 authService.register 并返回 User', async () => {
     authService.register.mockResolvedValue(safeUser);
     const dto = {
       username: 'alice',
