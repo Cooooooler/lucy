@@ -28,6 +28,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build shared package
+        run: pnpm --filter @lucy/shared build
       - name: Backend tests with coverage
         run: pnpm --filter @lucy/backend test:cov
       - name: SonarCloud Scan
