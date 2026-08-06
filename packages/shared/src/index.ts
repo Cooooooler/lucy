@@ -29,3 +29,25 @@ export interface PageResult<T> {
   page: number;
   pageSize: number;
 }
+
+/** 用户公开信息（无 passwordHash 等敏感字段），前后端共享 */
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  nickname: string | null;
+  status: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** 令牌对：accessToken + refreshToken */
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+}
+
+/** 登录/刷新成功返回 */
+export interface LoginResult extends AuthTokens {
+  user: User;
+}
