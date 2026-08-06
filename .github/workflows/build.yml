@@ -15,7 +15,7 @@ concurrency:
 jobs:
   backend-tests:
     name: Backend tests with coverage
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-medium-4c-8g
     services:
       redis:
         image: redis/redis-stack-server:latest
@@ -48,7 +48,7 @@ jobs:
   sonarqube:
     name: SonarCloud Scan
     needs: backend-tests
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-medium-4c-8g
     steps:
       - uses: actions/checkout@v7
         with:
