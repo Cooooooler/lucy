@@ -45,9 +45,36 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  frontend-tests:
+    name: Frontend tests with coverage
+    runs-on: tenki-standard-medium-4c-8g
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build shared package
+        run: pnpm --filter @lucy/shared build
+      - name: Frontend tests with coverage
+        run: pnpm --filter frontend test:cov
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: apps/frontend/coverage
+          if-no-files-found: error
+          retention-days: 1
+
   sonarqube:
     name: SonarCloud Scan
-    needs: backend-tests
+    needs: [backend-tests, frontend-tests]
     runs-on: tenki-standard-medium-4c-8g
     steps:
       - uses: actions/checkout@v7
@@ -58,6 +85,11 @@ jobs:
         with:
           name: backend-coverage
           path: apps/backend/coverage
+      - name: Download frontend coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: apps/frontend/coverage
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
