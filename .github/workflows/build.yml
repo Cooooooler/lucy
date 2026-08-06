@@ -7,9 +7,14 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+# 同一 ref 同时只保留一个 run：PR 反复 push(synchronize) 时取消旧 run，避免排队任务堆积
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  sonarqube:
-    name: SonarCloud
+  backend-tests:
+    name: Backend tests with coverage
     runs-on: ubuntu-latest
     services:
       redis:
@@ -32,6 +37,27 @@ jobs:
         run: pnpm --filter @lucy/shared build
       - name: Backend tests with coverage
         run: pnpm --filter @lucy/backend test:cov
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: apps/backend/coverage
+          if-no-files-found: error
+          retention-days: 1
+
+  sonarqube:
+    name: SonarCloud Scan
+    needs: backend-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # 全量历史，SonarCloud 分析相关性需要
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: apps/backend/coverage
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
