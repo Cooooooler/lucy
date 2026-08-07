@@ -63,7 +63,7 @@ jobs:
       - name: Build shared package
         run: pnpm --filter @lucy/shared build
       - name: Frontend tests with coverage
-        run: pnpm --filter frontend test:cov
+        run: pnpm --filter @lucy/frontend test:cov
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
