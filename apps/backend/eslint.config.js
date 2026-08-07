@@ -22,7 +22,7 @@ export default defineConfig([
       },
       parserOptions: {
         ecmaVersion: 'latest',
-        sourceType: 'commonjs',
+        sourceType: 'module',
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },

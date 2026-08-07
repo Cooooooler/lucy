@@ -3,7 +3,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { DenylistService } from '../redis/denylist.service';
+import { DenylistService } from '../redis/denylist.service.js';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {

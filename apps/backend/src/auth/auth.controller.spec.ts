@@ -1,18 +1,18 @@
 import { Test } from '@nestjs/testing';
 import type { Request, Response } from 'express';
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
+import { AuthController } from './auth.controller.js';
+import { AuthService } from './auth.service.js';
 
 describe('AuthController', () => {
   let controller: AuthController;
   const authService = {
-    register: jest.fn(),
-    login: jest.fn(),
-    refresh: jest.fn(),
-    logout: jest.fn(),
-    me: jest.fn(),
-    throwMissingRefresh: jest.fn(),
-    refreshTtl: jest.fn().mockReturnValue(604800),
+    register: vi.fn(),
+    login: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+    me: vi.fn(),
+    throwMissingRefresh: vi.fn(),
+    refreshTtl: vi.fn().mockReturnValue(604800),
   };
 
   const safeUser = {
@@ -26,13 +26,13 @@ describe('AuthController', () => {
   };
 
   const resMock = {
-    cookie: jest.fn(),
-    clearCookie: jest.fn(),
+    cookie: vi.fn(),
+    clearCookie: vi.fn(),
   };
   const res = resMock as unknown as Response;
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     const module = await Test.createTestingModule({
       controllers: [AuthController],
       providers: [{ provide: AuthService, useValue: authService }],

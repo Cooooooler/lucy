@@ -1,17 +1,17 @@
 import { ErrorCode } from '@lucy/shared';
 import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
-import { AllExceptionsFilter } from './all-exceptions.filter';
+import { AllExceptionsFilter } from './all-exceptions.filter.js';
 
 describe('AllExceptionsFilter', () => {
   let filter: AllExceptionsFilter;
-  const json = jest.fn();
-  const res = { status: jest.fn().mockReturnValue({ json }) };
+  const json = vi.fn();
+  const res = { status: vi.fn().mockReturnValue({ json }) };
   const host = {
     switchToHttp: () => ({ getResponse: () => res }),
   } as unknown as ArgumentsHost;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     filter = new AllExceptionsFilter();
   });
 
