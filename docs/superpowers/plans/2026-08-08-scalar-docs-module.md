@@ -146,12 +146,9 @@ pnpm --filter @lucy/backend test:e2e test/docs.e2e-spec.ts
 
 预期：FAIL —— `../src/docs/docs.module.js` 模块不存在（编译错误）。
 
-- [ ] **步骤 3：Commit（测试文件先落库，实现随后）**
+- [ ] **步骤 3：不提交，进入任务 3**
 
-```bash
-git add apps/backend/test/docs.e2e-spec.ts
-git commit -m "test(backend): 新增 Scalar docs e2e 测试"
-```
+> 测试引用的 `docs.module.ts` 尚不存在，单独提交会被 pre-commit 的 `pnpm typecheck`（TS2307）拦截。测试与实现一起在任务 3 提交（TDD 红绿循环保留，只提交绿色状态）。
 
 ---
 
@@ -224,7 +221,7 @@ pnpm --filter @lucy/backend test:e2e test/docs.e2e-spec.ts
 - [ ] **步骤 4：Commit**
 
 ```bash
-git add apps/backend/src/docs/docs.module.ts apps/backend/src/main.ts
+git add apps/backend/src/docs/docs.module.ts apps/backend/src/main.ts apps/backend/test/docs.e2e-spec.ts
 git commit -m "feat(backend): 新增 DocsModule，dev 环境暴露 Scalar 文档"
 ```
 
@@ -561,10 +558,10 @@ pnpm --filter @lucy/backend dev
 
 ```bash
 git add apps/backend
-git commit -m "feat(backend): 完成 Scalar API 文档模块" --no-verify 2>/dev/null || git status
+git commit -m "feat(backend): 完成 Scalar API 文档模块"
 ```
 
-> 注：pre-commit 会跑全仓 `pnpm typecheck`/`pnpm test`（turbo）。若因工作区里与本次无关的前端 `routeTree.gen.ts` 改动导致阻塞，先与用户确认处理方式，不要擅自跳过。
+> 注：pre-commit 会跑全仓 `pnpm typecheck`/`pnpm test`（turbo），可能较慢。若因与本次无关的改动阻塞提交，先与用户确认处理方式，不要擅自跳过钩子。工作区前端 `routeTree.gen.ts` 的 M 状态仅为换行符差异，不影响 typecheck，不需要处理。
 
 ---
 
