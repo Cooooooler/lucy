@@ -8,7 +8,7 @@ import { authStore, registerSessionExpired } from '../stores/auth';
 
 const SESSION_KEY = 'lucy.auth';
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
   // ahooks 持久化：仅存 refreshToken + user，accessToken 留在内存
   const [session, setSession] = useLocalStorageState<PersistedSession>(
     SESSION_KEY,

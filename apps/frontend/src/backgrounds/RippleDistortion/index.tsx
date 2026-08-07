@@ -224,7 +224,7 @@ const hexToRGB = (hex: string): [number, number, number] => {
           .map((c) => c + c)
           .join('')
       : clean;
-  const n = parseInt(full, 16);
+  const n = Number.parseInt(full, 16);
   if (Number.isNaN(n)) return [1, 1, 1];
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 };
@@ -272,8 +272,7 @@ const RippleDistortion = ({
 
     const reduceMotion =
       typeof window !== 'undefined' &&
-      window.matchMedia &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     const renderer = new Renderer({
       alpha: false,
@@ -533,7 +532,7 @@ const RippleDistortion = ({
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerdown', onDown);
       uniformsRef.current = null;
-      if (canvas.parentNode === mount) mount.removeChild(canvas);
+      if (canvas.parentNode === mount) canvas.remove();
       const ext = gl.getExtension('WEBGL_lose_context');
       if (ext) ext.loseContext();
     };
