@@ -1,5 +1,5 @@
-import type { User } from '@lucy/shared';
 import { createStore } from '@tanstack/store';
+import type { User } from '../api/types';
 
 export interface AuthState {
   user: User | null;

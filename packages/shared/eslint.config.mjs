@@ -1,4 +1,5 @@
 import js from '@eslint/js';
+import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import base from '../../eslint.base.mjs';
 import { defineConfig, globalIgnores } from 'eslint/config';
@@ -21,6 +22,14 @@ export default defineConfig([
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
+    },
+  },
+
+  // Node 脚本（scripts/）——js.configs.recommended 的 no-undef 需 node 全局
+  {
+    files: ['scripts/**/*.{js,mjs}'],
+    languageOptions: {
+      globals: { ...globals.node },
     },
   },
 

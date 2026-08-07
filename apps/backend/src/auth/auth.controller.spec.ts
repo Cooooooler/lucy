@@ -21,8 +21,8 @@ describe('AuthController', () => {
     email: 'alice@x.com',
     nickname: null,
     status: 1,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: '2026-08-08T00:00:00.000Z',
+    updatedAt: '2026-08-08T00:00:00.000Z',
   };
 
   const resMock = {

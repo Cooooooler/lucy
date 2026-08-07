@@ -16,7 +16,8 @@
     "prepare": "husky",
     "release": "standard-version",
     "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "typegen": "turbo run typegen"
   },
   "config": {
     "commitizen": {

@@ -56,3 +56,4 @@ dist-ssr
 *.sln
 *.sw?
 .tanstack
+apps/backend/openapi.json

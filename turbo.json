@@ -10,6 +10,14 @@
       "persistent": true,
       "dependsOn": ["^build"]
     },
+    "gen:openapi": {
+      "dependsOn": ["^build"],
+      "outputs": ["openapi.json"]
+    },
+    "typegen": {
+      "dependsOn": ["@lucy/backend#gen:openapi"],
+      "outputs": ["src/generated/openapi.ts"]
+    },
     "lint": {},
     "test": {
       "dependsOn": ["build"]

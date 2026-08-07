@@ -1,4 +1,4 @@
-import type { User } from '@lucy/shared';
+import type { components } from '@lucy/shared';
 import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -19,6 +19,9 @@ import { RefreshDto } from './dto/refresh.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 
 const REFRESH_COOKIE = 'refreshToken';
+
+// API 契约类型由 Swagger 生成的 components.schemas 派生
+type User = components['schemas']['User'];
 
 @ApiTags('auth')
 @Controller('auth')

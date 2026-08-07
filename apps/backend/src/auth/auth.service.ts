@@ -1,4 +1,4 @@
-import type { AuthTokens, LoginResult, User as SharedUser } from '@lucy/shared';
+import type { components } from '@lucy/shared';
 import { ErrorCode } from '@lucy/shared';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -10,6 +10,11 @@ import { DenylistService } from '../redis/denylist.service.js';
 import { RedisService } from '../redis/redis.service.js';
 import { User } from '../users/user.entity.js';
 import { UsersService } from '../users/users.service.js';
+
+// API 契约类型由 Swagger 生成的 components.schemas 派生，与前端共享同一事实源
+type SharedUser = components['schemas']['User'];
+type AuthTokensDto = components['schemas']['AuthTokensDto'];
+type LoginResultDto = components['schemas']['LoginResultDto'];
 
 @Injectable()
 export class AuthService {
@@ -33,7 +38,16 @@ export class AuthService {
   private toSharedUser(user: User): SharedUser {
     const { id, username, email, nickname, status, createdAt, updatedAt } =
       user;
-    return { id, username, email, nickname, status, createdAt, updatedAt };
+    // 生成契约中 createdAt/updatedAt 为 ISO 8601 字符串（与 JSON 序列化结果一致）
+    return {
+      id,
+      username,
+      email,
+      nickname,
+      status,
+      createdAt: createdAt.toISOString(),
+      updatedAt: updatedAt.toISOString(),
+    };
   }
 
   async register(input: {
@@ -49,7 +63,7 @@ export class AuthService {
   async login(dto: {
     account: string;
     password: string;
-  }): Promise<LoginResult> {
+  }): Promise<LoginResultDto> {
     const user = dto.account.includes('@')
       ? await this.usersService.findByEmail(dto.account)
       : await this.usersService.findByUsername(dto.account);
@@ -82,7 +96,7 @@ export class AuthService {
     return this.issueTokens(user);
   }
 
-  private async issueTokens(user: User): Promise<LoginResult> {
+  private async issueTokens(user: User): Promise<LoginResultDto> {
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
       jti: randomUUID(),
@@ -96,7 +110,7 @@ export class AuthService {
     return { accessToken, refreshToken, user: this.toSharedUser(user) };
   }
 
-  async refresh(refreshToken: string): Promise<AuthTokens> {
+  async refresh(refreshToken: string): Promise<AuthTokensDto> {
     const userId = await this.redis.get(this.refreshKey(refreshToken));
     if (!userId) {
       throw new BusinessException(

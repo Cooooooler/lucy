@@ -30,7 +30,12 @@ export class User {
   @Column({ name: 'password_hash', type: 'varchar', length: 255 })
   passwordHash: string;
 
-  @ApiProperty({ description: '昵称', nullable: true, example: 'Lucy' })
+  @ApiProperty({
+    description: '昵称',
+    type: String,
+    nullable: true,
+    example: 'Lucy',
+  })
   @Column({ type: 'varchar', length: 50, nullable: true })
   nickname: string | null;
 
