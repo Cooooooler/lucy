@@ -80,6 +80,7 @@ export class AuthController {
     description: '撤销当前 access 与 refresh 令牌',
   })
   @ApiResponse({ status: 201, description: '登出成功' })
+  @ApiResponse({ status: 401, description: '未登录或令牌失效' })
   async logout(
     @CurrentUser() user: CurrentUserPayload,
     @Body() dto: RefreshDto,

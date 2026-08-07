@@ -1,16 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { User } from '../../users/user.entity.js';
+import { AuthTokensDto } from './auth-tokens.dto.js';
 
-export class LoginResultDto {
-  @ApiProperty({
-    description: '访问令牌（JWT）',
-    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-  })
-  accessToken: string;
-
-  @ApiProperty({ description: '刷新令牌', example: 'MTIzNDU2Nzg5MGFiY2RlZg' })
-  refreshToken: string;
-
+export class LoginResultDto extends AuthTokensDto {
   @ApiProperty({ description: '当前用户信息', type: User })
   user: User;
 }
