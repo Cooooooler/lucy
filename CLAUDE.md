@@ -112,9 +112,13 @@ Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite bui
 
 本项目已安装 superpowers-zh 技能框架。核心规则：收到任务先检查是否有匹配 skill（哪怕 1% 可能性）、设计先于编码（brainstorming）、测试先于实现（TDD）、验证先于完成。技能清单与用法见用户级全局 CLAUDE.md，项目侧只存放规格/计划产物（`docs/superpowers/`）。
 
-## 核心原则：代码智能优先使用 Codegraph MCP
+## MCP 工具
 
-本项目已接入 **Codegraph MCP**（仓库根有 `.codegraph/` 索引），提供符号查找、引用分析、调用链查询、结构浏览等能力。处理任何代码理解/搜索/重构/分析任务时，按以下优先级使用工具：
+项目接入三套 MCP：**Codegraph**（代码理解，最高优先级）、**SonarQube**（代码质量）、**antd**（组件库 API）。按任务类型选用，详见各节。
+
+### Codegraph MCP（代码理解，最高优先级）
+
+仓库根有 `.codegraph/` 索引，提供符号查找、引用分析、调用链查询、结构浏览等能力。处理任何代码理解/搜索/重构/分析任务时，按以下优先级使用工具：
 
 1. **Codegraph MCP（最高优先级）**：默认先调 `codegraph_explore`——可传自然语言问题或符号/文件名，一次返回相关符号的逐行源码、调用路径与影响面（blast radius）。优先于 grep + 读文件。
 2. **直接文件系统读取（回退）**：仅当满足以下任一条件时使用 `Read`/`Glob`/`Grep`：
@@ -122,4 +126,38 @@ Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite bui
    - Codegraph 未覆盖配置文件、非代码文本、生成文件等；
    - Codegraph 调用失败/超时且重试后仍不可用；
    - 需要文件的确切原始内容（完整拷贝、检查空白/注释）。
-3. **其他 MCP 工具**：如 linter、测试运行器，按任务性质自然选择；代码理解类任务仍优先 Codegraph。
+3. **其他 MCP 工具**：代码理解类任务仍优先 Codegraph。
+
+### SonarQube MCP（代码质量分析）
+
+处理 SonarCloud/SonarQube 相关任务时使用——质量门禁、issues/漏洞/安全热点、覆盖率缺口、重复代码。项目 key 已固化在 `sonar-project.properties`：**`Cooooooler_lucy`**（org `cooooooler`）。
+
+常用工具：
+
+- `get_component_measures`（ncloc/complexity/violations/coverage）、`search_sonar_issues_in_projects` — 查指标与问题
+- `get_project_quality_gate_status` — 质量门禁状态（提交/合并前确认未引入新问题）
+- `get_file_coverage_details`、`search_files_by_coverage` — 覆盖率缺口
+- `get_duplications`、`search_duplicated_files` — 重复代码
+- `show_rule`、`analyze_code_snippet` — 规则详情 / 代码片段分析
+- `search_security_hotspots`、`show_security_hotspot`、`change_security_hotspot_status` — 安全热点
+- `change_sonar_issue_status` — 处置 issue
+- `search_my_sonarqube_projects`、`search_metrics`、`list_branches`、`list_pull_requests` — 定位项目/指标/分支
+
+关键注意：
+
+- **分支 vs PR 上下文**：长/短命分支分析用 `branch`（可用 `list_branches` 发现，git 分支名也可用）；PR 分析用 `pullRequest`（key 来自 `list_pull_requests`，**绝不能传 git 分支名**）。两者不可同时传；都省略则查 main 分支。
+- **项目 key 解析**：直接使用 `Cooooooler_lucy`，无需搜索；不确定时再用 `search_my_sonarqube_projects`。
+- 修改代码后、提交/合并前，可先查质量门禁与新增 issue，避免引入回归。
+
+### antd MCP（Ant Design 官方 API 查询）
+
+前端使用 antd 6.5.3 + `@ant-design/pro-components`。编写/调试 antd 组件、查询组件 API/props/设计 token/示例代码、版本升级时使用。
+
+常用工具：
+
+- `antd_info`（组件 API：props/类型/默认值）、`antd_doc`（完整文档）、`antd_demo`（示例源码）— 使用组件时查 API 与用法
+- `antd_token`（全局或组件级设计 token）、`antd_semantic`（classNames/styles 语义化定制结构）— 样式定制/主题
+- `antd_changelog`（版本变更、两版本间 API diff）— 升级或排查破坏性变更
+- `antd_design_md`（v6 设计语言文档）— 整体设计语言参考
+
+说明：项目当前为 antd v6，设计语言文档仅 v6 发布；如需版本间 API 差异用 `antd_changelog` 的 v1/v2 diff 模式。写 antd 代码时可同时参考 antd skill 与官方 MCP 查询。
