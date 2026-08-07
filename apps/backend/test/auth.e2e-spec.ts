@@ -3,9 +3,9 @@ process.env.DB_NAME = 'lucy_test';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { randomUUID } from 'node:crypto';
+import type { Server } from 'node:http';
 import request from 'supertest';
-import { App } from 'supertest/types';
-import { AppModule } from '../src/app.module';
+import { AppModule } from '../src/app.module.js';
 
 interface ApiBody<T> {
   code: number;
@@ -19,7 +19,7 @@ interface TokenData {
 }
 
 describe('Auth (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: INestApplication<Server>;
   const suffix = randomUUID().slice(0, 8);
 
   beforeAll(async () => {

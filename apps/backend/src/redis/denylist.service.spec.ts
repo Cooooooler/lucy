@@ -1,8 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { Redis } from 'ioredis';
-import { DenylistService } from './denylist.service';
-import { REDIS_CLIENT } from './redis.constants';
+import { DenylistService } from './denylist.service.js';
+import { REDIS_CLIENT } from './redis.constants.js';
 
 describe('DenylistService', () => {
   let service: DenylistService;

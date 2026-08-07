@@ -1,12 +1,12 @@
 import { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator';
-import { JwtAuthGuard } from './jwt-auth.guard';
+import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator.js';
+import { JwtAuthGuard } from './jwt-auth.guard.js';
 
 describe('JwtAuthGuard', () => {
   const context = {
-    getHandler: jest.fn(),
-    getClass: jest.fn(),
+    getHandler: vi.fn(),
+    getClass: vi.fn(),
   } as unknown as ExecutionContext;
 
   // AuthGuard('jwt') 返回的匿名父类原型，其 canActivate 即 super.canActivate
@@ -15,18 +15,18 @@ describe('JwtAuthGuard', () => {
   };
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   function makeGuard(isPublic: boolean | undefined) {
-    const getAllAndOverride = jest.fn().mockReturnValue(isPublic);
+    const getAllAndOverride = vi.fn().mockReturnValue(isPublic);
     const reflector = { getAllAndOverride } as unknown as Reflector;
     return { guard: new JwtAuthGuard(reflector), getAllAndOverride };
   }
 
   it('isPublic 为 true 时直接放行且不委托 super', () => {
     const { guard, getAllAndOverride } = makeGuard(true);
-    const superSpy = jest.spyOn(superProto, 'canActivate');
+    const superSpy = vi.spyOn(superProto, 'canActivate');
     expect(guard.canActivate(context)).toBe(true);
     expect(getAllAndOverride).toHaveBeenCalledWith(IS_PUBLIC_KEY, [
       context.getHandler(),
@@ -37,7 +37,7 @@ describe('JwtAuthGuard', () => {
 
   it('isPublic 为 false 时委托 super.canActivate', () => {
     const { guard, getAllAndOverride } = makeGuard(false);
-    const superSpy = jest
+    const superSpy = vi
       .spyOn(superProto, 'canActivate')
       .mockReturnValue('delegated');
     expect(guard.canActivate(context)).toBe('delegated');
@@ -50,9 +50,7 @@ describe('JwtAuthGuard', () => {
 
   it('未声明 isPublic（undefined）时同样委托 super.canActivate', () => {
     const { guard } = makeGuard(undefined);
-    const superSpy = jest
-      .spyOn(superProto, 'canActivate')
-      .mockReturnValue(true);
+    const superSpy = vi.spyOn(superProto, 'canActivate').mockReturnValue(true);
     expect(guard.canActivate(context)).toBe(true);
     expect(superSpy).toHaveBeenCalledWith(context);
   });

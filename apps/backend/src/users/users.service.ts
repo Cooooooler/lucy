@@ -2,9 +2,9 @@ import { ErrorCode } from '@lucy/shared';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
-import { BusinessException } from '../common/exceptions/business.exception';
-import { PasswordService } from '../password/password.service';
-import { User } from './user.entity';
+import { BusinessException } from '../common/exceptions/business.exception.js';
+import { PasswordService } from '../password/password.service.js';
+import { User } from './user.entity.js';
 
 @Injectable()
 export class UsersService {

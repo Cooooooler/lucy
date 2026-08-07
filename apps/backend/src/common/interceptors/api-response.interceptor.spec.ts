@@ -1,5 +1,5 @@
 import { firstValueFrom, of } from 'rxjs';
-import { ApiResponseInterceptor } from './api-response.interceptor';
+import { ApiResponseInterceptor } from './api-response.interceptor.js';
 
 describe('ApiResponseInterceptor', () => {
   const interceptor = new ApiResponseInterceptor();

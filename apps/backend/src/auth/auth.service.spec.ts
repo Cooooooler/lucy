@@ -1,26 +1,26 @@
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
-import { BusinessException } from '../common/exceptions/business.exception';
-import { PasswordService } from '../password/password.service';
-import { DenylistService } from '../redis/denylist.service';
-import { RedisService } from '../redis/redis.service';
-import { User } from '../users/user.entity';
-import { UsersService } from '../users/users.service';
-import { AuthService } from './auth.service';
+import { BusinessException } from '../common/exceptions/business.exception.js';
+import { PasswordService } from '../password/password.service.js';
+import { DenylistService } from '../redis/denylist.service.js';
+import { RedisService } from '../redis/redis.service.js';
+import { User } from '../users/user.entity.js';
+import { UsersService } from '../users/users.service.js';
+import { AuthService } from './auth.service.js';
 
 describe('AuthService', () => {
   let service: AuthService;
   const usersService = {
-    findByUsername: jest.fn(),
-    findByEmail: jest.fn(),
-    findById: jest.fn(),
-    create: jest.fn(),
+    findByUsername: vi.fn(),
+    findByEmail: vi.fn(),
+    findById: vi.fn(),
+    create: vi.fn(),
   };
-  const passwordService = { verify: jest.fn() };
-  const jwtService = { signAsync: jest.fn().mockResolvedValue('access-token') };
-  const redisService = { set: jest.fn(), del: jest.fn(), get: jest.fn() };
-  const denylist = { add: jest.fn() };
+  const passwordService = { verify: vi.fn() };
+  const jwtService = { signAsync: vi.fn().mockResolvedValue('access-token') };
+  const redisService = { set: vi.fn(), del: vi.fn(), get: vi.fn() };
+  const denylist = { add: vi.fn() };
 
   const user: User = {
     id: '1',
@@ -35,7 +35,7 @@ describe('AuthService', () => {
   };
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     const module = await Test.createTestingModule({
       providers: [
         AuthService,

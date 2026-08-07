@@ -1,5 +1,9 @@
 import 'dotenv/config';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DataSource } from 'typeorm';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default new DataSource({
   type: 'postgres',

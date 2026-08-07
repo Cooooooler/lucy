@@ -1,7 +1,7 @@
 import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
-import { AllExceptionsFilter } from './filters/all-exceptions.filter';
-import { ApiResponseInterceptor } from './interceptors/api-response.interceptor';
+import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
+import { ApiResponseInterceptor } from './interceptors/api-response.interceptor.js';
 
 @Module({
   providers: [

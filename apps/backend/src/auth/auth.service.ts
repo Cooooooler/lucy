@@ -4,12 +4,12 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { BusinessException } from '../common/exceptions/business.exception';
-import { PasswordService } from '../password/password.service';
-import { DenylistService } from '../redis/denylist.service';
-import { RedisService } from '../redis/redis.service';
-import { User } from '../users/user.entity';
-import { UsersService } from '../users/users.service';
+import { BusinessException } from '../common/exceptions/business.exception.js';
+import { PasswordService } from '../password/password.service.js';
+import { DenylistService } from '../redis/denylist.service.js';
+import { RedisService } from '../redis/redis.service.js';
+import { User } from '../users/user.entity.js';
+import { UsersService } from '../users/users.service.js';
 
 @Injectable()
 export class AuthService {

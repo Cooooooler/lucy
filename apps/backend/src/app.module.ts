@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { AuthModule } from './auth/auth.module';
-import { CommonModule } from './common/common.module';
-import { PasswordModule } from './password/password.module';
-import { RedisModule } from './redis/redis.module';
-import { UsersModule } from './users/users.module';
+import { AppController } from './app.controller.js';
+import { AppService } from './app.service.js';
+import { AuthModule } from './auth/auth.module.js';
+import { CommonModule } from './common/common.module.js';
+import { PasswordModule } from './password/password.module.js';
+import { RedisModule } from './redis/redis.module.js';
+import { UsersModule } from './users/users.module.js';
 
 @Module({
   imports: [

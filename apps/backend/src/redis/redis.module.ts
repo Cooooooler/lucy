@@ -1,9 +1,9 @@
 import { Global, Inject, Module, OnModuleDestroy } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
-import { DenylistService } from './denylist.service';
-import { REDIS_CLIENT } from './redis.constants';
-import { RedisService } from './redis.service';
+import { DenylistService } from './denylist.service.js';
+import { REDIS_CLIENT } from './redis.constants.js';
+import { RedisService } from './redis.service.js';
 
 @Global()
 @Module({

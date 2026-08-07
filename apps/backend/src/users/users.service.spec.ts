@@ -1,23 +1,23 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BusinessException } from '../common/exceptions/business.exception';
-import { PasswordService } from '../password/password.service';
-import { User } from './user.entity';
-import { UsersService } from './users.service';
+import { BusinessException } from '../common/exceptions/business.exception.js';
+import { PasswordService } from '../password/password.service.js';
+import { User } from './user.entity.js';
+import { UsersService } from './users.service.js';
 
 describe('UsersService', () => {
   let service: UsersService;
   const repo = {
-    findOneBy: jest.fn(),
-    create: jest.fn(),
-    save: jest.fn(),
+    findOneBy: vi.fn(),
+    create: vi.fn(),
+    save: vi.fn(),
   };
   const passwordService = {
-    hash: jest.fn().mockResolvedValue('hash'),
+    hash: vi.fn().mockResolvedValue('hash'),
   };
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     const module = await Test.createTestingModule({
       providers: [
         UsersService,

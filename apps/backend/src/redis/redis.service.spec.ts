@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { Redis } from 'ioredis';
-import { REDIS_CLIENT } from './redis.constants';
-import { RedisService } from './redis.service';
+import { REDIS_CLIENT } from './redis.constants.js';
+import { RedisService } from './redis.service.js';
 
 describe('RedisService', () => {
   let service: RedisService;
