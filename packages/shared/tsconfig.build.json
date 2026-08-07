@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    // TS 6.0.3：tsup dts 注入 baseUrl 触发 TS5101；升级 tsup/TS7 后移除此行
+    "ignoreDeprecations": "6.0"
+  }
+}

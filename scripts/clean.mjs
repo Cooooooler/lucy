@@ -23,6 +23,16 @@ function clean(dir) {
       console.log(`  cleaned: ${target}`);
     } catch {}
   }
+  // tsbuildinfo 增量缓存：dist 删除后若不清理，tsc 会误判无需重新编译，导致 dist/main.js 缺失
+  try {
+    for (const entry of readdirSync(dir)) {
+      if (entry.endsWith('.tsbuildinfo')) {
+        const target = resolve(dir, entry);
+        rmSync(target, { force: true });
+        console.log(`  cleaned: ${target}`);
+      }
+    }
+  } catch {}
 }
 
 clean(root);

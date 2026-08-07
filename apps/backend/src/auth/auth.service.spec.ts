@@ -137,6 +137,9 @@ describe('AuthService', () => {
     expect(
       (await service.me('1')) as unknown as { passwordHash?: string },
     ).not.toHaveProperty('passwordHash');
+    const result = await service.me('1');
+    expect(result.createdAt).toBeInstanceOf(Date);
+    expect(result.updatedAt).toBeInstanceOf(Date);
   });
 
   it('me 用户不存在抛 Unauthorized', async () => {

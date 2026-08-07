@@ -1,3 +1,4 @@
+import type { AuthTokens, LoginResult, User as SharedUser } from '@lucy/shared';
 import { ErrorCode } from '@lucy/shared';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -9,16 +10,6 @@ import { DenylistService } from '../redis/denylist.service';
 import { RedisService } from '../redis/redis.service';
 import { User } from '../users/user.entity';
 import { UsersService } from '../users/users.service';
-
-export interface SafeUser {
-  id: string;
-  username: string;
-  email: string;
-  nickname: string | null;
-  status: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
 
 @Injectable()
 export class AuthService {
@@ -39,7 +30,7 @@ export class AuthService {
     return `auth:refresh:${token}`;
   }
 
-  private toSafeUser(user: User): SafeUser {
+  private toSharedUser(user: User): SharedUser {
     const { id, username, email, nickname, status, createdAt, updatedAt } =
       user;
     return { id, username, email, nickname, status, createdAt, updatedAt };
@@ -50,15 +41,15 @@ export class AuthService {
     email: string;
     password: string;
     nickname?: string;
-  }): Promise<SafeUser> {
+  }): Promise<SharedUser> {
     const user = await this.usersService.create(input);
-    return this.toSafeUser(user);
+    return this.toSharedUser(user);
   }
 
   async login(dto: {
     account: string;
     password: string;
-  }): Promise<{ accessToken: string; refreshToken: string; user: SafeUser }> {
+  }): Promise<LoginResult> {
     const user = dto.account.includes('@')
       ? await this.usersService.findByEmail(dto.account)
       : await this.usersService.findByUsername(dto.account);
@@ -91,9 +82,7 @@ export class AuthService {
     return this.issueTokens(user);
   }
 
-  private async issueTokens(
-    user: User,
-  ): Promise<{ accessToken: string; refreshToken: string; user: SafeUser }> {
+  private async issueTokens(user: User): Promise<LoginResult> {
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
       jti: randomUUID(),
@@ -104,13 +93,10 @@ export class AuthService {
       user.id,
       this.refreshTtl(),
     );
-    return { accessToken, refreshToken, user: this.toSafeUser(user) };
+    return { accessToken, refreshToken, user: this.toSharedUser(user) };
   }
 
-  async refresh(refreshToken: string): Promise<{
-    accessToken: string;
-    refreshToken: string;
-  }> {
+  async refresh(refreshToken: string): Promise<AuthTokens> {
     const userId = await this.redis.get(this.refreshKey(refreshToken));
     if (!userId) {
       throw new BusinessException(
@@ -148,7 +134,7 @@ export class AuthService {
     await this.denylist.add(jti);
   }
 
-  async me(userId: string): Promise<SafeUser> {
+  async me(userId: string): Promise<SharedUser> {
     const user = await this.usersService.findById(userId);
     if (!user) {
       throw new BusinessException(
@@ -157,7 +143,7 @@ export class AuthService {
         HttpStatus.UNAUTHORIZED,
       );
     }
-    return this.toSafeUser(user);
+    return this.toSharedUser(user);
   }
 
   throwMissingRefresh(): never {
