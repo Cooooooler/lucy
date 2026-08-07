@@ -518,7 +518,6 @@ const ParticleText = ({
       <canvas
         ref={canvasRef}
         className="absolute inset-0 block h-full w-full"
-        aria-hidden="true"
       />
       <span className="sr-only">{text}</span>
     </div>

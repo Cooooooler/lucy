@@ -41,6 +41,76 @@ export interface GlassSurfaceProps {
   style?: React.CSSProperties;
 }
 
+const DARK_SHADOW = `0 0 2px 1px color-mix(in oklch, white, transparent 65%) inset,
+  0 0 10px 4px color-mix(in oklch, white, transparent 85%) inset,
+  0px 4px 16px rgba(17, 17, 26, 0.05),
+  0px 8px 24px rgba(17, 17, 26, 0.05),
+  0px 16px 56px rgba(17, 17, 26, 0.05),
+  0px 4px 16px rgba(17, 17, 26, 0.05) inset,
+  0px 8px 24px rgba(17, 17, 26, 0.05) inset,
+  0px 16px 56px rgba(17, 17, 26, 0.05) inset`;
+
+const LIGHT_SHADOW = `0 0 2px 1px color-mix(in oklch, black, transparent 85%) inset,
+  0 0 10px 4px color-mix(in oklch, black, transparent 90%) inset,
+  0px 4px 16px rgba(17, 17, 26, 0.05),
+  0px 8px 24px rgba(17, 17, 26, 0.05),
+  0px 16px 56px rgba(17, 17, 26, 0.05),
+  0px 4px 16px rgba(17, 17, 26, 0.05) inset,
+  0px 8px 24px rgba(17, 17, 26, 0.05) inset,
+  0px 16px 56px rgba(17, 17, 26, 0.05) inset`;
+
+const DARK_FALLBACK_SHADOW = `inset 0 1px 0 0 rgba(255, 255, 255, 0.2),
+  inset 0 -1px 0 0 rgba(255, 255, 255, 0.1)`;
+
+const LIGHT_NO_BACKDROP_SHADOW = `inset 0 1px 0 0 rgba(255, 255, 255, 0.5),
+  inset 0 -1px 0 0 rgba(255, 255, 255, 0.3)`;
+
+const LIGHT_BACKDROP_SHADOW = `0 8px 32px 0 rgba(31, 38, 135, 0.2),
+  0 2px 16px 0 rgba(31, 38, 135, 0.1),
+  inset 0 1px 0 0 rgba(255, 255, 255, 0.4),
+  inset 0 -1px 0 0 rgba(255, 255, 255, 0.2)`;
+
+const getFallbackStyles = (
+  baseStyles: React.CSSProperties,
+  isDarkMode: boolean,
+  backdropFilterSupported: boolean,
+): React.CSSProperties => {
+  if (isDarkMode && !backdropFilterSupported) {
+    return {
+      ...baseStyles,
+      background: 'rgba(0, 0, 0, 0.4)',
+      border: '1px solid rgba(255, 255, 255, 0.2)',
+      boxShadow: DARK_FALLBACK_SHADOW,
+    };
+  }
+  if (isDarkMode) {
+    return {
+      ...baseStyles,
+      background: 'rgba(255, 255, 255, 0.1)',
+      backdropFilter: 'blur(12px) saturate(1.8) brightness(1.2)',
+      WebkitBackdropFilter: 'blur(12px) saturate(1.8) brightness(1.2)',
+      border: '1px solid rgba(255, 255, 255, 0.2)',
+      boxShadow: DARK_FALLBACK_SHADOW,
+    };
+  }
+  if (!backdropFilterSupported) {
+    return {
+      ...baseStyles,
+      background: 'rgba(255, 255, 255, 0.4)',
+      border: '1px solid rgba(255, 255, 255, 0.3)',
+      boxShadow: LIGHT_NO_BACKDROP_SHADOW,
+    };
+  }
+  return {
+    ...baseStyles,
+    background: 'rgba(255, 255, 255, 0.25)',
+    backdropFilter: 'blur(12px) saturate(1.8) brightness(1.1)',
+    WebkitBackdropFilter: 'blur(12px) saturate(1.8) brightness(1.1)',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    boxShadow: LIGHT_BACKDROP_SHADOW,
+  };
+};
+
 const useDarkMode = () => {
   const [isDark, setIsDark] = useState(false);
 
@@ -80,7 +150,7 @@ const GlassSurface: React.FC<GlassSurfaceProps> = ({
   className = '',
   style = {},
 }) => {
-  const uniqueId = useId().replace(/:/g, '-');
+  const uniqueId = useId().replaceAll(':', '-');
   const filterId = `glass-filter-${uniqueId}`;
   const redGradId = `red-grad-${uniqueId}`;
   const blueGradId = `blue-grad-${uniqueId}`;
@@ -236,76 +306,18 @@ const GlassSurface: React.FC<GlassSurfaceProps> = ({
 
     const backdropFilterSupported = supportsBackdropFilter();
 
-    if (svgSupported) {
-      return {
-        ...baseStyles,
-        background: isDarkMode
-          ? `hsl(0 0% 0% / ${backgroundOpacity})`
-          : `hsl(0 0% 100% / ${backgroundOpacity})`,
-        backdropFilter: `url(#${filterId}) saturate(${saturation})`,
-        boxShadow: isDarkMode
-          ? `0 0 2px 1px color-mix(in oklch, white, transparent 65%) inset,
-             0 0 10px 4px color-mix(in oklch, white, transparent 85%) inset,
-             0px 4px 16px rgba(17, 17, 26, 0.05),
-             0px 8px 24px rgba(17, 17, 26, 0.05),
-             0px 16px 56px rgba(17, 17, 26, 0.05),
-             0px 4px 16px rgba(17, 17, 26, 0.05) inset,
-             0px 8px 24px rgba(17, 17, 26, 0.05) inset,
-             0px 16px 56px rgba(17, 17, 26, 0.05) inset`
-          : `0 0 2px 1px color-mix(in oklch, black, transparent 85%) inset,
-             0 0 10px 4px color-mix(in oklch, black, transparent 90%) inset,
-             0px 4px 16px rgba(17, 17, 26, 0.05),
-             0px 8px 24px rgba(17, 17, 26, 0.05),
-             0px 16px 56px rgba(17, 17, 26, 0.05),
-             0px 4px 16px rgba(17, 17, 26, 0.05) inset,
-             0px 8px 24px rgba(17, 17, 26, 0.05) inset,
-             0px 16px 56px rgba(17, 17, 26, 0.05) inset`,
-      };
-    } else {
-      if (isDarkMode) {
-        if (!backdropFilterSupported) {
-          return {
-            ...baseStyles,
-            background: 'rgba(0, 0, 0, 0.4)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            boxShadow: `inset 0 1px 0 0 rgba(255, 255, 255, 0.2),
-                        inset 0 -1px 0 0 rgba(255, 255, 255, 0.1)`,
-          };
-        } else {
-          return {
-            ...baseStyles,
-            background: 'rgba(255, 255, 255, 0.1)',
-            backdropFilter: 'blur(12px) saturate(1.8) brightness(1.2)',
-            WebkitBackdropFilter: 'blur(12px) saturate(1.8) brightness(1.2)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            boxShadow: `inset 0 1px 0 0 rgba(255, 255, 255, 0.2),
-                        inset 0 -1px 0 0 rgba(255, 255, 255, 0.1)`,
-          };
-        }
-      } else {
-        if (!backdropFilterSupported) {
-          return {
-            ...baseStyles,
-            background: 'rgba(255, 255, 255, 0.4)',
-            border: '1px solid rgba(255, 255, 255, 0.3)',
-            boxShadow: `inset 0 1px 0 0 rgba(255, 255, 255, 0.5),
-                        inset 0 -1px 0 0 rgba(255, 255, 255, 0.3)`,
-          };
-        } else {
-          return {
-            ...baseStyles,
-            background: 'rgba(255, 255, 255, 0.25)',
-            backdropFilter: 'blur(12px) saturate(1.8) brightness(1.1)',
-            WebkitBackdropFilter: 'blur(12px) saturate(1.8) brightness(1.1)',
-            border: '1px solid rgba(255, 255, 255, 0.3)',
-            boxShadow: `0 8px 32px 0 rgba(31, 38, 135, 0.2),
-                        0 2px 16px 0 rgba(31, 38, 135, 0.1),
-                        inset 0 1px 0 0 rgba(255, 255, 255, 0.4),
-                        inset 0 -1px 0 0 rgba(255, 255, 255, 0.2)`,
-          };
-        }
-      }
+    if (!svgSupported) {
+      return getFallbackStyles(baseStyles, isDarkMode, backdropFilterSupported);
     }
+
+    return {
+      ...baseStyles,
+      background: isDarkMode
+        ? `hsl(0 0% 0% / ${backgroundOpacity})`
+        : `hsl(0 0% 100% / ${backgroundOpacity})`,
+      backdropFilter: `url(#${filterId}) saturate(${saturation})`,
+      boxShadow: isDarkMode ? DARK_SHADOW : LIGHT_SHADOW,
+    };
   };
 
   const glassSurfaceClasses =

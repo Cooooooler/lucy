@@ -15,6 +15,7 @@ import {
 } from '@tanstack/react-router';
 import { useSelector } from '@tanstack/react-store';
 import { Avatar, Dropdown } from 'antd';
+import type { ReactNode } from 'react';
 import { logoutApi } from '../api/auth';
 import { authStore, isLoggedInStore, logout } from '../stores/auth';
 
@@ -34,6 +35,13 @@ const menuData = {
     { path: '/about', name: '关于', icon: <InfoCircleOutlined /> },
   ],
 };
+
+function renderMenuItem(
+  item: { children?: unknown; path?: string },
+  dom: ReactNode,
+): ReactNode {
+  return item.children ? dom : <Link to={item.path ?? '/'}>{dom}</Link>;
+}
 
 function LayoutComponent() {
   const { pathname } = useLocation();
@@ -88,9 +96,7 @@ function LayoutComponent() {
       menu={{ locale: false }}
       location={{ pathname }}
       route={menuData}
-      menuItemRender={(item, dom) =>
-        item.children ? dom : <Link to={item.path ?? '/'}>{dom}</Link>
-      }
+      menuItemRender={renderMenuItem}
       actionsRender={() => actions}
     >
       <Outlet />
