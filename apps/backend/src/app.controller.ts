@@ -11,7 +11,7 @@ export class AppController {
   @Public()
   @Get()
   @ApiOperation({ summary: '健康检查', description: '返回服务运行状态' })
-  @ApiResponse({ status: 200, description: '服务正常' })
+  @ApiResponse({ status: 200, description: '服务正常', type: String })
   getHello(): string {
     return this.appService.getHello();
   }

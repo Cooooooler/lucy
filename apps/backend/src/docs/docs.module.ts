@@ -10,7 +10,9 @@ export class DocsModule {
     }
     const config = new DocumentBuilder()
       .setTitle('Lucy API')
-      .setDescription('Lucy 后端接口文档')
+      .setDescription(
+        'Lucy 后端接口文档。所有响应统一包裹为 {code, message, data} 信封，下方 schema 仅描述 data 负载。',
+      )
       .setVersion('1.0')
       .addBearerAuth()
       .build();

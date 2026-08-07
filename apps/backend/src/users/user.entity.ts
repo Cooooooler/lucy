@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
 import {
   Column,
   CreateDateColumn,
@@ -26,6 +26,7 @@ export class User {
   email: string;
 
   // passwordHash 不加 @ApiProperty
+  @ApiHideProperty()
   @Column({ name: 'password_hash', type: 'varchar', length: 255 })
   passwordHash: string;
 
@@ -46,6 +47,7 @@ export class User {
   updatedAt: Date;
 
   // deletedAt 不加 @ApiProperty
+  @ApiHideProperty()
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt: Date | null;
 }

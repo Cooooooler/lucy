@@ -20,6 +20,7 @@ describe('Scalar docs (dev)', () => {
   let app: INestApplication<Server>;
 
   beforeAll(async () => {
+    process.env.NODE_ENV = process.env.NODE_ENV ?? 'test';
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
