@@ -16,7 +16,7 @@ function LoginPage() {
   const navigate = useNavigate();
   const loginMutation = useMutation({
     mutationFn: (values: { account: string; password: string }) =>
-      loginApi(values.account, values.password),
+      loginApi(values),
   });
 
   return (

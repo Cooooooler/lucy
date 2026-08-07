@@ -21,7 +21,7 @@ describe('api/auth', () => {
     mocks.post.mockReturnValueOnce({
       json: vi.fn().mockResolvedValueOnce(data),
     });
-    const result = await loginApi('alice', 'secret');
+    const result = await loginApi({ account: 'alice', password: 'secret' });
     expect(mocks.post).toHaveBeenCalledWith('auth/login', {
       json: { account: 'alice', password: 'secret' },
     });
