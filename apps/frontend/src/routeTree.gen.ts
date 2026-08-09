@@ -15,6 +15,7 @@ import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutAboutRouteImport } from './routes/_layout/about'
+import { Route as LayoutChatRouteImport } from './routes/_layout/chat'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/_auth',
@@ -44,18 +45,25 @@ const LayoutAboutRoute = LayoutAboutRouteImport.update({
   path: '/about',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutChatRoute = LayoutChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
+  getParentRoute: () => LayoutRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof LayoutIndexRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
   '/about': typeof LayoutAboutRoute
+  '/chat': typeof LayoutChatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof LayoutIndexRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
   '/about': typeof LayoutAboutRoute
+  '/chat': typeof LayoutChatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -64,13 +72,14 @@ export interface FileRoutesById {
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/register': typeof AuthRegisterRoute
   '/_layout/about': typeof LayoutAboutRoute
+  '/_layout/chat': typeof LayoutChatRoute
   '/_layout/': typeof LayoutIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/register' | '/about'
+  fullPaths: '/' | '/login' | '/register' | '/about' | '/chat'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/register' | '/about'
+  to: '/' | '/login' | '/register' | '/about' | '/chat'
   id:
     | '__root__'
     | '/_auth'
@@ -78,6 +87,7 @@ export interface FileRouteTypes {
     | '/_auth/login'
     | '/_auth/register'
     | '/_layout/about'
+    | '/_layout/chat'
     | '/_layout/'
   fileRoutesById: FileRoutesById
 }
@@ -130,6 +140,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAboutRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/chat': {
+      id: '/_layout/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof LayoutChatRouteImport
+      parentRoute: typeof LayoutRoute
+    }
   }
 }
 
@@ -147,11 +164,13 @@ const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
 
 interface LayoutRouteChildren {
   LayoutAboutRoute: typeof LayoutAboutRoute
+  LayoutChatRoute: typeof LayoutChatRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAboutRoute: LayoutAboutRoute,
+  LayoutChatRoute: LayoutChatRoute,
   LayoutIndexRoute: LayoutIndexRoute,
 }
 
