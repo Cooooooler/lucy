@@ -235,5 +235,61 @@ describe('AiService', () => {
       );
       expect(ollamaFactory.getClient).toHaveBeenCalledWith('req-model');
     });
+
+    it('用户消息只进上下文一次：历史读取先于保存，buildMessages 收到不含本次内容的 history', async () => {
+      conversationRepo.findOne.mockResolvedValue(conv());
+      messageRepo.count.mockResolvedValue(2);
+
+      // 模拟数据库状态：find 返回已保存消息的快照，save 会追加
+      const db: unknown[] = [
+        Object.assign(new Message(), {
+          conversationId: 'c1',
+          role: MessageRole.User,
+          content: '之前的问题',
+        }),
+        Object.assign(new Message(), {
+          conversationId: 'c1',
+          role: MessageRole.Assistant,
+          content: '之前的回答',
+        }),
+      ];
+      messageRepo.find.mockImplementation(() => [...db]);
+      messageRepo.save.mockImplementation((m: unknown) => {
+        db.push(m);
+        return m;
+      });
+      contextService.buildMessages.mockResolvedValue([]);
+      ollamaFactory.getClient.mockReturnValue(fakeClient());
+
+      await events(service.sendMessage('1', 'c1', { content: '新的问题' }));
+
+      // history 只含前序消息，本次用户消息作为第二个参数单独传入
+      expect(contextService.buildMessages).toHaveBeenCalledWith(
+        expect.not.arrayContaining([
+          expect.objectContaining({ content: '新的问题' }),
+        ]),
+        '新的问题',
+        'default-model',
+      );
+      // 历史读取先于用户消息保存，避免模型收到重复消息
+      const findOrder = messageRepo.find.mock.invocationCallOrder[0];
+      const userSaveOrder = messageRepo.save.mock.invocationCallOrder[0];
+      expect(findOrder).toBeLessThan(userSaveOrder);
+    });
+
+    it('发消息后刷新会话 updatedAt：用当前会话实体调 conversationRepo.save', async () => {
+      conversationRepo.findOne.mockResolvedValue(conv());
+      conversationRepo.save.mockResolvedValue(conv());
+      messageRepo.count.mockResolvedValue(2);
+      messageRepo.find.mockResolvedValue([]);
+      contextService.buildMessages.mockResolvedValue([]);
+      ollamaFactory.getClient.mockReturnValue(fakeClient());
+
+      await events(service.sendMessage('1', 'c1', { content: 'hi' }));
+
+      expect(conversationRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'c1', userId: '1' }),
+      );
+    });
   });
 });

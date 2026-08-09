@@ -48,4 +48,21 @@ describe('TokenizerService', () => {
     await svc.countTokens('x', 'b');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('超过容量上限时淘汰最旧条目', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: () => ({ count: 1 }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = new TokenizerService(
+      new ConfigService({ AI_TOKENIZER_CACHE_SIZE: 3 }),
+    );
+    await svc.countTokens('a', 'qwen');
+    await svc.countTokens('b', 'qwen');
+    await svc.countTokens('c', 'qwen');
+    await svc.countTokens('d', 'qwen'); // 超限，淘汰最旧 'a'
+    // 重新请求 'a'：已被淘汰，应再次请求 tokenize
+    await svc.countTokens('a', 'qwen');
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
 });

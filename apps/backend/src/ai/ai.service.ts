@@ -116,11 +116,19 @@ export class AiService {
       return;
     }
 
+    // 先读前序历史（不含本次用户消息），新消息作为参数单独追加进上下文，避免重复
+    const history = await this.messageRepo.find({
+      where: { conversationId },
+      order: { createdAt: 'ASC' },
+    });
+
     await this.messageRepo.save({
       conversationId,
       role: MessageRole.User,
       content: dto.content,
     });
+    // 刷新会话 updatedAt，保证会话列表按最近活跃排序
+    await this.conversationRepo.save(conversation);
 
     const count = await this.messageRepo.count({ where: { conversationId } });
     if (count === 1) {
@@ -133,10 +141,6 @@ export class AiService {
       this.config.get<string>('OLLAMA_MODEL', 'qwen2.5:7b');
     const client = this.ollamaFactory.getClient(model);
 
-    const history = await this.messageRepo.find({
-      where: { conversationId },
-      order: { createdAt: 'ASC' },
-    });
     const messages = await this.contextService.buildMessages(
       history,
       dto.content,
