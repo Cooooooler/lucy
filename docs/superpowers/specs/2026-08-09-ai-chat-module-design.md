@@ -57,7 +57,7 @@ apps/backend/src/ai/
 | 列 | 类型 | 说明 |
 | --- | --- | --- |
 | id | uuid PK（默认 gen_random_uuid） |  |
-| userId | uuid，FK→users.id | 归属 |
+| userId | bigint，FK→users.id（users.id 为 bigint） | 归属 |
 | title | varchar(50) 可空 | 首条消息后异步生成，可 `PATCH` 改 |
 | model | varchar 可空 | 会话默认模型，空=env 默认 |
 | createdAt / updatedAt | timestamptz | updatedAt 随内容变更刷新（列表按此排序） |
