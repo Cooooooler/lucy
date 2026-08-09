@@ -8,7 +8,7 @@ import {
   it,
   vi,
 } from 'vitest';
-import { ThemeSwitcher } from './theme-switcher';
+import { ThemeSwitcher } from './theme-switcher.tsx';
 
 // jsdom 未实现 ResizeObserver，而 antd Dropdown 挂载时经 rc-resize-observer 使用它，
 // 这里按测试环境补齐桩（非产品逻辑改动），否则组件一挂载即抛 ReferenceError。

@@ -1,4 +1,4 @@
-import { ThemeSwitcher } from '@/components/theme-switcher';
+import { ThemeSwitcher } from '@/theme';
 import {
   HomeOutlined,
   InfoCircleOutlined,
@@ -53,9 +53,12 @@ function LayoutComponent() {
       location={{ pathname }}
       route={menuData}
       menuItemRender={renderMenuItem}
-      actionsRender={() => [<ThemeSwitcher key="theme" />]}
     >
-      <PageContainer>
+      <PageContainer
+        header={{
+          extra: [<ThemeSwitcher key={'theme'} />],
+        }}
+      >
         <Outlet />
       </PageContainer>
     </ProLayout>

@@ -1,21 +1,21 @@
 import { useLocalStorageState } from 'ahooks';
 import { ConfigProvider, theme as antdTheme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import type { ReactNode } from 'react';
 import {
   createContext,
+  use,
   useCallback,
-  useContext,
   useEffect,
+  useMemo,
   useSyncExternalStore,
+  type ReactNode,
 } from 'react';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
 export interface ThemeContextValue {
   mode: ThemeMode;
-  // eslint-disable-next-line no-unused-vars -- 函数类型签名参数仅表达调用契约，无函数体会“使用”它
-  setMode: (mode: ThemeMode) => void;
+  setMode: (_mode: ThemeMode) => void;
   resolvedTheme: 'light' | 'dark';
 }
 
@@ -52,18 +52,22 @@ export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
 
   const systemDark = useSyncExternalStore(subscribeSystemDark, getSystemDark);
 
-  const resolvedTheme: 'light' | 'dark' =
-    mode === 'dark'
-      ? 'dark'
-      : mode === 'light'
-        ? 'light'
-        : systemDark
-          ? 'dark'
-          : 'light';
+  const themeMap = {
+    light: 'light',
+    dark: 'dark',
+    system: systemDark ? 'dark' : 'light',
+  } as const;
+
+  const resolvedTheme = themeMap[mode];
 
   const setMode = useCallback(
     (next: ThemeMode) => setModeState(next),
     [setModeState],
+  );
+
+  const contextValue = useMemo(
+    () => ({ mode, setMode, resolvedTheme }),
+    [mode, setMode, resolvedTheme],
   );
 
   useEffect(() => {
@@ -71,7 +75,7 @@ export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
   }, [resolvedTheme]);
 
   return (
-    <ThemeContext.Provider value={{ mode, setMode, resolvedTheme }}>
+    <ThemeContext value={contextValue}>
       <ConfigProvider
         locale={zhCN}
         theme={{
@@ -83,12 +87,12 @@ export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
       >
         {children}
       </ConfigProvider>
-    </ThemeContext.Provider>
+    </ThemeContext>
   );
 }
 
 export function useTheme(): ThemeContextValue {
-  const ctx = useContext(ThemeContext);
+  const ctx = use(ThemeContext);
   if (!ctx) {
     throw new Error('useTheme 必须在 <ThemeProvider> 内使用');
   }
