@@ -1,5 +1,10 @@
-import { HomeOutlined, InfoCircleOutlined } from '@ant-design/icons';
-import { ProLayout } from '@ant-design/pro-components';
+import { ThemeSwitcher } from '@/components/theme-switcher';
+import {
+  HomeOutlined,
+  InfoCircleOutlined,
+  OllamaFilled,
+} from '@ant-design/icons';
+import { PageContainer, ProLayout } from '@ant-design/pro-components';
 import {
   createFileRoute,
   Link,
@@ -23,6 +28,7 @@ const menuData = {
   routes: [
     { path: '/', name: '首页', icon: <HomeOutlined /> },
     { path: '/about', name: '关于', icon: <InfoCircleOutlined /> },
+    { path: '/chat', name: '聊天机器人', icon: <OllamaFilled /> },
   ],
 };
 
@@ -47,8 +53,11 @@ function LayoutComponent() {
       location={{ pathname }}
       route={menuData}
       menuItemRender={renderMenuItem}
+      actionsRender={() => [<ThemeSwitcher key="theme" />]}
     >
-      <Outlet />
+      <PageContainer>
+        <Outlet />
+      </PageContainer>
     </ProLayout>
   );
 }
