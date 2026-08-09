@@ -18,6 +18,8 @@ export const SSE_METADATA = '__sse__';
 export class ApiResponseInterceptor implements NestInterceptor {
   intercept(ctx: ExecutionContext, next: CallHandler) {
     const isSse = Boolean(Reflect.getMetadata(SSE_METADATA, ctx.getHandler()));
+    // SSE 事件帧为 {type,data}，逐帧包 {code,message,data} 信封会破坏流协议，
+    // 故设计上放行 SSE 流，错误统一走 AllExceptionsFilter 异常信封机制
     if (isSse) return next.handle();
     return next
       .handle()
