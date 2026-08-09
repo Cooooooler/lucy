@@ -24,8 +24,13 @@ describe('AiController', () => {
   });
 
   it('list 透传分页参数并转数字', async () => {
-    await controller.list(user, '2', '10');
+    await controller.list(user, { page: 2, pageSize: 10 });
     expect(aiService.list).toHaveBeenCalledWith('1', 2, 10);
+  });
+
+  it('list 缺省分页参数使用默认值', async () => {
+    await controller.list(user, {});
+    expect(aiService.list).toHaveBeenCalledWith('1', 1, 20);
   });
 
   it('get/rename/remove 透传', async () => {

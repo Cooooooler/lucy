@@ -360,6 +360,25 @@ export interface components {
              */
             updatedAt: string;
         };
+        ConversationListResultDto: {
+            /** @description 会话列表 */
+            list: components["schemas"]["Conversation"][];
+            /**
+             * @description 总条数
+             * @example 0
+             */
+            total: number;
+            /**
+             * @description 当前页码
+             * @example 1
+             */
+            page: number;
+            /**
+             * @description 每页条数
+             * @example 20
+             */
+            pageSize: number;
+        };
         RenameConversationDto: {
             /** @description 新标题 */
             title: string;
@@ -551,19 +570,26 @@ export interface operations {
     };
     AiController_list: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 页码 */
+                page?: number;
+                /** @description 每页条数 */
+                pageSize?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description 返回 PageResult<Conversation> */
+            /** @description 返回分页会话列表 */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ConversationListResultDto"];
+                };
             };
         };
     };

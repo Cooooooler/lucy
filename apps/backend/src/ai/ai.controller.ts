@@ -20,6 +20,8 @@ import { Observable } from 'rxjs';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { AiService } from './ai.service.js';
+import { ConversationListQueryDto } from './dto/conversation-list-query.dto.js';
+import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { RenameConversationDto } from './dto/rename-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
@@ -43,13 +45,20 @@ export class AiController {
 
   @Get('conversations')
   @ApiOperation({ summary: '会话列表', description: '按更新时间倒序分页' })
-  @ApiResponse({ status: 200, description: '返回 PageResult<Conversation>' })
+  @ApiResponse({
+    status: 200,
+    description: '返回分页会话列表',
+    type: ConversationListResultDto,
+  })
   list(
     @CurrentUser() user: CurrentUserPayload,
-    @Query('page') page = '1',
-    @Query('pageSize') pageSize = '20',
+    @Query() query: ConversationListQueryDto,
   ) {
-    return this.aiService.list(user.userId, Number(page), Number(pageSize));
+    return this.aiService.list(
+      user.userId,
+      query.page ?? 1,
+      query.pageSize ?? 20,
+    );
   }
 
   @Get('conversations/:id')
