@@ -5,8 +5,8 @@ import tseslint from 'typescript-eslint';
 import base from '../../eslint.base.mjs';
 
 export default defineConfig([
-  // 全局忽略
-  globalIgnores(['dist', 'node_modules', '*.config.*']),
+  // 全局忽略（生成代码 openapi.ts 为 openapi-typescript 产物，lint 不改写，与 typegen 输出保持漂移一致）
+  globalIgnores(['dist', 'node_modules', '*.config.*', 'src/generated/**']),
 
   // 基础JS推荐规则
   js.configs.recommended,
