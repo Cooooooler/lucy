@@ -23,13 +23,13 @@ export enum MessageStatus {
 }
 
 @Entity('ai_messages')
+@Index('IDX_ai_messages_conversation_created', ['conversationId', 'createdAt'])
 export class Message {
   @ApiProperty({ description: '消息 ID' })
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @ApiProperty({ description: '所属会话 ID' })
-  @Index()
   @Column({ name: 'conversation_id', type: 'uuid' })
   conversationId: string;
 
