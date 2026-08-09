@@ -569,7 +569,7 @@ const RippleDistortion = ({
       className={`relative h-full w-full overflow-hidden bg-black [&>canvas]:block [&>canvas]:h-full [&>canvas]:w-full`}
       style={style}
     >
-      <div className={`absolute inset-0 z-50 ${className ?? ''}`}>
+      <div className={`absolute inset-0 z-20 ${className ?? ''}`}>
         {children}
       </div>
     </div>

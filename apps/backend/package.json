@@ -46,23 +46,5 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "typeorm": "^1.1.0"
-  },
-  "devDependencies": {
-    "@nestjs/cli": "^11.0.0",
-    "@nestjs/schematics": "^11.0.0",
-    "@nestjs/testing": "^11.0.1",
-    "@swc/core": "^1.15.47",
-    "@types/cookie-parser": "^1.4.10",
-    "@types/express": "^5.0.0",
-    "@types/node": "^24.0.0",
-    "@types/passport-jwt": "^4.0.1",
-    "@types/pg": "^8.20.3",
-    "@types/supertest": "^7.0.0",
-    "@vitest/coverage-v8": "4.1.10",
-    "supertest": "^7.0.0",
-    "ts-loader": "^9.5.2",
-    "tsx": "^4.23.9",
-    "unplugin-swc": "^1.5.10",
-    "vitest": "4.1.10"
   }
 }
