@@ -138,7 +138,7 @@ export interface components {
              */
             email: string;
             /**
-             * @description 密码（8-72 位）
+             * @description 密码（8-72 位，需含大小写字母、数字与特殊字符）
              * @example Password1!
              */
             password: string;
@@ -225,6 +225,13 @@ export interface components {
              * @example MTIzNDU2Nzg5MGFiY2RlZg
              */
             refreshToken: string;
+        };
+        LogoutResultDto: {
+            /**
+             * @description 是否登出成功
+             * @example true
+             */
+            success: boolean;
         };
     };
     responses: never;
@@ -359,7 +366,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogoutResultDto"];
+                };
             };
             /** @description 未登录或令牌失效 */
             401: {

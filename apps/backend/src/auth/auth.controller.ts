@@ -15,6 +15,7 @@ import { AuthService } from './auth.service.js';
 import { AuthTokensDto } from './dto/auth-tokens.dto.js';
 import { LoginResultDto } from './dto/login-result.dto.js';
 import { LoginDto } from './dto/login.dto.js';
+import { LogoutResultDto } from './dto/logout-result.dto.js';
 import { RefreshDto } from './dto/refresh.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 
@@ -82,7 +83,7 @@ export class AuthController {
     summary: '登出',
     description: '撤销当前 access 与 refresh 令牌',
   })
-  @ApiResponse({ status: 201, description: '登出成功' })
+  @ApiResponse({ status: 201, description: '登出成功', type: LogoutResultDto })
   @ApiResponse({ status: 401, description: '未登录或令牌失效' })
   async logout(
     @CurrentUser() user: CurrentUserPayload,
