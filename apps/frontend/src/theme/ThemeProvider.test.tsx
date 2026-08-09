@@ -31,6 +31,7 @@ function stubMatchMedia(matches: boolean) {
       mql.matches = next;
       changeListeners.forEach((cb) => cb());
     },
+    listenerCount: () => changeListeners.size,
   };
 }
 
@@ -136,5 +137,43 @@ describe('ThemeProvider', () => {
     expect(screen.getByTestId('mode')).toHaveTextContent('system');
     expect(screen.getByTestId('resolved')).toHaveTextContent('light');
     expect(document.documentElement).not.toHaveClass('dark');
+  });
+
+  it('localStorage 非法模式值回退 system 并写回自愈', async () => {
+    stubMatchMedia(false);
+    localStorage.setItem(THEME_KEY, '"banana"');
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    expect(screen.getByTestId('mode')).toHaveTextContent('system');
+    expect(screen.getByTestId('resolved')).toHaveTextContent('light');
+    await waitFor(() => {
+      expect(localStorage.getItem(THEME_KEY)).toBe('"system"');
+    });
+  });
+
+  it('非 system 模式不订阅 matchMedia', () => {
+    const { listenerCount } = stubMatchMedia(false);
+    localStorage.setItem(THEME_KEY, '"dark"');
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    expect(screen.getByTestId('mode')).toHaveTextContent('dark');
+    expect(screen.getByTestId('resolved')).toHaveTextContent('dark');
+    expect(listenerCount()).toBe(0);
+  });
+
+  it('system 模式订阅 matchMedia', () => {
+    const { listenerCount } = stubMatchMedia(false);
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    expect(listenerCount()).toBe(1);
   });
 });

@@ -23,6 +23,10 @@ const THEME_KEY = 'lucy.theme';
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+function isThemeMode(value: unknown): value is ThemeMode {
+  return value === 'light' || value === 'dark' || value === 'system';
+}
+
 function getSystemDark(): boolean {
   if (
     typeof window === 'undefined' ||
@@ -45,12 +49,33 @@ function subscribeSystemDark(callback: () => void): () => void {
   return () => mql.removeEventListener('change', callback);
 }
 
+// 非 system 模式不订阅 matchMedia，避免系统主题变化触发多余重渲染
+function subscribeNothing(): () => void {
+  return () => {};
+}
+
+function getNoSystemDark(): boolean {
+  return false;
+}
+
 export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [mode, setModeState] = useLocalStorageState<ThemeMode>(THEME_KEY, {
     defaultValue: 'system',
   });
 
-  const systemDark = useSyncExternalStore(subscribeSystemDark, getSystemDark);
+  // localStorage 值可能被篡改/损坏，运行时校验非法值回退 system（并写回自愈）
+  const safeMode: ThemeMode = isThemeMode(mode) ? mode : 'system';
+
+  useEffect(() => {
+    if (mode !== safeMode) {
+      setModeState(safeMode);
+    }
+  }, [mode, safeMode, setModeState]);
+
+  const systemDark = useSyncExternalStore(
+    safeMode === 'system' ? subscribeSystemDark : subscribeNothing,
+    safeMode === 'system' ? getSystemDark : getNoSystemDark,
+  );
 
   const themeMap = {
     light: 'light',
@@ -58,7 +83,7 @@ export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
     system: systemDark ? 'dark' : 'light',
   } as const;
 
-  const resolvedTheme = themeMap[mode];
+  const resolvedTheme = themeMap[safeMode];
 
   const setMode = useCallback(
     (next: ThemeMode) => setModeState(next),
@@ -66,8 +91,8 @@ export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
   );
 
   const contextValue = useMemo(
-    () => ({ mode, setMode, resolvedTheme }),
-    [mode, setMode, resolvedTheme],
+    () => ({ mode: safeMode, setMode, resolvedTheme }),
+    [safeMode, setMode, resolvedTheme],
   );
 
   useEffect(() => {
