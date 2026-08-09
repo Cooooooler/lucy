@@ -294,5 +294,98 @@ describe('AiService', () => {
       // 显式设 updatedAt，确保脏检查必触发 UPDATE、不依赖 UpdateDateColumn
       expect(saved).toHaveProperty('updatedAt', expect.any(Date));
     });
+
+    it('订阅中途取消 → stream 收到 signal 且已 abort，半截内容落 aborted', async () => {
+      conversationRepo.findOne.mockResolvedValue(conv());
+      messageRepo.count.mockResolvedValue(2);
+      messageRepo.find.mockResolvedValue([]);
+      contextService.buildMessages.mockResolvedValue([]);
+      const captured: { signal?: AbortSignal } = {};
+      let release: (() => void) | undefined;
+      // 门闩：生成器在首帧后挂起，等测试决定是否中止，避免时序竞态
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      ollamaFactory.getClient.mockReturnValue(
+        fakeClient({
+          async *stream(_messages, opts?: { signal?: AbortSignal }) {
+            captured.signal = opts?.signal;
+            yield { content: '半截' };
+            await gate;
+            if (opts?.signal?.aborted) throw new Error('aborted');
+            yield { content: '好' };
+          },
+        }),
+      );
+
+      const sub = service.sendMessage('1', 'c1', { content: 'hi' }).subscribe();
+      await vi.waitFor(() => expect(captured.signal).toBeDefined());
+      sub.unsubscribe();
+      expect(captured.signal?.aborted).toBe(true);
+      release?.();
+      await vi.waitFor(() =>
+        expect(messageRepo.save).toHaveBeenCalledWith({
+          conversationId: 'c1',
+          role: MessageRole.Assistant,
+          content: '半截',
+          status: MessageStatus.Aborted,
+        }),
+      );
+    });
+
+    it('并发发送同会话：第二次立即收到 error，不重复执行', async () => {
+      conversationRepo.findOne.mockResolvedValue(conv());
+      messageRepo.count.mockResolvedValue(2);
+      messageRepo.find.mockResolvedValue([]);
+      contextService.buildMessages.mockResolvedValue([]);
+      ollamaFactory.getClient.mockReturnValue(
+        fakeClient({
+          async *stream() {
+            yield { content: '半截' };
+            await new Promise(() => {}); // 永不结束，保持第一次在途
+          },
+        }),
+      );
+
+      const inFlight = (
+        service as unknown as { inFlight: Map<string, unknown> }
+      ).inFlight;
+      const sub = service.sendMessage('1', 'c1', { content: 'hi' }).subscribe();
+      expect(inFlight.has('c1')).toBe(true);
+
+      const result = await events(
+        service.sendMessage('1', 'c1', { content: 'hi2' }),
+      );
+      expect(result.map((e) => e.type)).toEqual(['error']);
+      expect(result[0]).toMatchObject({
+        type: 'error',
+        data: '该会话正在生成中，请稍候',
+      });
+      // runSend 为异步链路，等其真正走到 client 创建，确认第二次未重复执行
+      await vi.waitFor(() =>
+        expect(ollamaFactory.getClient).toHaveBeenCalledTimes(1),
+      );
+      sub.unsubscribe();
+    });
+
+    it('串行发送：前一次完成后可正常发送', async () => {
+      conversationRepo.findOne.mockResolvedValue(conv());
+      messageRepo.count.mockResolvedValue(2);
+      messageRepo.find.mockResolvedValue([]);
+      contextService.buildMessages.mockResolvedValue([]);
+      ollamaFactory.getClient.mockReturnValue(fakeClient());
+
+      const inFlight = (
+        service as unknown as { inFlight: Map<string, unknown> }
+      ).inFlight;
+      const first = await events(
+        service.sendMessage('1', 'c1', { content: 'hi' }),
+      );
+      expect(first.map((e) => e.type)).toEqual(['delta', 'delta', 'done']);
+      // finally 在 observable 完成后微任务中删除锁，等锁清空再发第二次
+      await vi.waitFor(() => expect(inFlight.has('c1')).toBe(false));
+      const second = await events(
+        service.sendMessage('1', 'c1', { content: 'hi2' }),
+      );
+      expect(second.map((e) => e.type)).toEqual(['delta', 'delta', 'done']);
+    });
   });
 });

@@ -31,6 +31,9 @@ export class AiService {
     private readonly config: ConfigService,
   ) {}
 
+  // 同会话并发锁：key=conversationId，防止同会话并发生成（同时消除首条消息重复触发标题生成）
+  private readonly inFlight = new Map<string, Promise<unknown>>();
+
   create(userId: string, dto: CreateConversationDto): Promise<Conversation> {
     return this.conversationRepo.save({ userId, model: dto.model ?? null });
   }
@@ -91,13 +94,32 @@ export class AiService {
     dto: SendMessageDto,
   ): Observable<MessageEvent> {
     return new Observable<MessageEvent>((subscriber) => {
-      this.runSend(subscriber, userId, conversationId, dto).catch((err) => {
-        subscriber.next({
-          type: 'error',
-          data: err instanceof Error ? err.message : '生成失败',
-        });
+      if (this.inFlight.has(conversationId)) {
+        subscriber.next({ type: 'error', data: '该会话正在生成中，请稍候' });
         subscriber.complete();
-      });
+        return;
+      }
+
+      const controller = new AbortController();
+      const promise = this.runSend(
+        subscriber,
+        userId,
+        conversationId,
+        dto,
+        controller.signal,
+      )
+        .catch((err) => {
+          subscriber.next({
+            type: 'error',
+            data: err instanceof Error ? err.message : '生成失败',
+          });
+          subscriber.complete();
+        })
+        .finally(() => {
+          this.inFlight.delete(conversationId);
+        });
+      this.inFlight.set(conversationId, promise);
+      return () => controller.abort();
     });
   }
 
@@ -106,6 +128,7 @@ export class AiService {
     userId: string,
     conversationId: string,
     dto: SendMessageDto,
+    signal: AbortSignal,
   ): Promise<void> {
     const conversation = await this.conversationRepo.findOne({
       where: { id: conversationId, userId },
@@ -151,7 +174,8 @@ export class AiService {
 
     let full = '';
     try {
-      const stream = await client.stream(messages);
+      // 传入 signal：订阅取消（SSE 断线）时中止底层流，半截内容落 aborted
+      const stream = await client.stream(messages, { signal });
       for await (const chunk of stream) {
         const text = chunk.content;
         if (typeof text === 'string' && text.length > 0) {
