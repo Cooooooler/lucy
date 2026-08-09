@@ -125,4 +125,16 @@ describe('ThemeProvider', () => {
     expect(screen.getByTestId('mode')).toHaveTextContent('light');
     expect(screen.getByTestId('resolved')).toHaveTextContent('light');
   });
+
+  it('matchMedia 缺失时回退 light 且不抛错', () => {
+    vi.stubGlobal('matchMedia', undefined);
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    expect(screen.getByTestId('mode')).toHaveTextContent('system');
+    expect(screen.getByTestId('resolved')).toHaveTextContent('light');
+    expect(document.documentElement).not.toHaveClass('dark');
+  });
 });
