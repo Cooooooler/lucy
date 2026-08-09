@@ -8,8 +8,10 @@
     "node_modules",
     "test",
     "dist",
+    "scripts",
     "**/*spec.ts",
     "vitest.config.ts",
+    "vitest.gen.config.ts",
     "vitest.e2e.config.ts"
   ]
 }

@@ -1,4 +1,5 @@
-import { RippleDistortion } from '@bg';
+import { RippleDistortion } from '@/backgrounds/index.ts';
+import FoldText from '@/components/bits/fold-text.tsx';
 import { createFileRoute, Outlet, redirect } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/_auth')({
@@ -12,28 +13,19 @@ export const Route = createFileRoute('/_auth')({
 
 function AuthLayout() {
   return (
-    <RippleDistortion
-      src="/public/auth_background.avif"
-      brushSize={150}
-      strength={0.2}
-      swirl={1}
-      rings={4}
-      grayscale
-      spread={5}
-      fade={3}
-      spacing={15}
-      dispersion={0}
-      glint={0}
-      tint="#a855f7"
-      tintAmount={0.1}
-      highlightColor="#ffffff"
-      trigger="hover"
-      clickStrength={2}
-      quality="low"
-      enabled
-    >
-      <div className={'flex h-full w-full items-center justify-center'}>
-        <Outlet />
+    <RippleDistortion src="/public/auth_background.avif">
+      <div className={'h-full w-full overflow-y-auto'}>
+        <div
+          className={
+            'flex min-h-full w-full items-center justify-center gap-8 p-4 py-8 sm:p-6 lg:py-10 xl:gap-16'
+          }
+        >
+          <div className={'hidden max-w-2xl shrink-0 xl:block'}>
+            <FoldText text="Hello,Lucy!" />
+            <FoldText text="Create everything" />
+          </div>
+          <Outlet />
+        </div>
       </div>
     </RippleDistortion>
   );

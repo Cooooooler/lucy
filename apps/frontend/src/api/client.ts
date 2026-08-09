@@ -1,6 +1,7 @@
-import type { ApiResponse, AuthTokens } from '@lucy/shared';
+import type { ApiResponse } from '@lucy/shared';
 import ky from 'ky';
 import { applyTokens, authStore, handleSessionExpired } from '../stores/auth';
+import type { AuthTokens, RefreshRequest } from './types';
 
 export class ApiError extends Error {
   code?: number;
@@ -78,8 +79,9 @@ async function doRefresh(): Promise<AuthTokens> {
     throw new ApiError('登录已过期，请重新登录');
   }
   try {
+    const body: RefreshRequest = { refreshToken };
     const tokens = await publicHttp
-      .post('auth/refresh', { json: { refreshToken } })
+      .post('auth/refresh', { json: body })
       .json<AuthTokens>();
     applyTokens(tokens.accessToken, tokens.refreshToken);
     return tokens;

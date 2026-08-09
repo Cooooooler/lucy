@@ -138,8 +138,8 @@ describe('AuthService', () => {
       (await service.me('1')) as unknown as { passwordHash?: string },
     ).not.toHaveProperty('passwordHash');
     const result = await service.me('1');
-    expect(result.createdAt).toBeInstanceOf(Date);
-    expect(result.updatedAt).toBeInstanceOf(Date);
+    expect(result.createdAt).toEqual(expect.any(String));
+    expect(result.updatedAt).toEqual(expect.any(String));
   });
 
   it('me 用户不存在抛 Unauthorized', async () => {

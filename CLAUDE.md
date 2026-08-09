@@ -21,6 +21,7 @@ pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/
 | `pnpm lint` | Turbo 跑 lint |
 | `pnpm test` | Turbo 跑测试（**turbo.json 中 test 依赖 build，会先构建**） |
 | `pnpm typecheck` | Turbo 跑 typecheck（依赖 `^build`，先构建依赖包） |
+| `pnpm typegen` | 从后端 Swagger spec 重新生成共享契约类型（先 `gen:openapi` 出 spec，再 openapi-typescript） |
 | `pnpm format` | 根目录 prettier 全量格式化 |
 | `pnpm clean` | `scripts/clean.mjs` 清理各工作区 `dist/.umi/.mfsu/.swc/coverage/node_modules` 及 `.tsbuildinfo` |
 | `pnpm commit` | commitizen 交互式提交（遵循 Conventional Commits） |
@@ -42,9 +43,9 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 ## 关键约定与注意事项
 
-- **提交规范**：Conventional Commits。husky `pre-commit` 跑 `lint-staged` + `pnpm typecheck` + `pnpm test`，`commit-msg` 跑 commitlint（header ≤120、subject ≤100、type 小写）。提交前务必保证测试通过，否则 commit 会失败。
+- **提交规范**：Conventional Commits。husky `pre-commit` 先跑 `pnpm typegen` 重新生成共享契约类型并 stage，再跑 `lint-staged` + `pnpm typecheck` + `pnpm test`，`commit-msg` 跑 commitlint（header ≤120、subject ≤100、type 小写）。提交前务必保证测试通过，否则 commit 会失败。
 - **全仓 ESM**：所有包 `"type": "module"`。后端 tsconfig 用 `module/moduleResolution: nodenext`，相对导入必须带 `.js` 后缀，`__dirname`/`__filename` 不存在，用 `import.meta.url` 派生（如 `src/db/data-source.ts`）。
-- **不要改动生成文件**：`dist/`、`.turbo/`、前端 `src/routeTree.gen.ts`（TanStack Router 插件生成，已提交但勿手改）、`.tanstack/`。
+- **不要改动生成文件**：`dist/`、`.turbo/`、前端 `src/routeTree.gen.ts`（TanStack Router 插件生成，已提交但勿手改）、`.tanstack/`、`packages/shared/src/generated/openapi.ts`（openapi-typescript 从后端 Swagger 生成，已提交但勿手改；改后端 DTO/实体后跑 `pnpm typegen` 重新生成）。
 - **shared 是纯 ESM 包**：backend（nodenext）与 frontend（bundler）都解析 `exports.import`。改动 shared 源码后先 `pnpm --filter @lucy/shared build` 再跑消费方验证。
 - 后端 lint 脚本自带 `--fix`（`eslint "{src,apps,libs,test}/**/*.ts" --fix`），前端 `pnpm lint` 同样带 `--fix`。
 - Prettier 配置在根目录 `.prettierrc`（单引号、printWidth 80、尾部逗号 all、organize-imports + packagejson + tailwindcss 插件），由 lint-staged 在提交时执行。
@@ -102,11 +103,11 @@ Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite bui
 
 ### packages/shared（@lucy/shared）
 
-前后端共享的类型与常量：`ApiResponse`、`ErrorCode`/`ErrorCodeValue`、`PageQuery`、`PageResult`、`User`、`AuthTokens`、`LoginResult`。tsup 构建纯 ESM（`--format esm --clean`），`exports.import` → `dist/index.js`。改动后重建并跑消费方（backend typecheck/test、frontend build/test）验证。
+前后端共享的基础设施类型与常量：`ApiResponse`、`ErrorCode`/`ErrorCodeValue`、`PageQuery`、`PageResult`。接口契约类型（`User`/`AuthTokens`/`LoginResult` 等）由后端 Swagger spec 经 openapi-typescript 生成到 `src/generated/openapi.ts`（已提交、勿手改），通过 `components['schemas']['xxx']` 消费；改后端 DTO/实体后跑 `pnpm typegen`（内部先 `gen:openapi` 产出 `openapi.json` 再生成类型，`openapi.json` 已 gitignore）。tsup 构建纯 ESM（`--format esm --clean`），`exports.import` → `dist/index.js`。改动后重建并跑消费方（backend typecheck/test、frontend build/test）验证。
 
 ### 数据流
 
-前端 `src/api/` 基于 `ky`：`publicHttp`（登录/注册/刷新）与 `http`（附加 Bearer，401 时单飞刷新并带新 token 重试一次）两个实例；统一解包 `{code,message,data}` 信封，非 0 / 非 2xx 抛 `ApiError`。dev 环境经 Vite proxy 到后端；新增接口时在 shared 维护共享类型、在 `src/api/` 加客户端函数。
+前端 `src/api/` 基于 `ky`：`publicHttp`（登录/注册/刷新）与 `http`（附加 Bearer，401 时单飞刷新并带新 token 重试一次）两个实例；统一解包 `{code,message,data}` 信封，非 0 / 非 2xx 抛 `ApiError`。`src/api/types.ts` 将生成的 `components['schemas']` 导出为易用别名（`LoginRequest`/`LoginResult`/`User` 等）。dev 环境经 Vite proxy 到后端；新增接口时改后端 DTO/实体、跑 `pnpm typegen`，再在 `src/api/` 加客户端函数。
 
 ## Superpowers-ZH 中文增强版
 

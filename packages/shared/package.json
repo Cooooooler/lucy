@@ -18,9 +18,7 @@
     "build": "tsup src/index.ts --format esm --clean --dts --tsconfig tsconfig.build.json",
     "dev": "tsup src/index.ts --format esm --clean --dts --watch --tsconfig tsconfig.build.json",
     "lint": "eslint \"src/**/*.ts\" --fix",
-    "typecheck": "tsc --noEmit"
-  },
-  "devDependencies": {
-    "tsup": "^8.5.1"
+    "typecheck": "tsc --noEmit",
+    "typegen": "openapi-typescript ../../apps/backend/openapi.json -o src/generated/openapi.ts && node scripts/ensure-eslint-disable.mjs"
   }
 }

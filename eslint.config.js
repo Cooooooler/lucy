@@ -1,10 +1,10 @@
 import js from '@eslint/js';
+import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
 import base from './eslint.base.mjs';
-import { defineConfig, globalIgnores } from 'eslint/config';
 
 export default defineConfig([
-  // 全局忽略（配置文件自身）
+  // 全局忽略（配置文件自身；openapi-typescript 生成代码用文件头 eslint-disable 排除）
   globalIgnores(['eslint.config.js', 'eslint.base.mjs']),
 
   // 基础JS推荐规则

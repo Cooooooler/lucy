@@ -23,6 +23,13 @@ export default defineConfig({
         'src/**/dto/**',
         '**/*.d.ts',
       ],
+      // 运行时真实覆盖率门禁（v8 记录实际执行行，不含 SonarCloud 误计的装饰器/注解行）
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 80,
+        statements: 80,
+      },
     },
   },
 });

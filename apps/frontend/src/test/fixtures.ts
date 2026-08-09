@@ -1,4 +1,4 @@
-import type { User } from '@lucy/shared';
+import type { User } from '../api/types';
 
 export function makeUser(overrides: Partial<User> = {}): User {
   return {
@@ -7,8 +7,8 @@ export function makeUser(overrides: Partial<User> = {}): User {
     email: 'alice@example.com',
     nickname: null,
     status: 1,
-    createdAt: new Date('2024-01-01T00:00:00Z'),
-    updatedAt: new Date('2024-01-01T00:00:00Z'),
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2024-01-01T00:00:00Z',
     ...overrides,
   };
 }

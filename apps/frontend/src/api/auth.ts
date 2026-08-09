@@ -1,17 +1,11 @@
-import type { LoginResult, User } from '@lucy/shared';
 import { http, publicHttp } from './client';
+import type { LoginRequest, LoginResult, RegisterRequest, User } from './types';
 
-export function loginApi(account: string, password: string) {
-  return publicHttp
-    .post('auth/login', { json: { account, password } })
-    .json<LoginResult>();
+export function loginApi(input: LoginRequest) {
+  return publicHttp.post('auth/login', { json: input }).json<LoginResult>();
 }
 
-export function registerApi(input: {
-  username: string;
-  email: string;
-  password: string;
-}) {
+export function registerApi(input: RegisterRequest) {
   return publicHttp.post('auth/register', { json: input }).json<User>();
 }
 
