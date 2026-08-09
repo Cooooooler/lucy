@@ -31,17 +31,24 @@ export class ContextService {
     const systemPrompt = this.config.get<string>('AI_SYSTEM_PROMPT', '');
     if (systemPrompt) messages.push(new SystemMessage(systemPrompt));
 
+    // 预算须同时覆盖系统提示与新消息：扣除后剩余的才是历史可用额度
+    const systemTokens = systemPrompt
+      ? await this.tokenizer.countTokens(systemPrompt, model)
+      : 0;
+    const newTokens = await this.tokenizer.countTokens(newContent, model);
+    const historyBudget = Math.max(0, budget - systemTokens - newTokens);
+
     // 从最近往前累计，超预算即停
     const selected: Message[] = [];
     let used = 0;
     for (const m of [...history].reverse()) {
       const tokens = await this.tokenizer.countTokens(m.content, model);
-      if (used + tokens > budget) break;
+      if (used + tokens > historyBudget) break;
       selected.push(m);
       used += tokens;
     }
 
-    for (const m of selected.reverse()) {
+    for (const m of selected.toReversed()) {
       if (m.role === MessageRole.User) {
         messages.push(new HumanMessage(m.content));
       } else if (m.role === MessageRole.Assistant) {

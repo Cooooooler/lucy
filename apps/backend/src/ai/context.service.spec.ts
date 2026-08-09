@@ -11,7 +11,7 @@ import { TokenizerService } from './tokenizer.service.js';
 describe('ContextService', () => {
   function makeConfig(overrides: Record<string, unknown> = {}) {
     return new ConfigService({
-      AI_CONTEXT_TOKEN_LIMIT: 10,
+      AI_CONTEXT_TOKEN_LIMIT: 15,
       AI_CONTEXT_RESERVE_RATIO: 0.7,
       AI_SYSTEM_PROMPT: '',
       ...overrides,
@@ -30,11 +30,11 @@ describe('ContextService', () => {
   }
 
   it('系统提示 + 预算内保留全部历史 + 新消息', async () => {
-    // 默认预算 floor(10*0.7)=7，两条历史(5+5=10)放不下；
-    // 提限到 20 → 预算 floor(20*0.7)=14，两条历史全保留
+    // 预算 floor(30*0.7)=21，扣系统提示 5 + 新消息 5 → historyBudget=11，
+    // 两条历史(5+5=10)在预算内全保留
     const svc = makeSvc({
       AI_SYSTEM_PROMPT: 'sys',
-      AI_CONTEXT_TOKEN_LIMIT: 20,
+      AI_CONTEXT_TOKEN_LIMIT: 30,
     });
     const history = [
       msg(MessageRole.User, 'u1'),
@@ -49,7 +49,7 @@ describe('ContextService', () => {
   });
 
   it('超预算时保留最近消息，丢弃更早', async () => {
-    // 预算 floor(10*0.7)=7，每条 5 token → 只够最近 1 条
+    // 预算 floor(15*0.7)=10，扣新消息 5 → historyBudget=5，每条 5 token → 只够最近 1 条
     const svc = makeSvc();
     const history = [
       msg(MessageRole.User, 'early'),
@@ -60,6 +60,20 @@ describe('ContextService', () => {
     expect(out[0]).toBeInstanceOf(AIMessage);
     expect(out[0].content).toBe('recent');
     expect(out[1]).toBeInstanceOf(HumanMessage);
+  });
+
+  it('新消息计入预算：新消息挤占预算时历史被丢弃', async () => {
+    // 预算 floor(14*0.7)=9，扣新消息 5 → historyBudget=4，1 条历史(5)放不下；
+    // 若新消息未计入，historyBudget=9 本可容纳 recent
+    const svc = makeSvc({ AI_CONTEXT_TOKEN_LIMIT: 14 });
+    const out = await svc.buildMessages(
+      [msg(MessageRole.Assistant, 'recent')],
+      'new',
+      'qwen',
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]).toBeInstanceOf(HumanMessage);
+    expect(out[0].content).toBe('new');
   });
 
   it('空历史只返回系统提示与新消息', async () => {
