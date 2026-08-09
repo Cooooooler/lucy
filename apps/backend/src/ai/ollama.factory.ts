@@ -5,6 +5,8 @@ import { ConfigService } from '@nestjs/config';
 @Injectable()
 export class OllamaFactory {
   private readonly cache = new Map<string, ChatOllama>();
+  // 缓存容量上限，超限淘汰最旧条目（Map 保持插入序），与 tokenizer 一致
+  private readonly maxCacheEntries = 50;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -21,6 +23,11 @@ export class OllamaFactory {
       model: resolved,
     });
     this.cache.set(resolved, client);
+    // 超限淘汰最旧条目（刚插入后必然非空）
+    if (this.cache.size > this.maxCacheEntries) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest !== undefined) this.cache.delete(oldest);
+    }
     return client;
   }
 }

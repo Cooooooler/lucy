@@ -127,7 +127,9 @@ export class AiService {
       role: MessageRole.User,
       content: dto.content,
     });
-    // 刷新会话 updatedAt，保证会话列表按最近活跃排序
+    // 刷新会话 updatedAt，保证会话列表按最近活跃排序；
+    // 显式设值确保脏检查必触发 UPDATE，不依赖 UpdateDateColumn 的自动刷新
+    conversation.updatedAt = new Date();
     await this.conversationRepo.save(conversation);
 
     const count = await this.messageRepo.count({ where: { conversationId } });

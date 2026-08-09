@@ -277,7 +277,7 @@ describe('AiService', () => {
       expect(findOrder).toBeLessThan(userSaveOrder);
     });
 
-    it('发消息后刷新会话 updatedAt：用当前会话实体调 conversationRepo.save', async () => {
+    it('发消息后显式刷新会话 updatedAt：save 前设置为当前时间', async () => {
       conversationRepo.findOne.mockResolvedValue(conv());
       conversationRepo.save.mockResolvedValue(conv());
       messageRepo.count.mockResolvedValue(2);
@@ -287,9 +287,12 @@ describe('AiService', () => {
 
       await events(service.sendMessage('1', 'c1', { content: 'hi' }));
 
-      expect(conversationRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'c1', userId: '1' }),
-      );
+      const saved = conversationRepo.save.mock.calls.find(
+        ([c]) => (c as { id: string }).id === 'c1',
+      )?.[0] as { id: string; userId: string } | undefined;
+      expect(saved).toMatchObject({ id: 'c1', userId: '1' });
+      // 显式设 updatedAt，确保脏检查必触发 UPDATE、不依赖 UpdateDateColumn
+      expect(saved).toHaveProperty('updatedAt', expect.any(Date));
     });
   });
 });

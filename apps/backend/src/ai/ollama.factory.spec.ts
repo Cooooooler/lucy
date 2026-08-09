@@ -21,4 +21,13 @@ describe('OllamaFactory', () => {
     const factory = new OllamaFactory(config);
     expect(factory.getClient()).toBe(factory.getClient('default-model'));
   });
+
+  it('超过缓存上限后淘汰最旧条目', () => {
+    const factory = new OllamaFactory(config);
+    const m0 = factory.getClient('m0');
+    // 再塞满 50 个（容量上限 50，m0 为最早条目被淘汰）
+    for (let i = 1; i <= 50; i++) factory.getClient(`m${i}`);
+    // m0 已被淘汰，重新获取会创建新实例
+    expect(factory.getClient('m0')).not.toBe(m0);
+  });
 });
