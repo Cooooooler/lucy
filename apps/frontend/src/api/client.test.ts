@@ -6,9 +6,9 @@ import {
   registerSessionExpired,
 } from '../stores/auth';
 import { makeUser } from '../test/fixtures';
-import { ApiError, http, publicHttp, refreshTokens } from './client';
+import { ApiError, http, refreshTokens } from './client';
 
-// ky 在每次请求构造 Ky 实例时才读取 globalThis.fetch，因此须在每个用例前 stub
+// hook-fetch 直接调全局 fetch(url, init)，故每个用例前 stub 一次
 const fetchMock = vi.fn();
 
 const user = makeUser();
@@ -18,26 +18,10 @@ const okEnvelope = (data: unknown) =>
     status: 200,
   });
 
-// 浏览器里 new Request('/auth/...') 会基于 location 解析成绝对地址，
-// Node 环境的 Request 不支持相对路径，这里打补丁让 ky 能用相对地址。
-function patchRelativeRequest() {
-  const RealRequest = globalThis.Request;
-  class ResolvingRequest extends RealRequest {
-    constructor(input: string | URL | Request, init?: RequestInit) {
-      if (typeof input === 'string' && input.startsWith('/')) {
-        input = new URL(input, 'http://localhost/').href;
-      }
-      super(input, init);
-    }
-  }
-  vi.stubGlobal('Request', ResolvingRequest);
-}
-
 describe('api/client', () => {
   beforeEach(() => {
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
-    patchRelativeRequest();
     logout();
     registerSessionExpired(() => {});
   });
@@ -46,12 +30,12 @@ describe('api/client', () => {
     vi.unstubAllGlobals();
   });
 
-  describe('publicHttp', () => {
+  describe('信封解包与错误归一化', () => {
     it('解包成功响应并返回 data', async () => {
       fetchMock.mockResolvedValueOnce(okEnvelope({ id: '1' }));
-      const data = await publicHttp
-        .post('auth/login', { json: { account: 'a', password: 'b' } })
-        .json<{ id: string }>();
+      const data = await http
+        .post<{ id: string }>('auth/login', { account: 'a', password: 'b' })
+        .json();
       expect(data).toEqual({ id: '1' });
     });
 
@@ -62,9 +46,7 @@ describe('api/client', () => {
           { status: 200 },
         ),
       );
-      await expect(
-        publicHttp.post('auth/login', { json: {} }).json(),
-      ).rejects.toMatchObject({
+      await expect(http.post('auth/login', {}).json()).rejects.toMatchObject({
         name: 'ApiError',
         code: 40102,
         message: '密码错误',
@@ -78,9 +60,7 @@ describe('api/client', () => {
           { status: 500 },
         ),
       );
-      await expect(
-        publicHttp.post('auth/login', { json: {} }).json(),
-      ).rejects.toMatchObject({
+      await expect(http.post('auth/login', {}).json()).rejects.toMatchObject({
         name: 'ApiError',
         code: 50000,
         status: 500,
@@ -92,9 +72,7 @@ describe('api/client', () => {
       fetchMock.mockResolvedValueOnce(
         new Response('Bad Gateway', { status: 502 }),
       );
-      await expect(
-        publicHttp.post('auth/login', { json: {} }).json(),
-      ).rejects.toMatchObject({
+      await expect(http.post('auth/login', {}).json()).rejects.toMatchObject({
         name: 'ApiError',
         status: 502,
         message: '请求失败（502）',
@@ -102,25 +80,25 @@ describe('api/client', () => {
     });
   });
 
-  describe('http', () => {
+  describe('认证头', () => {
     it('有令牌时附加 Bearer 头', async () => {
       login(user, 'tok', 'rt');
       fetchMock.mockResolvedValueOnce(okEnvelope({ ok: true }));
-      const result = await http.post('auth/logout').json<{ ok: boolean }>();
+      const result = await http.post<{ ok: boolean }>('auth/logout').json();
       expect(result).toEqual({ ok: true });
-      const request = fetchMock.mock.calls[0][0];
-      expect(new Headers(request.headers).get('Authorization')).toBe(
-        'Bearer tok',
-      );
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(new Headers(init.headers).get('Authorization')).toBe('Bearer tok');
     });
 
     it('无令牌时不附加 Authorization 头', async () => {
       fetchMock.mockResolvedValueOnce(okEnvelope({ ok: true }));
       await http.post('auth/logout').json();
-      const request = fetchMock.mock.calls[0][0];
-      expect(request.headers.get('Authorization')).toBeNull();
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(new Headers(init.headers).get('Authorization')).toBeNull();
     });
+  });
 
+  describe('401 自动刷新', () => {
     it('401 时自动刷新并携带新令牌重试一次', async () => {
       login(user, 'expired', 'rt');
       fetchMock
@@ -130,11 +108,11 @@ describe('api/client', () => {
         )
         .mockResolvedValueOnce(okEnvelope({ ok: true }));
 
-      const result = await http.post('auth/logout').json<{ ok: boolean }>();
+      const result = await http.post<{ ok: boolean }>('auth/logout').json();
       expect(result).toEqual({ ok: true });
       expect(fetchMock).toHaveBeenCalledTimes(3);
       expect(authStore.get().accessToken).toBe('new-token');
-      const retried = fetchMock.mock.calls[2][0];
+      const retried = fetchMock.mock.calls[2][1] as RequestInit;
       expect(new Headers(retried.headers).get('Authorization')).toBe(
         'Bearer new-token',
       );
@@ -152,6 +130,40 @@ describe('api/client', () => {
         '登录已过期，请重新登录',
       );
       expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('刷新后重放仍 401 判定会话过期', async () => {
+      login(user, 'expired', 'rt');
+      const handler = vi.fn();
+      registerSessionExpired(handler);
+      fetchMock
+        .mockResolvedValueOnce(new Response('', { status: 401 }))
+        .mockResolvedValueOnce(
+          okEnvelope({ accessToken: 'new', refreshToken: 'rt2' }),
+        )
+        .mockResolvedValueOnce(new Response('', { status: 401 }));
+
+      await expect(http.post('auth/logout').json()).rejects.toThrow(
+        '登录已过期，请重新登录',
+      );
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('skipAuthRefresh 的请求不触发 401 刷新', async () => {
+      login(user, 'expired', 'rt');
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ code: 40101, message: '密码错误', data: null }),
+          { status: 401 },
+        ),
+      );
+      await expect(
+        http
+          .post('auth/login', {}, { extra: { skipAuthRefresh: true } })
+          .json(),
+      ).rejects.toMatchObject({ name: 'ApiError', code: 40101, status: 401 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
 

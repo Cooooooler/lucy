@@ -44,6 +44,7 @@ function LayoutComponent() {
 
   return (
     <ProLayout
+      className={'h-full'}
       title="Lucy"
       logo={<img src="/favicon.svg" alt="Lucy" />}
       layout="side"

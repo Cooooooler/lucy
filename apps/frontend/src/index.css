@@ -12,3 +12,66 @@
   width: 100%;
   height: 100%;
 }
+
+/* 让 PageContainer 内容铺满去掉头部后的剩余高度。
+   .ant-pro-layout-content 本身已撑满视口，但 .ant-pro-page-container 这一串默认
+   flex: 0 1 auto 只按内容定高，不向下传递高度，导致子页 h-full 塌陷。
+   flex: 1 1 auto 保证短内容铺满、长内容仍能随内容生长触发页面滚动。 */
+.ant-pro-page-container,
+.ant-pro-page-container > .ant-pro-grid-content,
+.ant-pro-page-container
+  > .ant-pro-grid-content
+  > .ant-pro-grid-content-children,
+.ant-pro-page-container
+  > .ant-pro-grid-content
+  > .ant-pro-grid-content-children
+  > .ant-pro-page-container-children-container {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 全局滚动条：贴合 antd 中性色板（colorTextPlaceholder ~ colorFill 之间），
+   圆角胶囊滑块、透明轨道；亮/暗色随 .dark 切换。 */
+:root {
+  --lucy-scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --lucy-scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
+  --lucy-scrollbar-track: transparent;
+}
+
+.dark {
+  --lucy-scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --lucy-scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
+  --lucy-scrollbar-track: transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--lucy-scrollbar-thumb) var(--lucy-scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--lucy-scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background: var(--lucy-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--lucy-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--lucy-scrollbar-track);
+}
