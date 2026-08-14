@@ -212,4 +212,38 @@ describe('useChatStream', () => {
     expect(result.current.messages.length).toBe(length);
     await promise;
   });
+
+  it('send 后历史到达不覆盖流式消息', async () => {
+    mocks.createStreamRequest.mockReturnValue(
+      mockStreamRequest(() => streamOf([delta('你'), delta('好'), done()])),
+    );
+    const { result, rerender } = renderHook(() => useChatStream('c1'), {
+      wrapper: createWrapper(),
+    });
+    await act(async () => {
+      await result.current.send('hi');
+    });
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[0]).toMatchObject({
+      role: 'user',
+      content: 'hi',
+    });
+
+    // 历史晚到：更新 mock 并重渲染，effect 应因 sentRef 跳过注入
+    mocks.useConversation.mockReturnValue({
+      data: {
+        id: 'c1',
+        messages: [{ id: 'm1', role: 'user', content: '旧历史', status: null }],
+      },
+      isLoading: false,
+      error: null,
+    });
+    rerender();
+    await waitFor(() => {});
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[0]).toMatchObject({
+      role: 'user',
+      content: 'hi',
+    });
+  });
 });
