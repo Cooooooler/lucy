@@ -2,6 +2,7 @@ import type { AiStreamEvent } from '@lucy/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createConversationApi,
+  createStreamRequest,
   deleteConversationApi,
   getConversationApi,
   listConversationsApi,
@@ -235,6 +236,24 @@ describe('api/ai', () => {
         status: 401,
       });
       expect(mocks.refreshTokens).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createStreamRequest', () => {
+    it('返回带 stream/abort 的请求对象并发出 POST', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(doneFrame + DONE, { status: 200 }),
+      );
+      const req = createStreamRequest('c1', { content: 'hi' });
+      expect(typeof req.stream).toBe('function');
+      expect(typeof req.abort).toBe('function');
+      // hook-fetch 在请求创建后异步发起 fetch，需先消费流（fetch 必然已发出）再断言请求详情
+      const events = await collect(req.stream());
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('/api/ai/conversations/c1/messages');
+      expect(init.method).toBe('POST');
+      expect(init.body).toBe(JSON.stringify({ content: 'hi' }));
+      expect(events[events.length - 1]?.type).toBe('done');
     });
   });
 });

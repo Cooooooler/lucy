@@ -33,13 +33,22 @@ export function deleteConversationApi(id: string) {
   return http.delete<{ success: boolean }>(`ai/conversations/${id}`).json();
 }
 
+export function createStreamRequest(
+  conversationId: string,
+  input: SendMessageRequest,
+) {
+  return http.post<AiStreamEvent>(
+    `ai/conversations/${conversationId}/messages`,
+    input,
+    {
+      extra: { skipAuthRefresh: true },
+    },
+  );
+}
+
 export function streamSendMessageApi(
   conversationId: string,
   input: SendMessageRequest,
 ) {
-  return http
-    .post<AiStreamEvent>(`ai/conversations/${conversationId}/messages`, input, {
-      extra: { skipAuthRefresh: true },
-    })
-    .stream();
+  return createStreamRequest(conversationId, input).stream();
 }
