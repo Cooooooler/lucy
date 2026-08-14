@@ -1,11 +1,9 @@
 import { HumanMessage } from '@langchain/core/messages';
-import {
-  Injectable,
-  NotFoundException,
-  type MessageEvent,
-} from '@nestjs/common';
+import { AiStreamEvent, ErrorCode, type ErrorCodeValue } from '@lucy/shared';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
 import { IsNull, Repository } from 'typeorm';
 import { ContextService } from './context.service.js';
@@ -92,10 +90,18 @@ export class AiService {
     userId: string,
     conversationId: string,
     dto: SendMessageDto,
-  ): Observable<MessageEvent> {
-    return new Observable<MessageEvent>((subscriber) => {
+  ): Observable<AiStreamEvent> {
+    return new Observable<AiStreamEvent>((subscriber) => {
+      const requestId = randomUUID();
       if (this.inFlight.has(conversationId)) {
-        subscriber.next({ type: 'error', data: '该会话正在生成中，请稍候' });
+        subscriber.next({
+          type: 'error',
+          requestId,
+          data: {
+            code: ErrorCode.AI_CONVERSATION_BUSY,
+            message: '该会话正在生成中，请稍候',
+          },
+        });
         subscriber.complete();
         return;
       }
@@ -106,12 +112,17 @@ export class AiService {
         userId,
         conversationId,
         dto,
-        controller.signal,
+        controller,
+        requestId,
       )
         .catch((err) => {
           subscriber.next({
             type: 'error',
-            data: err instanceof Error ? err.message : '生成失败',
+            requestId,
+            data: {
+              code: ErrorCode.AI_GENERATE_FAILED,
+              message: err instanceof Error ? err.message : '生成失败',
+            },
           });
           subscriber.complete();
         })
@@ -124,17 +135,26 @@ export class AiService {
   }
 
   private async runSend(
-    subscriber: { next: (e: MessageEvent) => void; complete: () => void },
+    subscriber: { next: (e: AiStreamEvent) => void; complete: () => void },
     userId: string,
     conversationId: string,
     dto: SendMessageDto,
-    signal: AbortSignal,
+    controller: AbortController,
+    requestId: string,
   ): Promise<void> {
+    const signal = controller.signal;
     const conversation = await this.conversationRepo.findOne({
       where: { id: conversationId, userId },
     });
     if (!conversation) {
-      subscriber.next({ type: 'error', data: '会话不存在' });
+      subscriber.next({
+        type: 'error',
+        requestId,
+        data: {
+          code: ErrorCode.AI_CONVERSATION_NOT_FOUND,
+          message: '会话不存在',
+        },
+      });
       subscriber.complete();
       return;
     }
@@ -173,14 +193,52 @@ export class AiService {
     );
 
     let full = '';
+    // 空闲超时：模型持续无输出（含首 token 等待）超过阈值判为超时
+    const timeoutMs = Number(this.config.get('OLLAMA_TIMEOUT_MS', 120000));
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    const armIdle = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        controller.abort(new Error('Model request timed out'));
+      }, timeoutMs);
+      // 超时定时器不阻止进程退出，避免测试/短生命周期场景被挂起定时器阻塞
+      idleTimer.unref?.();
+    };
+    // LangChain Ollama 未把 signal 接入底层 fetch，流挂起时 abort 不会自动冒出；
+    // 故每次读取与 signal 竞速，保证超时/断线能立即中断阻塞的读取
+    const abortPromise = new Promise<never>((_, reject) => {
+      if (signal.aborted) return reject(signal.reason as Error);
+      signal.addEventListener('abort', () => reject(signal.reason as Error), {
+        once: true,
+      });
+    });
+    // 中止可能发生在竞速结束后，吞掉拒绝避免 unhandled rejection
+    abortPromise.catch(() => {});
     try {
       // 传入 signal：订阅取消（SSE 断线）时中止底层流，半截内容落 aborted
-      const stream = await client.stream(messages, { signal });
-      for await (const chunk of stream) {
+      const stream = (await client.stream(messages, { signal })) as
+        AsyncIterable<{ content: unknown }> | Iterable<{ content: unknown }>;
+      armIdle();
+      const iterator = this.toAsyncIterator(stream);
+      while (true) {
+        const nextPromise = Promise.resolve(iterator.next());
+        // 竞速失败（中止）后遗留的 next() 可能拒绝，吞掉避免 unhandled rejection
+        nextPromise.catch(() => {});
+        const { value: chunk, done } = (await Promise.race([
+          nextPromise,
+          abortPromise,
+        ])) as { value: { content: unknown }; done: boolean };
+        if (done) break;
+        armIdle();
         const text = chunk.content;
         if (typeof text === 'string' && text.length > 0) {
           full += text;
-          subscriber.next({ type: 'delta', data: text });
+          subscriber.next({
+            type: 'delta',
+            requestId,
+            role: 'assistant',
+            data: { content: text },
+          });
         }
       }
       await this.messageRepo.save({
@@ -189,10 +247,20 @@ export class AiService {
         content: full,
         status: MessageStatus.Complete,
       });
-      subscriber.next({ type: 'done', data: '' });
+      subscriber.next({
+        type: 'done',
+        requestId,
+        role: 'assistant',
+        data: { finish_reason: 'stop' },
+      });
       subscriber.complete();
-    } catch {
-      const status = full ? MessageStatus.Aborted : MessageStatus.Failed;
+    } catch (error) {
+      // 按失败类型区分错误码：客户端中止 / 模型超时 / 其他生成失败
+      const kind = this.classifyError(error, signal);
+      const status =
+        kind.code === ErrorCode.AI_GENERATE_ABORTED
+          ? MessageStatus.Aborted
+          : MessageStatus.Failed;
       await this.messageRepo.save({
         conversationId,
         role: MessageRole.Assistant,
@@ -201,10 +269,48 @@ export class AiService {
       });
       subscriber.next({
         type: 'error',
-        data: status === MessageStatus.Aborted ? '生成中断' : '生成失败',
+        requestId,
+        data: { code: kind.code, message: kind.message },
       });
       subscriber.complete();
+    } finally {
+      clearTimeout(idleTimer);
     }
+  }
+
+  // 归一为统一的 next 接口：异步迭代器与同步迭代器（测试 mock 常用）都适配
+  private toAsyncIterator<T>(stream: AsyncIterable<T> | Iterable<T>): {
+    next(): IteratorResult<T> | Promise<IteratorResult<T>>;
+  } {
+    if (Symbol.asyncIterator in stream) {
+      const iter = stream[Symbol.asyncIterator]();
+      return { next: () => iter.next() };
+    }
+    const iter = stream[Symbol.iterator]();
+    return { next: () => iter.next() };
+  }
+
+  // 区分流式失败类型：客户端中止（signal.reason）> 模型超时 > 其他生成失败
+  private classifyError(
+    error: unknown,
+    signal: AbortSignal,
+  ): { code: ErrorCodeValue; message: string } {
+    if (signal.aborted) {
+      const reason = signal.reason as Error;
+      if (
+        reason instanceof Error &&
+        /timeout|timed out|ETIMEDOUT/i.test(reason.message)
+      ) {
+        return { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' };
+      }
+      return { code: ErrorCode.AI_GENERATE_ABORTED, message: '生成中断' };
+    }
+    const name = error instanceof Error ? error.name : '';
+    const message = error instanceof Error ? error.message : '';
+    if (/timeout|timed out|ETIMEDOUT/i.test(`${name} ${message}`)) {
+      return { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' };
+    }
+    return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };
   }
 
   private async generateTitle(conversation: Conversation): Promise<void> {

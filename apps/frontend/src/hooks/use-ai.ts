@@ -74,22 +74,15 @@ export function useDeleteConversation() {
 export interface SendMessageVariables {
   conversationId: string;
   input: SendMessageRequest;
-  onDelta?: (text: string) => void;
-  signal?: AbortSignal;
 }
 
 export function useSendMessage() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      conversationId,
-      input,
-      onDelta,
-      signal,
-    }: SendMessageVariables) =>
-      streamSendMessageApi(conversationId, input, onDelta, signal),
-    onSuccess: (_full, { conversationId }) => {
-      // 流结束：详情已含完整 assistant 消息，列表可能已异步生成标题
+    // 返回事件流对象供消费方迭代；mutation 随即 resolve，onSuccess 仅触发查询失效
+    mutationFn: async ({ conversationId, input }: SendMessageVariables) =>
+      streamSendMessageApi(conversationId, input),
+    onSuccess: (_stream, { conversationId }) => {
       queryClient.invalidateQueries({
         queryKey: aiKeys.conversation(conversationId),
       });

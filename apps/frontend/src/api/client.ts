@@ -1,6 +1,7 @@
 import type { ApiResponse } from '@lucy/shared';
 import type { BodyType, HookFetchPlugin, RequestConfig } from 'hook-fetch';
 import hookFetch, { ResponseError } from 'hook-fetch';
+import { sseTextDecoderPlugin } from 'hook-fetch/plugins';
 import { applyTokens, authStore, handleSessionExpired } from '../stores/auth';
 import type { AuthTokens, RefreshRequest } from './types';
 
@@ -22,9 +23,9 @@ export class ApiError extends ResponseError {
 // 请求级扩展字段：skipAuthRefresh 跳过 401 自动刷新，__authRetry 记录重放次数
 type RequestExtra = { skipAuthRefresh?: boolean; __authRetry?: number };
 
-// 基础配置：baseURL、Content-Type
+// 基础配置：baseURL、Content-Type（hook-fetch 直接拼接 baseURL+url，baseURL 需以 / 结尾）
 const baseOptions = {
-  baseURL: '/',
+  baseURL: import.meta.env.DEV ? '/api/' : '/',
   headers: { 'Content-Type': 'application/json' },
 };
 
@@ -82,8 +83,9 @@ const normalizeError: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
   },
 };
 
+// 解包同时进行前后端约定错误处理
 // 解包 { code, message, data } 信封；非 0 / 非 2xx 抛出 ApiError
-const unwrapEnvelope: HookFetchPlugin<ApiResponse<unknown>> = {
+const unwrapEnvelope: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
   name: 'unwrap-envelope',
   afterResponse(ctx) {
     if (ctx.responseType !== 'json') return ctx;
@@ -107,7 +109,7 @@ const unwrapEnvelope: HookFetchPlugin<ApiResponse<unknown>> = {
 
 // 401 → 单飞刷新 → 经实例重放一次（重放走完整插件链：authHeader 注入新 token、normalizeError错误处理、unwrapEnvelope 解包）。
 // 重放后仍 401 视为会话过期；刷新失败原样抛会话过期错误
-const refreshOn401: HookFetchPlugin<unknown, RequestExtra> = {
+const refreshOn401: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
   name: 'refresh-on-401',
   // 自定义优先级：最低等级
   priority: -10,
@@ -157,30 +159,18 @@ const refreshOn401: HookFetchPlugin<unknown, RequestExtra> = {
 export const http = hookFetch
   .create(baseOptions)
   .use(authHeader)
+  .use(
+    sseTextDecoderPlugin({
+      json: true, // 自动解析 JSON
+      prefix: 'data: ', // 移除 "data: " 前缀
+      splitSeparator: '\n\n', // 事件分隔符
+      trim: true, // 去除首尾空白
+      doneSymbol: '[DONE]', // 结束标记，收到即终止流
+    }),
+  )
   .use(normalizeError)
   .use(unwrapEnvelope)
   .use(refreshOn401);
-
-// 401 单飞刷新后重试一次（仅 SSE 流式使用）；刷新失败抛出的会话过期错误原样向上传递
-export function retry401<T>(
-  refresh: () => Promise<unknown>,
-  run: () => Promise<T>,
-): Promise<T> {
-  let retried = false;
-  const attempt = async (): Promise<T> => {
-    try {
-      return await run();
-    } catch (error) {
-      if (!retried && error instanceof ResponseError && error.status === 401) {
-        retried = true;
-        await refresh();
-        return attempt();
-      }
-      throw error;
-    }
-  };
-  return attempt();
-}
 
 let refreshPromise: Promise<AuthTokens> | null = null;
 

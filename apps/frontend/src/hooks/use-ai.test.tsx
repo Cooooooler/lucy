@@ -150,15 +150,9 @@ describe('useDeleteConversation', () => {
 });
 
 describe('useSendMessage', () => {
-  it('透传 onDelta 并返回完整回复', async () => {
-    api.streamSendMessageApi.mockImplementation(
-      async (_id, _input, onDelta) => {
-        onDelta?.('你');
-        onDelta?.('好');
-        return '你好';
-      },
-    );
-    const deltas: string[] = [];
+  it('以会话 id 与输入调用流式接口并透传返回的事件流', async () => {
+    const stream = { async *[Symbol.asyncIterator]() {} };
+    api.streamSendMessageApi.mockResolvedValue(stream);
     const { result } = renderHook(() => useSendMessage(), {
       wrapper: createWrapper(),
     });
@@ -166,16 +160,11 @@ describe('useSendMessage', () => {
       await result.current.mutateAsync({
         conversationId: 'c1',
         input: { content: 'hi' },
-        onDelta: (t) => deltas.push(t),
       });
     });
-    expect(deltas).toEqual(['你', '好']);
-    await waitFor(() => expect(result.current.data).toBe('你好'));
-    expect(api.streamSendMessageApi).toHaveBeenCalledWith(
-      'c1',
-      { content: 'hi' },
-      expect.any(Function),
-      undefined,
-    );
+    expect(api.streamSendMessageApi).toHaveBeenCalledWith('c1', {
+      content: 'hi',
+    });
+    await waitFor(() => expect(result.current.data).toBe(stream));
   });
 });

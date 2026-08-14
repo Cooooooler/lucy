@@ -1,3 +1,4 @@
+import { ErrorCode } from '@lucy/shared';
 import { ConfigService } from '@nestjs/config';
 import { lastValueFrom } from 'rxjs';
 import { toArray } from 'rxjs/operators';
@@ -135,7 +136,7 @@ describe('AiService', () => {
       });
     });
 
-    it('中途抛错：落库 aborted（含半截内容）', async () => {
+    it('中途抛错：落库 failed（含半截内容）', async () => {
       conversationRepo.findOne.mockResolvedValue(conv());
       messageRepo.count.mockResolvedValue(2);
       messageRepo.find.mockResolvedValue([]);
@@ -153,12 +154,96 @@ describe('AiService', () => {
         service.sendMessage('1', 'c1', { content: 'hi' }),
       );
       expect(result.map((e) => e.type)).toEqual(['delta', 'error']);
+      expect(result[1]).toMatchObject({
+        type: 'error',
+        data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+      });
       expect(messageRepo.save).toHaveBeenCalledWith({
         conversationId: 'c1',
         role: MessageRole.Assistant,
         content: '半截',
-        status: MessageStatus.Aborted,
+        status: MessageStatus.Failed,
       });
+    });
+
+    it('模型超时：发超时错误码，落库 failed', async () => {
+      conversationRepo.findOne.mockResolvedValue(conv());
+      messageRepo.count.mockResolvedValue(2);
+      messageRepo.find.mockResolvedValue([]);
+      contextService.buildMessages.mockResolvedValue([]);
+      ollamaFactory.getClient.mockReturnValue(
+        fakeClient({
+          *stream() {
+            yield { content: '半截' };
+            throw new Error('request timed out');
+          },
+        }),
+      );
+
+      const result = await events(
+        service.sendMessage('1', 'c1', { content: 'hi' }),
+      );
+      expect(result.map((e) => e.type)).toEqual(['delta', 'error']);
+      expect(result[1]).toMatchObject({
+        type: 'error',
+        data: { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' },
+      });
+      expect(messageRepo.save).toHaveBeenCalledWith({
+        conversationId: 'c1',
+        role: MessageRole.Assistant,
+        content: '半截',
+        status: MessageStatus.Failed,
+      });
+    });
+
+    it('空闲超时：无输出触发超时错误码并落库 failed', async () => {
+      vi.useFakeTimers();
+      try {
+        service = new AiService(
+          conversationRepo as never,
+          messageRepo as never,
+          ollamaFactory as never,
+          contextService as never,
+          new ConfigService({
+            OLLAMA_MODEL: 'default-model',
+            OLLAMA_TIMEOUT_MS: 1000,
+          }),
+        );
+        conversationRepo.findOne.mockResolvedValue(conv());
+        messageRepo.count.mockResolvedValue(2);
+        messageRepo.find.mockResolvedValue([]);
+        contextService.buildMessages.mockResolvedValue([]);
+        ollamaFactory.getClient.mockReturnValue(
+          fakeClient({
+            async *stream() {
+              yield { content: '你' };
+              await new Promise(() => {}); // 模型挂起：无后续输出
+            },
+          }),
+        );
+
+        const resultPromise = events(
+          service.sendMessage('1', 'c1', { content: 'hi' }),
+        );
+        await vi.advanceTimersByTimeAsync(1000);
+        const result = await resultPromise;
+        expect(result.map((e) => e.type)).toEqual(['delta', 'error']);
+        expect(result[1]).toMatchObject({
+          type: 'error',
+          data: {
+            code: ErrorCode.AI_GENERATE_TIMEOUT,
+            message: '模型调用超时',
+          },
+        });
+        expect(messageRepo.save).toHaveBeenCalledWith({
+          conversationId: 'c1',
+          role: MessageRole.Assistant,
+          content: '你',
+          status: MessageStatus.Failed,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('无内容即失败：落库 failed', async () => {
@@ -188,7 +273,10 @@ describe('AiService', () => {
       const result = await events(
         service.sendMessage('1', 'x', { content: 'hi' }),
       );
-      expect(result[result.length - 1].type).toBe('error');
+      expect(result[result.length - 1]).toMatchObject({
+        type: 'error',
+        data: { code: ErrorCode.AI_CONVERSATION_NOT_FOUND },
+      });
       expect(messageRepo.save).not.toHaveBeenCalled();
     });
 
@@ -357,7 +445,10 @@ describe('AiService', () => {
       expect(result.map((e) => e.type)).toEqual(['error']);
       expect(result[0]).toMatchObject({
         type: 'error',
-        data: '该会话正在生成中，请稍候',
+        data: {
+          code: ErrorCode.AI_CONVERSATION_BUSY,
+          message: '该会话正在生成中，请稍候',
+        },
       });
       // runSend 为异步链路，等其真正走到 client 创建，确认第二次未重复执行
       await vi.waitFor(() =>

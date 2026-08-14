@@ -185,7 +185,17 @@ export interface paths {
         put?: never;
         /**
          * 发送消息
-         * @description SSE 流式返回模型回复，事件：delta/done/error
+         * @description SSE 流式返回模型回复：
+         *
+         *         data: {"type":"delta","requestId":"req-123","role":"assistant","data":{"content":"你好"}}
+         *
+         *         data: {"type":"delta","requestId":"req-123","role":"assistant","data":{"content":"，我是AI助手"}}
+         *
+         *         data: {"type":"error","requestId":"req-123","data":{"code":50002,"message":"模型调用超时"}}
+         *
+         *         data: {"type":"done","requestId":"req-123","role":"assistant","data":{"finish_reason":"stop"}}
+         *
+         *         data: [DONE]
          */
         post: operations["AiController_send"];
         delete?: never;
