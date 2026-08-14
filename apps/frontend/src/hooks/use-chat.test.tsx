@@ -214,6 +214,12 @@ describe('useChatStream', () => {
   });
 
   it('send 后历史到达不覆盖流式消息', async () => {
+    // 初始无历史数据：历史注入 effect 因 !data 不执行，sentRef 是唯一防覆盖守卫
+    mocks.useConversation.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      error: null,
+    });
     mocks.createStreamRequest.mockReturnValue(
       mockStreamRequest(() => streamOf([delta('你'), delta('好'), done()])),
     );
@@ -229,7 +235,7 @@ describe('useChatStream', () => {
       content: 'hi',
     });
 
-    // 历史晚到：更新 mock 并重渲染，effect 应因 sentRef 跳过注入
+    // 历史晚到（此时已 send，sentRef 已置位）→ effect 应跳过注入
     mocks.useConversation.mockReturnValue({
       data: {
         id: 'c1',

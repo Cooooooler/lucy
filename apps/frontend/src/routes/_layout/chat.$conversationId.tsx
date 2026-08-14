@@ -1,3 +1,4 @@
+import { ApiError } from '@/api/client';
 import { useChatStream } from '@/hooks/use-chat';
 import { RobotOutlined, UserOutlined } from '@ant-design/icons';
 import { Bubble, Sender } from '@ant-design/x';
@@ -41,8 +42,13 @@ function ChatMessagesArea({ conversationId }: { conversationId: string }) {
     );
   }
   if (error) {
+    const isNotFound = error instanceof ApiError && error.status === 404;
     return (
-      <Result status="warning" title="会话不存在" subTitle="请检查会话 ID" />
+      <Result
+        status="warning"
+        title={isNotFound ? '会话不存在' : '加载失败'}
+        subTitle={isNotFound ? '请检查会话 ID' : '请稍后重试'}
+      />
     );
   }
 
