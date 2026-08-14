@@ -73,11 +73,13 @@ describe('useChatStream', () => {
     mockConversation([
       { id: 'm1', role: 'user', content: '你好', status: null },
       { id: 'm2', role: 'assistant', content: 'hi', status: 'complete' },
+      { id: 'm3', role: 'assistant', content: '半截', status: 'aborted' },
+      { id: 'm4', role: 'assistant', content: '', status: 'failed' },
     ]);
     const { result } = renderHook(() => useChatStream('c1'), {
       wrapper: createWrapper(),
     });
-    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+    await waitFor(() => expect(result.current.messages).toHaveLength(4));
     expect(result.current.messages[0]).toMatchObject({
       key: 'm1',
       role: 'user',
@@ -87,6 +89,18 @@ describe('useChatStream', () => {
       key: 'm2',
       role: 'assistant',
       content: 'hi',
+    });
+    expect(result.current.messages[2]).toMatchObject({
+      key: 'm3',
+      role: 'assistant',
+      content: '半截',
+      error: '生成中断',
+    });
+    expect(result.current.messages[3]).toMatchObject({
+      key: 'm4',
+      role: 'assistant',
+      content: '',
+      error: '生成失败',
     });
   });
 

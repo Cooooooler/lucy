@@ -18,6 +18,7 @@ export function useChatStream(conversationId: string) {
   const [streaming, setStreaming] = useState(false);
   const streamingRef = useRef(false);
   const initializedRef = useRef(false);
+  const sentRef = useRef(false);
 
   const { stream, cancel } = useHookFetch({
     request: createStreamRequest,
@@ -27,7 +28,8 @@ export function useChatStream(conversationId: string) {
   // 历史只在首次数据到达时注入，避免后续 refetch（如窗口聚焦）覆盖流式状态。
   // 这里的 setMessages 是一次性历史注入（initializedRef 守卫），非响应式派生，故豁免告警。
   useEffect(() => {
-    if (initializedRef.current || !conversationQuery.data) return;
+    if (initializedRef.current || sentRef.current || !conversationQuery.data)
+      return;
     initializedRef.current = true;
     // eslint-disable-next-line react-x/set-state-in-effect
     setMessages(
@@ -49,6 +51,7 @@ export function useChatStream(conversationId: string) {
   async function send(content: string) {
     const text = content.trim();
     if (streamingRef.current || !text) return;
+    sentRef.current = true;
     const userKey = `user-${Date.now()}`;
     const assistantKey = `assistant-${Date.now()}`;
     setMessages((prev) => [
