@@ -3,7 +3,7 @@ import type { BodyType, HookFetchPlugin, RequestConfig } from 'hook-fetch';
 import hookFetch, { ResponseError } from 'hook-fetch';
 import { sseTextDecoderPlugin } from 'hook-fetch/plugins';
 import { applyTokens, authStore, handleSessionExpired } from '../stores/auth';
-import type { AuthTokens, RefreshRequest } from './types';
+import type { RefreshResult } from './types';
 
 export class ApiError extends ResponseError {
   code?: number;
@@ -23,11 +23,9 @@ export class ApiError extends ResponseError {
 // 请求级扩展字段：
 //   skipAuthRefresh  跳过 401 自动刷新（登录/注册/刷新/SSE 流等不适配重放）
 //   __authRetry      记录 401 重放次数
-//   skipTokenWait    跳过"先等刷新拿 token"逻辑（仅刷新接口自身，防止递归等待）
 type RequestExtra = {
   skipAuthRefresh?: boolean;
   __authRetry?: number;
-  skipTokenWait?: boolean;
 };
 
 // 基础配置：baseURL、Content-Type（hook-fetch 直接拼接 baseURL+url，baseURL 需以 / 结尾）
@@ -39,19 +37,12 @@ const baseOptions = {
 const authHeader: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
   name: 'auth-header',
   async beforeRequest(ctx) {
-    // Headers 可能是 Headers、Record<string, string> 或 [string, string][]，统一转换为 Headers
     ctx.config.headers = new Headers(ctx.config.headers);
-    const { accessToken, refreshToken } = authStore.get();
-    // 无短效 token 但有长效 token（如刷新页面后 accessToken 未落盘）：
-    // 先静默换取短效 token，避免带着空 Authorization 发出去被 401 再走刷新重放。
-    // 刷新接口自身标记 skipTokenWait 跳过，防止递归等待。
-    if (!accessToken && refreshToken && !ctx.config.extra?.skipTokenWait) {
-      await refreshTokens();
-    }
-    // 获取 短效 token 并附加到请求头中；若没有 token，则删除 Authorization 头
-    const current = authStore.get().accessToken;
-    if (current) {
-      ctx.config.headers.set('Authorization', `Bearer ${current}`);
+    // accessToken 缺失时不主动预刷新：bootstrap 与 refreshOn401 已保证其可用，
+    // 避免在登录页/匿名请求上无谓地触发刷新。
+    const { accessToken } = authStore.get();
+    if (accessToken) {
+      ctx.config.headers.set('Authorization', `Bearer ${accessToken}`);
     } else {
       ctx.config.headers.delete('Authorization');
     }
@@ -186,28 +177,18 @@ export const http = hookFetch
   .use(unwrapEnvelope)
   .use(refreshOn401);
 
-let refreshPromise: Promise<AuthTokens> | null = null;
+let refreshPromise: Promise<RefreshResult> | null = null;
 
 // 单飞刷新：并发 401 只触发一次刷新，其余请求复用同一次刷新结果
-async function doRefresh(): Promise<AuthTokens> {
-  // 获取长效token
-  const { refreshToken } = authStore.get();
-  // 无长效token，说明会话已过期，直接抛出错误
-  if (!refreshToken) {
-    handleSessionExpired();
-    throw new ApiError('登录已过期，请重新登录');
-  }
+async function doRefresh(): Promise<RefreshResult> {
   try {
-    // 调用获取短效token的接口
-    const body: RefreshRequest = { refreshToken };
+    // 长效 token 在 HttpOnly cookie 里，浏览器自动携带，无需传 body
     const tokens = await http
-      .post<AuthTokens>('auth/refresh', body, {
-        extra: { skipAuthRefresh: true, skipTokenWait: true },
+      .post<RefreshResult>('auth/refresh', undefined, {
+        extra: { skipAuthRefresh: true },
       })
       .json();
-    // 存放长短效token
-    applyTokens(tokens.accessToken, tokens.refreshToken);
-    // 返回长短效token
+    applyTokens(tokens.accessToken);
     return tokens;
   } catch {
     handleSessionExpired();
@@ -215,8 +196,7 @@ async function doRefresh(): Promise<AuthTokens> {
   }
 }
 
-// 单飞：并发 401 只触发一次刷新，其余请求复用同一次刷新结果
-export function refreshTokens(): Promise<AuthTokens> {
+export function refreshTokens(): Promise<RefreshResult> {
   refreshPromise ??= doRefresh().finally(() => {
     refreshPromise = null;
   });
