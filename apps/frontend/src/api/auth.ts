@@ -19,3 +19,7 @@ export function registerApi(input: RegisterRequest) {
 export function logoutApi() {
   return http.post<{ success: boolean }>('auth/logout').json();
 }
+
+export function meApi() {
+  return http.get<components['schemas']['User']>('auth/me').json();
+}
