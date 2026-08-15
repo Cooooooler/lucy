@@ -15,7 +15,8 @@ import {
 import type { ReactNode } from 'react';
 
 export const Route = createFileRoute('/_layout')({
-  beforeLoad: ({ context }) => {
+  beforeLoad: async ({ context }) => {
+    await context.auth.ready;
     if (!context.auth.isAuthenticated) {
       throw redirect({ to: '/login' });
     }
