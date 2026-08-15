@@ -64,12 +64,20 @@
   --lucy-scrollbar-thumb: rgba(0, 0, 0, 0.2);
   --lucy-scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
   --lucy-scrollbar-track: transparent;
+  /* ProComponents 固定头阴影硬编码了亮色 #f0f1f2，暗色下会残留光晕，这里按主题覆盖 */
+  --lucy-page-container-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .dark {
   --lucy-scrollbar-thumb: rgba(255, 255, 255, 0.2);
   --lucy-scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
   --lucy-scrollbar-track: transparent;
+  --lucy-page-container-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+/* ProComponents 固定头阴影默认用硬编码 #f0f1f2 不随主题变，改走上面的主题变量 */
+.ant-pro-page-container-affix .ant-affix .ant-pro-page-container-warp {
+  box-shadow: var(--lucy-page-container-shadow) !important;
 }
 
 * {

@@ -34,6 +34,7 @@ export function useConversationList(page = 1, pageSize = 20) {
     placeholderData: (prev) => prev,
     staleTime: 0,
     gcTime: 0,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -64,8 +65,7 @@ export function useRenameConversation() {
   return useMutation({
     mutationFn: ({ id, title }: { id: string } & RenameConversationRequest) =>
       renameConversationApi(id, { title }),
-    onSuccess: async (updated) => {
-      queryClient.setQueryData(aiKeys.conversation(updated.id), updated);
+    onSuccess: async (_updated) => {
       await queryClient.invalidateQueries({ queryKey: conversationListAll });
     },
   });
@@ -75,8 +75,7 @@ export function useDeleteConversation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteConversationApi(id),
-    onSuccess: async (_data, id) => {
-      queryClient.removeQueries({ queryKey: aiKeys.conversation(id) });
+    onSuccess: async (_data, _id) => {
       await queryClient.invalidateQueries({ queryKey: conversationListAll });
     },
   });

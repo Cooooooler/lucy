@@ -1,19 +1,53 @@
 import { ApiError } from '@/api/client';
-import { useConversationList, useCreateConversation } from '@/hooks/use-ai';
+import {
+  useConversationList,
+  useCreateConversation,
+  useDeleteConversation,
+  useRenameConversation,
+} from '@/hooks/use-ai';
 import { useChatStream } from '@/hooks/use-chat';
 import {
+  DeleteOutlined,
   DownOutlined,
+  EditOutlined,
+  OllamaFilled,
   PlusOutlined,
-  RobotOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { Bubble, type BubbleProps, Conversations, Sender } from '@ant-design/x';
+import {
+  Bubble,
+  type BubbleProps,
+  type ConversationItemType,
+  Conversations,
+  type ConversationsProps,
+  Sender,
+} from '@ant-design/x';
 import XMarkdown from '@ant-design/x-markdown';
 import type { RoleType } from '@ant-design/x/es/bubble/interface';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useBoolean } from 'ahooks';
-import { Avatar, Button, Empty, Flex, Result, Spin, Splitter } from 'antd';
-import { type ComponentRef, type UIEvent, useRef, useState } from 'react';
+import {
+  App,
+  Avatar,
+  Button,
+  Empty,
+  Flex,
+  Input,
+  type InputRef,
+  Result,
+  Spin,
+  Splitter,
+  Typography,
+} from 'antd';
+import {
+  type ComponentRef,
+  type UIEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+
+const { Text } = Typography;
 
 export const Route = createFileRoute('/_layout/chat')({
   // /chat?id=<conversationId>：可选 id，缺省时首条消息无感创建会话
@@ -31,7 +65,7 @@ const renderMarkdown: BubbleProps['contentRender'] = (content) => {
 const roles: RoleType = {
   ai: {
     placement: 'start' as const,
-    avatar: <Avatar icon={<RobotOutlined />} />,
+    avatar: <Avatar icon={<OllamaFilled />} />,
     contentRender: renderMarkdown,
   },
   user: {
@@ -44,22 +78,84 @@ function ChatPage() {
   const { id } = Route.useSearch();
   const navigate = useNavigate();
   const conversations = useConversationList();
+  const rename = useRenameConversation();
+  const remove = useDeleteConversation();
+  const { modal } = App.useApp();
+  const [renamingKey, setRenamingKey] = useState<string | null>(null);
   const items = (conversations.data?.list ?? []).map((c) => ({
     key: c.id,
-    label: c.title ?? '新会话',
+    label:
+      renamingKey === c.id ? (
+        <InlineRenameInput
+          defaultValue={c.title ?? ''}
+          onConfirm={(title) => {
+            if (title) rename.mutate({ id: c.id, title });
+            setRenamingKey(null);
+          }}
+          onCancel={() => setRenamingKey(null)}
+        />
+      ) : (
+        (c.title ?? '新会话')
+      ),
   }));
+
+  function handleDelete(target: ConversationItemType) {
+    modal.confirm({
+      title: '删除会话',
+      content: '删除后不可恢复，确认删除该会话？',
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        await remove.mutateAsync(target.key);
+        // 删除的是当前会话时，回到新建会话
+        if (target.key === id) {
+          await navigate({
+            to: '/chat',
+            search: { id: undefined },
+            replace: true,
+          });
+        }
+      },
+    });
+  }
+
+  const menuConfig: ConversationsProps['menu'] = (conversation) => ({
+    items: [
+      {
+        label: '重命名',
+        key: 'rename',
+        icon: <EditOutlined />,
+      },
+      {
+        label: '删除会话',
+        key: 'delete',
+        icon: <DeleteOutlined />,
+        danger: true,
+      },
+    ],
+    onClick: (itemInfo) => {
+      itemInfo.domEvent.stopPropagation();
+      if (itemInfo.key === 'rename') {
+        setRenamingKey(conversation.key);
+      } else if (itemInfo.key === 'delete') {
+        handleDelete(conversation);
+      }
+    },
+  });
 
   return (
     <Splitter className="h-full" collapsible={{ motion: true }}>
       <Splitter.Panel collapsible defaultSize="15%" min="15%" max="40%">
         <Conversations
+          menu={menuConfig}
           items={items}
           activeKey={id}
           onActiveChange={(key) =>
             navigate({ to: '/chat', search: { id: key }, replace: true })
           }
           creation={{
-            label: '新建会话',
+            label: <Text ellipsis>新建会话</Text>,
             icon: <PlusOutlined />,
             onClick: () =>
               navigate({
@@ -77,6 +173,56 @@ function ChatPage() {
         <ThoughtChainPlaceholder />
       </Splitter.Panel>
     </Splitter>
+  );
+}
+
+/**
+ * # 行内重命名输入
+ * 回车确认；失焦（点击外部）取消并恢复原标题。
+ * doneRef 防止 Enter 提交后紧接着的 onBlur 又把取消分支执行一遍。
+ */
+function InlineRenameInput({
+  defaultValue,
+  onConfirm,
+  onCancel,
+}: Readonly<{
+  defaultValue: string;
+  onConfirm: (title: string) => void;
+  onCancel: () => void;
+}>) {
+  const [value, setValue] = useState(defaultValue);
+  const inputRef = useRef<InputRef>(null);
+  const doneRef = useRef(false);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  function commit() {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    onConfirm(value.trim());
+  }
+
+  function cancel() {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    onCancel();
+  }
+
+  return (
+    <Input
+      ref={inputRef}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onPressEnter={commit}
+      onBlur={cancel}
+      onClick={(e) => e.stopPropagation()}
+      size="small"
+      className="w-full"
+      maxLength={100}
+    />
   );
 }
 
