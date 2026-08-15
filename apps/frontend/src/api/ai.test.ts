@@ -36,6 +36,7 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
     userId: '1',
     title: null,
     model: null,
+    messages: [],
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
     ...overrides,
@@ -47,11 +48,11 @@ const requestId = 'req-1';
 const frame = (event: Record<string, unknown>) =>
   `data: ${JSON.stringify(event)}\n\n`;
 const deltaFrame = (content: string) =>
-  frame({ type: 'delta', requestId, role: 'assistant', data: { content } });
+  frame({ type: 'delta', requestId, role: 'ai', data: { content } });
 const doneFrame = frame({
   type: 'done',
   requestId,
-  role: 'assistant',
+  role: 'ai',
   data: { finish_reason: 'stop' },
 });
 const errorFrame = (code: number, message: string) =>
@@ -159,19 +160,19 @@ describe('api/ai', () => {
         {
           type: 'delta',
           requestId,
-          role: 'assistant',
+          role: 'ai',
           data: { content: '你' },
         },
         {
           type: 'delta',
           requestId,
-          role: 'assistant',
+          role: 'ai',
           data: { content: '好' },
         },
         {
           type: 'done',
           requestId,
-          role: 'assistant',
+          role: 'ai',
           data: { finish_reason: 'stop' },
         },
       ]);

@@ -112,13 +112,13 @@ export class AiController {
     summary: '发送消息',
     description: `SSE 流式返回模型回复：
     
-    data: {"type":"delta","requestId":"req-123","role":"assistant","data":{"content":"你好"}}
+    data: {"type":"delta","requestId":"req-123","role":"ai","data":{"content":"你好"}}
 
-    data: {"type":"delta","requestId":"req-123","role":"assistant","data":{"content":"，我是AI助手"}}
+    data: {"type":"delta","requestId":"req-123","role":"ai","data":{"content":"，我是AI助手"}}
 
     data: {"type":"error","requestId":"req-123","data":{"code":50002,"message":"模型调用超时"}}
 
-    data: {"type":"done","requestId":"req-123","role":"assistant","data":{"finish_reason":"stop"}}
+    data: {"type":"done","requestId":"req-123","role":"ai","data":{"finish_reason":"stop"}}
 
     data: [DONE]
     `,

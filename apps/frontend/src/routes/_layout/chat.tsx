@@ -1,9 +1,5 @@
 import { ApiError } from '@/api/client';
-import {
-  conversationListAll,
-  useConversationList,
-  useCreateConversation,
-} from '@/hooks/use-ai';
+import { useConversationList, useCreateConversation } from '@/hooks/use-ai';
 import { useChatStream } from '@/hooks/use-chat';
 import {
   DownOutlined,
@@ -13,25 +9,11 @@ import {
 } from '@ant-design/icons';
 import { Bubble, type BubbleProps, Conversations, Sender } from '@ant-design/x';
 import XMarkdown from '@ant-design/x-markdown';
-import { useQueryClient } from '@tanstack/react-query';
+import type { RoleType } from '@ant-design/x/es/bubble/interface';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import {
-  Avatar,
-  Button,
-  Empty,
-  Flex,
-  Result,
-  Spin,
-  Splitter,
-  Typography,
-} from 'antd';
-import {
-  type ComponentRef,
-  type UIEvent,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { useBoolean } from 'ahooks';
+import { Avatar, Button, Empty, Flex, Result, Spin, Splitter } from 'antd';
+import { type ComponentRef, type UIEvent, useRef, useState } from 'react';
 
 export const Route = createFileRoute('/_layout/chat')({
   // /chat?id=<conversationId>：可选 id，缺省时首条消息无感创建会话
@@ -42,16 +24,12 @@ export const Route = createFileRoute('/_layout/chat')({
 });
 
 const renderMarkdown: BubbleProps['contentRender'] = (content) => {
-  return (
-    <Typography>
-      <XMarkdown content={content} />
-    </Typography>
-  );
+  return <XMarkdown content={content} />;
 };
 
 // 组件外定义，保持引用稳定（避免重置打字动画）
-const roles = {
-  assistant: {
+const roles: RoleType = {
+  ai: {
     placement: 'start' as const,
     avatar: <Avatar icon={<RobotOutlined />} />,
     contentRender: renderMarkdown,
@@ -65,22 +43,11 @@ const roles = {
 function ChatPage() {
   const { id } = Route.useSearch();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const conversations = useConversationList(1, 50);
+  const conversations = useConversationList();
   const items = (conversations.data?.list ?? []).map((c) => ({
     key: c.id,
     label: c.title ?? '新会话',
   }));
-
-  // 切换会话时实时刷新左栏列表：首条消息后标题由后端异步生成（generateTitle），
-  // 早于列表刷新完成，故每次切换都失效重拉，保证标题/排序最新。
-  // 仅实际切换时失效（跳过首帧），避免挂载时重复请求。
-  const prevIdRef = useRef(id);
-  useEffect(() => {
-    if (prevIdRef.current === id) return;
-    prevIdRef.current = id;
-    queryClient.invalidateQueries({ queryKey: conversationListAll });
-  }, [id, queryClient]);
 
   return (
     <Splitter className="h-full" collapsible={{ motion: true }}>
@@ -117,25 +84,20 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
   const { messages, streaming, isLoading, error, send, stop } =
     useChatStream(id);
   const [value, setValue] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [creating, { setTrue: setCreatingTrue, setFalse: setCreatingFalse }] =
+    useBoolean(false);
   const navigate = useNavigate();
   const create = useCreateConversation();
-  const pendingRef = useRef<string | null>(null);
   const listRef = useRef<ComponentRef<typeof Bubble.List>>(null);
   const [atBottom, setAtBottom] = useState(true);
 
-  // 首条消息无感创建：id 从无到有后发送暂存的首条消息（query 变化不重挂载，恰好走 sentRef 守卫）
-  useEffect(() => {
-    if (id && pendingRef.current) {
-      const text = pendingRef.current;
-      pendingRef.current = null;
-      void send(text);
-    }
-  }, [id, send]);
-
-  // Bubble.List 会把 onScroll 转发到内部滚动盒（scrollBoxNativeElement）。
-  // autoScroll 开启时滚动盒是 column-reverse，scrollTop 语义反转（0 = 底部，向上滚为负值），须分别判定。
-  // 初始态 true（autoScroll 加载即贴底），之后状态只由滚动事件驱动，避免 effect 中同步 setState。
+  /**
+   * # 滚动事件处理
+   * @param e
+   * Bubble.List 会把 onScroll 转发到内部滚动盒（scrollBoxNativeElement）。
+   * autoScroll 开启时滚动盒是 column-reverse，scrollTop 语义反转（0 = 底部，向上滚为负值），须分别判定。
+   * 初始态 true（autoScroll 加载即贴底），之后状态只由滚动事件驱动，避免 effect 中同步 setState。
+   */
   function handleScroll(e: UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
     const isReverse = getComputedStyle(el).flexDirection === 'column-reverse';
@@ -146,19 +108,24 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
     );
   }
 
+  /** # 发送消息
+   * @param text
+   * 首条消息无感创建会话：若 id 缺省，先创建会话，再对新会话 id 发送消息；否则直接发送。
+   */
   async function handleSubmit(text: string) {
+    // 点击发送按钮后，输入框清空
     setValue('');
     if (id) {
-      await send(text);
+      await send(id, text);
       return;
     }
-    setCreating(true);
+    setCreatingTrue();
     try {
       const conv = await create.mutateAsync({});
-      pendingRef.current = text;
       await navigate({ to: '/chat', search: { id: conv.id }, replace: true });
+      void send(conv.id, text);
     } finally {
-      setCreating(false);
+      setCreatingFalse();
     }
   }
 
@@ -181,7 +148,7 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
   }
 
   const items = messages.map((m) => ({
-    key: m.key,
+    key: m.id,
     role: m.role,
     content: m.error ?? m.content,
     loading: Boolean(m.streaming && !m.content),
@@ -217,7 +184,7 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
           value={value}
           onChange={setValue}
           onSubmit={handleSubmit}
-          loading={streaming || creating}
+          loading={streaming ?? creating}
           onCancel={stop}
           placeholder="输入消息，Enter 发送"
         />

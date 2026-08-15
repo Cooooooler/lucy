@@ -175,9 +175,10 @@ export class AiService {
     conversation.updatedAt = new Date();
     await this.conversationRepo.save(conversation);
 
+    // 首条消息：先同步生成标题再开始回答，保证回答流结束时标题已就绪（前端拉列表时不再缺失）
     const count = await this.messageRepo.count({ where: { conversationId } });
     if (count === 1) {
-      void this.generateTitle(conversation).catch(() => {});
+      await this.generateTitle(conversation).catch(() => {});
     }
 
     const model =
@@ -236,21 +237,21 @@ export class AiService {
           subscriber.next({
             type: 'delta',
             requestId,
-            role: 'assistant',
+            role: 'ai',
             data: { content: text },
           });
         }
       }
       await this.messageRepo.save({
         conversationId,
-        role: MessageRole.Assistant,
+        role: MessageRole.Ai,
         content: full,
         status: MessageStatus.Complete,
       });
       subscriber.next({
         type: 'done',
         requestId,
-        role: 'assistant',
+        role: 'ai',
         data: { finish_reason: 'stop' },
       });
       subscriber.complete();
@@ -263,7 +264,7 @@ export class AiService {
           : MessageStatus.Failed;
       await this.messageRepo.save({
         conversationId,
-        role: MessageRole.Assistant,
+        role: MessageRole.Ai,
         content: full,
         status,
       });

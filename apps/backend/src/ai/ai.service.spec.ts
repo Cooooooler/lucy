@@ -130,7 +130,7 @@ describe('AiService', () => {
       });
       expect(messageRepo.save).toHaveBeenCalledWith({
         conversationId: 'c1',
-        role: MessageRole.Assistant,
+        role: MessageRole.Ai,
         content: '你好',
         status: MessageStatus.Complete,
       });
@@ -160,7 +160,7 @@ describe('AiService', () => {
       });
       expect(messageRepo.save).toHaveBeenCalledWith({
         conversationId: 'c1',
-        role: MessageRole.Assistant,
+        role: MessageRole.Ai,
         content: '半截',
         status: MessageStatus.Failed,
       });
@@ -190,7 +190,7 @@ describe('AiService', () => {
       });
       expect(messageRepo.save).toHaveBeenCalledWith({
         conversationId: 'c1',
-        role: MessageRole.Assistant,
+        role: MessageRole.Ai,
         content: '半截',
         status: MessageStatus.Failed,
       });
@@ -237,7 +237,7 @@ describe('AiService', () => {
         });
         expect(messageRepo.save).toHaveBeenCalledWith({
           conversationId: 'c1',
-          role: MessageRole.Assistant,
+          role: MessageRole.Ai,
           content: '你',
           status: MessageStatus.Failed,
         });
@@ -262,7 +262,7 @@ describe('AiService', () => {
       await events(service.sendMessage('1', 'c1', { content: 'hi' }));
       expect(messageRepo.save).toHaveBeenCalledWith({
         conversationId: 'c1',
-        role: MessageRole.Assistant,
+        role: MessageRole.Ai,
         content: '',
         status: MessageStatus.Failed,
       });
@@ -337,7 +337,7 @@ describe('AiService', () => {
         }),
         Object.assign(new Message(), {
           conversationId: 'c1',
-          role: MessageRole.Assistant,
+          role: MessageRole.Ai,
           content: '之前的回答',
         }),
       ];
@@ -412,7 +412,7 @@ describe('AiService', () => {
       await vi.waitFor(() =>
         expect(messageRepo.save).toHaveBeenCalledWith({
           conversationId: 'c1',
-          role: MessageRole.Assistant,
+          role: MessageRole.Ai,
           content: '半截',
           status: MessageStatus.Aborted,
         }),

@@ -187,13 +187,13 @@ export interface paths {
          * 发送消息
          * @description SSE 流式返回模型回复：
          *
-         *         data: {"type":"delta","requestId":"req-123","role":"assistant","data":{"content":"你好"}}
+         *         data: {"type":"delta","requestId":"req-123","role":"ai","data":{"content":"你好"}}
          *
-         *         data: {"type":"delta","requestId":"req-123","role":"assistant","data":{"content":"，我是AI助手"}}
+         *         data: {"type":"delta","requestId":"req-123","role":"ai","data":{"content":"，我是AI助手"}}
          *
          *         data: {"type":"error","requestId":"req-123","data":{"code":50002,"message":"模型调用超时"}}
          *
-         *         data: {"type":"done","requestId":"req-123","role":"assistant","data":{"finish_reason":"stop"}}
+         *         data: {"type":"done","requestId":"req-123","role":"ai","data":{"finish_reason":"stop"}}
          *
          *         data: [DONE]
          */
@@ -331,7 +331,7 @@ export interface components {
              * @description 角色
              * @enum {string}
              */
-            role: "user" | "assistant" | "system";
+            role: "user" | "ai" | "system";
             /** @description 内容 */
             content: string;
             /**
@@ -348,17 +348,14 @@ export interface components {
         Conversation: {
             /** @description 会话 ID */
             id: string;
-            /**
-             * @description 归属用户 ID
-             * @example 1
-             */
+            /** @description 归属用户 ID */
             userId: string;
             /** @description 标题 */
             title: string | null;
             /** @description 会话默认模型 */
             model: string | null;
             /** @description 消息列表 */
-            messages?: components["schemas"]["Message"][];
+            messages: components["schemas"]["Message"][];
             /**
              * Format: date-time
              * @description 创建时间

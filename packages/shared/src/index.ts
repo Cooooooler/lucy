@@ -44,7 +44,7 @@ export type AiStreamEvent =
   | {
       type: 'delta';
       requestId: string;
-      role: 'assistant';
+      role: 'ai';
       data: { content: string };
     }
   | {
@@ -55,7 +55,7 @@ export type AiStreamEvent =
   | {
       type: 'done';
       requestId: string;
-      role: 'assistant';
+      role: 'ai';
       data: { finish_reason: 'stop' };
     };
 

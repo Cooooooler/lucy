@@ -14,7 +14,7 @@ import {
 @Unique(['email'])
 export class User {
   @ApiProperty({ description: '用户 ID' })
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @ApiProperty({ description: '用户名', example: 'lucy' })

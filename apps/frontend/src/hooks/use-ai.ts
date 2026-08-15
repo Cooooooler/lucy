@@ -32,8 +32,8 @@ export function useConversationList(page = 1, pageSize = 20) {
     queryKey: aiKeys.conversationList(page, pageSize),
     queryFn: () => listConversationsApi(page, pageSize),
     placeholderData: (prev) => prev,
-    // AI 数据不信任缓存：会话列表标题/排序会随消息变化，需实时拉最新
     staleTime: 0,
+    gcTime: 0,
   });
 }
 
@@ -42,8 +42,9 @@ export function useConversation(id: string | undefined) {
     queryKey: aiKeys.conversation(id ?? ''),
     queryFn: () => getConversationApi(id!),
     enabled: !!id,
-    // 同上：历史消息必须实时，否则切回会话会看到旧内容（缺新发的消息）
     staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -52,8 +53,8 @@ export function useCreateConversation() {
   return useMutation({
     mutationFn: (input: CreateConversationRequest) =>
       createConversationApi(input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: conversationListAll });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: conversationListAll });
     },
   });
 }
@@ -63,9 +64,9 @@ export function useRenameConversation() {
   return useMutation({
     mutationFn: ({ id, title }: { id: string } & RenameConversationRequest) =>
       renameConversationApi(id, { title }),
-    onSuccess: (updated) => {
+    onSuccess: async (updated) => {
       queryClient.setQueryData(aiKeys.conversation(updated.id), updated);
-      queryClient.invalidateQueries({ queryKey: conversationListAll });
+      await queryClient.invalidateQueries({ queryKey: conversationListAll });
     },
   });
 }
@@ -74,9 +75,9 @@ export function useDeleteConversation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteConversationApi(id),
-    onSuccess: (_data, id) => {
+    onSuccess: async (_data, id) => {
       queryClient.removeQueries({ queryKey: aiKeys.conversation(id) });
-      queryClient.invalidateQueries({ queryKey: conversationListAll });
+      await queryClient.invalidateQueries({ queryKey: conversationListAll });
     },
   });
 }
@@ -92,11 +93,11 @@ export function useSendMessage() {
     // 返回事件流对象供消费方迭代；mutation 随即 resolve，onSuccess 仅触发查询失效
     mutationFn: async ({ conversationId, input }: SendMessageVariables) =>
       streamSendMessageApi(conversationId, input),
-    onSuccess: (_stream, { conversationId }) => {
-      queryClient.invalidateQueries({
+    onSuccess: async (_stream, { conversationId }) => {
+      await queryClient.invalidateQueries({
         queryKey: aiKeys.conversation(conversationId),
       });
-      queryClient.invalidateQueries({ queryKey: conversationListAll });
+      await queryClient.invalidateQueries({ queryKey: conversationListAll });
     },
   });
 }

@@ -29,6 +29,7 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
     userId: '1',
     title: null,
     model: null,
+    messages: [],
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
     ...overrides,

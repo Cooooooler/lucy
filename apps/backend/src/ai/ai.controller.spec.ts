@@ -73,13 +73,13 @@ describe('AiController', () => {
       {
         type: 'delta',
         requestId: 'r1',
-        role: 'assistant',
+        role: 'ai',
         data: { content: '你' },
       },
       {
         type: 'done',
         requestId: 'r1',
-        role: 'assistant',
+        role: 'ai',
         data: { finish_reason: 'stop' },
       },
     ];
