@@ -21,5 +21,5 @@ export function logoutApi() {
 }
 
 export function meApi() {
-  return http.get<components['schemas']['User']>('auth/me').json();
+  return http.get<User>('auth/me').json();
 }
