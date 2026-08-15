@@ -9,7 +9,10 @@ export function authBootstrap(): Promise<void> {
   bootstrap ??= (async () => {
     try {
       const tokens = await refreshTokens();
-      authStore.setState(() => ({ user: null, accessToken: tokens.accessToken }));
+      authStore.setState(() => ({
+        user: null,
+        accessToken: tokens.accessToken,
+      }));
       const user = await meApi();
       authStore.setState(() => ({
         user,

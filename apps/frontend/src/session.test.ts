@@ -14,7 +14,12 @@ async function loadAuth() {
   const { refreshTokens } = await import('./api/client');
   const { meApi } = await import('./api/auth');
   authStore.setState(() => ({ user: null, accessToken: null }));
-  return { authBootstrap: session.authBootstrap, authStore, refreshTokens, meApi };
+  return {
+    authBootstrap: session.authBootstrap,
+    authStore,
+    refreshTokens,
+    meApi,
+  };
 }
 
 describe('authBootstrap', () => {

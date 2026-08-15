@@ -13,9 +13,7 @@ export const authStore = createStore<AuthState>({
 });
 
 // 派生状态：user 非空即视为已登录（会话恢复由 session.ts bootstrap 完成）
-export const isLoggedInStore = createStore(
-  () => authStore.get().user !== null,
-);
+export const isLoggedInStore = createStore(() => authStore.get().user !== null);
 
 // —— 会话过期回调：由 AuthProvider 注册，跳转登录页 ——
 let sessionExpiredHandler: () => void = () => {};
