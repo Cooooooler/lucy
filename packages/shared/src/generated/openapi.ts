@@ -56,7 +56,7 @@ export interface paths {
         put?: never;
         /**
          * 登录
-         * @description 账号密码登录，返回 access/refresh 令牌
+         * @description 账号密码登录，返回用户信息；长效 token 写入 HttpOnly cookie
          */
         post: operations["AuthController_login"];
         delete?: never;
@@ -76,7 +76,7 @@ export interface paths {
         put?: never;
         /**
          * 刷新令牌
-         * @description 用 refresh token 换发新令牌对
+         * @description 读取 HttpOnly cookie 换发短效 access token，并轮换长效 token
          */
         post: operations["AuthController_refresh"];
         delete?: never;
@@ -96,7 +96,7 @@ export interface paths {
         put?: never;
         /**
          * 登出
-         * @description 撤销当前 access 与 refresh 令牌
+         * @description 撤销当前会话整个家族并清除 cookie
          */
         post: operations["AuthController_logout"];
         delete?: never;
@@ -279,34 +279,15 @@ export interface components {
             password: string;
         };
         LoginResultDto: {
-            /**
-             * @description 访问令牌（JWT）
-             * @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-             */
-            accessToken: string;
-            /**
-             * @description 刷新令牌
-             * @example MTIzNDU2Nzg5MGFiY2RlZg
-             */
-            refreshToken: string;
             /** @description 当前用户信息 */
             user: components["schemas"]["User"];
         };
-        RefreshDto: {
-            /** @description refresh token，缺省时读取 HttpOnly cookie `refreshToken` */
-            refreshToken?: string;
-        };
-        AuthTokensDto: {
+        RefreshResultDto: {
             /**
-             * @description 访问令牌（JWT）
+             * @description 访问令牌（短效 JWT）
              * @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
              */
             accessToken: string;
-            /**
-             * @description 刷新令牌
-             * @example MTIzNDU2Nzg5MGFiY2RlZg
-             */
-            refreshToken: string;
         };
         LogoutResultDto: {
             /**
@@ -493,11 +474,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RefreshDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description 换发成功 */
             201: {
@@ -505,10 +482,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthTokensDto"];
+                    "application/json": components["schemas"]["RefreshResultDto"];
                 };
             };
-            /** @description 刷新令牌无效 */
+            /** @description 缺少或无效的刷新令牌 */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -524,11 +501,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RefreshDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description 登出成功 */
             201: {
