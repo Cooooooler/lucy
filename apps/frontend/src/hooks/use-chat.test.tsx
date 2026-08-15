@@ -10,7 +10,10 @@ const mocks = vi.hoisted(() => ({
   createStreamRequest: vi.fn(),
 }));
 
-vi.mock('./use-ai', () => ({ useConversation: mocks.useConversation }));
+vi.mock('./use-ai', () => ({
+  useConversation: mocks.useConversation,
+  conversationListAll: ['ai', 'conversations', 'list'],
+}));
 vi.mock('@/api/ai', () => ({ createStreamRequest: mocks.createStreamRequest }));
 
 function createWrapper() {

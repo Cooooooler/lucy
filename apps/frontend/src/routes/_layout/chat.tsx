@@ -1,11 +1,37 @@
 import { ApiError } from '@/api/client';
-import { useConversationList, useCreateConversation } from '@/hooks/use-ai';
+import {
+  conversationListAll,
+  useConversationList,
+  useCreateConversation,
+} from '@/hooks/use-ai';
 import { useChatStream } from '@/hooks/use-chat';
-import { PlusOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
-import { Bubble, Conversations, Sender } from '@ant-design/x';
+import {
+  DownOutlined,
+  PlusOutlined,
+  RobotOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
+import { Bubble, type BubbleProps, Conversations, Sender } from '@ant-design/x';
+import XMarkdown from '@ant-design/x-markdown';
+import { useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { Avatar, Empty, Flex, Result, Spin, Splitter } from 'antd';
-import { useEffect, useRef, useState } from 'react';
+import {
+  Avatar,
+  Button,
+  Empty,
+  Flex,
+  Result,
+  Spin,
+  Splitter,
+  Typography,
+} from 'antd';
+import {
+  type ComponentRef,
+  type UIEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 export const Route = createFileRoute('/_layout/chat')({
   // /chat?id=<conversationId>：可选 id，缺省时首条消息无感创建会话
@@ -15,11 +41,20 @@ export const Route = createFileRoute('/_layout/chat')({
   component: ChatPage,
 });
 
+const renderMarkdown: BubbleProps['contentRender'] = (content) => {
+  return (
+    <Typography>
+      <XMarkdown content={content} />
+    </Typography>
+  );
+};
+
 // 组件外定义，保持引用稳定（避免重置打字动画）
 const roles = {
   assistant: {
     placement: 'start' as const,
     avatar: <Avatar icon={<RobotOutlined />} />,
+    contentRender: renderMarkdown,
   },
   user: {
     placement: 'end' as const,
@@ -30,11 +65,22 @@ const roles = {
 function ChatPage() {
   const { id } = Route.useSearch();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const conversations = useConversationList(1, 50);
   const items = (conversations.data?.list ?? []).map((c) => ({
     key: c.id,
     label: c.title ?? '新会话',
   }));
+
+  // 切换会话时实时刷新左栏列表：首条消息后标题由后端异步生成（generateTitle），
+  // 早于列表刷新完成，故每次切换都失效重拉，保证标题/排序最新。
+  // 仅实际切换时失效（跳过首帧），避免挂载时重复请求。
+  const prevIdRef = useRef(id);
+  useEffect(() => {
+    if (prevIdRef.current === id) return;
+    prevIdRef.current = id;
+    queryClient.invalidateQueries({ queryKey: conversationListAll });
+  }, [id, queryClient]);
 
   return (
     <Splitter className="h-full" collapsible={{ motion: true }}>
@@ -60,7 +106,7 @@ function ChatPage() {
       <Splitter.Panel>
         <ChatMessagesArea id={id} />
       </Splitter.Panel>
-      <Splitter.Panel collapsible defaultSize="20%" min="15%" max="40%">
+      <Splitter.Panel collapsible defaultSize="15%" min="15%" max="40%">
         <ThoughtChainPlaceholder />
       </Splitter.Panel>
     </Splitter>
@@ -75,27 +121,42 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
   const navigate = useNavigate();
   const create = useCreateConversation();
   const pendingRef = useRef<string | null>(null);
+  const listRef = useRef<ComponentRef<typeof Bubble.List>>(null);
+  const [atBottom, setAtBottom] = useState(true);
 
   // 首条消息无感创建：id 从无到有后发送暂存的首条消息（query 变化不重挂载，恰好走 sentRef 守卫）
   useEffect(() => {
     if (id && pendingRef.current) {
       const text = pendingRef.current;
       pendingRef.current = null;
-      send(text);
+      void send(text);
     }
-  }, [id]);
+  }, [id, send]);
+
+  // Bubble.List 会把 onScroll 转发到内部滚动盒（scrollBoxNativeElement）。
+  // autoScroll 开启时滚动盒是 column-reverse，scrollTop 语义反转（0 = 底部，向上滚为负值），须分别判定。
+  // 初始态 true（autoScroll 加载即贴底），之后状态只由滚动事件驱动，避免 effect 中同步 setState。
+  function handleScroll(e: UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    const isReverse = getComputedStyle(el).flexDirection === 'column-reverse';
+    setAtBottom(
+      isReverse
+        ? el.scrollTop >= -24
+        : el.scrollHeight - el.scrollTop - el.clientHeight < 24,
+    );
+  }
 
   async function handleSubmit(text: string) {
     setValue('');
     if (id) {
-      send(text);
+      await send(text);
       return;
     }
     setCreating(true);
     try {
       const conv = await create.mutateAsync({});
       pendingRef.current = text;
-      navigate({ to: '/chat', search: { id: conv.id }, replace: true });
+      await navigate({ to: '/chat', search: { id: conv.id }, replace: true });
     } finally {
       setCreating(false);
     }
@@ -129,13 +190,28 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
 
   return (
     <Flex vertical className="h-full w-full">
-      <Bubble.List
-        items={items}
-        role={roles}
-        autoScroll
-        className="min-h-0 flex-1 pb-4"
-        classNames={{ scroll: 'scrollbar-hide' }}
-      />
+      <div className="relative min-h-0 flex-1">
+        <Bubble.List
+          ref={listRef}
+          items={items}
+          role={roles}
+          autoScroll
+          onScroll={handleScroll}
+          className="h-full pb-4"
+          classNames={{ scroll: 'scrollbar-hide' }}
+        />
+        {!atBottom && (
+          <Button
+            type="primary"
+            shape="circle"
+            icon={<DownOutlined />}
+            className="absolute! bottom-16 left-1/2 z-10 -translate-x-1/2 shadow-md"
+            onClick={() =>
+              listRef.current?.scrollTo({ top: 'bottom', behavior: 'smooth' })
+            }
+          />
+        )}
+      </div>
       <div className="px-4">
         <Sender
           value={value}

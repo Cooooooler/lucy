@@ -17,6 +17,7 @@
     "@ant-design/icons": "^6.3.2",
     "@ant-design/pro-components": "3.1.14-6",
     "@ant-design/x": "^2.9.0",
+    "@ant-design/x-markdown": "^2.9.0",
     "@ant-design/x-sdk": "^2.9.0",
     "@hookform/resolvers": "^5.7.1",
     "@lucy/shared": "workspace:*",

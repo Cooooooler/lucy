@@ -1,8 +1,9 @@
 import { createStreamRequest } from '@/api/ai';
 import type { AiStreamEvent } from '@lucy/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { useHookFetch } from 'hook-fetch/react';
 import { useEffect, useRef, useState } from 'react';
-import { useConversation } from './use-ai';
+import { conversationListAll, useConversation } from './use-ai';
 
 export interface ChatMessage {
   key: string;
@@ -14,6 +15,7 @@ export interface ChatMessage {
 
 export function useChatStream(conversationId: string | undefined) {
   const conversationQuery = useConversation(conversationId);
+  const queryClient = useQueryClient();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const streamingRef = useRef(false);
@@ -48,10 +50,13 @@ export function useChatStream(conversationId: string | undefined) {
   }, [conversationId]);
 
   // 历史只在首次数据到达时注入；一旦已 send（sentRef）或已初始化，不再注入，避免覆盖流式状态。
+  // 切回会话时缓存里的旧数据会先到、最新数据仍在拉取：若此刻注入会把旧消息锁进本地状态，
+  // 故用 isFetching 守卫等拉取完成（拿到最新历史）再注入。
   // 这里的 setMessages 是一次性历史注入（initializedRef 守卫），非响应式派生，故豁免告警。
   useEffect(() => {
     if (initializedRef.current || sentRef.current || !conversationQuery.data)
       return;
+    if (conversationQuery.isFetching) return;
     initializedRef.current = true;
     // eslint-disable-next-line react-x/set-state-in-effect
     setMessages(
@@ -70,7 +75,7 @@ export function useChatStream(conversationId: string | undefined) {
               : undefined,
         })),
     );
-  }, [conversationQuery.data]);
+  }, [conversationQuery.data, conversationQuery.isFetching]);
 
   async function send(content: string) {
     const text = content.trim();
@@ -129,6 +134,8 @@ export function useChatStream(conversationId: string | undefined) {
       );
       streamingRef.current = false;
       setStreaming(false);
+      // 消息已落库：让左栏会话列表实时刷新（首条消息后标题会自动生成、排序可能变化）
+      queryClient.invalidateQueries({ queryKey: conversationListAll });
     }
   }
 
