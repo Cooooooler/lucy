@@ -44,7 +44,10 @@ export class AuthController {
   })
   @ApiResponse({ status: 201, description: '登录成功', type: LoginResultDto })
   @ApiResponse({ status: 401, description: '用户名或密码错误' })
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const { user, refreshToken } = await this.authService.login(dto);
     this.setRefreshCookie(res, refreshToken);
     return { user };
@@ -58,7 +61,10 @@ export class AuthController {
   })
   @ApiResponse({ status: 201, description: '换发成功', type: RefreshResultDto })
   @ApiResponse({ status: 401, description: '缺少或无效的刷新令牌' })
-  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const token = req.cookies?.[REFRESH_COOKIE] as string | undefined;
     if (!token) {
       return this.authService.throwMissingRefresh();
@@ -108,7 +114,7 @@ export class AuthController {
     return {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false,
+      secure: this.authService.cookieSecure(),
       path: '/',
       maxAge: this.authService.refreshTtl() * 1000,
     };

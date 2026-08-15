@@ -13,6 +13,7 @@ describe('AuthController', () => {
     me: vi.fn(),
     throwMissingRefresh: vi.fn(),
     refreshTtl: vi.fn().mockReturnValue(604800),
+    cookieSecure: vi.fn().mockReturnValue(false),
   };
 
   const safeUser = {
@@ -74,7 +75,9 @@ describe('AuthController', () => {
       accessToken: 'a',
       refreshToken: 'r2',
     });
-    const req = { cookies: { refreshToken: 'cookie-token' } } as unknown as Request;
+    const req = {
+      cookies: { refreshToken: 'cookie-token' },
+    } as unknown as Request;
     await expect(controller.refresh(req, res)).resolves.toEqual({
       accessToken: 'a',
     });

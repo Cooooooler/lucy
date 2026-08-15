@@ -159,6 +159,16 @@ describe('AuthService', () => {
     await expect(service.refresh('bad')).rejects.toThrow(BusinessException);
   });
 
+  it('refresh 遇到旧格式（无 family）的 active 值视为无效并清理', async () => {
+    redisService.get.mockResolvedValueOnce('u1'); // 旧格式：只有 userId
+    await expect(service.refresh('old')).rejects.toThrow(BusinessException);
+    expect(redisService.del).toHaveBeenCalledWith(
+      'auth:refresh:old',
+      'auth:refresh:reuse:old',
+    );
+    expect(redisClient.sadd).not.toHaveBeenCalled();
+  });
+
   it('refresh 用户不存在抛 Unauthorized', async () => {
     redisService.get.mockResolvedValue(activeVal);
     usersService.findById.mockResolvedValue(null);

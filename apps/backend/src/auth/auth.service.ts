@@ -29,6 +29,20 @@ export class AuthService {
     return this.config.get<number>('REFRESH_TTL_SECONDS', 604800);
   }
 
+  cookieSecure(): boolean {
+    return this.config.get<string>('NODE_ENV', 'development') === 'production';
+  }
+
+  // 旧格式/损坏的 active 值（无 family 或空段）返回 null，避免归入共享 family:undefined 命名空间
+  private parseActive(
+    value: string | null,
+  ): { userId: string; family: string } | null {
+    if (!value) return null;
+    const sep = value.indexOf(':');
+    if (sep <= 0 || sep === value.length - 1) return null;
+    return { userId: value.slice(0, sep), family: value.slice(sep + 1) };
+  }
+
   private refreshKey(token: string): string {
     return `auth:refresh:${token}`;
   }
@@ -134,8 +148,10 @@ export class AuthService {
       // 已不在 active 集合：可能是被轮换掉的旧 token（复用=泄露信号），或已过期
       const reused = await this.redis.get(this.reuseKey(refreshToken));
       if (reused) {
-        const family = reused.split(':')[1];
-        await this.revokeFamily(family);
+        const parsed = this.parseActive(reused);
+        if (parsed) {
+          await this.revokeFamily(parsed.family);
+        }
         throw new BusinessException(
           ErrorCode.UNAUTHORIZED,
           '刷新令牌无效（检测到令牌复用）',
@@ -148,7 +164,20 @@ export class AuthService {
         HttpStatus.UNAUTHORIZED,
       );
     }
-    const [userId, family] = active.split(':');
+    const parsed = this.parseActive(active);
+    if (!parsed) {
+      // 旧格式或损坏记录：删除并视为无效，绝不写入 family:undefined
+      await this.redis.del(
+        this.refreshKey(refreshToken),
+        this.reuseKey(refreshToken),
+      );
+      throw new BusinessException(
+        ErrorCode.UNAUTHORIZED,
+        '刷新令牌无效',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    const { userId, family } = parsed;
     const user = await this.usersService.findById(userId);
     if (user?.status !== 1) {
       throw new BusinessException(
@@ -160,7 +189,11 @@ export class AuthService {
     // 轮换：删除旧 token → 记录复用标记 → 同家族签发新 token
     await this.redis.del(this.refreshKey(refreshToken));
     await this.redis.client.srem(this.familyKey(family), refreshToken);
-    await this.redis.set(this.reuseKey(refreshToken), active, this.refreshTtl());
+    await this.redis.set(
+      this.reuseKey(refreshToken),
+      active,
+      this.refreshTtl(),
+    );
     const newRefreshToken = await this.issueRefreshToken(userId, family);
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
@@ -172,8 +205,9 @@ export class AuthService {
   async logout(jti: string, refreshToken?: string): Promise<void> {
     if (refreshToken) {
       const active = await this.redis.get(this.refreshKey(refreshToken));
-      if (active) {
-        await this.revokeFamily(active.split(':')[1]);
+      const parsed = this.parseActive(active);
+      if (parsed) {
+        await this.revokeFamily(parsed.family);
       } else {
         await this.redis.del(
           this.refreshKey(refreshToken),
