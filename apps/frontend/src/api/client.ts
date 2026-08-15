@@ -20,8 +20,15 @@ export class ApiError extends ResponseError {
   }
 }
 
-// 请求级扩展字段：skipAuthRefresh 跳过 401 自动刷新，__authRetry 记录重放次数
-type RequestExtra = { skipAuthRefresh?: boolean; __authRetry?: number };
+// 请求级扩展字段：
+//   skipAuthRefresh  跳过 401 自动刷新（登录/注册/刷新/SSE 流等不适配重放）
+//   __authRetry      记录 401 重放次数
+//   skipTokenWait    跳过"先等刷新拿 token"逻辑（仅刷新接口自身，防止递归等待）
+type RequestExtra = {
+  skipAuthRefresh?: boolean;
+  __authRetry?: number;
+  skipTokenWait?: boolean;
+};
 
 // 基础配置：baseURL、Content-Type（hook-fetch 直接拼接 baseURL+url，baseURL 需以 / 结尾）
 const baseOptions = {
@@ -31,13 +38,20 @@ const baseOptions = {
 
 const authHeader: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
   name: 'auth-header',
-  beforeRequest(ctx) {
+  async beforeRequest(ctx) {
     // Headers 可能是 Headers、Record<string, string> 或 [string, string][]，统一转换为 Headers
     ctx.config.headers = new Headers(ctx.config.headers);
+    const { accessToken, refreshToken } = authStore.get();
+    // 无短效 token 但有长效 token（如刷新页面后 accessToken 未落盘）：
+    // 先静默换取短效 token，避免带着空 Authorization 发出去被 401 再走刷新重放。
+    // 刷新接口自身标记 skipTokenWait 跳过，防止递归等待。
+    if (!accessToken && refreshToken && !ctx.config.extra?.skipTokenWait) {
+      await refreshTokens();
+    }
     // 获取 短效 token 并附加到请求头中；若没有 token，则删除 Authorization 头
-    const accessToken = authStore.get().accessToken;
-    if (accessToken) {
-      ctx.config.headers.set('Authorization', `Bearer ${accessToken}`);
+    const current = authStore.get().accessToken;
+    if (current) {
+      ctx.config.headers.set('Authorization', `Bearer ${current}`);
     } else {
       ctx.config.headers.delete('Authorization');
     }
@@ -188,7 +202,7 @@ async function doRefresh(): Promise<AuthTokens> {
     const body: RefreshRequest = { refreshToken };
     const tokens = await http
       .post<AuthTokens>('auth/refresh', body, {
-        extra: { skipAuthRefresh: true },
+        extra: { skipAuthRefresh: true, skipTokenWait: true },
       })
       .json();
     // 存放长短效token

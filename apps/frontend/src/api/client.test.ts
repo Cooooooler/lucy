@@ -96,6 +96,29 @@ describe('api/client', () => {
       const init = fetchMock.mock.calls[0][1] as RequestInit;
       expect(new Headers(init.headers).get('Authorization')).toBeNull();
     });
+
+    it('无短效 token 但持有长效 token 时先静默刷新再请求，不触发 401 重试', async () => {
+      authStore.setState(() => ({
+        user,
+        accessToken: null,
+        refreshToken: 'rt',
+      }));
+      fetchMock
+        .mockResolvedValueOnce(
+          okEnvelope({ accessToken: 'new-token', refreshToken: 'rt2' }),
+        )
+        .mockResolvedValueOnce(okEnvelope({ ok: true }));
+
+      const result = await http.post<{ ok: boolean }>('auth/logout').json();
+      expect(result).toEqual({ ok: true });
+      // 仅两次请求：一次刷新 + 一次真实请求，没有先 401 再重放的多余往返
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(authStore.get().accessToken).toBe('new-token');
+      const init = fetchMock.mock.calls[1][1] as RequestInit;
+      expect(new Headers(init.headers).get('Authorization')).toBe(
+        'Bearer new-token',
+      );
+    });
   });
 
   describe('401 自动刷新', () => {
@@ -187,6 +210,20 @@ describe('api/client', () => {
       await refreshTokens();
       expect(authStore.get().accessToken).toBe('at2');
       expect(authStore.get().refreshToken).toBe('rt2');
+    });
+
+    it('无短效 token 时刷新接口自身不递归等待', async () => {
+      authStore.setState(() => ({
+        user,
+        accessToken: null,
+        refreshToken: 'rt',
+      }));
+      fetchMock.mockResolvedValueOnce(
+        okEnvelope({ accessToken: 'at2', refreshToken: 'rt2' }),
+      );
+      await refreshTokens();
+      expect(authStore.get().accessToken).toBe('at2');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it('无 refreshToken 时直接过期并拒绝', async () => {

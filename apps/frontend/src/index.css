@@ -3,33 +3,55 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* 隐藏滚动条但保留滚动能力：加到滚动容器上即可。
+   工具类用于覆盖组件默认样式（如 antd x 的 .ant-bubble-list-scroll-box 设了
+   scrollbar-width: thin），用 !important 保证优先级；否则其类选择器权重更高会盖过。 */
+.scrollbar-hide {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none !important;
+}
+
 #root {
   width: 100vw;
   height: 100vh;
-}
 
-.ant-app {
-  width: 100%;
-  height: 100%;
-}
+  .ant-affix {
+    top: 0 !important;
+  }
 
-/* 让 PageContainer 内容铺满去掉头部后的剩余高度。
-   .ant-pro-layout-content 本身已撑满视口，但 .ant-pro-page-container 这一串默认
-   flex: 0 1 auto 只按内容定高，不向下传递高度，导致子页 h-full 塌陷。
-   flex: 1 1 auto 保证短内容铺满、长内容仍能随内容生长触发页面滚动。 */
-.ant-pro-page-container,
-.ant-pro-page-container > .ant-pro-grid-content,
-.ant-pro-page-container
-  > .ant-pro-grid-content
-  > .ant-pro-grid-content-children,
-.ant-pro-page-container
-  > .ant-pro-grid-content
-  > .ant-pro-grid-content-children
-  > .ant-pro-page-container-children-container {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+  .ant-app {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* 让 PageContainer 内容铺满去掉头部后的剩余高度。
+       .ant-pro-layout-content 本身已撑满视口，但 .ant-pro-page-container 这一串默认
+       flex: 0 1 auto 只按内容定高，不向下传递高度，导致子页 h-full 塌陷。
+       flex: 1 1 auto 保证短内容铺满、长内容仍能随内容生长触发页面滚动。 */
+  .ant-pro-page-container,
+  .ant-pro-page-container > .ant-pro-grid-content,
+  .ant-pro-page-container
+    > .ant-pro-grid-content
+    > .ant-pro-grid-content-children,
+  .ant-pro-page-container
+    > .ant-pro-grid-content
+    > .ant-pro-grid-content-children
+    > .ant-pro-page-container-children-container {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding-inline: 0;
+  }
+
+  /* 布局壳固定为视口高度，防止子页内容把整页撑出滚动条；
+       长内容应在其内部容器滚动，而不是撑大外部页面。 */
+  .ant-pro-layout > .ant-layout {
+    height: 100%;
+  }
 }
 
 /* 全局滚动条：贴合 antd 中性色板（colorTextPlaceholder ~ colorFill 之间），

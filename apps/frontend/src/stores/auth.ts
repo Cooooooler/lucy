@@ -12,11 +12,35 @@ export interface PersistedSession {
   user: User | null;
 }
 
+export const SESSION_KEY = 'lucy.auth';
+
+// 同步读取持久化会话：模块加载时即水合内存 store，保证路由 beforeLoad（初始匹配阶段）
+// 读到正确登录态——否则刷新页面会因 store 尚空被误判未登录，先弹 /login 再弹回 /。
+function readPersistedSession(): PersistedSession {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return { refreshToken: null, user: null };
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) {
+      return { refreshToken: null, user: null };
+    }
+    const { refreshToken, user } = parsed as PersistedSession;
+    return {
+      refreshToken: typeof refreshToken === 'string' ? refreshToken : null,
+      user: user ?? null,
+    };
+  } catch {
+    return { refreshToken: null, user: null };
+  }
+}
+
+const persisted = readPersistedSession();
+
 // 仅存内存：accessToken 不落盘，刷新后为空，靠 refreshToken 静默换取
 export const authStore = createStore<AuthState>({
-  user: null,
+  user: persisted.user,
   accessToken: null,
-  refreshToken: null,
+  refreshToken: persisted.refreshToken,
 });
 
 // 派生状态：refreshToken 是持久化凭证，代表完整登录会话

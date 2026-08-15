@@ -4,9 +4,7 @@ import { useEffect, useRef } from 'react';
 import { refreshTokens } from '../api/client';
 import { router } from '../router';
 import type { PersistedSession } from '../stores/auth';
-import { authStore, registerSessionExpired } from '../stores/auth';
-
-const SESSION_KEY = 'lucy.auth';
+import { authStore, registerSessionExpired, SESSION_KEY } from '../stores/auth';
 
 export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
   // ahooks 持久化：仅存 refreshToken + user，accessToken 留在内存

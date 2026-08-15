@@ -56,6 +56,7 @@ function LayoutComponent() {
       menuItemRender={renderMenuItem}
     >
       <PageContainer
+        fixedHeader
         header={{
           extra: [<ThemeSwitcher key={'theme'} />],
         }}

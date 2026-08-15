@@ -38,38 +38,36 @@ function ChatPage() {
 
   return (
     <Splitter className="h-full" collapsible={{ motion: true }}>
-      <Splitter.Panel collapsible defaultSize="20%" min="15%" max="70%">
-        <div className="h-full overflow-y-auto p-2">
-          <Conversations
-            items={items}
-            activeKey={id}
-            onActiveChange={(key) =>
-              navigate({ to: '/chat', search: { id: key }, replace: true })
-            }
-            creation={{
-              label: '新建会话',
-              icon: <PlusOutlined />,
-              onClick: () =>
-                navigate({
-                  to: '/chat',
-                  search: { id: undefined },
-                  replace: true,
-                }),
-            }}
-          />
-        </div>
+      <Splitter.Panel collapsible defaultSize="15%" min="15%" max="40%">
+        <Conversations
+          items={items}
+          activeKey={id}
+          onActiveChange={(key) =>
+            navigate({ to: '/chat', search: { id: key }, replace: true })
+          }
+          creation={{
+            label: '新建会话',
+            icon: <PlusOutlined />,
+            onClick: () =>
+              navigate({
+                to: '/chat',
+                search: { id: undefined },
+                replace: true,
+              }),
+          }}
+        />
       </Splitter.Panel>
-      <Splitter.Panel className="flex">
+      <Splitter.Panel>
         <ChatMessagesArea id={id} />
       </Splitter.Panel>
-      <Splitter.Panel collapsible defaultSize="20%" max="70%">
+      <Splitter.Panel collapsible defaultSize="20%" min="15%" max="40%">
         <ThoughtChainPlaceholder />
       </Splitter.Panel>
     </Splitter>
   );
 }
 
-function ChatMessagesArea({ id }: { id: string | undefined }) {
+function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
   const { messages, streaming, isLoading, error, send, stop } =
     useChatStream(id);
   const [value, setValue] = useState('');
@@ -105,7 +103,7 @@ function ChatMessagesArea({ id }: { id: string | undefined }) {
 
   if (isLoading) {
     return (
-      <Flex className="h-full" align="center" justify="center">
+      <Flex className="h-full w-full" align="center" justify="center">
         <Spin />
       </Flex>
     );
@@ -130,11 +128,15 @@ function ChatMessagesArea({ id }: { id: string | undefined }) {
   }));
 
   return (
-    <Flex vertical className="h-full">
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        <Bubble.List items={items} role={roles} autoScroll />
-      </div>
-      <div className="px-4 pb-4">
+    <Flex vertical className="h-full w-full">
+      <Bubble.List
+        items={items}
+        role={roles}
+        autoScroll
+        className="min-h-0 flex-1 pb-4"
+        classNames={{ scroll: 'scrollbar-hide' }}
+      />
+      <div className="px-4">
         <Sender
           value={value}
           onChange={setValue}
