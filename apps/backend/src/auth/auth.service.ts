@@ -13,8 +13,6 @@ import { UsersService } from '../users/users.service.js';
 
 // API 契约类型由 Swagger 生成的 components.schemas 派生，与前端共享同一事实源
 type SharedUser = components['schemas']['User'];
-type AuthTokensDto = components['schemas']['AuthTokensDto'];
-type LoginResultDto = components['schemas']['LoginResultDto'];
 
 @Injectable()
 export class AuthService {
@@ -35,10 +33,17 @@ export class AuthService {
     return `auth:refresh:${token}`;
   }
 
+  private familyKey(family: string): string {
+    return `auth:refresh:family:${family}`;
+  }
+
+  private reuseKey(token: string): string {
+    return `auth:refresh:reuse:${token}`;
+  }
+
   private toSharedUser(user: User): SharedUser {
     const { id, username, email, nickname, status, createdAt, updatedAt } =
       user;
-    // 生成契约中 createdAt/updatedAt 为 ISO 8601 字符串（与 JSON 序列化结果一致）
     return {
       id,
       username,
@@ -63,7 +68,7 @@ export class AuthService {
   async login(dto: {
     account: string;
     password: string;
-  }): Promise<LoginResultDto> {
+  }): Promise<{ user: SharedUser; refreshToken: string }> {
     const user = dto.account.includes('@')
       ? await this.usersService.findByEmail(dto.account)
       : await this.usersService.findByUsername(dto.account);
@@ -93,32 +98,57 @@ export class AuthService {
         HttpStatus.UNAUTHORIZED,
       );
     }
-    return this.issueTokens(user);
+    const family = randomUUID();
+    const refreshToken = await this.issueRefreshToken(user.id, family);
+    return { user: this.toSharedUser(user), refreshToken };
   }
 
-  private async issueTokens(user: User): Promise<LoginResultDto> {
-    const accessToken = await this.jwtService.signAsync({
-      sub: user.id,
-      jti: randomUUID(),
-    });
-    const refreshToken = randomBytes(32).toString('base64url');
+  private async issueRefreshToken(
+    userId: string,
+    family: string,
+  ): Promise<string> {
+    const token = randomBytes(32).toString('base64url');
     await this.redis.set(
-      this.refreshKey(refreshToken),
-      user.id,
+      this.refreshKey(token),
+      `${userId}:${family}`,
       this.refreshTtl(),
     );
-    return { accessToken, refreshToken, user: this.toSharedUser(user) };
+    await this.redis.client.sadd(this.familyKey(family), token);
+    await this.redis.client.expire(this.familyKey(family), this.refreshTtl());
+    return token;
   }
 
-  async refresh(refreshToken: string): Promise<AuthTokensDto> {
-    const userId = await this.redis.get(this.refreshKey(refreshToken));
-    if (!userId) {
+  private async revokeFamily(family: string): Promise<void> {
+    const members = await this.redis.client.smembers(this.familyKey(family));
+    await Promise.all(
+      members.map((t) => this.redis.del(this.refreshKey(t), this.reuseKey(t))),
+    );
+    await this.redis.del(this.familyKey(family));
+  }
+
+  async refresh(
+    refreshToken: string,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    const active = await this.redis.get(this.refreshKey(refreshToken));
+    if (!active) {
+      // 已不在 active 集合：可能是被轮换掉的旧 token（复用=泄露信号），或已过期
+      const reused = await this.redis.get(this.reuseKey(refreshToken));
+      if (reused) {
+        const family = reused.split(':')[1];
+        await this.revokeFamily(family);
+        throw new BusinessException(
+          ErrorCode.UNAUTHORIZED,
+          '刷新令牌无效（检测到令牌复用）',
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
       throw new BusinessException(
         ErrorCode.UNAUTHORIZED,
         '刷新令牌无效',
         HttpStatus.UNAUTHORIZED,
       );
     }
+    const [userId, family] = active.split(':');
     const user = await this.usersService.findById(userId);
     if (user?.status !== 1) {
       throw new BusinessException(
@@ -127,23 +157,29 @@ export class AuthService {
         HttpStatus.UNAUTHORIZED,
       );
     }
+    // 轮换：删除旧 token → 记录复用标记 → 同家族签发新 token
     await this.redis.del(this.refreshKey(refreshToken));
+    await this.redis.client.srem(this.familyKey(family), refreshToken);
+    await this.redis.set(this.reuseKey(refreshToken), active, this.refreshTtl());
+    const newRefreshToken = await this.issueRefreshToken(userId, family);
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
       jti: randomUUID(),
     });
-    const newRefreshToken = randomBytes(32).toString('base64url');
-    await this.redis.set(
-      this.refreshKey(newRefreshToken),
-      user.id,
-      this.refreshTtl(),
-    );
     return { accessToken, refreshToken: newRefreshToken };
   }
 
   async logout(jti: string, refreshToken?: string): Promise<void> {
     if (refreshToken) {
-      await this.redis.del(this.refreshKey(refreshToken));
+      const active = await this.redis.get(this.refreshKey(refreshToken));
+      if (active) {
+        await this.revokeFamily(active.split(':')[1]);
+      } else {
+        await this.redis.del(
+          this.refreshKey(refreshToken),
+          this.reuseKey(refreshToken),
+        );
+      }
     }
     await this.denylist.add(jti);
   }

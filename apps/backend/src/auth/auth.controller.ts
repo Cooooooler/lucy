@@ -12,11 +12,10 @@ import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { User as UserEntity } from '../users/user.entity.js';
 import { AuthService } from './auth.service.js';
-import { AuthTokensDto } from './dto/auth-tokens.dto.js';
 import { LoginResultDto } from './dto/login-result.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { LogoutResultDto } from './dto/logout-result.dto.js';
-import { RefreshDto } from './dto/refresh.dto.js';
+import { RefreshResultDto } from './dto/refresh-result.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 
 const REFRESH_COOKIE = 'refreshToken';
@@ -41,58 +40,48 @@ export class AuthController {
   @Post('login')
   @ApiOperation({
     summary: '登录',
-    description: '账号密码登录，返回 access/refresh 令牌',
+    description: '账号密码登录，返回用户信息；长效 token 写入 HttpOnly cookie',
   })
   @ApiResponse({ status: 201, description: '登录成功', type: LoginResultDto })
   @ApiResponse({ status: 401, description: '用户名或密码错误' })
-  async login(
-    @Body() dto: LoginDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const tokens = await this.authService.login(dto);
-    this.setRefreshCookie(res, tokens.refreshToken);
-    return tokens;
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+    const { user, refreshToken } = await this.authService.login(dto);
+    this.setRefreshCookie(res, refreshToken);
+    return { user };
   }
 
   @Public()
   @Post('refresh')
   @ApiOperation({
     summary: '刷新令牌',
-    description: '用 refresh token 换发新令牌对',
+    description: '读取 HttpOnly cookie 换发短效 access token，并轮换长效 token',
   })
-  @ApiResponse({ status: 201, description: '换发成功', type: AuthTokensDto })
-  @ApiResponse({ status: 401, description: '刷新令牌无效' })
-  async refresh(
-    @Body() dto: RefreshDto,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const token =
-      dto.refreshToken ?? (req.cookies?.[REFRESH_COOKIE] as string | undefined);
+  @ApiResponse({ status: 201, description: '换发成功', type: RefreshResultDto })
+  @ApiResponse({ status: 401, description: '缺少或无效的刷新令牌' })
+  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const token = req.cookies?.[REFRESH_COOKIE] as string | undefined;
     if (!token) {
       return this.authService.throwMissingRefresh();
     }
-    const tokens = await this.authService.refresh(token);
-    this.setRefreshCookie(res, tokens.refreshToken);
-    return tokens;
+    const { accessToken, refreshToken } = await this.authService.refresh(token);
+    this.setRefreshCookie(res, refreshToken);
+    return { accessToken };
   }
 
   @ApiBearerAuth()
   @Post('logout')
   @ApiOperation({
     summary: '登出',
-    description: '撤销当前 access 与 refresh 令牌',
+    description: '撤销当前会话整个家族并清除 cookie',
   })
   @ApiResponse({ status: 201, description: '登出成功', type: LogoutResultDto })
   @ApiResponse({ status: 401, description: '未登录或令牌失效' })
   async logout(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() dto: RefreshDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const refreshToken =
-      dto.refreshToken ?? (req.cookies?.[REFRESH_COOKIE] as string | undefined);
+    const refreshToken = req.cookies?.[REFRESH_COOKIE] as string | undefined;
     await this.authService.logout(user.jti, refreshToken);
     res.clearCookie(REFRESH_COOKIE, this.cookieOptions());
     return { success: true };
