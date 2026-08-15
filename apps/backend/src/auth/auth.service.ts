@@ -33,6 +33,16 @@ export class AuthService {
     return this.config.get<string>('NODE_ENV', 'development') === 'production';
   }
 
+  // 时间化轮换：refresh token 超过该年龄才轮换，否则保持同一 token（降低多标签页竞态）
+  rotationMs(): number {
+    return this.config.get<number>('REFRESH_ROTATION_MS', 600000);
+  }
+
+  // 复用宽限期：轮换后短时间内再次出现视为良性 cookie 滞后，超过才判定泄露
+  reuseGraceSeconds(): number {
+    return this.config.get<number>('REUSE_GRACE_SECONDS', 10);
+  }
+
   // 旧格式/损坏的 active 值（无 family 或空段）返回 null，避免归入共享 family:undefined 命名空间
   private parseActive(
     value: string | null,
@@ -53,6 +63,14 @@ export class AuthService {
 
   private reuseKey(token: string): string {
     return `auth:refresh:reuse:${token}`;
+  }
+
+  private activeAtKey(token: string): string {
+    return `auth:refresh:at:${token}`;
+  }
+
+  private reuseAtKey(token: string): string {
+    return `auth:refresh:reuse-at:${token}`;
   }
 
   private toSharedUser(user: User): SharedUser {
@@ -127,6 +145,11 @@ export class AuthService {
       `${userId}:${family}`,
       this.refreshTtl(),
     );
+    await this.redis.set(
+      this.activeAtKey(token),
+      String(Date.now()),
+      this.refreshTtl(),
+    );
     await this.redis.client.sadd(this.familyKey(family), token);
     await this.redis.client.expire(this.familyKey(family), this.refreshTtl());
     return token;
@@ -135,7 +158,14 @@ export class AuthService {
   private async revokeFamily(family: string): Promise<void> {
     const members = await this.redis.client.smembers(this.familyKey(family));
     await Promise.all(
-      members.map((t) => this.redis.del(this.refreshKey(t), this.reuseKey(t))),
+      members.map((t) =>
+        this.redis.del(
+          this.refreshKey(t),
+          this.activeAtKey(t),
+          this.reuseKey(t),
+          this.reuseAtKey(t),
+        ),
+      ),
     );
     await this.redis.del(this.familyKey(family));
   }
@@ -145,16 +175,28 @@ export class AuthService {
   ): Promise<{ accessToken: string; refreshToken: string }> {
     const active = await this.redis.get(this.refreshKey(refreshToken));
     if (!active) {
-      // 已不在 active 集合：可能是被轮换掉的旧 token（复用=泄露信号），或已过期
+      // 已不在 active 集合：可能是被轮换掉的旧 token，或已过期
       const reused = await this.redis.get(this.reuseKey(refreshToken));
       if (reused) {
         const parsed = this.parseActive(reused);
+        let theft = false;
         if (parsed) {
-          await this.revokeFamily(parsed.family);
+          // 复用宽限期：轮换后短时间内再次出现视为良性 cookie 滞后（多标签页竞态），
+          // 仅当超过宽限期仍被复用才判定为泄露并吊销整个家族
+          const reuseAtRaw = await this.redis.get(
+            this.reuseAtKey(refreshToken),
+          );
+          if (
+            reuseAtRaw &&
+            Date.now() - Number(reuseAtRaw) >= this.reuseGraceSeconds() * 1000
+          ) {
+            theft = true;
+            await this.revokeFamily(parsed.family);
+          }
         }
         throw new BusinessException(
           ErrorCode.UNAUTHORIZED,
-          '刷新令牌无效（检测到令牌复用）',
+          theft ? '刷新令牌无效（检测到令牌复用）' : '刷新令牌无效',
           HttpStatus.UNAUTHORIZED,
         );
       }
@@ -169,7 +211,9 @@ export class AuthService {
       // 旧格式或损坏记录：删除并视为无效，绝不写入 family:undefined
       await this.redis.del(
         this.refreshKey(refreshToken),
+        this.activeAtKey(refreshToken),
         this.reuseKey(refreshToken),
+        this.reuseAtKey(refreshToken),
       );
       throw new BusinessException(
         ErrorCode.UNAUTHORIZED,
@@ -186,19 +230,34 @@ export class AuthService {
         HttpStatus.UNAUTHORIZED,
       );
     }
-    // 轮换：删除旧 token → 记录复用标记 → 同家族签发新 token
-    await this.redis.del(this.refreshKey(refreshToken));
+    const accessToken = await this.jwtService.signAsync({
+      sub: user.id,
+      jti: randomUUID(),
+    });
+    // 时间化轮换：token 未到轮换年龄时不轮换、保持同一 refresh cookie，
+    // 从根上降低多标签页共享 cookie 的轮换竞态频率
+    const createdAtRaw = await this.redis.get(this.activeAtKey(refreshToken));
+    const createdAt = createdAtRaw ? Number(createdAtRaw) : 0;
+    if (Date.now() - createdAt < this.rotationMs()) {
+      return { accessToken, refreshToken };
+    }
+    // 轮换：删除旧 token → 记录复用标记（含轮换时间）→ 同家族签发新 token
+    await this.redis.del(
+      this.refreshKey(refreshToken),
+      this.activeAtKey(refreshToken),
+    );
     await this.redis.client.srem(this.familyKey(family), refreshToken);
     await this.redis.set(
       this.reuseKey(refreshToken),
       active,
       this.refreshTtl(),
     );
+    await this.redis.set(
+      this.reuseAtKey(refreshToken),
+      String(Date.now()),
+      this.refreshTtl(),
+    );
     const newRefreshToken = await this.issueRefreshToken(userId, family);
-    const accessToken = await this.jwtService.signAsync({
-      sub: user.id,
-      jti: randomUUID(),
-    });
     return { accessToken, refreshToken: newRefreshToken };
   }
 
@@ -211,7 +270,9 @@ export class AuthService {
       } else {
         await this.redis.del(
           this.refreshKey(refreshToken),
+          this.activeAtKey(refreshToken),
           this.reuseKey(refreshToken),
+          this.reuseAtKey(refreshToken),
         );
       }
     }

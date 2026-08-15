@@ -1677,9 +1677,10 @@ pnpm build
 - **旧格式 Redis 值解析**：改造前写入的 `auth:refresh:<token>` 值只有 `userId`（无 `:family`），存量旧 token 刷新时 `split(':')[1]` 得 `undefined`，全部归入 `family:undefined` 命名空间，任一复用/登出会批量吊销所有存量旧会话。现 `AuthService.parseActive()` 对非「userId:family」格式（无 family、空段或损坏值）一律返回 `null`，`refresh()` 遇之删除 key 并视为无效、绝不写入 `family:undefined`；`refresh()` 复用检测与 `logout()` 均改用 `parseActive()`，仅对合法 family 吊销。新增用例覆盖。
 - **cookie Secure 环境驱动**：`auth.controller.ts` 原硬编码 `secure: false`，现改为 `this.authService.cookieSecure()`，由 `AuthService` 按 `NODE_ENV === 'production'` 返回，生产强制 HTTPS-only。
 
-**后续硬化（未做，记入后续）：**
+**已实现（1+2 组合，多标签页竞态收敛）：**
 
-- **多标签页共享 cookie 下的非原子轮换**：多标签页共享同一 HttpOnly cookie 时，若多个请求并发轮换同一 refresh token，非原子读-删-写可能在轮询场景触发复用误判，把整族登出。建议改为原子 Lua 脚本完成「校验+删除+写复用标记+签发新 token」，或引入复用宽限期（在宽限期内允许合法重放，仅记录不吊销）。
+- **时间化轮换（Fix 2）**：`auth:refresh:at:<token>` 记录 token 创建时间；`refresh()` 仅在 token 超过 `REFRESH_ROTATION_MS`（默认 10 分钟）时才轮换，否则返回同一 refresh cookie。多标签页平时共用同一 token，从根本上把轮换竞态频率从「每次刷新」降到「每 10 分钟一次」。缺省 `at` 的遗留 token 视为过期立即轮换。
+- **复用宽限期（Fix 1）**：轮换时写 `auth:refresh:reuse-at:<token>`（轮换时间戳）；复用检测仅当旧 token 在 `REUSE_GRACE_SECONDS`（默认 10 秒）之后再现才判定泄露并 `revokeFamily`，宽限期内视为良性 cookie 滞后、不吊销家族。避免标签页竞态把整族登出。
 
 **次要项 deferred：**
 

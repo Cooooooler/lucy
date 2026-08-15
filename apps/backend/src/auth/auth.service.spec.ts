@@ -78,6 +78,11 @@ describe('AuthService', () => {
       expect.stringMatching(/^u1:/),
       expect.any(Number),
     );
+    expect(redisService.set).toHaveBeenCalledWith(
+      `auth:refresh:at:${result.refreshToken}`,
+      expect.any(String),
+      expect.any(Number),
+    );
     expect(redisClient.sadd).toHaveBeenCalled();
   });
 
@@ -113,11 +118,39 @@ describe('AuthService', () => {
     ).rejects.toThrow(BusinessException);
   });
 
-  it('refresh 成功轮换：删旧 key、srem、写复用标记、同家族新增', async () => {
-    redisService.get.mockResolvedValue(activeVal);
+  // 按 key 返回值的 get mock，避免用单一返回值掩盖 active/at/reuse 读取
+  function mockGet(map: Record<string, string | null>): void {
+    redisService.get.mockImplementation((key: string) =>
+      Promise.resolve(map[key] ?? null),
+    );
+  }
+
+  it('refresh 未到轮换年龄时不轮换，返回同一 refresh token', async () => {
+    mockGet({
+      'auth:refresh:old': activeVal,
+      'auth:refresh:at:old': String(Date.now()),
+    });
     usersService.findById.mockResolvedValue(user);
     const result = await service.refresh('old');
-    expect(redisService.del).toHaveBeenCalledWith('auth:refresh:old');
+    expect(result.accessToken).toBe('access-token');
+    expect(result.refreshToken).toBe('old');
+    expect(redisClient.srem).not.toHaveBeenCalled();
+    expect(redisService.del).not.toHaveBeenCalled();
+    expect(redisService.set).not.toHaveBeenCalled();
+  });
+
+  it('refresh 超过轮换年龄时轮换：删旧 key、srem、写复用标记、同家族新增', async () => {
+    const now = Date.now();
+    mockGet({
+      'auth:refresh:old': activeVal,
+      'auth:refresh:at:old': String(now - 600001),
+    });
+    usersService.findById.mockResolvedValue(user);
+    const result = await service.refresh('old');
+    expect(redisService.del).toHaveBeenCalledWith(
+      'auth:refresh:old',
+      'auth:refresh:at:old',
+    );
     expect(redisClient.srem).toHaveBeenCalledWith(
       'auth:refresh:family:family-1',
       'old',
@@ -125,6 +158,11 @@ describe('AuthService', () => {
     expect(redisService.set).toHaveBeenCalledWith(
       'auth:refresh:reuse:old',
       activeVal,
+      expect.any(Number),
+    );
+    expect(redisService.set).toHaveBeenCalledWith(
+      'auth:refresh:reuse-at:old',
+      expect.any(String),
       expect.any(Number),
     );
     expect(redisService.set).toHaveBeenCalledWith(
@@ -136,9 +174,25 @@ describe('AuthService', () => {
     expect(result.refreshToken).not.toBe('old');
   });
 
-  it('refresh 复用已轮换 token 时吊销整个家族并抛 Unauthorized', async () => {
-    redisService.get.mockResolvedValueOnce(null);
-    redisService.get.mockResolvedValueOnce(activeVal);
+  it('refresh 复用 token 但在宽限期内视为良性，不吊销家族', async () => {
+    const now = Date.now();
+    mockGet({
+      'auth:refresh:old': null,
+      'auth:refresh:reuse:old': activeVal,
+      'auth:refresh:reuse-at:old': String(now - 5000),
+    });
+    await expect(service.refresh('old')).rejects.toThrow(BusinessException);
+    expect(redisClient.smembers).not.toHaveBeenCalled();
+    expect(redisService.del).not.toHaveBeenCalled();
+  });
+
+  it('refresh 复用 token 且超过宽限期判定泄露，吊销整个家族', async () => {
+    const now = Date.now();
+    mockGet({
+      'auth:refresh:old': null,
+      'auth:refresh:reuse:old': activeVal,
+      'auth:refresh:reuse-at:old': String(now - 20000),
+    });
     redisClient.smembers.mockResolvedValue(['t1', 't2']);
     await expect(service.refresh('old')).rejects.toThrow(BusinessException);
     expect(redisClient.smembers).toHaveBeenCalledWith(
@@ -146,37 +200,38 @@ describe('AuthService', () => {
     );
     expect(redisService.del).toHaveBeenCalledWith(
       'auth:refresh:t1',
+      'auth:refresh:at:t1',
       'auth:refresh:reuse:t1',
-    );
-    expect(redisService.del).toHaveBeenCalledWith(
-      'auth:refresh:t2',
-      'auth:refresh:reuse:t2',
+      'auth:refresh:reuse-at:t1',
     );
   });
 
   it('refresh 无效 token（非复用）抛 Unauthorized', async () => {
-    redisService.get.mockResolvedValue(null);
+    mockGet({});
     await expect(service.refresh('bad')).rejects.toThrow(BusinessException);
+    expect(redisClient.smembers).not.toHaveBeenCalled();
   });
 
   it('refresh 遇到旧格式（无 family）的 active 值视为无效并清理', async () => {
-    redisService.get.mockResolvedValueOnce('u1'); // 旧格式：只有 userId
+    mockGet({ 'auth:refresh:old': 'u1' }); // 旧格式：只有 userId
     await expect(service.refresh('old')).rejects.toThrow(BusinessException);
     expect(redisService.del).toHaveBeenCalledWith(
       'auth:refresh:old',
+      'auth:refresh:at:old',
       'auth:refresh:reuse:old',
+      'auth:refresh:reuse-at:old',
     );
     expect(redisClient.sadd).not.toHaveBeenCalled();
   });
 
   it('refresh 用户不存在抛 Unauthorized', async () => {
-    redisService.get.mockResolvedValue(activeVal);
+    mockGet({ 'auth:refresh:t': activeVal });
     usersService.findById.mockResolvedValue(null);
     await expect(service.refresh('t')).rejects.toThrow(BusinessException);
   });
 
   it('refresh 用户已禁用抛 Unauthorized', async () => {
-    redisService.get.mockResolvedValue(activeVal);
+    mockGet({ 'auth:refresh:t': activeVal });
     usersService.findById.mockResolvedValue({ ...user, status: 0 });
     await expect(service.refresh('t')).rejects.toThrow(BusinessException);
   });
@@ -194,11 +249,17 @@ describe('AuthService', () => {
   });
 
   it('logout 带有效 refreshToken 吊销整个家族', async () => {
-    redisService.get.mockResolvedValue(activeVal);
+    mockGet({ 'auth:refresh:r': activeVal });
     redisClient.smembers.mockResolvedValue(['t1']);
     await service.logout('jti-1', 'r');
     expect(redisClient.smembers).toHaveBeenCalledWith(
       'auth:refresh:family:family-1',
+    );
+    expect(redisService.del).toHaveBeenCalledWith(
+      'auth:refresh:t1',
+      'auth:refresh:at:t1',
+      'auth:refresh:reuse:t1',
+      'auth:refresh:reuse-at:t1',
     );
     expect(denylist.add).toHaveBeenCalledWith('jti-1');
   });
@@ -215,5 +276,13 @@ describe('AuthService', () => {
 
   it('refreshTtl 返回默认 7 天', () => {
     expect(service.refreshTtl()).toBe(604800);
+  });
+
+  it('rotationMs 默认 10 分钟', () => {
+    expect(service.rotationMs()).toBe(600000);
+  });
+
+  it('reuseGraceSeconds 默认 10 秒', () => {
+    expect(service.reuseGraceSeconds()).toBe(10);
   });
 });
