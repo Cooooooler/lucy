@@ -14,7 +14,7 @@
 
 ## 决策记录
 
-- **范围**：仅中栏消息区。移除左栏 `ChatConversations`、右栏 `ThoughtChain`、`Prompts` 占位，页面简化为 `Bubble.List` + `Sender`。
+- **范围**：三栏布局（`Splitter`）——左栏**真实会话列表**（`useConversationList` 展示、点击切换 `/chat?id=`、`creation` 新建），中栏消息区（`Bubble.List` + `Sender`），右栏 `ThoughtChain` 占位（待后端思考事件接入）。`Prompts`/`Suggestion` 占位不恢复。
 - **会话来源**：路由**查询参数** `/chat?id=<conversationId>`（`validateSearch` 定义可选 `id`）。选择 query 而非 path 参数的原因：`/chat` 与 `/chat?id=xxx` 是**同一路由**，改 search 不重挂载组件，首条消息的无感创建无需跨路由传递（无 pending 转移、无 StrictMode 双发送问题）。
 - **无感创建**：无 `id` 时消息区直接可用；首条消息提交时 `createConversationApi({})` 拿新 id → `navigate({ to: '/chat', search: { id }, replace: true })` → 组件在 `id` 从无到有的 effect 里发送暂存的首条消息（恰好走 `sentRef` 守卫，历史晚到不覆盖流式）。
 - **流式架构**：`useChatStream(conversationId?: string)`，内部复用 `useHookFetch`（`stream`/`cancel`/`loading`），避免给 `streamSendMessageApi` 加 signal 参数。
@@ -61,10 +61,11 @@ ChatMessage = { key, role: 'user'|'assistant', content, streaming?, error? }
 
 ## 路由与页面
 
-- `src/routes/_layout/chat.tsx` → 唯一聊天页（`createFileRoute('/_layout/chat')`）：
+- `src/routes/_layout/chat.tsx` → 唯一聊天页（`createFileRoute('/_layout/chat')`），三栏 `Splitter`：
   - `validateSearch` 定义可选 `id`（`string | undefined`）。
-  - `const { id } = Route.useSearch()` → `useChatStream(id)`。
-  - 无 id：消息区直接可用，Sender 可输入；提交时 `createConversationApi({})` → `navigate({ to: '/chat', search: { id }, replace: true })`，并在 `id` 变化 effect 里 `send` 暂存的首条消息。
+  - **左栏**：`Conversations`（@ant-design/x）——`useConversationList(1, 50)` 映射 items（`label: title ?? '新会话'`）、`activeKey={id}`、`onActiveChange` → `navigate({ to: '/chat', search: { id: key }, replace })`、`creation`（新建会话 → `navigate({ to: '/chat', search: { id: undefined } })`）。
+  - **中栏** `ChatMessagesArea(id)`：`const { id } = Route.useSearch()` → `useChatStream(id)`；无 id 时消息区直接可用，首条消息 `useCreateConversation().mutateAsync({})`（自动失效会话列表）→ `navigate({ to: '/chat', search: { id }, replace: true })`，并在 `id` 从无到有的 effect 里 `send` 暂存的首条消息。
+  - **右栏**：`ThoughtChain` 占位（`Empty` 提示「思考过程（待接入）」）。
   - `roles` 配置组件外定义（assistant 靠左、user 靠右）。
   - 渲染：历史加载中 → loading；`conversationQuery.error`（404）→ 错误态（区分「会话不存在/加载失败」）；否则 `Bubble.List`（streaming 消息 `streaming=true`、空内容 `loading=true`、错误消息渲染错误文案）+ `Sender`（`loading={streaming || creating}`、`onSubmit=handleSubmit`、`onCancel=stop`）。
 - 删除 `chat.index.tsx` 与 `chat.$conversationId.tsx`（path 参数方案遗留）。
