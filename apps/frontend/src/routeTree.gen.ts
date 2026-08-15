@@ -16,8 +16,6 @@ import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutAboutRouteImport } from './routes/_layout/about'
 import { Route as LayoutChatRouteImport } from './routes/_layout/chat'
-import { Route as LayoutChatIndexRouteImport } from './routes/_layout/chat.index'
-import { Route as LayoutChatConversationIdRouteImport } from './routes/_layout/chat.$conversationId'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/_auth',
@@ -52,34 +50,20 @@ const LayoutChatRoute = LayoutChatRouteImport.update({
   path: '/chat',
   getParentRoute: () => LayoutRoute,
 } as any)
-const LayoutChatIndexRoute = LayoutChatIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => LayoutChatRoute,
-} as any)
-const LayoutChatConversationIdRoute =
-  LayoutChatConversationIdRouteImport.update({
-    id: '/$conversationId',
-    path: '/$conversationId',
-    getParentRoute: () => LayoutChatRoute,
-  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof LayoutIndexRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
   '/about': typeof LayoutAboutRoute
-  '/chat': typeof LayoutChatRouteWithChildren
-  '/chat/$conversationId': typeof LayoutChatConversationIdRoute
-  '/chat/': typeof LayoutChatIndexRoute
+  '/chat': typeof LayoutChatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof LayoutIndexRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
   '/about': typeof LayoutAboutRoute
-  '/chat/$conversationId': typeof LayoutChatConversationIdRoute
-  '/chat': typeof LayoutChatIndexRoute
+  '/chat': typeof LayoutChatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -88,24 +72,14 @@ export interface FileRoutesById {
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/register': typeof AuthRegisterRoute
   '/_layout/about': typeof LayoutAboutRoute
-  '/_layout/chat': typeof LayoutChatRouteWithChildren
+  '/_layout/chat': typeof LayoutChatRoute
   '/_layout/': typeof LayoutIndexRoute
-  '/_layout/chat/$conversationId': typeof LayoutChatConversationIdRoute
-  '/_layout/chat/': typeof LayoutChatIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/login'
-    | '/register'
-    | '/about'
-    | '/chat'
-    | '/chat/$conversationId'
-    | '/chat/'
+  fullPaths: '/' | '/login' | '/register' | '/about' | '/chat'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    '/' | '/login' | '/register' | '/about' | '/chat/$conversationId' | '/chat'
+  to: '/' | '/login' | '/register' | '/about' | '/chat'
   id:
     | '__root__'
     | '/_auth'
@@ -115,8 +89,6 @@ export interface FileRouteTypes {
     | '/_layout/about'
     | '/_layout/chat'
     | '/_layout/'
-    | '/_layout/chat/$conversationId'
-    | '/_layout/chat/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -175,20 +147,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutChatRouteImport
       parentRoute: typeof LayoutRoute
     }
-    '/_layout/chat/': {
-      id: '/_layout/chat/'
-      path: '/'
-      fullPath: '/chat/'
-      preLoaderRoute: typeof LayoutChatIndexRouteImport
-      parentRoute: typeof LayoutChatRoute
-    }
-    '/_layout/chat/$conversationId': {
-      id: '/_layout/chat/$conversationId'
-      path: '/$conversationId'
-      fullPath: '/chat/$conversationId'
-      preLoaderRoute: typeof LayoutChatConversationIdRouteImport
-      parentRoute: typeof LayoutChatRoute
-    }
   }
 }
 
@@ -204,29 +162,15 @@ const AuthRouteChildren: AuthRouteChildren = {
 
 const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
 
-interface LayoutChatRouteChildren {
-  LayoutChatConversationIdRoute: typeof LayoutChatConversationIdRoute
-  LayoutChatIndexRoute: typeof LayoutChatIndexRoute
-}
-
-const LayoutChatRouteChildren: LayoutChatRouteChildren = {
-  LayoutChatConversationIdRoute: LayoutChatConversationIdRoute,
-  LayoutChatIndexRoute: LayoutChatIndexRoute,
-}
-
-const LayoutChatRouteWithChildren = LayoutChatRoute._addFileChildren(
-  LayoutChatRouteChildren,
-)
-
 interface LayoutRouteChildren {
   LayoutAboutRoute: typeof LayoutAboutRoute
-  LayoutChatRoute: typeof LayoutChatRouteWithChildren
+  LayoutChatRoute: typeof LayoutChatRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAboutRoute: LayoutAboutRoute,
-  LayoutChatRoute: LayoutChatRouteWithChildren,
+  LayoutChatRoute: LayoutChatRoute,
   LayoutIndexRoute: LayoutIndexRoute,
 }
 

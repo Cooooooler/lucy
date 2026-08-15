@@ -252,4 +252,57 @@ describe('useChatStream', () => {
       content: 'hi',
     });
   });
+
+  it('无会话 id 时 send 为空操作', async () => {
+    mocks.useConversation.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: null,
+    });
+    mocks.createStreamRequest.mockReturnValue(
+      mockStreamRequest(() => streamOf([delta('你')])),
+    );
+    const { result } = renderHook(() => useChatStream(undefined), {
+      wrapper: createWrapper(),
+    });
+    await act(async () => {
+      await result.current.send('hi');
+    });
+    expect(mocks.createStreamRequest).not.toHaveBeenCalled();
+    expect(result.current.messages).toHaveLength(0);
+    expect(result.current.streaming).toBe(false);
+  });
+
+  it('会话 id 变化时重置消息并重新注入新历史', async () => {
+    mocks.useConversation.mockReturnValue({
+      data: {
+        id: 'c1',
+        messages: [{ id: 'm1', role: 'user', content: '旧会话', status: null }],
+      },
+      isLoading: false,
+      error: null,
+    });
+    const { result, rerender } = renderHook(
+      ({ cid }: { cid: string }) => useChatStream(cid),
+      { initialProps: { cid: 'c1' }, wrapper: createWrapper() },
+    );
+    await waitFor(() => expect(result.current.messages).toHaveLength(1));
+    expect(result.current.messages[0]).toMatchObject({ content: '旧会话' });
+
+    // 切换到 c2：重置旧消息后注入 c2 历史
+    mocks.useConversation.mockReturnValue({
+      data: {
+        id: 'c2',
+        messages: [{ id: 'm2', role: 'user', content: '新会话', status: null }],
+      },
+      isLoading: false,
+      error: null,
+    });
+    rerender({ cid: 'c2' });
+    await waitFor(() => expect(result.current.messages).toHaveLength(1));
+    expect(result.current.messages[0]).toMatchObject({
+      key: 'm2',
+      content: '新会话',
+    });
+  });
 });

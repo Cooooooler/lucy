@@ -10,6 +10,8 @@
 
 **前置条件：** 规格 `docs/superpowers/specs/2026-08-15-chat-frontend-integration-design.md` 已批准。
 
+> **设计变更（2026-08-15 补充，已批准）：** 会话来源由路径参数 `/chat/:conversationId` 改为**查询参数 `/chat?id=<conversationId>`**，并支持**首条消息无感创建**（无 id 时消息区直接可用，首条消息提交时创建会话 → `navigate` 更新 `id` → effect 发送暂存首条消息）。因此：任务 3 的 `chat.index.tsx`（`/chat` 空态）与 `chat.$conversationId.tsx`（`/chat/:id`）被删除，`chat.tsx` 成为唯一聊天页（`validateSearch` 定义可选 `id`）；`useChatStream` 改为接受 `conversationId?: string` 并在 id 变化时重置消息/守卫。路由/无感创建流程依赖浏览器冒烟验证（路由文件被覆盖率排除）。
+
 ---
 
 ## 文件结构

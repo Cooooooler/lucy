@@ -12,13 +12,14 @@ export interface ChatMessage {
   error?: string;
 }
 
-export function useChatStream(conversationId: string) {
+export function useChatStream(conversationId: string | undefined) {
   const conversationQuery = useConversation(conversationId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const streamingRef = useRef(false);
   const initializedRef = useRef(false);
   const sentRef = useRef(false);
+  const currentIdRef = useRef(conversationId);
 
   const { stream, cancel } = useHookFetch({
     request: createStreamRequest,
@@ -34,6 +35,17 @@ export function useChatStream(conversationId: string) {
     },
     [],
   );
+
+  // 会话 id 变化（/chat?id= 的 query 参数变化不重挂载）：重置消息与守卫，重新加载历史
+  useEffect(() => {
+    if (currentIdRef.current === conversationId) return;
+    currentIdRef.current = conversationId;
+    initializedRef.current = false;
+    sentRef.current = false;
+    streamingRef.current = false;
+    setStreaming(false);
+    setMessages([]);
+  }, [conversationId]);
 
   // 历史只在首次数据到达时注入；一旦已 send（sentRef）或已初始化，不再注入，避免覆盖流式状态。
   // 这里的 setMessages 是一次性历史注入（initializedRef 守卫），非响应式派生，故豁免告警。
@@ -62,7 +74,7 @@ export function useChatStream(conversationId: string) {
 
   async function send(content: string) {
     const text = content.trim();
-    if (streamingRef.current || !text) return;
+    if (!conversationId || streamingRef.current || !text) return;
     sentRef.current = true;
     const userKey = `user-${Date.now()}`;
     const assistantKey = `assistant-${Date.now()}`;
