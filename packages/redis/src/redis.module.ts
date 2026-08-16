@@ -7,8 +7,9 @@ import {
 } from '@nestjs/common';
 import { createClient } from './client.factory.js';
 import type { RedisClient, RedisModuleOptions } from './options.js';
-import { REDIS_CLIENT } from './redis.constants.js';
+import { REDIS_CLIENT, REDIS_SERIALIZER } from './redis.constants.js';
 import { RedisService } from './redis.service.js';
+import { defaultJsonSerializer } from './serializer.js';
 
 /** forRootAsync 的异步配置：useFactory 可注入依赖（如 ConfigService）读取连接配置 */
 export interface RedisModuleAsyncOptions {
@@ -34,11 +35,16 @@ export class RedisModule implements OnModuleDestroy {
   /** 同步注册全局 Redis 连接（连接在模块初始化时惰性建立） */
   static forRoot(options: RedisModuleOptions): DynamicModule {
     const client = createClient(options);
+    const serializer = options.serializer ?? defaultJsonSerializer;
     return {
       module: RedisModule,
       global: true,
-      providers: [{ provide: REDIS_CLIENT, useValue: client }, RedisService],
-      exports: [REDIS_CLIENT, RedisService],
+      providers: [
+        { provide: REDIS_CLIENT, useValue: client },
+        { provide: REDIS_SERIALIZER, useValue: serializer },
+        RedisService,
+      ],
+      exports: [REDIS_CLIENT, REDIS_SERIALIZER, RedisService],
     };
   }
 
@@ -55,9 +61,16 @@ export class RedisModule implements OnModuleDestroy {
           useFactory: async (...args: unknown[]) =>
             createClient(await options.useFactory(...args)),
         },
+        {
+          provide: REDIS_SERIALIZER,
+          inject: options.inject ?? [],
+          useFactory: async (...args: unknown[]) =>
+            (await options.useFactory(...args)).serializer ??
+            defaultJsonSerializer,
+        },
         RedisService,
       ],
-      exports: [REDIS_CLIENT, RedisService],
+      exports: [REDIS_CLIENT, REDIS_SERIALIZER, RedisService],
     };
   }
 

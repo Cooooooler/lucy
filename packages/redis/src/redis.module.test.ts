@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it, vi } from 'vitest';
-import { REDIS_CLIENT } from './redis.constants.js';
+import { REDIS_CLIENT, REDIS_SERIALIZER } from './redis.constants.js';
 import { RedisModule } from './redis.module.js';
 import { RedisService } from './redis.service.js';
+import { defaultJsonSerializer } from './serializer.js';
 
 const { mockRedisCtor } = vi.hoisted(() => ({ mockRedisCtor: vi.fn() }));
 
@@ -75,5 +76,37 @@ describe('RedisModule', () => {
       quit: ReturnType<typeof vi.fn>;
     };
     expect(client.quit).toHaveBeenCalled();
+  });
+
+  it('forRoot 默认提供 defaultJsonSerializer', async () => {
+    mockRedisCtor.mockClear();
+    const module = await Test.createTestingModule({
+      imports: [RedisModule.forRoot({ type: 'standalone' })],
+    }).compile();
+    expect(module.get(REDIS_SERIALIZER)).toBe(defaultJsonSerializer);
+  });
+
+  it('forRoot 支持自定义 serializer', async () => {
+    mockRedisCtor.mockClear();
+    const custom = { serialize: () => 'X', deserialize: () => 'Y' };
+    const module = await Test.createTestingModule({
+      imports: [
+        RedisModule.forRoot({ type: 'standalone', serializer: custom }),
+      ],
+    }).compile();
+    expect(module.get(REDIS_SERIALIZER)).toBe(custom);
+  });
+
+  it('forRootAsync useFactory 返回自定义 serializer', async () => {
+    mockRedisCtor.mockClear();
+    const custom = { serialize: () => 'X', deserialize: () => 'Y' };
+    const module = await Test.createTestingModule({
+      imports: [
+        RedisModule.forRootAsync({
+          useFactory: () => ({ type: 'standalone', serializer: custom }),
+        }),
+      ],
+    }).compile();
+    expect(module.get(REDIS_SERIALIZER)).toBe(custom);
   });
 });

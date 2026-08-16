@@ -1,9 +1,10 @@
 import type { Cluster, Redis } from 'ioredis';
+import type { RedisSerializer } from './serializer.js';
 
 /** ioredis 客户端统一类型：单机/哨兵返回 Redis，集群返回 Cluster */
 export type RedisClient = Redis | Cluster;
 
-/** 所有连接模式共用的连接参数 */
+/** 所有连接模式共用的连接参数（serializer 为模块级配置，不传给 ioredis） */
 export interface RedisConnectionOptions {
   password?: string;
   db?: number;
@@ -12,6 +13,8 @@ export interface RedisConnectionOptions {
   lazyConnect?: boolean;
   keepAlive?: number;
   retryStrategy?: (times: number) => number | void | null;
+  /** 自定义序列化器；默认 defaultJsonSerializer */
+  serializer?: RedisSerializer;
 }
 
 /** 单机 Redis 连接配置 */
