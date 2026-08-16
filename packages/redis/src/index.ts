@@ -18,10 +18,17 @@ export type {
   RedisSentinelOptions,
   RedisStandaloneOptions,
 } from './options.js';
-export { REDIS_CLIENT, REDIS_SERIALIZER } from './redis.constants.js';
+export {
+  REDIS_CLIENT,
+  REDIS_SERIALIZER,
+  getNamedClientToken,
+} from './redis.constants.js';
 export { RedisException, toRedisException } from './redis.exception.js';
 export { RedisModule } from './redis.module.js';
-export type { RedisModuleAsyncOptions } from './redis.module.js';
+export type {
+  RedisFeatureOptions,
+  RedisModuleAsyncOptions,
+} from './redis.module.js';
 export { RedisService } from './redis.service.js';
 export { defaultJsonSerializer, isIsoDateString } from './serializer.js';
 export type { RedisSerializer } from './serializer.js';
