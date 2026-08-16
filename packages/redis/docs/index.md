@@ -19,7 +19,7 @@ features:
   - title: 统一 DI 与异常
     details: RedisService 注入即用；ioredis 底层错误统一包装为 RedisException，带稳定错误码。
   - title: 序列化
-    details: 默认 JSON，自定义序列化器可替换，自动处理 Date。（规划中）
+    details: 默认 JSON，自定义序列化器可替换，自动处理 Date；getJson / setJson 开箱即用。
   - title: 多数据源
     details: forFeature 命名客户端 + key 前缀命名空间，多连接与 key 隔离双支持。（规划中）
 ---

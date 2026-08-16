@@ -25,6 +25,24 @@ await this.redis.set('key', 'value', 60); // 60 秒后过期
 
 判断 key 是否存在，归一为布尔值。
 
+### `setJson(key, value, ttlSeconds?)`
+
+序列化写入：value 经序列化器转字符串（Date 自动处理）；传 `ttlSeconds` 时附加 `EX` 过期。
+
+```ts
+await this.redis.setJson('user:1', { name: 'Alice', at: new Date() }, 60);
+```
+
+### `getJson<T>(key): Promise<T | null>`
+
+序列化读取：文本经序列化器还原（ISO 日期自动转回 `Date`）；key 不存在返回 `null`。
+
+```ts
+const user = await this.redis.getJson<{ name: string; at: Date }>('user:1');
+```
+
+> 序列化器细节见 [序列化](./serialization)。
+
 ### `raw`
 
 底层 ioredis 实例（逃生舱），供高级用法（`BF.*`、`eval`、`pipeline` 等）直接操作，**不经过异常包装**：
@@ -51,10 +69,12 @@ export class CacheService {
     return this.redis.get(key);
   }
 
+  async setObject(key: string, value: unknown): Promise<void> {
+    await this.redis.setJson(key, value, 60);
+  }
+
   async has(key: string): Promise<boolean> {
     return this.redis.exists(key);
   }
 }
 ```
-
-> 序列化版本 `getJson` / `setJson`（自动 JSON 编解码与 Date 处理）规划中。
