@@ -6,3 +6,8 @@ export const REDIS_CLIENT = Symbol.for('REDIS_CLIENT');
 
 /** DI token：标识序列化器实例（默认 defaultJsonSerializer） */
 export const REDIS_SERIALIZER = Symbol.for('REDIS_SERIALIZER');
+
+/** 生成命名客户端 DI token：`REDIS_CLIENT:<name>`（Symbol.for 全局共享，跨模块解析到同一实例） */
+export function getNamedClientToken(name: string): symbol {
+  return Symbol.for(`REDIS_CLIENT:${name}`);
+}

@@ -1,7 +1,11 @@
-import { Module } from '@nestjs/common';
+import { Injectable, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it, vi } from 'vitest';
-import { REDIS_CLIENT, REDIS_SERIALIZER } from './redis.constants.js';
+import {
+  getNamedClientToken,
+  REDIS_CLIENT,
+  REDIS_SERIALIZER,
+} from './redis.constants.js';
 import { RedisModule } from './redis.module.js';
 import { RedisService } from './redis.service.js';
 import { defaultJsonSerializer } from './serializer.js';
@@ -108,5 +112,78 @@ describe('RedisModule', () => {
       ],
     }).compile();
     expect(module.get(REDIS_SERIALIZER)).toBe(custom);
+  });
+
+  it('forFeature name+options 创建独立命名连接并提供 RedisService', async () => {
+    mockRedisCtor.mockClear();
+    const module = await Test.createTestingModule({
+      imports: [
+        RedisModule.forFeature({
+          name: 'cache',
+          options: {
+            type: 'standalone',
+            host: 'cache.example.com',
+            port: 7000,
+          },
+        }),
+      ],
+    }).compile();
+    expect(module.get(RedisService)).toBeInstanceOf(RedisService);
+    expect(mockRedisCtor).toHaveBeenCalledTimes(1);
+    const arg = mockRedisCtor.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.host).toBe('cache.example.com');
+    expect(arg.port).toBe(7000);
+  });
+
+  it('forFeature name 暴露命名客户端 token', async () => {
+    mockRedisCtor.mockClear();
+    const module = await Test.createTestingModule({
+      imports: [
+        RedisModule.forFeature({
+          name: 'cache',
+          options: { type: 'standalone', host: 'cache.example.com' },
+        }),
+      ],
+    }).compile();
+    expect(module.get(getNamedClientToken('cache'))).toBeDefined();
+  });
+
+  it('forFeature name+namespace+options 组合可用', async () => {
+    mockRedisCtor.mockClear();
+    const module = await Test.createTestingModule({
+      imports: [
+        RedisModule.forFeature({
+          name: 'cache',
+          namespace: 'auth',
+          options: { type: 'standalone' },
+        }),
+      ],
+    }).compile();
+    expect(module.get(RedisService)).toBeInstanceOf(RedisService);
+    expect(mockRedisCtor).toHaveBeenCalledTimes(1);
+  });
+
+  it('forRoot + forFeature namespace：feature 服务覆盖全局（局部优先）', async () => {
+    mockRedisCtor.mockClear();
+    // 消费 feature RedisService 的服务放在 import forFeature 的 FeatureModule 里，
+    // 验证它拿到的是 forFeature 提供的实例（局部 provider 优先于全局）
+    const provided: { redis: unknown }[] = [];
+    @Injectable()
+    class Consumer {
+      constructor(private readonly redis: RedisService) {
+        provided.push({ redis });
+      }
+    }
+    @Module({
+      imports: [RedisModule.forFeature({ namespace: 'auth' })],
+      providers: [Consumer],
+    })
+    class FeatureModule {}
+    const module = await Test.createTestingModule({
+      imports: [RedisModule.forRoot({ type: 'standalone' }), FeatureModule],
+    }).compile();
+    module.get(Consumer);
+    expect(mockRedisCtor).toHaveBeenCalledTimes(1); // 仅 forRoot 建连，feature 复用默认连接
+    expect(provided[0].redis).toBeInstanceOf(RedisService);
   });
 });

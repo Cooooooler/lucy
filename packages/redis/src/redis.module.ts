@@ -3,12 +3,19 @@ import {
   Inject,
   Module,
   OnModuleDestroy,
+  Optional,
   type ModuleMetadata,
 } from '@nestjs/common';
+import type { Redis } from 'ioredis';
 import { createClient } from './client.factory.js';
 import type { RedisClient, RedisModuleOptions } from './options.js';
-import { REDIS_CLIENT, REDIS_SERIALIZER } from './redis.constants.js';
+import {
+  getNamedClientToken,
+  REDIS_CLIENT,
+  REDIS_SERIALIZER,
+} from './redis.constants.js';
 import { RedisService } from './redis.service.js';
+import type { RedisSerializer } from './serializer.js';
 import { defaultJsonSerializer } from './serializer.js';
 
 /** forRootAsync 的异步配置：useFactory 可注入依赖（如 ConfigService）读取连接配置 */
@@ -24,13 +31,25 @@ export interface RedisModuleAsyncOptions {
   ) => Promise<RedisModuleOptions> | RedisModuleOptions;
 }
 
+/** forFeature 配置：namespace 为 key 前缀；name+options 创建独立命名连接，否则共享默认连接 */
+export interface RedisFeatureOptions {
+  namespace?: string;
+  name?: string;
+  options?: RedisModuleOptions;
+}
+
 /**
  * Redis 连接模块。通过 `forRoot`/`forRootAsync` 注册全局 Redis 连接与 RedisService，
  * 应用关闭时断开连接。必须经由静态方法使用，不可直接 import 本类。
  */
 @Module({})
 export class RedisModule implements OnModuleDestroy {
-  constructor(@Inject(REDIS_CLIENT) private readonly client: RedisClient) {}
+  /** client 可选：forFeature 命名作用域模块不提供默认连接，故 @Optional 允许缺省 */
+  constructor(
+    @Optional()
+    @Inject(REDIS_CLIENT)
+    private readonly client?: RedisClient,
+  ) {}
 
   /** 同步注册全局 Redis 连接（连接在模块初始化时惰性建立） */
   static forRoot(options: RedisModuleOptions): DynamicModule {
@@ -74,8 +93,43 @@ export class RedisModule implements OnModuleDestroy {
     };
   }
 
-  /** 应用关闭时断开连接，避免悬挂连接句柄 */
+  /** 应用关闭时断开连接，避免悬挂连接句柄（命名 feature 作用域无默认连接时跳过） */
   async onModuleDestroy(): Promise<void> {
-    await this.client.quit();
+    await this.client?.quit();
+  }
+
+  /** 返回模块作用域的 feature RedisService：namespace 加 key 前缀；name+options 用独立命名连接 */
+  static forFeature(options: RedisFeatureOptions): DynamicModule {
+    const { name, namespace, options: connOptions } = options;
+    const isNamed = connOptions !== undefined;
+    const clientToken = isNamed
+      ? getNamedClientToken(name ?? 'default')
+      : REDIS_CLIENT;
+    return {
+      module: RedisModule,
+      providers: [
+        ...(isNamed
+          ? [
+              {
+                provide: clientToken,
+                useFactory: () =>
+                  createClient(connOptions as RedisModuleOptions),
+              },
+            ]
+          : []),
+        {
+          provide: RedisService,
+          // REDIS_SERIALIZER 可缺省：命名 feature 独立场景无 forRoot 提供，回退默认序列化器
+          useFactory: (client: RedisClient, serializer: RedisSerializer) =>
+            new RedisService(
+              client as Redis,
+              serializer ?? defaultJsonSerializer,
+              namespace,
+            ),
+          inject: [clientToken, { token: REDIS_SERIALIZER, optional: true }],
+        },
+      ],
+      exports: isNamed ? [clientToken, RedisService] : [RedisService],
+    };
   }
 }
