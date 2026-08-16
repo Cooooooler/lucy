@@ -29,9 +29,12 @@ type RequestExtra = {
 };
 
 // 基础配置：baseURL、Content-Type（hook-fetch 直接拼接 baseURL+url，baseURL 需以 / 结尾）
+// withCredentials: hook-fetch 默认 credentials:'omit' 不携带 cookie；长效 token 走 HttpOnly
+// cookie，必须显式带上，否则 /auth/refresh 收不到刷新令牌
 const baseOptions = {
   baseURL: import.meta.env.DEV ? '/api/' : '/',
   headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
 };
 
 const authHeader: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {

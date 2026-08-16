@@ -87,6 +87,14 @@ describe('api/client', () => {
       expect(new Headers(init.headers).get('Authorization')).toBeNull();
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
+
+    it('请求携带 cookie（credentials: include，供 HttpOnly 长效 token 透传）', async () => {
+      login(user);
+      fetchMock.mockResolvedValueOnce(okEnvelope({ ok: true }));
+      await http.post('auth/logout').json();
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(init.credentials).toBe('include');
+    });
   });
 
   describe('401 自动刷新', () => {
