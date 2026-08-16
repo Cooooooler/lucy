@@ -6,6 +6,7 @@ import {
   useRenameConversation,
 } from '@/hooks/use-ai';
 import { useChatStream } from '@/hooks/use-chat';
+import { authStore } from '@/stores/auth.ts';
 import {
   DeleteOutlined,
   DownOutlined,
@@ -43,6 +44,7 @@ import {
   type ComponentRef,
   type UIEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -61,19 +63,6 @@ const renderMarkdown: BubbleProps['contentRender'] = (content) => {
   return <XMarkdown content={content} />;
 };
 
-// 组件外定义，保持引用稳定（避免重置打字动画）
-const roles: RoleType = {
-  ai: {
-    placement: 'start' as const,
-    avatar: <Avatar icon={<OllamaFilled />} />,
-    contentRender: renderMarkdown,
-  },
-  user: {
-    placement: 'end' as const,
-    avatar: <Avatar icon={<UserOutlined />} />,
-  },
-};
-
 function ChatPage() {
   const { id } = Route.useSearch();
   const navigate = useNavigate();
@@ -82,6 +71,7 @@ function ChatPage() {
   const remove = useDeleteConversation();
   const { modal } = App.useApp();
   const [renamingKey, setRenamingKey] = useState<string | null>(null);
+
   const items = (conversations.data?.list ?? []).map((c) => ({
     key: c.id,
     label:
@@ -236,6 +226,24 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
   const create = useCreateConversation();
   const listRef = useRef<ComponentRef<typeof Bubble.List>>(null);
   const [atBottom, setAtBottom] = useState(true);
+
+  const { user } = authStore.get();
+
+  const roles: RoleType = useMemo(() => {
+    return {
+      ai: {
+        placement: 'start' as const,
+        avatar: <Avatar icon={<OllamaFilled />} />,
+        contentRender: renderMarkdown,
+        header: <Text ellipsis>{}</Text>,
+      },
+      user: {
+        placement: 'end' as const,
+        avatar: <Avatar icon={<UserOutlined />} />,
+        header: <Text ellipsis>{user?.nickname ?? user?.username ?? ''}</Text>,
+      },
+    };
+  }, [user]);
 
   /**
    * # 滚动事件处理
