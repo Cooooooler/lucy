@@ -7,8 +7,8 @@ import {
   Patch,
   Post,
   Query,
-  Sse,
-  type MessageEvent,
+  Res,
+  SetMetadata,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -16,9 +16,10 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Observable } from 'rxjs';
+import type { Response } from 'express';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
+import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js';
 import { AiService } from './ai.service.js';
 import { ConversationListQueryDto } from './dto/conversation-list-query.dto.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
@@ -103,18 +104,56 @@ export class AiController {
     return this.aiService.remove(user.userId, id);
   }
 
-  // 注意：@Post 必须写在 @Sse 上方——@Sse 内部把 HTTP 方法置为 GET，@Post 在上方覆盖回 POST
+  // POST 流式接口：手动写 `data: <json>` 帧（OpenAI 风格），流末尾 `data: [DONE]` 终止。
+  // @SetMetadata 复用 ApiResponseInterceptor 的 SSE 放行标记，避免信封包裹破坏流协议
   @Post('conversations/:id/messages')
-  @Sse('conversations/:id/messages')
+  @SetMetadata(SSE_METADATA, true)
   @ApiOperation({
     summary: '发送消息',
-    description: 'SSE 流式返回模型回复，事件：delta/done/error',
+    description: `SSE 流式返回模型回复：
+    
+    data: {"type":"delta","requestId":"req-123","role":"ai","data":{"content":"你好"}}
+
+    data: {"type":"delta","requestId":"req-123","role":"ai","data":{"content":"，我是AI助手"}}
+
+    data: {"type":"error","requestId":"req-123","data":{"code":50002,"message":"模型调用超时"}}
+
+    data: {"type":"done","requestId":"req-123","role":"ai","data":{"finish_reason":"stop"}}
+
+    data: [DONE]
+    `,
   })
   send(
+    @Res({
+      passthrough: true,
+    })
+    res: Response,
     @CurrentUser() user: CurrentUserPayload,
     @Param('id') id: string,
     @Body() dto: SendMessageDto,
-  ): Observable<MessageEvent> {
-    return this.aiService.sendMessage(user.userId, id, dto);
+  ): void {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const subscription = this.aiService
+      .sendMessage(user.userId, id, dto)
+      .subscribe({
+        next: (event) => {
+          if (!res.destroyed && !res.writableEnded) {
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+          }
+        },
+        complete: () => {
+          if (!res.destroyed && !res.writableEnded) {
+            res.write('data: [DONE]\n\n');
+          }
+          res.end();
+        },
+      });
+    // 客户端断开时取消订阅，触发 service 的 AbortController 中断模型流
+    res.on('close', () => subscription.unsubscribe());
   }
 }

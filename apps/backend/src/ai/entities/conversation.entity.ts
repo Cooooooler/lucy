@@ -19,9 +19,9 @@ export class Conversation {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ApiProperty({ description: '归属用户 ID', example: '1' })
+  @ApiProperty({ description: '归属用户 ID' })
   @Index()
-  @Column({ name: 'user_id', type: 'bigint' })
+  @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
   @ApiHideProperty()
@@ -37,13 +37,9 @@ export class Conversation {
   @Column({ type: 'varchar', nullable: true })
   model: string | null;
 
-  @ApiProperty({
-    description: '消息列表',
-    type: () => [Message],
-    required: false,
-  })
+  @ApiProperty({ description: '消息列表', type: () => [Message] })
   @OneToMany(() => Message, (m) => m.conversation)
-  messages?: Message[];
+  messages: Message[];
 
   @ApiProperty({ description: '创建时间' })
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

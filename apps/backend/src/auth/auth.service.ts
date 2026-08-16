@@ -13,8 +13,6 @@ import { UsersService } from '../users/users.service.js';
 
 // API 契约类型由 Swagger 生成的 components.schemas 派生，与前端共享同一事实源
 type SharedUser = components['schemas']['User'];
-type AuthTokensDto = components['schemas']['AuthTokensDto'];
-type LoginResultDto = components['schemas']['LoginResultDto'];
 
 @Injectable()
 export class AuthService {
@@ -31,14 +29,53 @@ export class AuthService {
     return this.config.get<number>('REFRESH_TTL_SECONDS', 604800);
   }
 
+  cookieSecure(): boolean {
+    return this.config.get<string>('NODE_ENV', 'development') === 'production';
+  }
+
+  // 时间化轮换：refresh token 超过该年龄才轮换，否则保持同一 token（降低多标签页竞态）
+  rotationMs(): number {
+    return this.config.get<number>('REFRESH_ROTATION_MS', 600000);
+  }
+
+  // 复用宽限期：轮换后短时间内再次出现视为良性 cookie 滞后，超过才判定泄露
+  reuseGraceSeconds(): number {
+    return this.config.get<number>('REUSE_GRACE_SECONDS', 10);
+  }
+
+  // 旧格式/损坏的 active 值（无 family 或空段）返回 null，避免归入共享 family:undefined 命名空间
+  private parseActive(
+    value: string | null,
+  ): { userId: string; family: string } | null {
+    if (!value) return null;
+    const sep = value.indexOf(':');
+    if (sep <= 0 || sep === value.length - 1) return null;
+    return { userId: value.slice(0, sep), family: value.slice(sep + 1) };
+  }
+
   private refreshKey(token: string): string {
     return `auth:refresh:${token}`;
+  }
+
+  private familyKey(family: string): string {
+    return `auth:refresh:family:${family}`;
+  }
+
+  private reuseKey(token: string): string {
+    return `auth:refresh:reuse:${token}`;
+  }
+
+  private activeAtKey(token: string): string {
+    return `auth:refresh:at:${token}`;
+  }
+
+  private reuseAtKey(token: string): string {
+    return `auth:refresh:reuse-at:${token}`;
   }
 
   private toSharedUser(user: User): SharedUser {
     const { id, username, email, nickname, status, createdAt, updatedAt } =
       user;
-    // 生成契约中 createdAt/updatedAt 为 ISO 8601 字符串（与 JSON 序列化结果一致）
     return {
       id,
       username,
@@ -63,7 +100,7 @@ export class AuthService {
   async login(dto: {
     account: string;
     password: string;
-  }): Promise<LoginResultDto> {
+  }): Promise<{ user: SharedUser; refreshToken: string }> {
     const user = dto.account.includes('@')
       ? await this.usersService.findByEmail(dto.account)
       : await this.usersService.findByUsername(dto.account);
@@ -93,32 +130,98 @@ export class AuthService {
         HttpStatus.UNAUTHORIZED,
       );
     }
-    return this.issueTokens(user);
+    const family = randomUUID();
+    const refreshToken = await this.issueRefreshToken(user.id, family);
+    return { user: this.toSharedUser(user), refreshToken };
   }
 
-  private async issueTokens(user: User): Promise<LoginResultDto> {
-    const accessToken = await this.jwtService.signAsync({
-      sub: user.id,
-      jti: randomUUID(),
-    });
-    const refreshToken = randomBytes(32).toString('base64url');
+  private async issueRefreshToken(
+    userId: string,
+    family: string,
+  ): Promise<string> {
+    const token = randomBytes(32).toString('base64url');
     await this.redis.set(
-      this.refreshKey(refreshToken),
-      user.id,
+      this.refreshKey(token),
+      `${userId}:${family}`,
       this.refreshTtl(),
     );
-    return { accessToken, refreshToken, user: this.toSharedUser(user) };
+    await this.redis.set(
+      this.activeAtKey(token),
+      String(Date.now()),
+      this.refreshTtl(),
+    );
+    await this.redis.client.sadd(this.familyKey(family), token);
+    await this.redis.client.expire(this.familyKey(family), this.refreshTtl());
+    return token;
   }
 
-  async refresh(refreshToken: string): Promise<AuthTokensDto> {
-    const userId = await this.redis.get(this.refreshKey(refreshToken));
-    if (!userId) {
+  private async revokeFamily(family: string): Promise<void> {
+    const members = await this.redis.client.smembers(this.familyKey(family));
+    await Promise.all(
+      members.map((t) =>
+        this.redis.del(
+          this.refreshKey(t),
+          this.activeAtKey(t),
+          this.reuseKey(t),
+          this.reuseAtKey(t),
+        ),
+      ),
+    );
+    await this.redis.del(this.familyKey(family));
+  }
+
+  async refresh(
+    refreshToken: string,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    const active = await this.redis.get(this.refreshKey(refreshToken));
+    if (!active) {
+      // 已不在 active 集合：可能是被轮换掉的旧 token，或已过期
+      const reused = await this.redis.get(this.reuseKey(refreshToken));
+      if (reused) {
+        const parsed = this.parseActive(reused);
+        let theft = false;
+        if (parsed) {
+          // 复用宽限期：仅当 reuse-at 存在且在宽限期内视为良性 cookie 滞后（多标签页竞态）；
+          // reuse-at 缺失或超过宽限期均按泄露处理（fail-closed），吊销整个家族
+          const reuseAtRaw = await this.redis.get(
+            this.reuseAtKey(refreshToken),
+          );
+          const withinGrace =
+            reuseAtRaw &&
+            Date.now() - Number(reuseAtRaw) < this.reuseGraceSeconds() * 1000;
+          theft = !withinGrace;
+          if (theft) {
+            await this.revokeFamily(parsed.family);
+          }
+        }
+        throw new BusinessException(
+          ErrorCode.UNAUTHORIZED,
+          theft ? '刷新令牌无效（检测到令牌复用）' : '刷新令牌无效',
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
       throw new BusinessException(
         ErrorCode.UNAUTHORIZED,
         '刷新令牌无效',
         HttpStatus.UNAUTHORIZED,
       );
     }
+    const parsed = this.parseActive(active);
+    if (!parsed) {
+      // 旧格式或损坏记录：删除并视为无效，绝不写入 family:undefined
+      await this.redis.del(
+        this.refreshKey(refreshToken),
+        this.activeAtKey(refreshToken),
+        this.reuseKey(refreshToken),
+        this.reuseAtKey(refreshToken),
+      );
+      throw new BusinessException(
+        ErrorCode.UNAUTHORIZED,
+        '刷新令牌无效',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    const { userId, family } = parsed;
     const user = await this.usersService.findById(userId);
     if (user?.status !== 1) {
       throw new BusinessException(
@@ -127,23 +230,59 @@ export class AuthService {
         HttpStatus.UNAUTHORIZED,
       );
     }
-    await this.redis.del(this.refreshKey(refreshToken));
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
       jti: randomUUID(),
     });
-    const newRefreshToken = randomBytes(32).toString('base64url');
+    // 时间化轮换：token 未到轮换年龄时不轮换、保持同一 refresh cookie，
+    // 从根上降低多标签页共享 cookie 的轮换竞态频率
+    const createdAtRaw = await this.redis.get(this.activeAtKey(refreshToken));
+    const createdAt = createdAtRaw ? Number(createdAtRaw) : 0;
+    if (Date.now() - createdAt < this.rotationMs()) {
+      return { accessToken, refreshToken };
+    }
+    // 轮换：删除旧 token → 记录复用标记（含轮换时间）→ 同家族签发新 token
+    await this.redis.del(
+      this.refreshKey(refreshToken),
+      this.activeAtKey(refreshToken),
+    );
+    await this.redis.client.srem(this.familyKey(family), refreshToken);
     await this.redis.set(
-      this.refreshKey(newRefreshToken),
-      user.id,
+      this.reuseKey(refreshToken),
+      active,
       this.refreshTtl(),
     );
+    await this.redis.set(
+      this.reuseAtKey(refreshToken),
+      String(Date.now()),
+      this.refreshTtl(),
+    );
+    const newRefreshToken = await this.issueRefreshToken(userId, family);
     return { accessToken, refreshToken: newRefreshToken };
   }
 
   async logout(jti: string, refreshToken?: string): Promise<void> {
     if (refreshToken) {
-      await this.redis.del(this.refreshKey(refreshToken));
+      const active = await this.redis.get(this.refreshKey(refreshToken));
+      const parsed = this.parseActive(active);
+      if (parsed) {
+        await this.revokeFamily(parsed.family);
+      } else {
+        // active 缺失：可能是已轮换 token，其 family 在 reuse key 中，
+        // 据此撤销整个家族（含有效后继），避免登出后会话仍可刷新
+        const reused = await this.redis.get(this.reuseKey(refreshToken));
+        const reusedParsed = this.parseActive(reused);
+        if (reusedParsed) {
+          await this.revokeFamily(reusedParsed.family);
+        } else {
+          await this.redis.del(
+            this.refreshKey(refreshToken),
+            this.activeAtKey(refreshToken),
+            this.reuseKey(refreshToken),
+            this.reuseAtKey(refreshToken),
+          );
+        }
+      }
     }
     await this.denylist.add(jti);
   }

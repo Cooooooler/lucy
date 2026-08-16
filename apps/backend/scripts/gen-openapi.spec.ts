@@ -45,7 +45,7 @@ describe('gen-openapi', () => {
       Object.keys(
         doc.components?.schemas?.LoginResultDto?.properties ?? {},
       ).sort(),
-    ).toEqual(['accessToken', 'refreshToken', 'user']);
+    ).toEqual(['user']);
     expect(
       doc.components?.schemas?.User?.properties?.passwordHash,
     ).toBeUndefined();

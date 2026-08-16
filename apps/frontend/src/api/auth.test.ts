@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeUser } from '../test/fixtures';
 import { loginApi, logoutApi, registerApi } from './auth';
 
-const mocks = vi.hoisted(() => ({ post: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  post: vi.fn(),
+}));
 
 vi.mock('./client', () => ({
   http: { post: mocks.post },
-  publicHttp: { post: mocks.post },
 }));
 
 const user = makeUser();
@@ -22,9 +23,11 @@ describe('api/auth', () => {
       json: vi.fn().mockResolvedValueOnce(data),
     });
     const result = await loginApi({ account: 'alice', password: 'secret' });
-    expect(mocks.post).toHaveBeenCalledWith('auth/login', {
-      json: { account: 'alice', password: 'secret' },
-    });
+    expect(mocks.post).toHaveBeenCalledWith(
+      'auth/login',
+      { account: 'alice', password: 'secret' },
+      { extra: { skipAuthRefresh: true } },
+    );
     expect(result).toEqual(data);
   });
 
@@ -38,7 +41,9 @@ describe('api/auth', () => {
       json: vi.fn().mockResolvedValueOnce(user),
     });
     const result = await registerApi(input);
-    expect(mocks.post).toHaveBeenCalledWith('auth/register', { json: input });
+    expect(mocks.post).toHaveBeenCalledWith('auth/register', input, {
+      extra: { skipAuthRefresh: true },
+    });
     expect(result).toEqual(user);
   });
 

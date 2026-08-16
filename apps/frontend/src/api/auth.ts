@@ -1,14 +1,25 @@
-import { http, publicHttp } from './client';
+import { http } from './client';
 import type { LoginRequest, LoginResult, RegisterRequest, User } from './types';
 
+// 登录/注册是匿名接口，失败的 401 不应触发令牌刷新（无凭证可换），故标记 skipAuthRefresh
 export function loginApi(input: LoginRequest) {
-  return publicHttp.post('auth/login', { json: input }).json<LoginResult>();
+  return http
+    .post<LoginResult>('auth/login', input, {
+      extra: { skipAuthRefresh: true },
+    })
+    .json();
 }
 
 export function registerApi(input: RegisterRequest) {
-  return publicHttp.post('auth/register', { json: input }).json<User>();
+  return http
+    .post<User>('auth/register', input, { extra: { skipAuthRefresh: true } })
+    .json();
 }
 
 export function logoutApi() {
-  return http.post('auth/logout').json<{ success: boolean }>();
+  return http.post<{ success: boolean }>('auth/logout').json();
+}
+
+export function meApi() {
+  return http.get<User>('auth/me').json();
 }

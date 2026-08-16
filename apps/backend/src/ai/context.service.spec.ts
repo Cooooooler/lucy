@@ -36,10 +36,7 @@ describe('ContextService', () => {
       AI_SYSTEM_PROMPT: 'sys',
       AI_CONTEXT_TOKEN_LIMIT: 30,
     });
-    const history = [
-      msg(MessageRole.User, 'u1'),
-      msg(MessageRole.Assistant, 'a1'),
-    ];
+    const history = [msg(MessageRole.User, 'u1'), msg(MessageRole.Ai, 'a1')];
     const out = await svc.buildMessages(history, 'new', 'qwen');
     expect(out[0]).toBeInstanceOf(SystemMessage);
     expect(out[1]).toBeInstanceOf(HumanMessage);
@@ -53,7 +50,7 @@ describe('ContextService', () => {
     const svc = makeSvc();
     const history = [
       msg(MessageRole.User, 'early'),
-      msg(MessageRole.Assistant, 'recent'),
+      msg(MessageRole.Ai, 'recent'),
     ];
     const out = await svc.buildMessages(history, 'new', 'qwen');
     expect(out).toHaveLength(2);
@@ -67,7 +64,7 @@ describe('ContextService', () => {
     // 若新消息未计入，historyBudget=9 本可容纳 recent
     const svc = makeSvc({ AI_CONTEXT_TOKEN_LIMIT: 14 });
     const out = await svc.buildMessages(
-      [msg(MessageRole.Assistant, 'recent')],
+      [msg(MessageRole.Ai, 'recent')],
       'new',
       'qwen',
     );

@@ -13,6 +13,7 @@ describe('AuthController', () => {
     me: vi.fn(),
     throwMissingRefresh: vi.fn(),
     refreshTtl: vi.fn().mockReturnValue(604800),
+    cookieSecure: vi.fn().mockReturnValue(false),
   };
 
   const safeUser = {
@@ -25,10 +26,7 @@ describe('AuthController', () => {
     updatedAt: '2026-08-08T00:00:00.000Z',
   };
 
-  const resMock = {
-    cookie: vi.fn(),
-    clearCookie: vi.fn(),
-  };
+  const resMock = { cookie: vi.fn(), clearCookie: vi.fn() };
   const res = resMock as unknown as Response;
 
   beforeEach(async () => {
@@ -52,11 +50,15 @@ describe('AuthController', () => {
     expect(authService.register).toHaveBeenCalledWith(dto);
   });
 
-  it('login 写入 httpOnly refresh cookie 并返回双令牌', async () => {
-    const tokens = { accessToken: 'a', refreshToken: 'r', user: safeUser };
-    authService.login.mockResolvedValue(tokens);
+  it('login 写 httpOnly refresh cookie 并只返回 user', async () => {
+    authService.login.mockResolvedValue({
+      user: safeUser,
+      refreshToken: 'r',
+    });
     const dto = { account: 'alice', password: 'p' };
-    await expect(controller.login(dto, res)).resolves.toBe(tokens);
+    await expect(controller.login(dto, res)).resolves.toEqual({
+      user: safeUser,
+    });
     expect(resMock.cookie).toHaveBeenCalledWith(
       'refreshToken',
       'r',
@@ -68,46 +70,39 @@ describe('AuthController', () => {
     );
   });
 
-  it('refresh 优先使用 body 里的 refreshToken', async () => {
-    const tokens = { accessToken: 'a', refreshToken: 'r' };
-    authService.refresh.mockResolvedValue(tokens);
-    const dto = { refreshToken: 'body-token' };
-    const req = {
-      cookies: { refreshToken: 'cookie-token' },
-    } as unknown as Request;
-    await expect(controller.refresh(dto, req, res)).resolves.toBe(tokens);
-    expect(authService.refresh).toHaveBeenCalledWith('body-token');
-  });
-
-  it('refresh 无 body token 时兜底读取 cookie', async () => {
+  it('refresh 只读 cookie，返回 { accessToken } 并重设 cookie', async () => {
     authService.refresh.mockResolvedValue({
       accessToken: 'a',
-      refreshToken: 'r',
+      refreshToken: 'r2',
     });
-    const dto = { refreshToken: undefined };
     const req = {
       cookies: { refreshToken: 'cookie-token' },
     } as unknown as Request;
-    await controller.refresh(dto, req, res);
+    await expect(controller.refresh(req, res)).resolves.toEqual({
+      accessToken: 'a',
+    });
     expect(authService.refresh).toHaveBeenCalledWith('cookie-token');
+    expect(resMock.cookie).toHaveBeenCalledWith(
+      'refreshToken',
+      'r2',
+      expect.any(Object),
+    );
   });
 
-  it('refresh 缺少 token 委托 throwMissingRefresh', async () => {
+  it('refresh 缺少 cookie 委托 throwMissingRefresh', async () => {
     authService.throwMissingRefresh.mockImplementation(() => {
       throw new Error('missing');
     });
-    const dto = { refreshToken: undefined };
     const req = { cookies: {} } as unknown as Request;
-    await expect(controller.refresh(dto, req, res)).rejects.toThrow('missing');
+    await expect(controller.refresh(req, res)).rejects.toThrow('missing');
     expect(authService.throwMissingRefresh).toHaveBeenCalled();
   });
 
-  it('logout 删除 redis key、清除 cookie 并返回 success', async () => {
+  it('logout 读 cookie 吊销家族、清除 cookie 并返回 success', async () => {
     authService.logout.mockResolvedValue(undefined);
     const user = { userId: '1', jti: 'jti-1' };
-    const dto = { refreshToken: 'r' };
-    const req = { cookies: {} } as unknown as Request;
-    await expect(controller.logout(user, dto, req, res)).resolves.toEqual({
+    const req = { cookies: { refreshToken: 'r' } } as unknown as Request;
+    await expect(controller.logout(user, req, res)).resolves.toEqual({
       success: true,
     });
     expect(authService.logout).toHaveBeenCalledWith('jti-1', 'r');

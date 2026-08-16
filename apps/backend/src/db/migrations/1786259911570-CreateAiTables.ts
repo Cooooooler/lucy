@@ -5,7 +5,7 @@ export class CreateAiTables1786259911570 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `CREATE TYPE "public"."ai_messages_role_enum" AS ENUM('user', 'assistant', 'system')`,
+      `CREATE TYPE "public"."ai_messages_role_enum" AS ENUM('user', 'ai', 'system')`,
     );
     await queryRunner.query(
       `CREATE TYPE "public"."ai_messages_status_enum" AS ENUM('complete', 'aborted', 'failed')`,

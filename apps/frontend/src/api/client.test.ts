@@ -1,43 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  applyTokens,
   authStore,
   login,
   logout,
   registerSessionExpired,
 } from '../stores/auth';
 import { makeUser } from '../test/fixtures';
-import { ApiError, http, publicHttp, refreshTokens } from './client';
+import { ApiError, http, refreshTokens } from './client';
 
-// ky 在每次请求构造 Ky 实例时才读取 globalThis.fetch，因此须在每个用例前 stub
 const fetchMock = vi.fn();
-
 const user = makeUser();
 
 const okEnvelope = (data: unknown) =>
   new Response(JSON.stringify({ code: 0, message: 'ok', data }), {
     status: 200,
   });
-
-// 浏览器里 new Request('/auth/...') 会基于 location 解析成绝对地址，
-// Node 环境的 Request 不支持相对路径，这里打补丁让 ky 能用相对地址。
-function patchRelativeRequest() {
-  const RealRequest = globalThis.Request;
-  class ResolvingRequest extends RealRequest {
-    constructor(input: string | URL | Request, init?: RequestInit) {
-      if (typeof input === 'string' && input.startsWith('/')) {
-        input = new URL(input, 'http://localhost/').href;
-      }
-      super(input, init);
-    }
-  }
-  vi.stubGlobal('Request', ResolvingRequest);
-}
+const refreshEnvelope = (accessToken: string) => okEnvelope({ accessToken });
 
 describe('api/client', () => {
   beforeEach(() => {
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
-    patchRelativeRequest();
     logout();
     registerSessionExpired(() => {});
   });
@@ -46,12 +30,12 @@ describe('api/client', () => {
     vi.unstubAllGlobals();
   });
 
-  describe('publicHttp', () => {
+  describe('信封解包与错误归一化', () => {
     it('解包成功响应并返回 data', async () => {
       fetchMock.mockResolvedValueOnce(okEnvelope({ id: '1' }));
-      const data = await publicHttp
-        .post('auth/login', { json: { account: 'a', password: 'b' } })
-        .json<{ id: string }>();
+      const data = await http
+        .post<{ id: string }>('auth/login', { account: 'a', password: 'b' })
+        .json();
       expect(data).toEqual({ id: '1' });
     });
 
@@ -62,9 +46,7 @@ describe('api/client', () => {
           { status: 200 },
         ),
       );
-      await expect(
-        publicHttp.post('auth/login', { json: {} }).json(),
-      ).rejects.toMatchObject({
+      await expect(http.post('auth/login', {}).json()).rejects.toMatchObject({
         name: 'ApiError',
         code: 40102,
         message: '密码错误',
@@ -78,9 +60,7 @@ describe('api/client', () => {
           { status: 500 },
         ),
       );
-      await expect(
-        publicHttp.post('auth/login', { json: {} }).json(),
-      ).rejects.toMatchObject({
+      await expect(http.post('auth/login', {}).json()).rejects.toMatchObject({
         name: 'ApiError',
         code: 50000,
         status: 500,
@@ -92,9 +72,7 @@ describe('api/client', () => {
       fetchMock.mockResolvedValueOnce(
         new Response('Bad Gateway', { status: 502 }),
       );
-      await expect(
-        publicHttp.post('auth/login', { json: {} }).json(),
-      ).rejects.toMatchObject({
+      await expect(http.post('auth/login', {}).json()).rejects.toMatchObject({
         name: 'ApiError',
         status: 502,
         message: '请求失败（502）',
@@ -102,105 +80,171 @@ describe('api/client', () => {
     });
   });
 
-  describe('http', () => {
-    it('有令牌时附加 Bearer 头', async () => {
-      login(user, 'tok', 'rt');
+  describe('认证头', () => {
+    it('有短效 token 时附加 Bearer 头', async () => {
+      login(user);
+      applyTokens('tok');
       fetchMock.mockResolvedValueOnce(okEnvelope({ ok: true }));
-      const result = await http.post('auth/logout').json<{ ok: boolean }>();
-      expect(result).toEqual({ ok: true });
-      const request = fetchMock.mock.calls[0][0];
-      expect(new Headers(request.headers).get('Authorization')).toBe(
-        'Bearer tok',
-      );
+      await http.post<{ ok: boolean }>('auth/logout').json();
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(new Headers(init.headers).get('Authorization')).toBe('Bearer tok');
     });
 
-    it('无令牌时不附加 Authorization 头', async () => {
+    it('无短效 token 时不附加 Authorization 头，也不触发预刷新', async () => {
+      login(user);
       fetchMock.mockResolvedValueOnce(okEnvelope({ ok: true }));
       await http.post('auth/logout').json();
-      const request = fetchMock.mock.calls[0][0];
-      expect(request.headers.get('Authorization')).toBeNull();
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(new Headers(init.headers).get('Authorization')).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it('401 时自动刷新并携带新令牌重试一次', async () => {
-      login(user, 'expired', 'rt');
+    it('请求携带 cookie（credentials: include，供 HttpOnly 长效 token 透传）', async () => {
+      login(user);
+      fetchMock.mockResolvedValueOnce(okEnvelope({ ok: true }));
+      await http.post('auth/logout').json();
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(init.credentials).toBe('include');
+    });
+  });
+
+  describe('401 自动刷新', () => {
+    it('401 时刷新并携带新令牌重试一次', async () => {
+      login(user);
+      applyTokens('expired');
       fetchMock
         .mockResolvedValueOnce(new Response('unauthorized', { status: 401 }))
-        .mockResolvedValueOnce(
-          okEnvelope({ accessToken: 'new-token', refreshToken: 'rt2' }),
-        )
+        .mockResolvedValueOnce(refreshEnvelope('new-token'))
         .mockResolvedValueOnce(okEnvelope({ ok: true }));
 
-      const result = await http.post('auth/logout').json<{ ok: boolean }>();
+      const result = await http.post<{ ok: boolean }>('auth/logout').json();
       expect(result).toEqual({ ok: true });
       expect(fetchMock).toHaveBeenCalledTimes(3);
       expect(authStore.get().accessToken).toBe('new-token');
-      const retried = fetchMock.mock.calls[2][0];
+      const retried = fetchMock.mock.calls[2][1] as RequestInit;
       expect(new Headers(retried.headers).get('Authorization')).toBe(
         'Bearer new-token',
       );
     });
 
-    it('401 且刷新失败时请求被拒绝', async () => {
-      login(user, 'expired', 'rt');
+    it('401 后刷新遇网络错误时不判定会话过期，原样拒绝', async () => {
+      login(user);
+      applyTokens('expired');
       const handler = vi.fn();
       registerSessionExpired(handler);
       fetchMock
         .mockResolvedValueOnce(new Response('unauthorized', { status: 401 }))
         .mockRejectedValueOnce(new TypeError('network'));
 
+      await expect(http.post('auth/logout').json()).rejects.toThrow();
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('刷新后重放仍 401 判定会话过期', async () => {
+      login(user);
+      applyTokens('expired');
+      const handler = vi.fn();
+      registerSessionExpired(handler);
+      fetchMock
+        .mockResolvedValueOnce(new Response('', { status: 401 }))
+        .mockResolvedValueOnce(refreshEnvelope('new'))
+        .mockResolvedValueOnce(new Response('', { status: 401 }));
+
       await expect(http.post('auth/logout').json()).rejects.toThrow(
         '登录已过期，请重新登录',
       );
       expect(handler).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('skipAuthRefresh 的请求不触发 401 刷新', async () => {
+      login(user);
+      applyTokens('expired');
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ code: 40101, message: '密码错误', data: null }),
+          { status: 401 },
+        ),
+      );
+      await expect(
+        http
+          .post('auth/login', {}, { extra: { skipAuthRefresh: true } })
+          .json(),
+      ).rejects.toMatchObject({ name: 'ApiError', code: 40101, status: 401 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('refreshTokens', () => {
     it('单飞：并发刷新只发一次请求', async () => {
-      login(user, 'at', 'rt');
-      fetchMock.mockResolvedValueOnce(
-        okEnvelope({ accessToken: 'at2', refreshToken: 'rt2' }),
-      );
+      login(user);
+      fetchMock.mockResolvedValueOnce(refreshEnvelope('at2'));
       const [a, b] = await Promise.all([refreshTokens(), refreshTokens()]);
-      expect(a).toEqual({ accessToken: 'at2', refreshToken: 'rt2' });
+      expect(a).toEqual({ accessToken: 'at2' });
       expect(b).toBe(a);
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it('刷新成功后令牌轮换并持久化', async () => {
-      login(user, 'at', 'rt');
-      fetchMock.mockResolvedValueOnce(
-        okEnvelope({ accessToken: 'at2', refreshToken: 'rt2' }),
-      );
+    it('刷新成功后写入短效 token 并保留用户', async () => {
+      login(user);
+      fetchMock.mockResolvedValueOnce(refreshEnvelope('at2'));
       await refreshTokens();
       expect(authStore.get().accessToken).toBe('at2');
-      expect(authStore.get().refreshToken).toBe('rt2');
+      expect(authStore.get().user).toBe(user);
     });
 
-    it('无 refreshToken 时直接过期并拒绝', async () => {
-      const handler = vi.fn();
-      registerSessionExpired(handler);
-      await expect(refreshTokens()).rejects.toThrow('登录已过期，请重新登录');
-      expect(handler).toHaveBeenCalledTimes(1);
-      expect(fetchMock).not.toHaveBeenCalled();
+    it('刷新请求不携带业务 body（只发空 JSON）', async () => {
+      login(user);
+      fetchMock.mockResolvedValueOnce(refreshEnvelope('at2'));
+      await refreshTokens();
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      // hook-fetch 对 JSON POST 总是序列化 body；data 为 undefined 时产出一个空对象。
+      // 校验其不含长效 token（旧实现 body 携带 { refreshToken }）。
+      expect(String(init.body)).not.toContain('refreshToken');
     });
 
-    it('刷新请求失败时过期并拒绝', async () => {
-      login(user, 'at', 'rt');
+    it('刷新遇网络错误时不判定会话过期，原样抛出', async () => {
+      login(user);
       const handler = vi.fn();
       registerSessionExpired(handler);
       fetchMock.mockRejectedValueOnce(new TypeError('network'));
-      await expect(refreshTokens()).rejects.toThrow('登录已过期，请重新登录');
-      expect(handler).toHaveBeenCalledTimes(1);
+      await expect(refreshTokens()).rejects.toThrow();
+      expect(handler).not.toHaveBeenCalled();
     });
 
-    it('刷新返回业务错误码时过期并拒绝', async () => {
-      login(user, 'at', 'rt');
+    it('刷新返回 5xx 时不判定会话过期，原样抛出', async () => {
+      login(user);
       const handler = vi.fn();
       registerSessionExpired(handler);
       fetchMock.mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ code: 40101, message: '刷新令牌失效', data: null }),
+          JSON.stringify({ code: 50000, message: '服务器错误', data: null }),
+          { status: 500 },
+        ),
+      );
+      await expect(refreshTokens()).rejects.toMatchObject({
+        name: 'ApiError',
+        status: 500,
+      });
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('刷新返回 401（无 cookie）时过期并拒绝', async () => {
+      login(user);
+      const handler = vi.fn();
+      registerSessionExpired(handler);
+      fetchMock.mockResolvedValueOnce(new Response('', { status: 401 }));
+      await expect(refreshTokens()).rejects.toThrow('登录已过期，请重新登录');
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('刷新返回 40101 业务码时过期并拒绝', async () => {
+      login(user);
+      const handler = vi.fn();
+      registerSessionExpired(handler);
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ code: 40101, message: '缺少刷新令牌', data: null }),
           { status: 401 },
         ),
       );
@@ -216,7 +260,6 @@ describe('api/client', () => {
       expect(err.name).toBe('ApiError');
       expect(err.code).toBe(42);
       expect(err.status).toBe(500);
-      expect(err.message).toBe('boom');
     });
   });
 });

@@ -58,3 +58,4 @@ dist-ssr
 .tanstack
 apps/backend/openapi.json
 components.json
+.claude

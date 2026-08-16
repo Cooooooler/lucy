@@ -8,6 +8,7 @@ import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
 
 import { loginApi } from '@/api/auth';
+import { refreshTokens } from '@/api/client';
 import { GlassButton } from '@/components/ui/glass-button';
 import {
   GlassCard,
@@ -52,7 +53,9 @@ function LoginPageBlock() {
   const onSubmit = async (values: LoginFormValues) => {
     try {
       const result = await loginMutation.mutateAsync(values);
-      login(result.user, result.accessToken, result.refreshToken);
+      login(result.user);
+      // 长效 token 已写入 HttpOnly cookie，这里静默换发短效 token 供后续请求
+      await refreshTokens();
       message.success('登录成功');
       navigate({ to: '/' });
     } catch (err) {

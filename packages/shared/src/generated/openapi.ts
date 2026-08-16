@@ -56,7 +56,7 @@ export interface paths {
         put?: never;
         /**
          * 登录
-         * @description 账号密码登录，返回 access/refresh 令牌
+         * @description 账号密码登录，返回用户信息；长效 token 写入 HttpOnly cookie
          */
         post: operations["AuthController_login"];
         delete?: never;
@@ -76,7 +76,7 @@ export interface paths {
         put?: never;
         /**
          * 刷新令牌
-         * @description 用 refresh token 换发新令牌对
+         * @description 读取 HttpOnly cookie 换发短效 access token，并轮换长效 token
          */
         post: operations["AuthController_refresh"];
         delete?: never;
@@ -96,7 +96,7 @@ export interface paths {
         put?: never;
         /**
          * 登出
-         * @description 撤销当前 access 与 refresh 令牌
+         * @description 撤销当前会话整个家族并清除 cookie
          */
         post: operations["AuthController_logout"];
         delete?: never;
@@ -185,7 +185,17 @@ export interface paths {
         put?: never;
         /**
          * 发送消息
-         * @description SSE 流式返回模型回复，事件：delta/done/error
+         * @description SSE 流式返回模型回复：
+         *
+         *         data: {"type":"delta","requestId":"req-123","role":"ai","data":{"content":"你好"}}
+         *
+         *         data: {"type":"delta","requestId":"req-123","role":"ai","data":{"content":"，我是AI助手"}}
+         *
+         *         data: {"type":"error","requestId":"req-123","data":{"code":50002,"message":"模型调用超时"}}
+         *
+         *         data: {"type":"done","requestId":"req-123","role":"ai","data":{"finish_reason":"stop"}}
+         *
+         *         data: [DONE]
          */
         post: operations["AiController_send"];
         delete?: never;
@@ -269,34 +279,15 @@ export interface components {
             password: string;
         };
         LoginResultDto: {
-            /**
-             * @description 访问令牌（JWT）
-             * @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-             */
-            accessToken: string;
-            /**
-             * @description 刷新令牌
-             * @example MTIzNDU2Nzg5MGFiY2RlZg
-             */
-            refreshToken: string;
             /** @description 当前用户信息 */
             user: components["schemas"]["User"];
         };
-        RefreshDto: {
-            /** @description refresh token，缺省时读取 HttpOnly cookie `refreshToken` */
-            refreshToken?: string;
-        };
-        AuthTokensDto: {
+        RefreshResultDto: {
             /**
-             * @description 访问令牌（JWT）
+             * @description 访问令牌（短效 JWT）
              * @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
              */
             accessToken: string;
-            /**
-             * @description 刷新令牌
-             * @example MTIzNDU2Nzg5MGFiY2RlZg
-             */
-            refreshToken: string;
         };
         LogoutResultDto: {
             /**
@@ -321,7 +312,7 @@ export interface components {
              * @description 角色
              * @enum {string}
              */
-            role: "user" | "assistant" | "system";
+            role: "user" | "ai" | "system";
             /** @description 内容 */
             content: string;
             /**
@@ -338,17 +329,14 @@ export interface components {
         Conversation: {
             /** @description 会话 ID */
             id: string;
-            /**
-             * @description 归属用户 ID
-             * @example 1
-             */
+            /** @description 归属用户 ID */
             userId: string;
             /** @description 标题 */
             title: string | null;
             /** @description 会话默认模型 */
             model: string | null;
             /** @description 消息列表 */
-            messages?: components["schemas"]["Message"][];
+            messages: components["schemas"]["Message"][];
             /**
              * Format: date-time
              * @description 创建时间
@@ -486,11 +474,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RefreshDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description 换发成功 */
             201: {
@@ -498,10 +482,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthTokensDto"];
+                    "application/json": components["schemas"]["RefreshResultDto"];
                 };
             };
-            /** @description 刷新令牌无效 */
+            /** @description 缺少或无效的刷新令牌 */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -517,11 +501,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RefreshDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description 登出成功 */
             201: {

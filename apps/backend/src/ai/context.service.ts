@@ -51,7 +51,7 @@ export class ContextService {
     for (const m of selected.toReversed()) {
       if (m.role === MessageRole.User) {
         messages.push(new HumanMessage(m.content));
-      } else if (m.role === MessageRole.Assistant) {
+      } else if (m.role === MessageRole.Ai) {
         messages.push(new AIMessage(m.content));
       }
       // system 角色仅来自配置注入，历史中的 system 行忽略

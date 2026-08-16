@@ -12,7 +12,7 @@ import { Conversation } from './conversation.entity.js';
 
 export enum MessageRole {
   User = 'user',
-  Assistant = 'assistant',
+  Ai = 'ai',
   System = 'system',
 }
 
