@@ -1,0 +1,42 @@
+{
+  "name": "@coool/redis-nest",
+  "version": "0.1.0",
+  "description": "NestJS Redis integration module: connection management, serialization, DI, multi-source, unified errors",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --clean --dts --tsconfig tsconfig.build.json",
+    "dev": "tsup src/index.ts --format esm,cjs --clean --dts --watch --tsconfig tsconfig.build.json",
+    "lint": "eslint \"src/**/*.ts\" --fix",
+    "prepublishOnly": "pnpm run build && pnpm run test",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/core": "^11.0.1",
+    "ioredis": "^5.11.1"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "ioredis": "^5.11.0"
+  }
+}
