@@ -67,6 +67,17 @@ describe('api/client', () => {
         message: '服务器错误',
       });
     });
+
+    it('非 JSON 响应抛出默认错误信息', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response('Bad Gateway', { status: 502 }),
+      );
+      await expect(http.post('auth/login', {}).json()).rejects.toMatchObject({
+        name: 'ApiError',
+        status: 502,
+        message: '请求失败（502）',
+      });
+    });
   });
 
   describe('认证头', () => {
@@ -116,7 +127,7 @@ describe('api/client', () => {
       );
     });
 
-    it('401 且刷新失败时请求被拒绝', async () => {
+    it('401 后刷新遇网络错误时不判定会话过期，原样拒绝', async () => {
       login(user);
       applyTokens('expired');
       const handler = vi.fn();
@@ -125,10 +136,8 @@ describe('api/client', () => {
         .mockResolvedValueOnce(new Response('unauthorized', { status: 401 }))
         .mockRejectedValueOnce(new TypeError('network'));
 
-      await expect(http.post('auth/logout').json()).rejects.toThrow(
-        '登录已过期，请重新登录',
-      );
-      expect(handler).toHaveBeenCalledTimes(1);
+      await expect(http.post('auth/logout').json()).rejects.toThrow();
+      expect(handler).not.toHaveBeenCalled();
     });
 
     it('刷新后重放仍 401 判定会话过期', async () => {
@@ -194,13 +203,30 @@ describe('api/client', () => {
       expect(String(init.body)).not.toContain('refreshToken');
     });
 
-    it('刷新失败时过期并拒绝', async () => {
+    it('刷新遇网络错误时不判定会话过期，原样抛出', async () => {
       login(user);
       const handler = vi.fn();
       registerSessionExpired(handler);
       fetchMock.mockRejectedValueOnce(new TypeError('network'));
-      await expect(refreshTokens()).rejects.toThrow('登录已过期，请重新登录');
-      expect(handler).toHaveBeenCalledTimes(1);
+      await expect(refreshTokens()).rejects.toThrow();
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('刷新返回 5xx 时不判定会话过期，原样抛出', async () => {
+      login(user);
+      const handler = vi.fn();
+      registerSessionExpired(handler);
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ code: 50000, message: '服务器错误', data: null }),
+          { status: 500 },
+        ),
+      );
+      await expect(refreshTokens()).rejects.toMatchObject({
+        name: 'ApiError',
+        status: 500,
+      });
+      expect(handler).not.toHaveBeenCalled();
     });
 
     it('刷新返回 401（无 cookie）时过期并拒绝', async () => {
@@ -208,6 +234,20 @@ describe('api/client', () => {
       const handler = vi.fn();
       registerSessionExpired(handler);
       fetchMock.mockResolvedValueOnce(new Response('', { status: 401 }));
+      await expect(refreshTokens()).rejects.toThrow('登录已过期，请重新登录');
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('刷新返回 40101 业务码时过期并拒绝', async () => {
+      login(user);
+      const handler = vi.fn();
+      registerSessionExpired(handler);
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ code: 40101, message: '缺少刷新令牌', data: null }),
+          { status: 401 },
+        ),
+      );
       await expect(refreshTokens()).rejects.toThrow('登录已过期，请重新登录');
       expect(handler).toHaveBeenCalledTimes(1);
     });

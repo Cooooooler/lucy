@@ -69,9 +69,16 @@ export class AuthController {
     if (!token) {
       return this.authService.throwMissingRefresh();
     }
-    const { accessToken, refreshToken } = await this.authService.refresh(token);
-    this.setRefreshCookie(res, refreshToken);
-    return { accessToken };
+    try {
+      const { accessToken, refreshToken } =
+        await this.authService.refresh(token);
+      this.setRefreshCookie(res, refreshToken);
+      return { accessToken };
+    } catch (err) {
+      // 刷新失败（无效/复用/账号禁用）：清除失效 cookie，避免每次请求都打 401
+      res.clearCookie(REFRESH_COOKIE, this.cookieOptions());
+      throw err;
+    }
   }
 
   @ApiBearerAuth()

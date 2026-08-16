@@ -136,10 +136,11 @@ const refreshOn401: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
       return ctx.reject(new ApiError('登录已过期，请重新登录'));
     }
     try {
-      // 调用刷新函数获取新的长短效 token，并更新本地存储
+      // 调用刷新函数获取新的短效 token，并更新本地存储
       await refreshTokens();
-    } catch {
-      return ctx.reject(new ApiError('登录已过期，请重新登录'));
+    } catch (err) {
+      // 401 已由 doRefresh 内部 handleSessionExpired 处理；瞬时错误原样抛出
+      return ctx.reject(err as Error);
     }
     try {
       // 重放一次401请求，附加新的 token，重放次数 +1
@@ -193,9 +194,14 @@ async function doRefresh(): Promise<RefreshResult> {
       .json();
     applyTokens(tokens.accessToken);
     return tokens;
-  } catch {
-    handleSessionExpired();
-    throw new ApiError('登录已过期，请重新登录');
+  } catch (err) {
+    // 仅 401（会话真正过期）触发过期处理；网络/5xx 等瞬时错误原样抛出，不踢登录。
+    // 注：hook-fetch 会把插件 reject 的错误克隆成基础 ResponseError，instanceof/code 不可靠，status 可靠
+    if ((err as { status?: number }).status === 401) {
+      handleSessionExpired();
+      throw new ApiError('登录已过期，请重新登录');
+    }
+    throw err;
   }
 }
 

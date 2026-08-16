@@ -181,16 +181,16 @@ export class AuthService {
         const parsed = this.parseActive(reused);
         let theft = false;
         if (parsed) {
-          // 复用宽限期：轮换后短时间内再次出现视为良性 cookie 滞后（多标签页竞态），
-          // 仅当超过宽限期仍被复用才判定为泄露并吊销整个家族
+          // 复用宽限期：仅当 reuse-at 存在且在宽限期内视为良性 cookie 滞后（多标签页竞态）；
+          // reuse-at 缺失或超过宽限期均按泄露处理（fail-closed），吊销整个家族
           const reuseAtRaw = await this.redis.get(
             this.reuseAtKey(refreshToken),
           );
-          if (
+          const withinGrace =
             reuseAtRaw &&
-            Date.now() - Number(reuseAtRaw) >= this.reuseGraceSeconds() * 1000
-          ) {
-            theft = true;
+            Date.now() - Number(reuseAtRaw) < this.reuseGraceSeconds() * 1000;
+          theft = !withinGrace;
+          if (theft) {
             await this.revokeFamily(parsed.family);
           }
         }
@@ -268,12 +268,20 @@ export class AuthService {
       if (parsed) {
         await this.revokeFamily(parsed.family);
       } else {
-        await this.redis.del(
-          this.refreshKey(refreshToken),
-          this.activeAtKey(refreshToken),
-          this.reuseKey(refreshToken),
-          this.reuseAtKey(refreshToken),
-        );
+        // active 缺失：可能是已轮换 token，其 family 在 reuse key 中，
+        // 据此撤销整个家族（含有效后继），避免登出后会话仍可刷新
+        const reused = await this.redis.get(this.reuseKey(refreshToken));
+        const reusedParsed = this.parseActive(reused);
+        if (reusedParsed) {
+          await this.revokeFamily(reusedParsed.family);
+        } else {
+          await this.redis.del(
+            this.refreshKey(refreshToken),
+            this.activeAtKey(refreshToken),
+            this.reuseKey(refreshToken),
+            this.reuseAtKey(refreshToken),
+          );
+        }
       }
     }
     await this.denylist.add(jti);

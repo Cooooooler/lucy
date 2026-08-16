@@ -19,7 +19,8 @@ export function authBootstrap(): Promise<void> {
         accessToken: authStore.get().accessToken,
       }));
     } catch {
-      // 无 cookie / 刷新失败 / /me 失败 → 静默置为未登录；跳转交给路由守卫
+      // refresh 401（无会话）已由 doRefresh 内部 handleSessionExpired 清会话并跳登录；
+      // 瞬时错误（网络/5xx）或 /me 失败：清空未完成的会话状态，跳转交给路由守卫
       logout();
     }
   })();

@@ -1,3 +1,4 @@
+import { ErrorCode } from '@lucy/shared';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
@@ -125,6 +126,18 @@ describe('AuthService', () => {
     );
   }
 
+  // 断言拒绝且业务码为 UNAUTHORIZED（40101）
+  function expectUnauthorized(p: Promise<unknown>): Promise<void> {
+    return p.then(
+      () => Promise.reject(new Error('expected rejection')),
+      (e: unknown) => {
+        expect((e as { getResponse?: () => unknown }).getResponse?.()).toEqual(
+          expect.objectContaining({ code: ErrorCode.UNAUTHORIZED }),
+        );
+      },
+    );
+  }
+
   it('refresh 未到轮换年龄时不轮换，返回同一 refresh token', async () => {
     mockGet({
       'auth:refresh:old': activeVal,
@@ -194,7 +207,7 @@ describe('AuthService', () => {
       'auth:refresh:reuse-at:old': String(now - 20000),
     });
     redisClient.smembers.mockResolvedValue(['t1', 't2']);
-    await expect(service.refresh('old')).rejects.toThrow(BusinessException);
+    await expectUnauthorized(service.refresh('old'));
     expect(redisClient.smembers).toHaveBeenCalledWith(
       'auth:refresh:family:family-1',
     );
@@ -206,9 +219,22 @@ describe('AuthService', () => {
     );
   });
 
+  it('refresh 复用记录存在但 reuse-at 缺失时 fail-closed 吊销家族', async () => {
+    mockGet({
+      'auth:refresh:old': null,
+      'auth:refresh:reuse:old': activeVal,
+      'auth:refresh:reuse-at:old': null,
+    });
+    redisClient.smembers.mockResolvedValue(['t1']);
+    await expectUnauthorized(service.refresh('old'));
+    expect(redisClient.smembers).toHaveBeenCalledWith(
+      'auth:refresh:family:family-1',
+    );
+  });
+
   it('refresh 无效 token（非复用）抛 Unauthorized', async () => {
     mockGet({});
-    await expect(service.refresh('bad')).rejects.toThrow(BusinessException);
+    await expectUnauthorized(service.refresh('bad'));
     expect(redisClient.smembers).not.toHaveBeenCalled();
   });
 
@@ -268,6 +294,19 @@ describe('AuthService', () => {
     await service.logout('jti-1');
     expect(denylist.add).toHaveBeenCalledWith('jti-1');
     expect(redisService.del).not.toHaveBeenCalled();
+  });
+
+  it('logout 带已轮换 token 时从 reuse 解析 family 并撤销整个家族', async () => {
+    mockGet({
+      'auth:refresh:r': null,
+      'auth:refresh:reuse:r': activeVal,
+    });
+    redisClient.smembers.mockResolvedValue(['t1']);
+    await service.logout('jti-1', 'r');
+    expect(redisClient.smembers).toHaveBeenCalledWith(
+      'auth:refresh:family:family-1',
+    );
+    expect(denylist.add).toHaveBeenCalledWith('jti-1');
   });
 
   it('throwMissingRefresh 抛 BusinessException', () => {
