@@ -1,8 +1,9 @@
 import { Test } from '@nestjs/testing';
 import { describe, expect, it, vi } from 'vitest';
-import { REDIS_CLIENT } from './redis.constants.js';
+import { REDIS_CLIENT, REDIS_SERIALIZER } from './redis.constants.js';
 import { RedisException } from './redis.exception.js';
 import { RedisService } from './redis.service.js';
+import { defaultJsonSerializer, type RedisSerializer } from './serializer.js';
 
 function mockClient() {
   return {
@@ -13,9 +14,16 @@ function mockClient() {
   };
 }
 
-async function buildService(client: ReturnType<typeof mockClient>) {
+async function buildService(
+  client: ReturnType<typeof mockClient>,
+  serializer: RedisSerializer = defaultJsonSerializer,
+) {
   const module = await Test.createTestingModule({
-    providers: [{ provide: REDIS_CLIENT, useValue: client }, RedisService],
+    providers: [
+      { provide: REDIS_CLIENT, useValue: client },
+      { provide: REDIS_SERIALIZER, useValue: serializer },
+      RedisService,
+    ],
   }).compile();
   return module.get(RedisService);
 }
@@ -68,5 +76,54 @@ describe('RedisService', () => {
     const client = mockClient();
     const svc = await buildService(client);
     expect(svc.raw).toBe(client);
+  });
+
+  it('setJson 走 serializer 后写入', async () => {
+    const client = mockClient();
+    const svc = await buildService(client);
+    await svc.setJson('k', { a: 1 }, 60);
+    expect(client.set).toHaveBeenCalledWith('k', '{"a":1}', 'EX', 60);
+  });
+
+  it('setJson 无 TTL 直接写入', async () => {
+    const client = mockClient();
+    const svc = await buildService(client);
+    await svc.setJson('k', { a: 1 });
+    expect(client.set).toHaveBeenCalledWith('k', '{"a":1}');
+  });
+
+  it('getJson 反序列化返回对象', async () => {
+    const client = mockClient();
+    client.get.mockResolvedValue('{"a":1}');
+    const svc = await buildService(client);
+    await expect(svc.getJson<{ a: number }>('k')).resolves.toEqual({ a: 1 });
+  });
+
+  it('getJson 无 key 返回 null', async () => {
+    const client = mockClient();
+    client.get.mockResolvedValue(null);
+    const svc = await buildService(client);
+    await expect(svc.getJson('k')).resolves.toBeNull();
+  });
+
+  it('getJson 自动还原 Date', async () => {
+    const client = mockClient();
+    client.get.mockResolvedValue('{"at":"2026-08-16T10:00:00.000Z"}');
+    const svc = await buildService(client);
+    const v = await svc.getJson<{ at: Date }>('k');
+    expect(v?.at).toBeInstanceOf(Date);
+  });
+
+  it('自定义序列化器被使用', async () => {
+    const client = mockClient();
+    const custom: RedisSerializer = {
+      serialize: () => 'C',
+      deserialize: () => 'D',
+    };
+    const svc = await buildService(client, custom);
+    await svc.setJson('k', 'any');
+    expect(client.set).toHaveBeenCalledWith('k', 'C');
+    client.get.mockResolvedValue('ignored');
+    await expect(svc.getJson('k')).resolves.toBe('D');
   });
 });
