@@ -1,3 +1,9 @@
+/**
+ * @coool/redis-nest 公共入口。
+ * 连接管理：`RedisModule.forRoot/forRootAsync` 注册全局连接，`RedisService` 提供 CRUD 门面，
+ * `RedisException` 统一异常，`REDIS_CLIENT` 为底层 client 的 DI token。
+ * 详情见 README。
+ */
 export { createClient } from './client.factory.js';
 export {
   DEFAULT_OPTIONS,

@@ -6,6 +6,12 @@ import {
   type RedisModuleOptions,
 } from './options.js';
 
+/**
+ * 按 options.type 构建 ioredis 客户端：
+ * - standalone / sentinel → `Redis`
+ * - cluster → `Cluster`
+ * 连接参数经 normalizeOptions 合入生产默认值。
+ */
 export function createClient(options: RedisModuleOptions): RedisClient {
   const normalized = normalizeOptions(options);
   switch (normalized.type) {
@@ -28,6 +34,7 @@ export function createClient(options: RedisModuleOptions): RedisClient {
   }
 }
 
+/** 提取三种模式共用的连接参数（含生产默认值），供 Redis/Cluster 构造复用 */
 function buildCommonOptions(options: NormalizedRedisOptions) {
   return {
     password: options.password,
