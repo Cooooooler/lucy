@@ -59,4 +59,4 @@ dist-ssr
 apps/backend/openapi.json
 components.json
 .claude
-.vitepress/cache
+**/.vitepress/cache
