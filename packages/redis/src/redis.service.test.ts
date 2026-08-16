@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import type { Redis } from 'ioredis';
 import { describe, expect, it, vi } from 'vitest';
 import { REDIS_CLIENT, REDIS_SERIALIZER } from './redis.constants.js';
 import { RedisException } from './redis.exception.js';
@@ -126,4 +127,51 @@ describe('RedisService', () => {
     client.get.mockResolvedValue('ignored');
     await expect(svc.getJson('k')).resolves.toBe('D');
   });
+});
+
+it('namespace 下 get 自动加前缀', async () => {
+  const client = mockClient();
+  client.get.mockResolvedValue('v');
+  const svc = new RedisService(
+    client as unknown as Redis,
+    defaultJsonSerializer,
+    'auth',
+  );
+  await svc.get('k');
+  expect(client.get).toHaveBeenCalledWith('auth:k');
+});
+
+it('namespace 下 set 带 TTL 加前缀', async () => {
+  const client = mockClient();
+  const svc = new RedisService(
+    client as unknown as Redis,
+    defaultJsonSerializer,
+    'auth',
+  );
+  await svc.set('k', 'v', 60);
+  expect(client.set).toHaveBeenCalledWith('auth:k', 'v', 'EX', 60);
+});
+
+it('namespace 下 del 全部加前缀', async () => {
+  const client = mockClient();
+  client.del.mockResolvedValue(2);
+  const svc = new RedisService(
+    client as unknown as Redis,
+    defaultJsonSerializer,
+    'auth',
+  );
+  await svc.del('a', 'b');
+  expect(client.del).toHaveBeenCalledWith('auth:a', 'auth:b');
+});
+
+it('namespace 下 getJson 加前缀', async () => {
+  const client = mockClient();
+  client.get.mockResolvedValue('{"a":1}');
+  const svc = new RedisService(
+    client as unknown as Redis,
+    defaultJsonSerializer,
+    'auth',
+  );
+  await svc.getJson('k');
+  expect(client.get).toHaveBeenCalledWith('auth:k');
 });

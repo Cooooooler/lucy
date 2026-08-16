@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { REDIS_CLIENT, REDIS_SERIALIZER } from './redis.constants.js';
 import { toRedisException } from './redis.exception.js';
@@ -14,6 +14,9 @@ export class RedisService {
   constructor(
     @Inject(REDIS_CLIENT) private readonly client: Redis,
     @Inject(REDIS_SERIALIZER) private readonly serializer: RedisSerializer,
+    /** key 前缀命名空间（固定前缀），forFeature 使用；默认无前缀 */
+    @Optional()
+    private readonly namespace?: string,
   ) {}
 
   /** 底层 ioredis 实例（逃生舱，供 BF、eval、pipeline 等高级用法，不经过异常包装） */
@@ -21,30 +24,40 @@ export class RedisService {
     return this.client;
   }
 
+  /** 有 namespace 时给 key 加固定前缀 */
+  private prefixed(key: string): string {
+    return this.namespace ? `${this.namespace}:${key}` : key;
+  }
+
   /** 取原始字符串值；key 不存在返回 null */
   async get(key: string): Promise<string | null> {
-    return this.wrap(() => this.client.get(key));
+    return this.wrap(() => this.client.get(this.prefixed(key)));
   }
 
   /** 写入字符串；传 ttlSeconds 时附加 EX 过期时间 */
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
+    const k = this.prefixed(key);
     await this.wrap(async () => {
       if (ttlSeconds !== undefined) {
-        await this.client.set(key, value, 'EX', ttlSeconds);
+        await this.client.set(k, value, 'EX', ttlSeconds);
       } else {
-        await this.client.set(key, value);
+        await this.client.set(k, value);
       }
     });
   }
 
   /** 删除若干 key，返回实际删除的数量 */
   async del(...keys: string[]): Promise<number> {
-    return this.wrap(() => this.client.del(...keys));
+    return this.wrap(() =>
+      this.client.del(...keys.map((k) => this.prefixed(k))),
+    );
   }
 
   /** 判断 key 是否存在 */
   async exists(key: string): Promise<boolean> {
-    return this.wrap(async () => (await this.client.exists(key)) === 1);
+    return this.wrap(
+      async () => (await this.client.exists(this.prefixed(key))) === 1,
+    );
   }
 
   /** 序列化写入：value 经 serializer 转字符串（Date 自动处理）；传 ttlSeconds 时附加 EX 过期 */
@@ -53,12 +66,13 @@ export class RedisService {
     value: unknown,
     ttlSeconds?: number,
   ): Promise<void> {
+    const k = this.prefixed(key);
     const text = this.serializer.serialize(value);
     await this.wrap(async () => {
       if (ttlSeconds !== undefined) {
-        await this.client.set(key, text, 'EX', ttlSeconds);
+        await this.client.set(k, text, 'EX', ttlSeconds);
       } else {
-        await this.client.set(key, text);
+        await this.client.set(k, text);
       }
     });
   }
