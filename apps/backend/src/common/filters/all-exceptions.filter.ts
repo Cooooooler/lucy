@@ -5,11 +5,14 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
+  private readonly logger = new Logger(AllExceptionsFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost) {
     const res = host.switchToHttp().getResponse<Response>();
     if (exception instanceof HttpException) {
@@ -25,8 +28,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
       } else {
         message = body;
       }
+      if (status >= 500) {
+        this.logger.error(
+          `HttpException ${status}: ${message}`,
+          exception.stack,
+        );
+      }
       return res.status(status).json({ code, message, data: null });
     }
+    this.logger.error(
+      'Unhandled exception',
+      exception instanceof Error ? exception.stack : String(exception),
+    );
     return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       code: ErrorCode.INTERNAL,
       message: '服务器内部错误',

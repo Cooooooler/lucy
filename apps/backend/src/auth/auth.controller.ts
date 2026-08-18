@@ -6,6 +6,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
@@ -25,11 +26,14 @@ type User = components['schemas']['User'];
 
 @ApiTags('auth')
 @Controller('auth')
+// 认证契约：长效 refresh token 经 HttpOnly cookie 下发/读取（安全、防 XSS），
+// 短效 access token 放响应体由前端持有；refresh 失败时清除失效 cookie
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
   @Post('register')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: '注册', description: '创建新账号并返回用户信息' })
   @ApiResponse({ status: 201, description: '注册成功', type: UserEntity })
   register(@Body() dto: RegisterDto): Promise<User> {
@@ -38,6 +42,7 @@ export class AuthController {
 
   @Public()
   @Post('login')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
     summary: '登录',
     description:

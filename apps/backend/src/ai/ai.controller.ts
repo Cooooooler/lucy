@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -72,7 +73,7 @@ export class AiController {
   @ApiResponse({ status: 404, description: '会话不存在' })
   get(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ): Promise<Conversation> {
     return this.aiService.get(user.userId, id);
   }
@@ -87,7 +88,7 @@ export class AiController {
   @ApiResponse({ status: 404, description: '会话不存在' })
   rename(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RenameConversationDto,
   ): Promise<Conversation> {
     return this.aiService.rename(user.userId, id, dto.title);
@@ -99,7 +100,7 @@ export class AiController {
   @ApiResponse({ status: 404, description: '会话不存在' })
   remove(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ): Promise<{ success: true }> {
     return this.aiService.remove(user.userId, id);
   }
@@ -129,7 +130,7 @@ export class AiController {
     })
     res: Response,
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: SendMessageDto,
   ): void {
     res.setHeader('Content-Type', 'text/event-stream');

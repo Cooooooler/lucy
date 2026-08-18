@@ -22,6 +22,7 @@ export enum MessageStatus {
   Failed = 'failed',
 }
 
+/** 会话内单条消息：角色 + 内容 + 生成状态；索引 (conversationId, createdAt) 支撑按时间正序拉取历史 */
 @Entity('ai_messages')
 @Index('IDX_ai_messages_conversation_created', ['conversationId', 'createdAt'])
 export class Message {

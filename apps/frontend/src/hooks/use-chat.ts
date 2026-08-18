@@ -71,8 +71,19 @@ export function useChatStream(conversationId: string | undefined) {
     [historyMessages, live],
   );
 
+  // 只替换被更新的那条消息，其余保持引用稳定，便于下游 memo 组件跳过未变气泡的重复渲染
   function updateMessage(id: string, updater: (m: ChatMessage) => ChatMessage) {
-    setLive((prev) => prev.map((m) => (m.id === id ? updater(m) : m)));
+    setLive((prev) => {
+      let changed = false;
+      const next = prev.map((m) => {
+        if (m.id !== id) return m;
+        const updated = updater(m);
+        if (updated === m) return m;
+        changed = true;
+        return updated;
+      });
+      return changed ? next : prev;
+    });
   }
 
   // 追加本次会话的乐观 user + ai 占位，返回 ai 临时 id 供流式过程定位

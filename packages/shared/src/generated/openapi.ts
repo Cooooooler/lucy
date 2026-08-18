@@ -204,6 +204,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 健康检查
+         * @description 返回 DB 与 Redis 存活状态
+         */
+        get: operations["HealthController_check"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -384,6 +404,23 @@ export interface components {
              * @example qwen2.5:7b
              */
             model?: string;
+        };
+        HealthResultDto: {
+            /**
+             * @description 整体状态：ok 或 degraded（任一组件不可用）
+             * @example ok
+             */
+            status: string;
+            /**
+             * @description 数据库是否可达
+             * @example true
+             */
+            db: boolean;
+            /**
+             * @description Redis 是否可达
+             * @example true
+             */
+            redis: boolean;
         };
     };
     responses: never;
@@ -708,6 +745,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    HealthController_check: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 健康状态 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResultDto"];
+                };
             };
         };
     };

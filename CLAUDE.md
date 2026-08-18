@@ -6,9 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/*`），全仓统一为 ESM：
 
-- `apps/backend` — NestJS 11（Express），TypeScript ESM（`type: module`，`nodenext`），Vitest 4（unplugin-swc 提供装饰器元数据），PostgreSQL + TypeORM + Redis（RedisBloom）
+- `apps/backend` — NestJS 11（Express），TypeScript ESM（`type: module`，`nodenext`），Vitest 4（unplugin-swc 提供装饰器元数据），PostgreSQL + TypeORM + Redis（经 `@coool/redis-nest`，RedisBloom）
 - `apps/frontend` — Vite + React 19 + TypeScript，TanStack Router/Query/Store，antd 6 + ProComponents，Tailwind CSS 4，Vitest + jsdom
 - `packages/shared` — `@lucy/shared` 共享类型与常量，tsup 构建为纯 ESM（`dist/index.js` + `dist/index.d.ts`）
+- `packages/redis` — `@coool/redis-nest` 自研 NestJS Redis 集成模块（ioredis：连接管理/序列化/DI/多数据源/统一异常/`RedisService.raw` 逃生舱），后端 `RedisModule` 消费它；README 与 VitePress 文档见 `packages/redis/docs/`
 
 ## 常用命令（根目录）
 
@@ -39,7 +40,7 @@ pnpm --filter @lucy/shared build                              # 构建 shared（
 pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 ```
 
-**filter 名**：backend=`@lucy/backend`、shared=`@lucy/shared`、frontend=`@lucy/frontend`。
+**filter 名**：backend=`@lucy/backend`、shared=`@lucy/shared`、frontend=`@lucy/frontend`、redis=`@coool/redis-nest`。
 
 ## 关键约定与注意事项
 
@@ -47,7 +48,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 - **全仓 ESM**：所有包 `"type": "module"`。后端 tsconfig 用 `module/moduleResolution: nodenext`，相对导入必须带 `.js` 后缀，`__dirname`/`__filename` 不存在，用 `import.meta.url` 派生（如 `src/db/data-source.ts`）。
 - **不要改动生成文件**：`dist/`、`.turbo/`、前端 `src/routeTree.gen.ts`（TanStack Router 插件生成，已提交但勿手改）、`.tanstack/`、`packages/shared/src/generated/openapi.ts`（openapi-typescript 从后端 Swagger 生成，已提交但勿手改；改后端 DTO/实体后跑 `pnpm typegen` 重新生成）。
 - **shared 是纯 ESM 包**：backend（nodenext）与 frontend（bundler）都解析 `exports.import`。改动 shared 源码后先 `pnpm --filter @lucy/shared build` 再跑消费方验证。
-- 后端 lint 脚本自带 `--fix`（`eslint "{src,apps,libs,test}/**/*.ts" --fix`），前端 `pnpm lint` 同样带 `--fix`。
+- 后端 lint 脚本自带 `--fix`（`eslint "{src,apps,libs,test,scripts}/**/*.ts" --fix`），前端 `pnpm lint` 同样带 `--fix`。
 - Prettier 配置在根目录 `.prettierrc`（单引号、printWidth 80、尾部逗号 all、organize-imports + packagejson + tailwindcss 插件），由 lint-staged 在提交时执行。
 - 设计规格与实现计划放在 `docs/superpowers/specs|plans/`（superpowers-zh 工作流产物，跨会话复用）。
 
@@ -55,7 +56,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 ### apps/backend（NestJS）
 
-标准模块化结构，入口 `src/main.ts`，端口 `process.env.PORT ?? 3000`。单测与源码同目录（`*.spec.ts`），e2e 在 `test/`（`vitest.e2e.config.ts`）。`AppModule` 装配：`ConfigModule`（全局）、TypeORM、`PasswordModule`、`UsersModule`、`RedisModule`（`@Global()`）、`AuthModule`。
+标准模块化结构，入口 `src/main.ts`，端口 `process.env.PORT ?? 3000`。单测与源码同目录（`*.spec.ts`），e2e 在 `test/`（`vitest.e2e.config.ts`）。`AppModule` 装配：`ConfigModule`（全局）、`CommonModule`、TypeORM（`forRootAsync` 读 `DB_*`）、`PasswordModule`、`UsersModule`、`RedisModule.forRootAsync`（来自 `@coool/redis-nest`，`useFactory: redisModuleOptions` 读 `REDIS_*`）、`AuthModule`、`AiModule`（LangChain + Ollama）。
 
 - **ESM 约定**：见上文「全仓 ESM」。
 - **tsx 仅用于 CLI 脚本**（typeorm 迁移）；esbuild 不输出 `design:paramtypes`，Nest 应用本体与 vitest 需经 SWC（`unplugin-swc`）转换。
@@ -85,6 +86,8 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 #### Redis（Docker + RedisBloom）
 
+Redis 集成逻辑已抽到 `packages/redis`（`@coool/redis-nest`），后端经 `RedisModule.forRootAsync` 消费，`DenylistService` 用其 `RedisService.raw` 暴露的 client 执行 `BF.*`（登出/换发后的令牌撤销，含双布隆过滤器轮换）。改动该包源码后先 `pnpm --filter @coool/redis-nest build` 再跑后端验证。
+
 根目录 `docker-compose.yml` 起 `redis/redis-stack-server`（容器名 `lucy-redis`，加载 RedisBloom 模块），供 DenylistService 做令牌撤销/设备去重。
 
 - 连接：`127.0.0.1:6379`，仅绑定本机、无密码（如需密码在 compose 中加 `requirepass`）。
@@ -105,6 +108,10 @@ Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite bui
 
 前后端共享的基础设施类型与常量：`ApiResponse`、`ErrorCode`/`ErrorCodeValue`、`PageQuery`、`PageResult`。接口契约类型（`User`/`AuthTokens`/`LoginResult` 等）由后端 Swagger spec 经 openapi-typescript 生成到 `src/generated/openapi.ts`（已提交、勿手改），通过 `components['schemas']['xxx']` 消费；改后端 DTO/实体后跑 `pnpm typegen`（内部先 `gen:openapi` 产出 `openapi.json` 再生成类型，`openapi.json` 已 gitignore）。tsup 构建纯 ESM（`--format esm --clean`），`exports.import` → `dist/index.js`。改动后重建并跑消费方（backend typecheck/test、frontend build/test）验证。
 
+### packages/redis（@coool/redis-nest）
+
+自研 NestJS Redis 集成模块，基于 `ioredis`：连接管理（`forRoot`/`forRootAsync` 支持 standalone/sentinel/cluster）、统一 DI（`RedisService`，`global: true`）、统一异常（ioredis 错误包装为 `RedisException` 带稳定错误码）、序列化（默认 JSON，`setJson`/`getJson`）、多数据源（`forFeature` 命名客户端 + key 前缀命名空间）、`hashTag`/`pipeline` 工具，及 `RedisService.raw` 逃生舱（暴露底层 client 供 `BF.*`/`eval`）。tsup 构建双格式（`esm` + `cjs`，`dist/index.js` + `dist/index.cjs`），`@nestjs/common`/`@nestjs/core`/`ioredis` 为 peer/dev 依赖。完整文档见 `packages/redis/README.md` 与 `packages/redis/docs/`（VitePress，`pnpm docs:dev` 预览），含真实 Redis 集成测试。改动后先 build 再跑后端验证。
+
 ### 数据流
 
 前端 `src/api/` 基于 `ky`：`publicHttp`（登录/注册/刷新）与 `http`（附加 Bearer，401 时单飞刷新并带新 token 重试一次）两个实例；统一解包 `{code,message,data}` 信封，非 0 / 非 2xx 抛 `ApiError`。`src/api/types.ts` 将生成的 `components['schemas']` 导出为易用别名（`LoginRequest`/`LoginResult`/`User` 等）。dev 环境经 Vite proxy 到后端；新增接口时改后端 DTO/实体、跑 `pnpm typegen`，再在 `src/api/` 加客户端函数。
@@ -115,7 +122,7 @@ Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite bui
 
 ## MCP 工具
 
-项目接入三套 MCP：**Codegraph**（代码理解，最高优先级）、**SonarQube**（代码质量）、**antd**（组件库 API）。按任务类型选用，详见各节。
+项目接入多套 MCP：**Codegraph**（代码理解，最高优先级）、**WebStorm**（IDE 能力，优先执行类操作）、**SonarQube**（代码质量）、**antd**（组件库 API）。按任务类型选用，详见各节。
 
 ### Codegraph MCP（代码理解，最高优先级）
 
@@ -128,6 +135,28 @@ Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite bui
    - Codegraph 调用失败/超时且重试后仍不可用；
    - 需要文件的确切原始内容（完整拷贝、检查空白/注释）。
 3. **其他 MCP 工具**：代码理解类任务仍优先 Codegraph。
+
+### WebStorm MCP（IDE 能力，优先执行类操作）
+
+WebStorm IDE 已接入 MCP。当 WebStorm 可用时，**执行类操作优先走 WebStorm 工具**而非 Bash/文件系统直接操作——利用 IDE 的索引、重构引擎与真实终端。判断可用性：`get_repositories` 或 `get_all_open_file_paths` 能否返回本项目；不可用则回退到 Bash/Read/Write。
+
+常用工具：
+
+- **定位/导航**：`search_symbol`、`search_file`、`search_regex`、`search_text`、`get_symbol_info`、`analyze_calls`、`open_file_in_editor`、`get_all_open_file_paths` — 查代码与跳转
+- **构建/运行**：`build_project`、`execute_run_configuration`、`get_run_configurations`、`get_project_modules`、`get_project_dependencies` — 构建、跑配置、看模块/依赖
+- **质量**：`lint_files`、`get_file_problems`、`reformat_file`、`execute_tool` — 即时检查与格式化
+- **重构**：`rename_refactoring` — 使用 IDE 重构引擎（比手改更安全，自动更新引用）
+- **Git**：`git_status`、`get_repositories` — 仓库状态
+- **文件**：`read_file`、`create_new_file`、`apply_patch` — 读写/补丁（注意：读写正文仍以本机 Read/Write 为准，WebStorm 用于 IDE 同步/补丁）
+- **数据库**：`list_database_connections`、`list_database_schemas`、`list_schema_objects`、`introspect_schema`、`execute_sql_query`、`fetch_query_result`、`preview_table_data`、`test_database_connection`、`create_database_connection`、`edit_database_connection` — 数据库导航与查询
+- **终端**：`execute_terminal_command` — 在 IDE 内执行命令
+
+优先级与注意：
+
+- **执行类任务（构建、运行、lint、重构、数据库查询、终端命令）优先用 WebStorm**，能拿到 IDE 索引/引擎的结果；但生成文件、`dist/`、构建产物等仍以实际命令验证为准。
+- **纯代码理解仍优先 Codegraph**（`codegraph_explore`）；WebStorm 侧重 IDE 状态与执行。
+- **代码编辑正文**仍用本机 `Edit`/`Write`（保证逐字准确），WebStorm 的 `apply_patch` 用于需要 IDE 同步的场景。
+- 涉及数据库操作（尤其写操作）前先确认连接与目标 schema，避免误写生产数据。
 
 ### SonarQube MCP（代码质量分析）
 

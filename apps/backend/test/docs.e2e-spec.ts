@@ -65,7 +65,7 @@ describe('Scalar docs (dev)', () => {
       Object.keys(
         doc.components?.schemas?.LoginResultDto?.properties ?? {},
       ).sort(),
-    ).toEqual(['accessToken', 'refreshToken', 'user']);
+    ).toEqual(['accessToken', 'user']);
     expect(doc.components?.schemas?.User?.properties?.username).toBeDefined();
     expect(
       doc.components?.schemas?.User?.properties?.passwordHash,

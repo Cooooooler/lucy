@@ -1,7 +1,8 @@
 import { http } from './client';
 import type { LoginRequest, LoginResult, RegisterRequest, User } from './types';
 
-// 登录/注册是匿名接口，失败的 401 不应触发令牌刷新（无凭证可换），故标记 skipAuthRefresh
+// 认证接口：login/register 为匿名请求；me/logout 走 Bearer。
+// 登录/注册失败（如 401）不应触发令牌刷新（无凭证可换），故标记 skipAuthRefresh。
 export function loginApi(input: LoginRequest) {
   return http
     .post<LoginResult>('auth/login', input, {

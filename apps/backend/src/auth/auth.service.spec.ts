@@ -20,6 +20,15 @@ describe('AuthService', () => {
   };
   const passwordService = { verify: vi.fn() };
   const jwtService = { signAsync: vi.fn().mockResolvedValue('access-token') };
+  // multi 事务链：set/sadd/expire/del/srem 均可链式追加，exec 结束事务
+  const multi = {
+    set: vi.fn().mockReturnThis(),
+    sadd: vi.fn().mockReturnThis(),
+    expire: vi.fn().mockReturnThis(),
+    del: vi.fn().mockReturnThis(),
+    srem: vi.fn().mockReturnThis(),
+    exec: vi.fn().mockResolvedValue([]),
+  };
   const redisService = {
     get: vi.fn(),
     set: vi.fn(),
@@ -28,6 +37,7 @@ describe('AuthService', () => {
     srem: vi.fn(),
     smembers: vi.fn(),
     expire: vi.fn(),
+    raw: { multi: vi.fn(() => multi) },
   };
   const denylist = { add: vi.fn() };
 
@@ -69,17 +79,21 @@ describe('AuthService', () => {
     expect(
       (result.user as { passwordHash?: string }).passwordHash,
     ).toBeUndefined();
-    expect(redisService.set).toHaveBeenCalledWith(
+    expect(multi.set).toHaveBeenCalledWith(
       `auth:refresh:${result.refreshToken}`,
       expect.stringMatching(/^u1:/),
+      'EX',
       expect.any(Number),
     );
-    expect(redisService.set).toHaveBeenCalledWith(
+    expect(multi.set).toHaveBeenCalledWith(
       `auth:refresh:at:${result.refreshToken}`,
       expect.any(String),
+      'EX',
       expect.any(Number),
     );
-    expect(redisService.sadd).toHaveBeenCalled();
+    expect(multi.sadd).toHaveBeenCalled();
+    expect(multi.expire).toHaveBeenCalled();
+    expect(multi.exec).toHaveBeenCalled();
   });
 
   it('login 签发 access 失败时不落 refresh 状态', async () => {
@@ -89,8 +103,26 @@ describe('AuthService', () => {
     await expect(
       service.login({ account: 'alice', password: 'p' }),
     ).rejects.toThrow('sign failed');
-    expect(redisService.set).not.toHaveBeenCalled();
-    expect(redisService.sadd).not.toHaveBeenCalled();
+    expect(redisService.raw.multi).not.toHaveBeenCalled();
+    expect(multi.exec).not.toHaveBeenCalled();
+  });
+
+  it('login 签发 refresh 事务内某命令失败时抛错，不返回成功', async () => {
+    usersService.findByUsername.mockResolvedValue(user);
+    passwordService.verify.mockResolvedValue(true);
+    // ioredis exec 对单条命令失败不 reject，而是以 [err, result] 数组返回；应据此判失败
+    multi.exec.mockResolvedValueOnce([
+      [null, 1],
+      [
+        new Error(
+          'WRONGTYPE Operation against a key holding the wrong kind of value',
+        ),
+        null,
+      ],
+    ]);
+    await expect(
+      service.login({ account: 'alice', password: 'p' }),
+    ).rejects.toThrow(/Redis transaction failed/);
   });
 
   it('login 密码错误抛 40102', async () => {
@@ -153,9 +185,7 @@ describe('AuthService', () => {
     const result = await service.refresh('old');
     expect(result.accessToken).toBe('access-token');
     expect(result.refreshToken).toBe('old');
-    expect(redisService.srem).not.toHaveBeenCalled();
-    expect(redisService.del).not.toHaveBeenCalled();
-    expect(redisService.set).not.toHaveBeenCalled();
+    expect(redisService.raw.multi).not.toHaveBeenCalled();
   });
 
   it('refresh 超过轮换年龄时轮换：删旧 key、srem、写复用标记、同家族新增', async () => {
@@ -166,27 +196,30 @@ describe('AuthService', () => {
     });
     usersService.findById.mockResolvedValue(user);
     const result = await service.refresh('old');
-    expect(redisService.del).toHaveBeenCalledWith(
+    expect(multi.del).toHaveBeenCalledWith(
       'auth:refresh:old',
       'auth:refresh:at:old',
     );
-    expect(redisService.srem).toHaveBeenCalledWith(
+    expect(multi.srem).toHaveBeenCalledWith(
       'auth:refresh:family:family-1',
       'old',
     );
-    expect(redisService.set).toHaveBeenCalledWith(
+    expect(multi.set).toHaveBeenCalledWith(
       'auth:refresh:reuse:old',
       activeVal,
+      'EX',
       expect.any(Number),
     );
-    expect(redisService.set).toHaveBeenCalledWith(
+    expect(multi.set).toHaveBeenCalledWith(
       'auth:refresh:reuse-at:old',
       expect.any(String),
+      'EX',
       expect.any(Number),
     );
-    expect(redisService.set).toHaveBeenCalledWith(
+    expect(multi.set).toHaveBeenCalledWith(
       `auth:refresh:${result.refreshToken}`,
       activeVal,
+      'EX',
       expect.any(Number),
     );
     expect(result.accessToken).toBe('access-token');
@@ -202,7 +235,7 @@ describe('AuthService', () => {
     });
     await expect(service.refresh('old')).rejects.toThrow(BusinessException);
     expect(redisService.smembers).not.toHaveBeenCalled();
-    expect(redisService.del).not.toHaveBeenCalled();
+    expect(redisService.raw.multi).not.toHaveBeenCalled();
   });
 
   it('refresh 复用 token 且超过宽限期判定泄露，吊销整个家族', async () => {
@@ -217,7 +250,7 @@ describe('AuthService', () => {
     expect(redisService.smembers).toHaveBeenCalledWith(
       'auth:refresh:family:family-1',
     );
-    expect(redisService.del).toHaveBeenCalledWith(
+    expect(multi.del).toHaveBeenCalledWith(
       'auth:refresh:t1',
       'auth:refresh:at:t1',
       'auth:refresh:reuse:t1',
@@ -287,7 +320,7 @@ describe('AuthService', () => {
     expect(redisService.smembers).toHaveBeenCalledWith(
       'auth:refresh:family:family-1',
     );
-    expect(redisService.del).toHaveBeenCalledWith(
+    expect(multi.del).toHaveBeenCalledWith(
       'auth:refresh:t1',
       'auth:refresh:at:t1',
       'auth:refresh:reuse:t1',
