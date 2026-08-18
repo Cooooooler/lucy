@@ -227,4 +227,22 @@ describe('RedisModule', () => {
     const client = svc.raw as unknown as { set: ReturnType<typeof vi.fn> };
     expect(client.set).toHaveBeenCalledWith('k', 'C:{"a":1}');
   });
+
+  it('forRoot + forFeature 命名客户端在关闭时 quit', async () => {
+    mockRedisCtor.mockClear();
+    const module = await Test.createTestingModule({
+      imports: [
+        RedisModule.forRoot({ type: 'standalone' }),
+        RedisModule.forFeature({
+          name: 'cache',
+          options: { type: 'standalone', host: 'cache.example.com' },
+        }),
+      ],
+    }).compile();
+    const named = module.get(getNamedClientToken('cache')) as {
+      quit: ReturnType<typeof vi.fn>;
+    };
+    await module.close();
+    expect(named.quit).toHaveBeenCalled();
+  });
 });

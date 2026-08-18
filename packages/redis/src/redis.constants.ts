@@ -10,6 +10,9 @@ export const REDIS_SERIALIZER = Symbol.for('REDIS_SERIALIZER');
 /** 内部 DI token：forRootAsync 解析后的模块配置，供 client/serializer 派生（一次 useFactory） */
 export const REDIS_MODULE_OPTIONS = Symbol('REDIS_MODULE_OPTIONS');
 
+/** 内部 DI token：命名客户端注册表（Set），供 onModuleDestroy 统一关闭 */
+export const REDIS_NAMED_CLIENTS = Symbol('REDIS_NAMED_CLIENTS');
+
 /** 生成命名客户端 DI token：`REDIS_CLIENT:<name>`（Symbol.for 全局共享，跨模块解析到同一实例） */
 export function getNamedClientToken(name: string): symbol {
   return Symbol.for(`REDIS_CLIENT:${name}`);

@@ -13,6 +13,7 @@ import {
   getNamedClientToken,
   REDIS_CLIENT,
   REDIS_MODULE_OPTIONS,
+  REDIS_NAMED_CLIENTS,
   REDIS_SERIALIZER,
 } from './redis.constants.js';
 import { RedisService } from './redis.service.js';
@@ -50,6 +51,10 @@ export class RedisModule implements OnModuleDestroy {
     @Optional()
     @Inject(REDIS_CLIENT)
     private readonly client?: RedisClient,
+    /** 命名客户端注册表（由 forRoot 提供），应用关闭时统一关闭 */
+    @Optional()
+    @Inject(REDIS_NAMED_CLIENTS)
+    private readonly namedClients?: Set<RedisClient>,
   ) {}
 
   /** 同步注册全局 Redis 连接（连接在模块初始化时惰性建立） */
@@ -62,9 +67,15 @@ export class RedisModule implements OnModuleDestroy {
       providers: [
         { provide: REDIS_CLIENT, useValue: client },
         { provide: REDIS_SERIALIZER, useValue: serializer },
+        { provide: REDIS_NAMED_CLIENTS, useValue: new Set<RedisClient>() },
         RedisService,
       ],
-      exports: [REDIS_CLIENT, REDIS_SERIALIZER, RedisService],
+      exports: [
+        REDIS_CLIENT,
+        REDIS_SERIALIZER,
+        REDIS_NAMED_CLIENTS,
+        RedisService,
+      ],
     };
   }
 
@@ -92,15 +103,26 @@ export class RedisModule implements OnModuleDestroy {
           useFactory: (opts: RedisModuleOptions) =>
             opts.serializer ?? defaultJsonSerializer,
         },
+        { provide: REDIS_NAMED_CLIENTS, useValue: new Set<RedisClient>() },
         RedisService,
       ],
-      exports: [REDIS_CLIENT, REDIS_SERIALIZER, RedisService],
+      exports: [
+        REDIS_CLIENT,
+        REDIS_SERIALIZER,
+        REDIS_NAMED_CLIENTS,
+        RedisService,
+      ],
     };
   }
 
-  /** 应用关闭时断开连接，避免悬挂连接句柄（命名 feature 作用域无默认连接时跳过） */
+  /** 应用关闭时断开连接，避免悬挂连接句柄（含命名 feature 客户端，一次性关闭后清空避免重复） */
   async onModuleDestroy(): Promise<void> {
     await this.client?.quit();
+    if (this.namedClients && this.namedClients.size > 0) {
+      const clients = [...this.namedClients];
+      this.namedClients.clear();
+      await Promise.all(clients.map((c) => c.quit()));
+    }
   }
 
   /** 返回模块作用域的 feature RedisService：namespace 加 key 前缀；name+options 用独立命名连接 */
@@ -117,8 +139,15 @@ export class RedisModule implements OnModuleDestroy {
           ? [
               {
                 provide: clientToken,
-                useFactory: () =>
-                  createClient(connOptions as RedisModuleOptions),
+                // 命名客户端登记进注册表，供 onModuleDestroy 统一关闭（缺注册表时跳过）
+                useFactory: (namedClients?: Set<RedisClient>) => {
+                  const client = createClient(
+                    connOptions as RedisModuleOptions,
+                  );
+                  namedClients?.add(client);
+                  return client;
+                },
+                inject: [{ token: REDIS_NAMED_CLIENTS, optional: true }],
               },
             ]
           : []),
