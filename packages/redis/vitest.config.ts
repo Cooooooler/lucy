@@ -7,5 +7,17 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary', 'lcov'],
+      reportsDirectory: './coverage',
+      include: ['src/**/*.ts'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/index.ts',
+        'src/**/*.module.ts',
+        '**/*.d.ts',
+      ],
+    },
   },
 });

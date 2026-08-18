@@ -72,9 +72,34 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  redis-tests:
+    name: Redis package tests with coverage
+    runs-on: tenki-standard-small-2c-4g
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Redis package tests with coverage
+        run: pnpm --filter @coool/redis-nest test:cov
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: redis-coverage
+          path: packages/redis/coverage
+          if-no-files-found: error
+          retention-days: 1
+
   sonarqube:
     name: SonarCloud Scan
-    needs: [backend-tests, frontend-tests]
+    needs: [backend-tests, frontend-tests, redis-tests]
     runs-on: tenki-standard-small-2c-4g
     steps:
       - uses: actions/checkout@v7
@@ -90,6 +115,11 @@ jobs:
         with:
           name: frontend-coverage
           path: apps/frontend/coverage
+      - name: Download redis coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: redis-coverage
+          path: packages/redis/coverage
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
