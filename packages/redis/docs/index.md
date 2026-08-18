@@ -21,5 +21,7 @@ features:
   - title: 序列化
     details: 默认 JSON，自定义序列化器可替换，自动处理 Date；getJson / setJson 开箱即用。
   - title: 多数据源
-    details: forFeature 命名客户端 + key 前缀命名空间，多连接与 key 隔离双支持。（规划中）
+    details: forFeature 命名客户端 + key 前缀命名空间，多连接与 key 隔离双支持。
+  - title: 工具
+    details: hashTag 散列槽标签、pipeline 批量执行，覆盖真实 Redis 的集成测试。
 ---

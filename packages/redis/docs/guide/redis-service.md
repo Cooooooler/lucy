@@ -43,6 +43,19 @@ const user = await this.redis.getJson<{ name: string; at: Date }>('user:1');
 
 > 序列化器细节见 [序列化](./serialization)。
 
+### `pipeline()`
+
+返回底层 ioredis pipeline，可链式追加命令后 `exec()` 批量执行：
+
+```ts
+const pipeline = this.redis.pipeline();
+pipeline.set('a', '1');
+pipeline.set('b', '2');
+const results = await pipeline.exec();
+```
+
+> 与 `raw` 一致，pipeline 的 key 不自动加前缀。详见[工具](./utilities)。
+
 ### `raw`
 
 底层 ioredis 实例（逃生舱），供高级用法（`BF.*`、`eval`、`pipeline` 等）直接操作，**不经过异常包装**：
