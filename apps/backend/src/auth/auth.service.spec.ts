@@ -82,6 +82,17 @@ describe('AuthService', () => {
     expect(redisService.sadd).toHaveBeenCalled();
   });
 
+  it('login 签发 access 失败时不落 refresh 状态', async () => {
+    usersService.findByUsername.mockResolvedValue(user);
+    passwordService.verify.mockResolvedValue(true);
+    jwtService.signAsync.mockRejectedValueOnce(new Error('sign failed'));
+    await expect(
+      service.login({ account: 'alice', password: 'p' }),
+    ).rejects.toThrow('sign failed');
+    expect(redisService.set).not.toHaveBeenCalled();
+    expect(redisService.sadd).not.toHaveBeenCalled();
+  });
+
   it('login 密码错误抛 40102', async () => {
     usersService.findByUsername.mockResolvedValue(user);
     passwordService.verify.mockResolvedValue(false);

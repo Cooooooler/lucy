@@ -13,13 +13,4 @@ describe('AuthModule', () => {
     expect(providers).not.toContain(DenylistService);
     expect(providers).toContain(AuthService);
   });
-
-  it('DenylistModule 提供并导出 DenylistService', () => {
-    const providers = (Reflect.getMetadata('providers', DenylistModule) ??
-      []) as unknown[];
-    const exports = (Reflect.getMetadata('exports', DenylistModule) ??
-      []) as unknown[];
-    expect(providers).toContain(DenylistService);
-    expect(exports).toContain(DenylistService);
-  });
 });

@@ -132,11 +132,12 @@ export class AuthService {
       );
     }
     const family = randomUUID();
-    const refreshToken = await this.issueRefreshToken(user.id, family);
+    // 先签 access token：signAsync 失败时不落任何 refresh 状态，避免泄漏无人可达的 Redis 记录
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
       jti: randomUUID(),
     });
+    const refreshToken = await this.issueRefreshToken(user.id, family);
     return { user: this.toSharedUser(user), accessToken, refreshToken };
   }
 
