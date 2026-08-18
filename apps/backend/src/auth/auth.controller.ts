@@ -26,6 +26,8 @@ type User = components['schemas']['User'];
 
 @ApiTags('auth')
 @Controller('auth')
+// 认证契约：长效 refresh token 经 HttpOnly cookie 下发/读取（安全、防 XSS），
+// 短效 access token 放响应体由前端持有；refresh 失败时清除失效 cookie
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 

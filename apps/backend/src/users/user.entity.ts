@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+/** 用户账号：username/email 全局唯一，status=1 为正常；passwordHash 经 @ApiHideProperty 不对外暴露 */
 @Entity('users')
 @Unique(['username'])
 @Unique(['email'])

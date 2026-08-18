@@ -8,6 +8,9 @@ import type {
   SendMessageRequest,
 } from './types';
 
+// AI 会话/消息 REST 客户端：全部经 http 实例（自动附加 Bearer + 401 单飞刷新 + 信封解包）。
+// 流式发送标记 skipAuthRefresh：SSE 流中途不应触发 401 重放，否则会破坏流协议。
+
 export function createConversationApi(input: CreateConversationRequest = {}) {
   return http.post<Conversation>('ai/conversations', input).json();
 }

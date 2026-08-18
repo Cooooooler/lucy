@@ -5,6 +5,11 @@ import { DataSource } from 'typeorm';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+/**
+ * CLI 专用 DataSource：仅供 typeorm 迁移命令（`migration:run/generate`，`-d src/db/data-source.ts`）使用，
+ * 与运行时 Nest 应用的连接（AppModule 的 TypeOrmModule.forRootAsync）分离。
+ * 顶部 dotenv/config 内联读取 apps/backend/.env。
+ */
 export default new DataSource({
   type: 'postgres',
   host: process.env.DB_HOST ?? '127.0.0.1',

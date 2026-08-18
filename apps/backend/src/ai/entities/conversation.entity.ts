@@ -13,6 +13,7 @@ import {
 import { User } from '../../users/user.entity.js';
 import { Message } from './message.entity.js';
 
+/** AI 对话会话：归属用户 + 默认模型 + 标题，一对多持有 Message；user_id 建索引支撑按用户查询 */
 @Entity('ai_conversations')
 export class Conversation {
   @ApiProperty({ description: '会话 ID' })
