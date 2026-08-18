@@ -35,6 +35,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build shared package
         run: pnpm --filter @lucy/shared build
+      - name: Build redis package
+        run: pnpm --filter @coool/redis-nest build
       - name: Backend tests with coverage
         run: pnpm --filter @lucy/backend test:cov
       - name: Upload coverage report
@@ -75,6 +77,11 @@ jobs:
   redis-tests:
     name: Redis package tests with coverage
     runs-on: tenki-standard-small-2c-4g
+    services:
+      redis:
+        image: redis/redis-stack-server:latest
+        ports:
+          - 6379:6379
     steps:
       - uses: actions/checkout@v7
         with:

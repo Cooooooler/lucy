@@ -12,6 +12,7 @@ function mockClient() {
     set: vi.fn(),
     del: vi.fn(),
     exists: vi.fn(),
+    pipeline: vi.fn(),
   };
 }
 
@@ -181,4 +182,13 @@ it('namespace 下 getJson 加前缀', async () => {
   );
   await svc.getJson('k');
   expect(client.get).toHaveBeenCalledWith('auth:k');
+});
+
+it('pipeline 委托给底层 client', async () => {
+  const client = mockClient();
+  const pipeline = { exec: vi.fn().mockResolvedValue([]) };
+  client.pipeline.mockReturnValue(pipeline);
+  const svc = await buildService(client);
+  expect(svc.pipeline()).toBe(pipeline);
+  expect(client.pipeline).toHaveBeenCalledTimes(1);
 });

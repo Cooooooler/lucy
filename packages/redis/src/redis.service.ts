@@ -24,6 +24,11 @@ export class RedisService {
     return this.client;
   }
 
+  /** 获取底层 ioredis pipeline：可链式追加命令，最后 exec() 批量执行（key 不自动加前缀） */
+  pipeline(): ReturnType<Redis['pipeline']> {
+    return this.client.pipeline();
+  }
+
   /** 有 namespace 时给 key 加固定前缀 */
   private prefixed(key: string): string {
     return this.namespace ? `${this.namespace}:${key}` : key;

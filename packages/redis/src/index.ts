@@ -5,6 +5,7 @@
  * 详情见 README。
  */
 export { createClient } from './client.factory.js';
+export { hashTag } from './hash-tag.js';
 export {
   DEFAULT_OPTIONS,
   defaultRetryStrategy,

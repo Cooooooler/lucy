@@ -12,9 +12,9 @@ NestJS Redis 集成模块：**连接管理 · 序列化 · DI · 多数据源 ·
 - **统一 DI**：`RedisService` 注入即用，全局模块（`global: true`）。
 - **统一异常**：ioredis 底层错误包装为 `RedisException`，带稳定错误码。
 - **序列化**：默认 JSON，自定义序列化器可替换，自动处理 Date；`setJson` / `getJson` 开箱即用。
-- **逃生舱**：`RedisService.raw` 暴露底层 client，供 `BF.*`、`eval`、`pipeline` 等高级用法。
-
-> 多数据源（`forFeature`）、工具（`hashTag`/`pipeline`）规划中，见[路线图](docs/guide/roadmap.md)。
+- **多数据源**：`forFeature` 命名客户端 + key 前缀命名空间，多连接与 key 隔离双支持。
+- **工具**：`hashTag` 散列槽标签、`pipeline` 批量执行，含真实 Redis 集成测试。
+- **逃生舱**：`RedisService.raw` 暴露底层 client，供 `BF.*`、`eval` 等高级用法。
 
 ## 安装
 
