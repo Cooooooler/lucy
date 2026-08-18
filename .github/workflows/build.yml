@@ -75,6 +75,11 @@ jobs:
   redis-tests:
     name: Redis package tests with coverage
     runs-on: tenki-standard-small-2c-4g
+    services:
+      redis:
+        image: redis/redis-stack-server:latest
+        ports:
+          - 6379:6379
     steps:
       - uses: actions/checkout@v7
         with:
