@@ -405,6 +405,23 @@ export interface components {
              */
             model?: string;
         };
+        HealthResultDto: {
+            /**
+             * @description 整体状态：ok 或 degraded（任一组件不可用）
+             * @example ok
+             */
+            status: string;
+            /**
+             * @description 数据库是否可达
+             * @example true
+             */
+            db: boolean;
+            /**
+             * @description Redis 是否可达
+             * @example true
+             */
+            redis: boolean;
+        };
     };
     responses: never;
     parameters: never;
@@ -740,11 +757,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description 健康状态 */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["HealthResultDto"];
+                };
             };
         };
     };

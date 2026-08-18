@@ -4,15 +4,15 @@ import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module.js';
+import { resolveCorsOrigin } from './common/cors.js';
 import { DocsModule } from './docs/docs.module.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.use(helmet());
-  const corsOrigin = process.env.CORS_ORIGIN;
+  // 未配置 CORS_ORIGIN 时 origin:false 即仅同源（不返回 CORS 头），安全默认；跨源需显式白名单
   app.enableCors({
-    // 未配置 CORS_ORIGIN 时 origin:false 即仅同源（不返回 CORS 头），安全默认；跨源需显式白名单
-    origin: corsOrigin ? corsOrigin.split(',').map((s) => s.trim()) : false,
+    origin: resolveCorsOrigin(),
     credentials: true,
   });
   app.use(cookieParser());

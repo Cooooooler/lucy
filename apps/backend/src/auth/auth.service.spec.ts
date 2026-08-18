@@ -107,6 +107,24 @@ describe('AuthService', () => {
     expect(multi.exec).not.toHaveBeenCalled();
   });
 
+  it('login 签发 refresh 事务内某命令失败时抛错，不返回成功', async () => {
+    usersService.findByUsername.mockResolvedValue(user);
+    passwordService.verify.mockResolvedValue(true);
+    // ioredis exec 对单条命令失败不 reject，而是以 [err, result] 数组返回；应据此判失败
+    multi.exec.mockResolvedValueOnce([
+      [null, 1],
+      [
+        new Error(
+          'WRONGTYPE Operation against a key holding the wrong kind of value',
+        ),
+        null,
+      ],
+    ]);
+    await expect(
+      service.login({ account: 'alice', password: 'p' }),
+    ).rejects.toThrow(/Redis transaction failed/);
+  });
+
   it('login 密码错误抛 40102', async () => {
     usersService.findByUsername.mockResolvedValue(user);
     passwordService.verify.mockResolvedValue(false);

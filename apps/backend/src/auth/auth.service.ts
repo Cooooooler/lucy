@@ -4,6 +4,7 @@ import { ErrorCode } from '@lucy/shared';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import type { ChainableCommander } from 'ioredis';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { BusinessException } from '../common/exceptions/business.exception.js';
 import { PasswordService } from '../password/password.service.js';
@@ -148,13 +149,14 @@ export class AuthService {
     const token = randomBytes(32).toString('base64url');
     const ttl = this.refreshTtl();
     // 四条写入并入单个事务，避免进程中途崩溃留下孤儿 token/family 记录
-    await this.redis.raw
-      .multi()
-      .set(this.refreshKey(token), `${userId}:${family}`, 'EX', ttl)
-      .set(this.activeAtKey(token), String(Date.now()), 'EX', ttl)
-      .sadd(this.familyKey(family), token)
-      .expire(this.familyKey(family), ttl)
-      .exec();
+    await this.execMulti(
+      this.redis.raw
+        .multi()
+        .set(this.refreshKey(token), `${userId}:${family}`, 'EX', ttl)
+        .set(this.activeAtKey(token), String(Date.now()), 'EX', ttl)
+        .sadd(this.familyKey(family), token)
+        .expire(this.familyKey(family), ttl),
+    );
     return token;
   }
 
@@ -175,7 +177,20 @@ export class AuthService {
       );
     }
     tx.del(this.familyKey(family));
-    await tx.exec();
+    await this.execMulti(tx);
+  }
+
+  // ioredis 的 exec() 对事务内单条命令失败不会 reject，而是以 [err, result] 数组逐条返回；
+  // 忽略结果会静默部分写入（如 refresh 令牌已写但 family 未登记）。此方法校验所有结果，
+  // 任一命令失败即抛错，保证整个事务要么全部成功、要么按失败处理。
+  private async execMulti(tx: ChainableCommander): Promise<void> {
+    const results = await tx.exec();
+    // 事务为空（无命令排队）时 exec 返回 null，无结果可校验
+    if (!results) return;
+    const failed = results.find(([err]) => err)?.[0];
+    if (failed) {
+      throw new Error(`Redis transaction failed: ${failed.message}`);
+    }
   }
 
   async refresh(
@@ -251,13 +266,14 @@ export class AuthService {
     }
     // 轮换：删除旧 token → 记录复用标记（含轮换时间）→ 同家族签发新 token
     const ttl = this.refreshTtl();
-    await this.redis.raw
-      .multi()
-      .del(this.refreshKey(refreshToken), this.activeAtKey(refreshToken))
-      .srem(this.familyKey(family), refreshToken)
-      .set(this.reuseKey(refreshToken), active, 'EX', ttl)
-      .set(this.reuseAtKey(refreshToken), String(Date.now()), 'EX', ttl)
-      .exec();
+    await this.execMulti(
+      this.redis.raw
+        .multi()
+        .del(this.refreshKey(refreshToken), this.activeAtKey(refreshToken))
+        .srem(this.familyKey(family), refreshToken)
+        .set(this.reuseKey(refreshToken), active, 'EX', ttl)
+        .set(this.reuseAtKey(refreshToken), String(Date.now()), 'EX', ttl),
+    );
     const newRefreshToken = await this.issueRefreshToken(userId, family);
     return { accessToken, refreshToken: newRefreshToken };
   }
