@@ -7,7 +7,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CommonModule } from './common/common.module.js';
-import { PasswordModule } from './password/password.module.js';
+import { HealthModule } from './health/health.module.js';
 import { UsersModule } from './users/users.module.js';
 
 /** 从 ConfigService 读取 Redis 连接配置（提取为纯函数便于单测；端口强制 Number，因 ConfigService 可能返回字符串） */
@@ -36,7 +36,6 @@ export function redisModuleOptions(config: ConfigService) {
         synchronize: false,
       }),
     }),
-    PasswordModule,
     UsersModule,
     RedisModule.forRootAsync({
       inject: [ConfigService],
@@ -44,6 +43,7 @@ export function redisModuleOptions(config: ConfigService) {
     }),
     AuthModule,
     AiModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

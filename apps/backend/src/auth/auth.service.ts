@@ -146,34 +146,36 @@ export class AuthService {
     family: string,
   ): Promise<string> {
     const token = randomBytes(32).toString('base64url');
-    await this.redis.set(
-      this.refreshKey(token),
-      `${userId}:${family}`,
-      this.refreshTtl(),
-    );
-    await this.redis.set(
-      this.activeAtKey(token),
-      String(Date.now()),
-      this.refreshTtl(),
-    );
-    await this.redis.sadd(this.familyKey(family), token);
-    await this.redis.expire(this.familyKey(family), this.refreshTtl());
+    const ttl = this.refreshTtl();
+    // 四条写入并入单个事务，避免进程中途崩溃留下孤儿 token/family 记录
+    await this.redis.raw
+      .multi()
+      .set(this.refreshKey(token), `${userId}:${family}`, 'EX', ttl)
+      .set(this.activeAtKey(token), String(Date.now()), 'EX', ttl)
+      .sadd(this.familyKey(family), token)
+      .expire(this.familyKey(family), ttl)
+      .exec();
     return token;
   }
 
   private async revokeFamily(family: string): Promise<void> {
     const members = await this.redis.smembers(this.familyKey(family));
-    await Promise.all(
-      members.map((t) =>
-        this.redis.del(
-          this.refreshKey(t),
-          this.activeAtKey(t),
-          this.reuseKey(t),
-          this.reuseAtKey(t),
-        ),
-      ),
-    );
-    await this.redis.del(this.familyKey(family));
+    if (members.length === 0) {
+      await this.redis.del(this.familyKey(family));
+      return;
+    }
+    // 每个成员四条 key 删除 + family key 删除并入单事务，保证整个家族的撤销原子完成
+    const tx = this.redis.raw.multi();
+    for (const t of members) {
+      tx.del(
+        this.refreshKey(t),
+        this.activeAtKey(t),
+        this.reuseKey(t),
+        this.reuseAtKey(t),
+      );
+    }
+    tx.del(this.familyKey(family));
+    await tx.exec();
   }
 
   async refresh(
@@ -248,21 +250,14 @@ export class AuthService {
       return { accessToken, refreshToken };
     }
     // 轮换：删除旧 token → 记录复用标记（含轮换时间）→ 同家族签发新 token
-    await this.redis.del(
-      this.refreshKey(refreshToken),
-      this.activeAtKey(refreshToken),
-    );
-    await this.redis.srem(this.familyKey(family), refreshToken);
-    await this.redis.set(
-      this.reuseKey(refreshToken),
-      active,
-      this.refreshTtl(),
-    );
-    await this.redis.set(
-      this.reuseAtKey(refreshToken),
-      String(Date.now()),
-      this.refreshTtl(),
-    );
+    const ttl = this.refreshTtl();
+    await this.redis.raw
+      .multi()
+      .del(this.refreshKey(refreshToken), this.activeAtKey(refreshToken))
+      .srem(this.familyKey(family), refreshToken)
+      .set(this.reuseKey(refreshToken), active, 'EX', ttl)
+      .set(this.reuseAtKey(refreshToken), String(Date.now()), 'EX', ttl)
+      .exec();
     const newRefreshToken = await this.issueRefreshToken(userId, family);
     return { accessToken, refreshToken: newRefreshToken };
   }
