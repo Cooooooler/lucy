@@ -2,7 +2,6 @@ import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
 import {
   Column,
   CreateDateColumn,
-  DeleteDateColumn,
   Entity,
   PrimaryGeneratedColumn,
   Unique,
@@ -50,9 +49,4 @@ export class User {
   @ApiProperty({ description: '更新时间', example: '2026-08-08T00:00:00.000Z' })
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
-
-  // deletedAt 不加 @ApiProperty
-  @ApiHideProperty()
-  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
-  deletedAt: Date | null;
 }

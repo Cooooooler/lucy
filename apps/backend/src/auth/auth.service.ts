@@ -97,10 +97,11 @@ export class AuthService {
     return this.toSharedUser(user);
   }
 
-  async login(dto: {
-    account: string;
-    password: string;
-  }): Promise<{ user: SharedUser; refreshToken: string }> {
+  async login(dto: { account: string; password: string }): Promise<{
+    user: SharedUser;
+    accessToken: string;
+    refreshToken: string;
+  }> {
     const user = dto.account.includes('@')
       ? await this.usersService.findByEmail(dto.account)
       : await this.usersService.findByUsername(dto.account);
@@ -131,8 +132,13 @@ export class AuthService {
       );
     }
     const family = randomUUID();
+    // 先签 access token：signAsync 失败时不落任何 refresh 状态，避免泄漏无人可达的 Redis 记录
+    const accessToken = await this.jwtService.signAsync({
+      sub: user.id,
+      jti: randomUUID(),
+    });
     const refreshToken = await this.issueRefreshToken(user.id, family);
-    return { user: this.toSharedUser(user), refreshToken };
+    return { user: this.toSharedUser(user), accessToken, refreshToken };
   }
 
   private async issueRefreshToken(
@@ -150,13 +156,13 @@ export class AuthService {
       String(Date.now()),
       this.refreshTtl(),
     );
-    await this.redis.raw.sadd(this.familyKey(family), token);
-    await this.redis.raw.expire(this.familyKey(family), this.refreshTtl());
+    await this.redis.sadd(this.familyKey(family), token);
+    await this.redis.expire(this.familyKey(family), this.refreshTtl());
     return token;
   }
 
   private async revokeFamily(family: string): Promise<void> {
-    const members = await this.redis.raw.smembers(this.familyKey(family));
+    const members = await this.redis.smembers(this.familyKey(family));
     await Promise.all(
       members.map((t) =>
         this.redis.del(
@@ -246,7 +252,7 @@ export class AuthService {
       this.refreshKey(refreshToken),
       this.activeAtKey(refreshToken),
     );
-    await this.redis.raw.srem(this.familyKey(family), refreshToken);
+    await this.redis.srem(this.familyKey(family), refreshToken);
     await this.redis.set(
       this.reuseKey(refreshToken),
       active,

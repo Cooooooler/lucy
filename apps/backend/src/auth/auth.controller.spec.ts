@@ -50,13 +50,15 @@ describe('AuthController', () => {
     expect(authService.register).toHaveBeenCalledWith(dto);
   });
 
-  it('login 写 httpOnly refresh cookie 并只返回 user', async () => {
+  it('login 写 httpOnly refresh cookie 并返回 access token 与 user', async () => {
     authService.login.mockResolvedValue({
       user: safeUser,
+      accessToken: 'a',
       refreshToken: 'r',
     });
     const dto = { account: 'alice', password: 'p' };
     await expect(controller.login(dto, res)).resolves.toEqual({
+      accessToken: 'a',
       user: safeUser,
     });
     expect(resMock.cookie).toHaveBeenCalledWith(

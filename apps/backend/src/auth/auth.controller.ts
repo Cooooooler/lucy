@@ -40,7 +40,8 @@ export class AuthController {
   @Post('login')
   @ApiOperation({
     summary: '登录',
-    description: '账号密码登录，返回用户信息；长效 token 写入 HttpOnly cookie',
+    description:
+      '账号密码登录，返回用户信息与短效 access token；长效 token 写入 HttpOnly cookie',
   })
   @ApiResponse({ status: 201, description: '登录成功', type: LoginResultDto })
   @ApiResponse({ status: 401, description: '用户名或密码错误' })
@@ -48,9 +49,10 @@ export class AuthController {
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { user, refreshToken } = await this.authService.login(dto);
+    const { user, accessToken, refreshToken } =
+      await this.authService.login(dto);
     this.setRefreshCookie(res, refreshToken);
-    return { user };
+    return { accessToken, user };
   }
 
   @Public()

@@ -20,18 +20,14 @@ describe('AuthService', () => {
   };
   const passwordService = { verify: vi.fn() };
   const jwtService = { signAsync: vi.fn().mockResolvedValue('access-token') };
-  const redisClient = {
-    sadd: vi.fn(),
-    srem: vi.fn(),
-    smembers: vi.fn(),
-    expire: vi.fn(),
-    del: vi.fn(),
-  };
   const redisService = {
     get: vi.fn(),
     set: vi.fn(),
     del: vi.fn(),
-    raw: redisClient,
+    sadd: vi.fn(),
+    srem: vi.fn(),
+    smembers: vi.fn(),
+    expire: vi.fn(),
   };
   const denylist = { add: vi.fn() };
 
@@ -44,7 +40,6 @@ describe('AuthService', () => {
     status: 1,
     createdAt: new Date(),
     updatedAt: new Date(),
-    deletedAt: null,
   };
   const activeVal = `${user.id}:family-1`;
 
@@ -64,13 +59,13 @@ describe('AuthService', () => {
     service = module.get(AuthService);
   });
 
-  it('login 成功返回用户与长效 token，不返回短效 token', async () => {
+  it('login 成功返回用户、短效与长效 token', async () => {
     usersService.findByUsername.mockResolvedValue(user);
     passwordService.verify.mockResolvedValue(true);
     const result = await service.login({ account: 'alice', password: 'p' });
     expect(result.user.username).toBe('alice');
+    expect(result.accessToken).toBe('access-token');
     expect(result.refreshToken).toBeTruthy();
-    expect(result).not.toHaveProperty('accessToken');
     expect(
       (result.user as { passwordHash?: string }).passwordHash,
     ).toBeUndefined();
@@ -84,7 +79,18 @@ describe('AuthService', () => {
       expect.any(String),
       expect.any(Number),
     );
-    expect(redisClient.sadd).toHaveBeenCalled();
+    expect(redisService.sadd).toHaveBeenCalled();
+  });
+
+  it('login 签发 access 失败时不落 refresh 状态', async () => {
+    usersService.findByUsername.mockResolvedValue(user);
+    passwordService.verify.mockResolvedValue(true);
+    jwtService.signAsync.mockRejectedValueOnce(new Error('sign failed'));
+    await expect(
+      service.login({ account: 'alice', password: 'p' }),
+    ).rejects.toThrow('sign failed');
+    expect(redisService.set).not.toHaveBeenCalled();
+    expect(redisService.sadd).not.toHaveBeenCalled();
   });
 
   it('login 密码错误抛 40102', async () => {
@@ -147,7 +153,7 @@ describe('AuthService', () => {
     const result = await service.refresh('old');
     expect(result.accessToken).toBe('access-token');
     expect(result.refreshToken).toBe('old');
-    expect(redisClient.srem).not.toHaveBeenCalled();
+    expect(redisService.srem).not.toHaveBeenCalled();
     expect(redisService.del).not.toHaveBeenCalled();
     expect(redisService.set).not.toHaveBeenCalled();
   });
@@ -164,7 +170,7 @@ describe('AuthService', () => {
       'auth:refresh:old',
       'auth:refresh:at:old',
     );
-    expect(redisClient.srem).toHaveBeenCalledWith(
+    expect(redisService.srem).toHaveBeenCalledWith(
       'auth:refresh:family:family-1',
       'old',
     );
@@ -195,7 +201,7 @@ describe('AuthService', () => {
       'auth:refresh:reuse-at:old': String(now - 5000),
     });
     await expect(service.refresh('old')).rejects.toThrow(BusinessException);
-    expect(redisClient.smembers).not.toHaveBeenCalled();
+    expect(redisService.smembers).not.toHaveBeenCalled();
     expect(redisService.del).not.toHaveBeenCalled();
   });
 
@@ -206,9 +212,9 @@ describe('AuthService', () => {
       'auth:refresh:reuse:old': activeVal,
       'auth:refresh:reuse-at:old': String(now - 20000),
     });
-    redisClient.smembers.mockResolvedValue(['t1', 't2']);
+    redisService.smembers.mockResolvedValue(['t1', 't2']);
     await expectUnauthorized(service.refresh('old'));
-    expect(redisClient.smembers).toHaveBeenCalledWith(
+    expect(redisService.smembers).toHaveBeenCalledWith(
       'auth:refresh:family:family-1',
     );
     expect(redisService.del).toHaveBeenCalledWith(
@@ -225,9 +231,9 @@ describe('AuthService', () => {
       'auth:refresh:reuse:old': activeVal,
       'auth:refresh:reuse-at:old': null,
     });
-    redisClient.smembers.mockResolvedValue(['t1']);
+    redisService.smembers.mockResolvedValue(['t1']);
     await expectUnauthorized(service.refresh('old'));
-    expect(redisClient.smembers).toHaveBeenCalledWith(
+    expect(redisService.smembers).toHaveBeenCalledWith(
       'auth:refresh:family:family-1',
     );
   });
@@ -235,7 +241,7 @@ describe('AuthService', () => {
   it('refresh 无效 token（非复用）抛 Unauthorized', async () => {
     mockGet({});
     await expectUnauthorized(service.refresh('bad'));
-    expect(redisClient.smembers).not.toHaveBeenCalled();
+    expect(redisService.smembers).not.toHaveBeenCalled();
   });
 
   it('refresh 遇到旧格式（无 family）的 active 值视为无效并清理', async () => {
@@ -247,7 +253,7 @@ describe('AuthService', () => {
       'auth:refresh:reuse:old',
       'auth:refresh:reuse-at:old',
     );
-    expect(redisClient.sadd).not.toHaveBeenCalled();
+    expect(redisService.sadd).not.toHaveBeenCalled();
   });
 
   it('refresh 用户不存在抛 Unauthorized', async () => {
@@ -276,9 +282,9 @@ describe('AuthService', () => {
 
   it('logout 带有效 refreshToken 吊销整个家族', async () => {
     mockGet({ 'auth:refresh:r': activeVal });
-    redisClient.smembers.mockResolvedValue(['t1']);
+    redisService.smembers.mockResolvedValue(['t1']);
     await service.logout('jti-1', 'r');
-    expect(redisClient.smembers).toHaveBeenCalledWith(
+    expect(redisService.smembers).toHaveBeenCalledWith(
       'auth:refresh:family:family-1',
     );
     expect(redisService.del).toHaveBeenCalledWith(
@@ -301,9 +307,9 @@ describe('AuthService', () => {
       'auth:refresh:r': null,
       'auth:refresh:reuse:r': activeVal,
     });
-    redisClient.smembers.mockResolvedValue(['t1']);
+    redisService.smembers.mockResolvedValue(['t1']);
     await service.logout('jti-1', 'r');
-    expect(redisClient.smembers).toHaveBeenCalledWith(
+    expect(redisService.smembers).toHaveBeenCalledWith(
       'auth:refresh:family:family-1',
     );
     expect(denylist.add).toHaveBeenCalledWith('jti-1');

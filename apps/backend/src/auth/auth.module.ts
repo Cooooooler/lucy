@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { DenylistService } from '../redis/denylist.service.js';
+import { DenylistModule } from '../redis/denylist.module.js';
 import { UsersModule } from '../users/users.module.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
@@ -14,6 +14,7 @@ import { JwtStrategy } from './jwt.strategy.js';
   imports: [
     UsersModule,
     PassportModule,
+    DenylistModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -31,7 +32,6 @@ import { JwtStrategy } from './jwt.strategy.js';
   providers: [
     AuthService,
     JwtStrategy,
-    DenylistService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
 })
