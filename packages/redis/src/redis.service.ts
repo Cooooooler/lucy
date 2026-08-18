@@ -77,10 +77,11 @@ export class RedisService {
     });
   }
 
-  /** 序列化读取：文本经 serializer 还原；key 不存在返回 null */
+  /** 序列化读取：文本经 serializer 还原；key 不存在返回 null；反序列化错误包装为 RedisException */
   async getJson<T = unknown>(key: string): Promise<T | null> {
     const text = await this.get(key);
-    return text === null ? null : (this.serializer.deserialize(text) as T);
+    if (text === null) return null;
+    return this.wrap(async () => this.serializer.deserialize(text) as T);
   }
 
   /** 执行命令并把 ioredis 错误统一包装为 RedisException */

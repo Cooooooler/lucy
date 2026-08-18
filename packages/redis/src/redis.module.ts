@@ -12,6 +12,7 @@ import type { RedisClient, RedisModuleOptions } from './options.js';
 import {
   getNamedClientToken,
   REDIS_CLIENT,
+  REDIS_MODULE_OPTIONS,
   REDIS_SERIALIZER,
 } from './redis.constants.js';
 import { RedisService } from './redis.service.js';
@@ -67,7 +68,7 @@ export class RedisModule implements OnModuleDestroy {
     };
   }
 
-  /** 异步注册全局连接：useFactory 可注入依赖返回连接配置，常用于从配置中心/环境读取 */
+  /** 异步注册全局连接：useFactory 只调用一次，解析后的配置派生出 client 与 serializer */
   static forRootAsync(options: RedisModuleAsyncOptions): DynamicModule {
     return {
       module: RedisModule,
@@ -75,17 +76,21 @@ export class RedisModule implements OnModuleDestroy {
       imports: options.imports ?? [],
       providers: [
         {
-          provide: REDIS_CLIENT,
+          provide: REDIS_MODULE_OPTIONS,
           inject: options.inject ?? [],
           useFactory: async (...args: unknown[]) =>
-            createClient(await options.useFactory(...args)),
+            (await options.useFactory(...args)) as RedisModuleOptions,
+        },
+        {
+          provide: REDIS_CLIENT,
+          inject: [REDIS_MODULE_OPTIONS],
+          useFactory: (opts: RedisModuleOptions) => createClient(opts),
         },
         {
           provide: REDIS_SERIALIZER,
-          inject: options.inject ?? [],
-          useFactory: async (...args: unknown[]) =>
-            (await options.useFactory(...args)).serializer ??
-            defaultJsonSerializer,
+          inject: [REDIS_MODULE_OPTIONS],
+          useFactory: (opts: RedisModuleOptions) =>
+            opts.serializer ?? defaultJsonSerializer,
         },
         RedisService,
       ],
@@ -119,11 +124,11 @@ export class RedisModule implements OnModuleDestroy {
           : []),
         {
           provide: RedisService,
-          // REDIS_SERIALIZER 可缺省：命名 feature 独立场景无 forRoot 提供，回退默认序列化器
+          // 命名客户端优先用 connOptions.serializer；否则用注入的全局 serializer；都缺省回退默认
           useFactory: (client: RedisClient, serializer: RedisSerializer) =>
             new RedisService(
               client as Redis,
-              serializer ?? defaultJsonSerializer,
+              connOptions?.serializer ?? serializer ?? defaultJsonSerializer,
               namespace,
             ),
           inject: [clientToken, { token: REDIS_SERIALIZER, optional: true }],

@@ -15,9 +15,16 @@ export function isIsoDateString(value: string): boolean {
 /** 默认 JSON 序列化器：Date 存为 ISO 字符串，读回时还原为 Date */
 export const defaultJsonSerializer: RedisSerializer = {
   serialize(value: unknown): string {
-    return JSON.stringify(value, (_key, v) =>
+    const result = JSON.stringify(value, (_key, v) =>
       v instanceof Date ? v.toISOString() : v,
     );
+    // JSON.stringify 对顶层 undefined/function/symbol 返回 undefined，违背 string 返回契约
+    if (result === undefined) {
+      throw new TypeError(
+        'Cannot serialize value: JSON.stringify returned undefined',
+      );
+    }
+    return result;
   },
   deserialize(text: string): unknown {
     return JSON.parse(text, (_key, v) =>

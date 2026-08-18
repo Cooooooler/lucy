@@ -45,4 +45,11 @@ describe('defaultJsonSerializer', () => {
     ) as { at: Date };
     expect(v.at).toBeInstanceOf(Date);
   });
+  it('顶层 undefined/function/symbol 抛 TypeError（保持 string 返回契约）', () => {
+    expect(() => defaultJsonSerializer.serialize(undefined)).toThrow(TypeError);
+    expect(() => defaultJsonSerializer.serialize(() => 1)).toThrow(TypeError);
+    expect(() => defaultJsonSerializer.serialize(Symbol('x'))).toThrow(
+      TypeError,
+    );
+  });
 });

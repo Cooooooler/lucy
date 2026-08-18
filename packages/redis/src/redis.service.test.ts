@@ -115,6 +115,13 @@ describe('RedisService', () => {
     expect(v?.at).toBeInstanceOf(Date);
   });
 
+  it('getJson 畸形 JSON 包装为 RedisException', async () => {
+    const client = mockClient();
+    client.get.mockResolvedValue('{bad json');
+    const svc = await buildService(client);
+    await expect(svc.getJson('k')).rejects.toBeInstanceOf(RedisException);
+  });
+
   it('自定义序列化器被使用', async () => {
     const client = mockClient();
     const custom: RedisSerializer = {

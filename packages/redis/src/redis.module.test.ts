@@ -8,13 +8,17 @@ import {
 } from './redis.constants.js';
 import { RedisModule } from './redis.module.js';
 import { RedisService } from './redis.service.js';
-import { defaultJsonSerializer } from './serializer.js';
+import { defaultJsonSerializer, type RedisSerializer } from './serializer.js';
 
 const { mockRedisCtor } = vi.hoisted(() => ({ mockRedisCtor: vi.fn() }));
 
 vi.mock('ioredis', () => {
   class MockRedis {
     quit = vi.fn();
+    get = vi.fn();
+    set = vi.fn();
+    del = vi.fn();
+    exists = vi.fn();
     constructor(...args: unknown[]) {
       mockRedisCtor(...args);
     }
@@ -68,6 +72,23 @@ describe('RedisModule', () => {
     }).compile();
     const arg = mockRedisCtor.mock.calls[0][0] as Record<string, unknown>;
     expect(arg.host).toBe('cfg.example.com');
+  });
+
+  it('forRootAsync 只调用一次 useFactory', async () => {
+    mockRedisCtor.mockClear();
+    let calls = 0;
+    const module = await Test.createTestingModule({
+      imports: [
+        RedisModule.forRootAsync({
+          useFactory: () => {
+            calls++;
+            return { type: 'standalone', host: 'h' };
+          },
+        }),
+      ],
+    }).compile();
+    module.get(RedisService);
+    expect(calls).toBe(1);
   });
 
   it('onModuleDestroy 关闭 client', async () => {
@@ -185,5 +206,25 @@ describe('RedisModule', () => {
     module.get(Consumer);
     expect(mockRedisCtor).toHaveBeenCalledTimes(1); // 仅 forRoot 建连，feature 复用默认连接
     expect(provided[0].redis).toBeInstanceOf(RedisService);
+  });
+
+  it('forFeature 命名客户端使用 connOptions.serializer', async () => {
+    mockRedisCtor.mockClear();
+    const custom: RedisSerializer = {
+      serialize: (v) => `C:${JSON.stringify(v)}`,
+      deserialize: () => 'CUSTOM',
+    };
+    const module = await Test.createTestingModule({
+      imports: [
+        RedisModule.forFeature({
+          name: 'cache',
+          options: { type: 'standalone', serializer: custom },
+        }),
+      ],
+    }).compile();
+    const svc = module.get(RedisService);
+    await svc.setJson('k', { a: 1 });
+    const client = svc.raw as unknown as { set: ReturnType<typeof vi.fn> };
+    expect(client.set).toHaveBeenCalledWith('k', 'C:{"a":1}');
   });
 });
