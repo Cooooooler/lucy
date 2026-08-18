@@ -26,6 +26,7 @@ import {
 import XMarkdown from '@ant-design/x-markdown';
 import type { RoleType } from '@ant-design/x/es/bubble/interface';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useStore } from '@tanstack/react-store';
 import { useBoolean } from 'ahooks';
 import {
   App,
@@ -227,7 +228,8 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
   const listRef = useRef<ComponentRef<typeof Bubble.List>>(null);
   const [atBottom, setAtBottom] = useState(true);
 
-  const { user } = authStore.get();
+  // 响应式订阅 user：登录态变化时 header 昵称即时更新（get() 读取不会随 store 变更重渲染）
+  const user = useStore(authStore, (s) => s.user);
 
   const roles: RoleType = useMemo(() => {
     return {
@@ -255,11 +257,11 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
   function handleScroll(e: UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
     const isReverse = getComputedStyle(el).flexDirection === 'column-reverse';
-    setAtBottom(
-      isReverse
-        ? el.scrollTop >= -24
-        : el.scrollHeight - el.scrollTop - el.clientHeight < 24,
-    );
+    const next = isReverse
+      ? el.scrollTop >= -24
+      : el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    // 值未变化时返回原 state，跳过无谓的滚动重渲染
+    setAtBottom((prev) => (prev === next ? prev : next));
   }
 
   /** # 发送消息
@@ -283,6 +285,19 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
     }
   }
 
+  // 派生 items 缓存：messages 未变时保持引用稳定，避免 Bubble.List 因无关 state 重渲染
+  const items = useMemo(
+    () =>
+      messages.map((m) => ({
+        key: m.id,
+        role: m.role,
+        content: m.error ?? m.content,
+        loading: Boolean(m.streaming && !m.content),
+        streaming: Boolean(m.streaming),
+      })),
+    [messages],
+  );
+
   if (isLoading) {
     return (
       <Flex className="h-full w-full" align="center" justify="center">
@@ -300,14 +315,6 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
       />
     );
   }
-
-  const items = messages.map((m) => ({
-    key: m.id,
-    role: m.role,
-    content: m.error ?? m.content,
-    loading: Boolean(m.streaming && !m.content),
-    streaming: Boolean(m.streaming),
-  }));
 
   return (
     <Flex vertical className="h-full w-full">

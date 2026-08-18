@@ -77,13 +77,9 @@ export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
     safeMode === 'system' ? getSystemDark : getNoSystemDark,
   );
 
-  const themeMap = {
-    light: 'light',
-    dark: 'dark',
-    system: systemDark ? 'dark' : 'light',
-  } as const;
-
-  const resolvedTheme = themeMap[safeMode];
+  // 仅 system 依赖动态的 systemDark，其余直接取模式；避免每次渲染重建临时对象
+  const resolvedTheme: 'light' | 'dark' =
+    safeMode === 'system' ? (systemDark ? 'dark' : 'light') : safeMode;
 
   const setMode = useCallback(
     (next: ThemeMode) => setModeState(next),

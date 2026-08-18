@@ -33,7 +33,6 @@ export function useConversationList(page = 1, pageSize = 20) {
     queryFn: () => listConversationsApi(page, pageSize),
     placeholderData: (prev) => prev,
     staleTime: 0,
-    gcTime: 0,
     refetchOnWindowFocus: false,
   });
 }
@@ -44,7 +43,6 @@ export function useConversation(id: string | undefined) {
     queryFn: () => getConversationApi(id!),
     enabled: !!id,
     staleTime: 0,
-    gcTime: 0,
     refetchOnWindowFocus: false,
   });
 }
