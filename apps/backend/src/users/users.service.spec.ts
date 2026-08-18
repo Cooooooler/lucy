@@ -1,5 +1,7 @@
+import { ErrorCode } from '@lucy/shared';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { QueryFailedError } from 'typeorm';
 import { BusinessException } from '../common/exceptions/business.exception.js';
 import { PasswordService } from '../password/password.service.js';
 import { User } from './user.entity.js';
@@ -45,6 +47,26 @@ describe('UsersService', () => {
     });
     expect(passwordService.hash).toHaveBeenCalledWith('12345678');
     expect(repo.save).toHaveBeenCalled();
+  });
+
+  it('create 并发冲突命中唯一约束时按冲突列给出具体错误', async () => {
+    repo.findOneBy.mockResolvedValue(null);
+    const driverError = Object.assign(new Error('duplicate key value'), {
+      code: '23505',
+      detail: 'Key (email)=(a@x.com) already exists.',
+    });
+    repo.save.mockRejectedValue(
+      new QueryFailedError('INSERT INTO users', [], driverError),
+    );
+    await expect(
+      service.create({
+        username: 'a',
+        email: 'a@x.com',
+        password: '12345678',
+      }),
+    ).rejects.toMatchObject({
+      response: { code: ErrorCode.EMAIL_TAKEN },
+    });
   });
 
   it('findByUsername 委托 repo', async () => {

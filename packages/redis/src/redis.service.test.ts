@@ -13,6 +13,11 @@ function mockClient() {
     del: vi.fn(),
     exists: vi.fn(),
     pipeline: vi.fn(),
+    sadd: vi.fn(),
+    srem: vi.fn(),
+    smembers: vi.fn(),
+    sismember: vi.fn(),
+    expire: vi.fn(),
   };
 }
 
@@ -78,6 +83,46 @@ describe('RedisService', () => {
     const client = mockClient();
     const svc = await buildService(client);
     expect(svc.raw).toBe(client);
+  });
+
+  it('sadd 添加成员', async () => {
+    const client = mockClient();
+    client.sadd.mockResolvedValue(2);
+    const svc = await buildService(client);
+    await expect(svc.sadd('k', 'm1', 'm2')).resolves.toBe(2);
+    expect(client.sadd).toHaveBeenCalledWith('k', 'm1', 'm2');
+  });
+
+  it('srem 移除成员', async () => {
+    const client = mockClient();
+    client.srem.mockResolvedValue(1);
+    const svc = await buildService(client);
+    await expect(svc.srem('k', 'm')).resolves.toBe(1);
+    expect(client.srem).toHaveBeenCalledWith('k', 'm');
+  });
+
+  it('smembers 返回全部成员', async () => {
+    const client = mockClient();
+    client.smembers.mockResolvedValue(['a', 'b']);
+    const svc = await buildService(client);
+    await expect(svc.smembers('k')).resolves.toEqual(['a', 'b']);
+    expect(client.smembers).toHaveBeenCalledWith('k');
+  });
+
+  it('sismember 归一为布尔', async () => {
+    const client = mockClient();
+    client.sismember.mockResolvedValue(1);
+    const svc = await buildService(client);
+    await expect(svc.sismember('k', 'm')).resolves.toBe(true);
+    expect(client.sismember).toHaveBeenCalledWith('k', 'm');
+  });
+
+  it('expire 归一为布尔', async () => {
+    const client = mockClient();
+    client.expire.mockResolvedValue(1);
+    const svc = await buildService(client);
+    await expect(svc.expire('k', 60)).resolves.toBe(true);
+    expect(client.expire).toHaveBeenCalledWith('k', 60);
   });
 
   it('setJson 走 serializer 后写入', async () => {
@@ -170,6 +215,19 @@ it('namespace 下 del 全部加前缀', async () => {
   );
   await svc.del('a', 'b');
   expect(client.del).toHaveBeenCalledWith('auth:a', 'auth:b');
+});
+
+it('namespace 下 sadd/srem 加前缀', async () => {
+  const client = mockClient();
+  const svc = new RedisService(
+    client as unknown as Redis,
+    defaultJsonSerializer,
+    'auth',
+  );
+  await svc.sadd('k', 'm');
+  expect(client.sadd).toHaveBeenCalledWith('auth:k', 'm');
+  await svc.srem('k', 'm');
+  expect(client.srem).toHaveBeenCalledWith('auth:k', 'm');
 });
 
 it('namespace 下 getJson 加前缀', async () => {

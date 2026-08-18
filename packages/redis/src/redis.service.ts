@@ -65,6 +65,37 @@ export class RedisService {
     );
   }
 
+  /** 向集合添加若干成员，返回实际新增的数量 */
+  async sadd(key: string, ...members: string[]): Promise<number> {
+    return this.wrap(() => this.client.sadd(this.prefixed(key), ...members));
+  }
+
+  /** 从集合移除若干成员，返回实际移除的数量 */
+  async srem(key: string, ...members: string[]): Promise<number> {
+    return this.wrap(() => this.client.srem(this.prefixed(key), ...members));
+  }
+
+  /** 返回集合的全部成员 */
+  async smembers(key: string): Promise<string[]> {
+    return this.wrap(() => this.client.smembers(this.prefixed(key)));
+  }
+
+  /** 判断成员是否属于集合 */
+  async sismember(key: string, member: string): Promise<boolean> {
+    return this.wrap(
+      async () =>
+        (await this.client.sismember(this.prefixed(key), member)) === 1,
+    );
+  }
+
+  /** 设置 key 的过期时间（秒）；key 不存在时返回 false */
+  async expire(key: string, ttlSeconds: number): Promise<boolean> {
+    return this.wrap(
+      async () =>
+        (await this.client.expire(this.prefixed(key), ttlSeconds)) === 1,
+    );
+  }
+
   /** 序列化写入：value 经 serializer 转字符串（Date 自动处理）；传 ttlSeconds 时附加 EX 过期 */
   async setJson(
     key: string,

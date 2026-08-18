@@ -60,9 +60,17 @@ export class UsersService {
         err instanceof QueryFailedError &&
         (err.driverError as { code?: string }).code === '23505'
       ) {
+        // 竞态兜底：预检查之外的并发写入触发唯一约束，解析冲突列给出具体提示
+        const detail = (err.driverError as { detail?: string }).detail ?? '';
+        const isEmail = detail.includes('(email)');
+        const isUsername = detail.includes('(username)');
         throw new BusinessException(
-          ErrorCode.USERNAME_TAKEN,
-          '用户名或邮箱已存在',
+          isEmail ? ErrorCode.EMAIL_TAKEN : ErrorCode.USERNAME_TAKEN,
+          isEmail
+            ? '邮箱已存在'
+            : isUsername
+              ? '用户名已存在'
+              : '用户名或邮箱已存在',
           HttpStatus.CONFLICT,
         );
       }

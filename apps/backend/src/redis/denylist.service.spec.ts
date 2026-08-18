@@ -1,4 +1,4 @@
-import { REDIS_CLIENT } from '@coool/redis-nest';
+import { createClient, REDIS_CLIENT } from '@coool/redis-nest';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { Redis } from 'ioredis';
@@ -9,7 +9,11 @@ describe('DenylistService', () => {
   let client: Redis;
 
   beforeAll(async () => {
-    client = new Redis({ host: '127.0.0.1', port: 6379 });
+    client = createClient({
+      type: 'standalone',
+      host: '127.0.0.1',
+      port: 6379,
+    }) as Redis;
     const module = await Test.createTestingModule({
       providers: [
         { provide: REDIS_CLIENT, useValue: client },

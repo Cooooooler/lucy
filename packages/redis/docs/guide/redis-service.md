@@ -25,6 +25,34 @@ await this.redis.set('key', 'value', 60); // 60 秒后过期
 
 判断 key 是否存在，归一为布尔值。
 
+### `sadd(key, ...members): Promise<number>`
+
+向集合添加若干成员，返回实际新增的数量。
+
+```ts
+await this.redis.sadd('family', 'token-a'); // 1
+```
+
+### `srem(key, ...members): Promise<number>`
+
+从集合移除若干成员，返回实际移除的数量。
+
+### `smembers(key): Promise<string[]>`
+
+返回集合的全部成员。
+
+```ts
+const members = await this.redis.smembers('family');
+```
+
+### `sismember(key, member): Promise<boolean>`
+
+判断成员是否属于集合，归一为布尔值。
+
+### `expire(key, ttlSeconds): Promise<boolean>`
+
+设置 key 的过期时间（秒）；key 不存在时返回 `false`。
+
 ### `setJson(key, value, ttlSeconds?)`
 
 序列化写入：value 经序列化器转字符串（Date 自动处理）；传 `ttlSeconds` 时附加 `EX` 过期。
@@ -61,8 +89,10 @@ const results = await pipeline.exec();
 底层 ioredis 实例（逃生舱），供高级用法（`BF.*`、`eval`、`pipeline` 等）直接操作，**不经过异常包装**：
 
 ```ts
-await this.redis.raw.sadd('family', token);
+await this.redis.raw.call('BF.ADD', 'bloom', token);
 ```
+
+> 常规集合操作（`sadd`/`smembers` 等）已由门面提供，优先用门面而非 `raw`。
 
 ## 示例
 

@@ -8,7 +8,6 @@ import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
 
 import { loginApi } from '@/api/auth';
-import { refreshTokens } from '@/api/client';
 import { GlassButton } from '@/components/ui/glass-button';
 import {
   GlassCard,
@@ -18,7 +17,7 @@ import {
   GlassCardTitle,
 } from '@/components/ui/glass-card.tsx';
 import { GlassInput } from '@/components/ui/glass-input.tsx';
-import { login } from '@/stores/auth';
+import { applyTokens, login } from '@/stores/auth';
 
 const formSchema = z.object({
   account: z.string().trim().min(1, '请输入用户名或邮箱'),
@@ -54,8 +53,8 @@ function LoginPageBlock() {
     try {
       const result = await loginMutation.mutateAsync(values);
       login(result.user);
-      // 长效 token 已写入 HttpOnly cookie，这里静默换发短效 token 供后续请求
-      await refreshTokens();
+      // 长效 token 已写入 HttpOnly cookie，短效 access token 由登录直接返回
+      applyTokens(result.accessToken);
       message.success('登录成功');
       navigate({ to: '/' });
     } catch (err) {

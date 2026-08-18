@@ -56,7 +56,7 @@ export interface paths {
         put?: never;
         /**
          * 登录
-         * @description 账号密码登录，返回用户信息；长效 token 写入 HttpOnly cookie
+         * @description 账号密码登录，返回用户信息与短效 access token；长效 token 写入 HttpOnly cookie
          */
         post: operations["AuthController_login"];
         delete?: never;
@@ -279,6 +279,8 @@ export interface components {
             password: string;
         };
         LoginResultDto: {
+            /** @description 短效访问令牌 */
+            accessToken: string;
             /** @description 当前用户信息 */
             user: components["schemas"]["User"];
         };
