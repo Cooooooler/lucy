@@ -1,3 +1,4 @@
+import { RedisModule } from '@coool/redis-nest';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -7,7 +8,6 @@ import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CommonModule } from './common/common.module.js';
 import { PasswordModule } from './password/password.module.js';
-import { RedisModule } from './redis/redis.module.js';
 import { UsersModule } from './users/users.module.js';
 
 @Module({
@@ -29,7 +29,14 @@ import { UsersModule } from './users/users.module.js';
     }),
     PasswordModule,
     UsersModule,
-    RedisModule,
+    RedisModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        type: 'standalone' as const,
+        host: config.get<string>('REDIS_HOST', '127.0.0.1'),
+        port: config.get<number>('REDIS_PORT', 6379),
+      }),
+    }),
     AuthModule,
     AiModule,
   ],

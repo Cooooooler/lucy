@@ -1,3 +1,4 @@
+import { RedisService } from '@coool/redis-nest';
 import { ErrorCode } from '@lucy/shared';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -5,7 +6,6 @@ import { Test } from '@nestjs/testing';
 import { BusinessException } from '../common/exceptions/business.exception.js';
 import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
-import { RedisService } from '../redis/redis.service.js';
 import { User } from '../users/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { AuthService } from './auth.service.js';
@@ -31,7 +31,7 @@ describe('AuthService', () => {
     get: vi.fn(),
     set: vi.fn(),
     del: vi.fn(),
-    client: redisClient,
+    raw: redisClient,
   };
   const denylist = { add: vi.fn() };
 

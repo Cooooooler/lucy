@@ -25,6 +25,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@coool/redis-nest": "workspace:*",
     "@langchain/core": "^1.2.5",
     "@langchain/ollama": "^1.3.0",
     "@lucy/shared": "workspace:*",

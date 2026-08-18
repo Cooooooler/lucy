@@ -1,3 +1,4 @@
+import { RedisService } from '@coool/redis-nest';
 import type { components } from '@lucy/shared';
 import { ErrorCode } from '@lucy/shared';
 import { HttpStatus, Injectable } from '@nestjs/common';
@@ -7,7 +8,6 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { BusinessException } from '../common/exceptions/business.exception.js';
 import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
-import { RedisService } from '../redis/redis.service.js';
 import { User } from '../users/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 
@@ -150,13 +150,13 @@ export class AuthService {
       String(Date.now()),
       this.refreshTtl(),
     );
-    await this.redis.client.sadd(this.familyKey(family), token);
-    await this.redis.client.expire(this.familyKey(family), this.refreshTtl());
+    await this.redis.raw.sadd(this.familyKey(family), token);
+    await this.redis.raw.expire(this.familyKey(family), this.refreshTtl());
     return token;
   }
 
   private async revokeFamily(family: string): Promise<void> {
-    const members = await this.redis.client.smembers(this.familyKey(family));
+    const members = await this.redis.raw.smembers(this.familyKey(family));
     await Promise.all(
       members.map((t) =>
         this.redis.del(
@@ -246,7 +246,7 @@ export class AuthService {
       this.refreshKey(refreshToken),
       this.activeAtKey(refreshToken),
     );
-    await this.redis.client.srem(this.familyKey(family), refreshToken);
+    await this.redis.raw.srem(this.familyKey(family), refreshToken);
     await this.redis.set(
       this.reuseKey(refreshToken),
       active,
