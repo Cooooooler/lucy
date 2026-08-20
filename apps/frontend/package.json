@@ -31,6 +31,7 @@
     "antd": "^6.5.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dayjs": "^1.11.23",
     "framer-motion": "^13.0.0",
     "gsap": "^3.13.0",
     "hook-fetch": "3.0.0-beta.1",

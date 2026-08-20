@@ -5,7 +5,7 @@ import {
   useDeleteConversation,
   useRenameConversation,
 } from '@/hooks/use-ai';
-import { useChatStream } from '@/hooks/use-chat';
+import { type ChatMessage, useChatStream } from '@/hooks/use-chat';
 import { authStore } from '@/stores/auth.ts';
 import {
   DeleteOutlined,
@@ -22,11 +22,12 @@ import {
   Conversations,
   type ConversationsProps,
   Sender,
+  Welcome,
 } from '@ant-design/x';
 import XMarkdown from '@ant-design/x-markdown';
 import type { RoleType } from '@ant-design/x/es/bubble/interface';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useStore } from '@tanstack/react-store';
+import { useSelector } from '@tanstack/react-store';
 import { useBoolean } from 'ahooks';
 import {
   App,
@@ -41,6 +42,7 @@ import {
   Splitter,
   Typography,
 } from 'antd';
+import dayjs from 'dayjs';
 import {
   type ComponentRef,
   type UIEvent,
@@ -137,7 +139,7 @@ function ChatPage() {
 
   return (
     <Splitter className="h-full" collapsible={{ motion: true }}>
-      <Splitter.Panel collapsible defaultSize="15%" min="15%" max="40%">
+      <Splitter.Panel collapsible defaultSize="0%" min="15%" max="40%">
         <Conversations
           menu={menuConfig}
           items={items}
@@ -160,7 +162,7 @@ function ChatPage() {
       <Splitter.Panel>
         <ChatMessagesArea id={id} />
       </Splitter.Panel>
-      <Splitter.Panel collapsible defaultSize="15%" min="15%" max="40%">
+      <Splitter.Panel collapsible defaultSize="0%" min="15%" max="40%">
         <ThoughtChainPlaceholder />
       </Splitter.Panel>
     </Splitter>
@@ -229,7 +231,7 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
   const [atBottom, setAtBottom] = useState(true);
 
   // 响应式订阅 user：登录态变化时 header 昵称即时更新（get() 读取不会随 store 变更重渲染）
-  const user = useStore(authStore, (s) => s.user);
+  const user = useSelector(authStore, (s) => s.user);
 
   const roles: RoleType = useMemo(() => {
     return {
@@ -237,12 +239,22 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
         placement: 'start' as const,
         avatar: <Avatar icon={<OllamaFilled />} />,
         contentRender: renderMarkdown,
-        header: <Text ellipsis>{}</Text>,
+        header: <Text ellipsis>AI</Text>,
       },
       user: {
         placement: 'end' as const,
         avatar: <Avatar icon={<UserOutlined />} />,
-        header: <Text ellipsis>{user?.nickname ?? user?.username ?? ''}</Text>,
+        header: (_, info) => {
+          const msg = info.extraInfo as ChatMessage;
+          return (
+            <div className="flex gap-2">
+              <Text ellipsis>{user?.nickname ?? user?.username ?? ''}</Text>
+              <Text ellipsis>
+                {dayjs(msg.createdAt).format('YYYY-MM-DD HH:mm')}
+              </Text>
+            </div>
+          );
+        },
       },
     };
   }, [user]);
@@ -294,6 +306,7 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
         content: m.error ?? m.content,
         loading: Boolean(m.streaming && !m.content),
         streaming: Boolean(m.streaming),
+        extraInfo: m,
       })),
     [messages],
   );
@@ -318,28 +331,39 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
 
   return (
     <Flex vertical className="h-full w-full">
-      <div className="relative min-h-0 flex-1">
-        <Bubble.List
-          ref={listRef}
-          items={items}
-          role={roles}
-          autoScroll
-          onScroll={handleScroll}
-          className="h-full pb-4"
-          classNames={{ scroll: 'scrollbar-hide' }}
-        />
-        {!atBottom && (
-          <Button
-            type="primary"
-            shape="circle"
-            icon={<DownOutlined />}
-            className="absolute! bottom-16 left-1/2 z-10 -translate-x-1/2 shadow-md"
-            onClick={() =>
-              listRef.current?.scrollTo({ top: 'bottom', behavior: 'smooth' })
-            }
+      {id ? (
+        <div className="relative min-h-0 flex-1">
+          <Bubble.List
+            ref={listRef}
+            items={items}
+            role={roles}
+            autoScroll
+            onScroll={handleScroll}
+            className="h-full pb-4"
+            classNames={{ scroll: 'scrollbar-hide' }}
           />
-        )}
-      </div>
+          {!atBottom && (
+            <Button
+              color="cyan"
+              shape="circle"
+              icon={<DownOutlined />}
+              className="absolute! bottom-9 left-1/2 z-10 -translate-x-1/2 shadow-md"
+              onClick={() =>
+                listRef.current?.scrollTo({ top: 'bottom', behavior: 'smooth' })
+              }
+            />
+          )}
+        </div>
+      ) : (
+        <div className="relative flex min-h-0 flex-1 items-center justify-center">
+          <Welcome
+            variant="borderless"
+            icon="https://mdn.alipayobjects.com/huamei_iwk9zp/afts/img/A*s5sNRo5LjfQAAAAAAAAAAAAADgCCAQ/fmt.webp"
+            title="Hello, I'm Ant Design X"
+            description="Base on Ant Design, AGI product interface solution, create a better intelligent vision~"
+          />
+        </div>
+      )}
       <div className="px-4">
         <Sender
           value={value}
