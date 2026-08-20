@@ -1,3 +1,9 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+
+# 跨包共享依赖的单一版本源。@nestjs/* 全树版本必须一致（Nest DI 依赖类身份），ioredis 被 backend 与 redis 包共享。
+catalog:
+  '@nestjs/common': ^11.0.1
+  '@nestjs/core': ^11.0.1
+  ioredis: ^5.11.1

@@ -14,10 +14,8 @@
     "types": ["node", "vitest/globals"],
     "outDir": "./dist",
     "incremental": true,
-    "strictPropertyInitialization": false,
-    "strictNullChecks": true,
-    "noImplicitAny": false,
-    "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
+    "strict": true,
+    // NestJS 依赖构造器外的属性初始化（@Inject/装饰器注入），保留为 false
+    "strictPropertyInitialization": false
   }
 }
