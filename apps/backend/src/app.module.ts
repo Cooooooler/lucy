@@ -2,11 +2,13 @@ import { RedisModule } from '@coool/redis-nest';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { LoggerModule } from 'nestjs-pino';
 import { AiModule } from './ai/ai.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CommonModule } from './common/common.module.js';
+import { loggerModuleOptions } from './common/logger-options.js';
 import { HealthModule } from './health/health.module.js';
 import { UsersModule } from './users/users.module.js';
 
@@ -22,6 +24,7 @@ export function redisModuleOptions(config: ConfigService) {
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    LoggerModule.forRoot(loggerModuleOptions()),
     CommonModule,
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
