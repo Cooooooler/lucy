@@ -394,7 +394,7 @@ describe('AiService', () => {
       const gate = new Promise<void>((resolve) => (release = resolve));
       ollamaFactory.getClient.mockReturnValue(
         fakeClient({
-          async *stream(_messages, opts?: { signal?: AbortSignal }) {
+          async *stream(_messages: Message[], opts?: { signal?: AbortSignal }) {
             captured.signal = opts?.signal;
             yield { content: '半截' };
             await gate;

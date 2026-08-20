@@ -13,12 +13,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint-typecheck:
+    name: Lint & Typecheck
+    runs-on: tenki-standard-small-2c-4g
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+
   backend-tests:
     name: Backend tests with coverage
     runs-on: tenki-standard-small-2c-4g
     services:
       redis:
-        image: redis/redis-stack-server:latest
+        image: redis/redis-stack-server:7.2.0-v16
         ports:
           - 6379:6379
     steps:
@@ -79,7 +97,7 @@ jobs:
     runs-on: tenki-standard-small-2c-4g
     services:
       redis:
-        image: redis/redis-stack-server:latest
+        image: redis/redis-stack-server:7.2.0-v16
         ports:
           - 6379:6379
     steps:
