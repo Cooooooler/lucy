@@ -26,6 +26,10 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build shared package
+        run: pnpm --filter @lucy/shared build
+      - name: Build redis package
+        run: pnpm --filter @coool/redis-nest build
       - name: Lint
         run: pnpm lint
       - name: Typecheck
