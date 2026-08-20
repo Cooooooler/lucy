@@ -82,6 +82,19 @@ describe('loggerModuleOptions', () => {
     expect(res.headers.get('x-request-id')).toBe(id);
   });
 
+  it('genReqId 空白请求头视为缺失并生成 UUID', () => {
+    const { pinoHttp } = loggerModuleOptions();
+    const res = mockRes();
+    const req = { headers: { 'x-request-id': '   ' } };
+    const id = (
+      pinoHttp as { genReqId: (r: unknown, s: unknown) => unknown }
+    ).genReqId(req, res);
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    expect(res.headers.get('x-request-id')).toBe(id);
+  });
+
   it('redact 脱敏敏感路径，renameContext 为 context', () => {
     setEnv({ NODE_ENV: 'production' });
     const opts = loggerModuleOptions();

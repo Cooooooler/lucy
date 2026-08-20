@@ -16,7 +16,11 @@ export function loggerModuleOptions(): Params {
       genReqId: (req, res) => {
         const header = req.headers['x-request-id'];
         const existing = Array.isArray(header) ? header[0] : header;
-        const id = existing ?? randomUUID();
+        // 空字符串/纯空白视为缺失，避免回写空关联 ID
+        const id =
+          typeof existing === 'string' && existing.trim()
+            ? existing.trim()
+            : randomUUID();
         res.setHeader('x-request-id', id);
         return id;
       },
