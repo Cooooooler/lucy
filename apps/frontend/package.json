@@ -30,6 +30,7 @@
     "ahooks": "^3.9.7",
     "antd": "^6.5.3",
     "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "framer-motion": "^13.0.0",
     "gsap": "^3.13.0",
     "hook-fetch": "3.0.0-beta.1",
@@ -39,6 +40,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.85.0",
+    "tailwind-merge": "^3.6.0",
     "three": "^0.185.1",
     "zod": "^4.4.3"
   },

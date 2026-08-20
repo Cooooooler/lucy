@@ -33,14 +33,14 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@nestjs/common": "^11.0.1",
-    "@nestjs/core": "^11.0.1",
-    "ioredis": "^5.11.1",
+    "@nestjs/common": "catalog:",
+    "@nestjs/core": "catalog:",
+    "ioredis": "catalog:",
     "vitepress": "^1.6.4"
   },
   "peerDependencies": {
-    "@nestjs/common": "^11.0.0",
-    "@nestjs/core": "^11.0.0",
-    "ioredis": "^5.11.0"
+    "@nestjs/common": "catalog:",
+    "@nestjs/core": "catalog:",
+    "ioredis": "catalog:"
   }
 }

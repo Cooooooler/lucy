@@ -4,6 +4,18 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@nestjs/common':
+      specifier: ^11.0.1
+      version: 11.1.28
+    '@nestjs/core':
+      specifier: ^11.0.1
+      version: 11.1.28
+    ioredis:
+      specifier: ^5.11.1
+      version: 5.11.1
+
 importers:
 
   .:
@@ -15,7 +27,7 @@ importers:
         specifier: ^21.2.0
         version: 21.2.0
       '@eslint/js':
-        specifier: latest
+        specifier: ^10.0.1
         version: 10.0.1(eslint@10.8.0(jiti@2.7.0))
       '@nestjs/cli':
         specifier: ^11.0.0
@@ -83,9 +95,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 4.1.10
         version: 4.1.10(vitest@4.1.10)
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
       commitizen:
         specifier: ^4.3.2
         version: 4.3.2(@types/node@24.13.3)(typescript@6.0.3)
@@ -149,9 +158,6 @@ importers:
       supertest:
         specifier: ^7.0.0
         version: 7.2.2
-      tailwind-merge:
-        specifier: ^3.6.0
-        version: 3.6.0
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
@@ -198,13 +204,13 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       '@nestjs/common':
-        specifier: ^11.0.1
+        specifier: 'catalog:'
         version: 11.1.28(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/config':
         specifier: ^4.0.4
         version: 4.0.4(@nestjs/common@11.1.28(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)
       '@nestjs/core':
-        specifier: ^11.0.1
+        specifier: 'catalog:'
         version: 11.1.28(@nestjs/common@11.1.28(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.1.28)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/jwt':
         specifier: ^11.0.2
@@ -243,7 +249,7 @@ importers:
         specifier: ^8.3.0
         version: 8.3.0
       ioredis:
-        specifier: ^5.11.1
+        specifier: 'catalog:'
         version: 5.11.1
       nestjs-pino:
         specifier: ^4.6.1
@@ -327,6 +333,9 @@ importers:
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
       framer-motion:
         specifier: ^13.0.0
         version: 13.0.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -354,6 +363,9 @@ importers:
       react-hook-form:
         specifier: ^7.85.0
         version: 7.85.0(react@19.2.8)
+      tailwind-merge:
+        specifier: ^3.6.0
+        version: 3.6.0
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -371,13 +383,13 @@ importers:
   packages/redis:
     devDependencies:
       '@nestjs/common':
-        specifier: ^11.0.1
+        specifier: 'catalog:'
         version: 11.1.28(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core':
-        specifier: ^11.0.1
+        specifier: 'catalog:'
         version: 11.1.28(@nestjs/common@11.1.28(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.1.28)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       ioredis:
-        specifier: ^5.11.1
+        specifier: 'catalog:'
         version: 5.11.1
       vitepress:
         specifier: ^1.6.4
