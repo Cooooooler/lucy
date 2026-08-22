@@ -36,7 +36,7 @@ pnpm --filter @lucy/backend test:cov                          # 覆盖率（CI �
 pnpm --filter @lucy/backend test:e2e                          # 后端 e2e（test/ 目录）
 pnpm --filter @lucy/frontend test                             # 前端全部单测
 pnpm --filter @lucy/frontend test src/stores/auth.test.ts     # 单个测试文件
-pnpm --filter @lucy/shared build                              # 构建 shared（消费方验证前先构建）
+pnpm --filter @lucy/shared build                              # 构建 shared（消费方 build / 运行前先构建；typecheck 读 src 免构建）
 pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 ```
 
@@ -47,7 +47,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 - **提交规范**：Conventional Commits。husky `pre-commit` 先跑 `pnpm typegen` 重新生成共享契约类型并 stage，再跑 `lint-staged` + `pnpm typecheck` + `pnpm test`，`commit-msg` 跑 commitlint（header ≤120、subject ≤100、type 小写）。提交前务必保证测试通过，否则 commit 会失败。
 - **全仓 ESM**：所有包 `"type": "module"`。后端 tsconfig 用 `module/moduleResolution: nodenext`，相对导入必须带 `.js` 后缀，`__dirname`/`__filename` 不存在，用 `import.meta.url` 派生（如 `src/db/data-source.ts`）。
 - **不要改动生成文件**：`dist/`、`.turbo/`、前端 `src/routeTree.gen.ts`（TanStack Router 插件生成，已提交但勿手改）、`.tanstack/`、`packages/shared/src/generated/openapi.ts`（openapi-typescript 从后端 Swagger 生成，已提交但勿手改；改后端 DTO/实体后跑 `pnpm typegen` 重新生成）。
-- **shared 是纯 ESM 包**：backend（nodenext）与 frontend（bundler）都解析 `exports.import`。改动 shared 源码后先 `pnpm --filter @lucy/shared build` 再跑消费方验证。
+- **shared 是纯 ESM 包**：`exports.types` 指向 `src/index.ts`（类型直接读源码）、`exports.import` 指向 `dist/index.js`。backend（nodenext）与 frontend（bundler）**类型校验直接读源码，改动源码后 typecheck 无需先构建**；但消费方**构建/运行**（backend build、frontend build/test）仍须先 `pnpm --filter @lucy/shared build`（`import` 走 `dist`）。
 - 后端 lint 脚本自带 `--fix`（`eslint "{src,apps,libs,test,scripts}/**/*.ts" --fix`），前端 `pnpm lint` 同样带 `--fix`。
 - Prettier 配置在根目录 `.prettierrc`（单引号、printWidth 80、尾部逗号 all、organize-imports + packagejson + tailwindcss 插件），由 lint-staged 在提交时执行。
 - 设计规格与实现计划放在 `docs/superpowers/specs|plans/`（superpowers-zh 工作流产物，跨会话复用）。
@@ -86,7 +86,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 #### Redis（Docker + RedisBloom）
 
-Redis 集成逻辑已抽到 `packages/redis`（`@coool/redis-nest`），后端经 `RedisModule.forRootAsync` 消费，`DenylistService` 用其 `RedisService.raw` 暴露的 client 执行 `BF.*`（登出/换发后的令牌撤销，含双布隆过滤器轮换）。改动该包源码后先 `pnpm --filter @coool/redis-nest build` 再跑后端验证。
+Redis 集成逻辑已抽到 `packages/redis`（`@coool/redis-nest`），后端经 `RedisModule.forRootAsync` 消费，`DenylistService` 用其 `RedisService.raw` 暴露的 client 执行 `BF.*`（登出/换发后的令牌撤销，含双布隆过滤器轮换）。改动该包源码后**类型校验直接读 `src` 免构建**（`exports.types`→`src/index.ts`）；但后端**构建/运行**前仍须先 `pnpm --filter @coool/redis-nest build`。
 
 根目录 `docker-compose.yml` 起 `redis/redis-stack-server`（容器名 `lucy-redis`，加载 RedisBloom 模块），供 DenylistService 做令牌撤销/设备去重。
 
@@ -106,11 +106,11 @@ Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite bui
 
 ### packages/shared（@lucy/shared）
 
-前后端共享的基础设施类型与常量：`ApiResponse`、`ErrorCode`/`ErrorCodeValue`、`PageQuery`、`PageResult`。接口契约类型（`User`/`AuthTokens`/`LoginResult` 等）由后端 Swagger spec 经 openapi-typescript 生成到 `src/generated/openapi.ts`（已提交、勿手改），通过 `components['schemas']['xxx']` 消费；改后端 DTO/实体后跑 `pnpm typegen`（内部先 `gen:openapi` 产出 `openapi.json` 再生成类型，`openapi.json` 已 gitignore）。tsup 构建纯 ESM（`--format esm --clean`），`exports.import` → `dist/index.js`。改动后重建并跑消费方（backend typecheck/test、frontend build/test）验证。
+前后端共享的基础设施类型与常量：`ApiResponse`、`ErrorCode`/`ErrorCodeValue`、`PageQuery`、`PageResult`。接口契约类型（`User`/`AuthTokens`/`LoginResult` 等）由后端 Swagger spec 经 openapi-typescript 生成到 `src/generated/openapi.ts`（已提交、勿手改），通过 `components['schemas']['xxx']` 消费；改后端 DTO/实体后跑 `pnpm typegen`（内部先 `gen:openapi` 产出 `openapi.json` 再生成类型，`openapi.json` 已 gitignore）。tsup 构建纯 ESM（`--format esm --clean`），`exports.import` → `dist/index.js`。改动后 typecheck 可直接读 `src`（`exports` 的 `types`→`src/index.ts`）免构建；**构建/运行**消费方（backend build、frontend build/test）前先 `pnpm --filter @lucy/shared build`。
 
 ### packages/redis（@coool/redis-nest）
 
-自研 NestJS Redis 集成模块，基于 `ioredis`：连接管理（`forRoot`/`forRootAsync` 支持 standalone/sentinel/cluster）、统一 DI（`RedisService`，`global: true`）、统一异常（ioredis 错误包装为 `RedisException` 带稳定错误码）、序列化（默认 JSON，`setJson`/`getJson`）、多数据源（`forFeature` 命名客户端 + key 前缀命名空间）、`hashTag`/`pipeline` 工具，及 `RedisService.raw` 逃生舱（暴露底层 client 供 `BF.*`/`eval`）。tsup 构建双格式（`esm` + `cjs`，`dist/index.js` + `dist/index.cjs`），`@nestjs/common`/`@nestjs/core`/`ioredis` 为 peer/dev 依赖。完整文档见 `packages/redis/README.md` 与 `packages/redis/docs/`（VitePress，`pnpm docs:dev` 预览），含真实 Redis 集成测试。改动后先 build 再跑后端验证。
+自研 NestJS Redis 集成模块，基于 `ioredis`：连接管理（`forRoot`/`forRootAsync` 支持 standalone/sentinel/cluster）、统一 DI（`RedisService`，`global: true`）、统一异常（ioredis 错误包装为 `RedisException` 带稳定错误码）、序列化（默认 JSON，`setJson`/`getJson`）、多数据源（`forFeature` 命名客户端 + key 前缀命名空间）、`hashTag`/`pipeline` 工具，及 `RedisService.raw` 逃生舱（暴露底层 client 供 `BF.*`/`eval`）。tsup 构建双格式（`esm` + `cjs`，`dist/index.js` + `dist/index.cjs`），`@nestjs/common`/`@nestjs/core`/`ioredis` 为 peer/dev 依赖。完整文档见 `packages/redis/README.md` 与 `packages/redis/docs/`（VitePress，`pnpm docs:dev` 预览），含真实 Redis 集成测试。改动后 typecheck 可直接读 `src` 免构建；**运行/构建**后端验证前先 build。
 
 ### 数据流
 

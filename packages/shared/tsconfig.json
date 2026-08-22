@@ -4,9 +4,7 @@
     "target": "esnext",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "strict": true,
-    "noEmit": true,
-    "resolveJsonModule": true
+    "noEmit": true
   },
   "include": ["src"]
 }

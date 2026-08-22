@@ -191,7 +191,7 @@ describe('RedisModule', () => {
     const provided: { redis: unknown }[] = [];
     @Injectable()
     class Consumer {
-      constructor(private readonly redis: RedisService) {
+      constructor(redis: RedisService) {
         provided.push({ redis });
       }
     }

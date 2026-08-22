@@ -1,14 +1,13 @@
-import js from '@eslint/js';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
-import base from './eslint.base.mjs';
+import { core, prettier } from './eslint.base.mjs';
 
 export default defineConfig([
   // 全局忽略（配置文件自身；openapi-typescript 生成代码用文件头 eslint-disable 排除）
-  globalIgnores(['eslint.config.js', 'eslint.base.mjs']),
+  globalIgnores(['eslint.config.mjs', 'eslint.base.mjs']),
 
-  // 基础JS推荐规则
-  js.configs.recommended,
+  // 通用核心（JS 推荐规则 + TS 解析器/插件，须先于后续块展开）
+  ...core,
 
   // 根目录 Node 脚本（scripts/）——js.configs.recommended 的 no-undef 需 node 全局
   {
@@ -22,6 +21,6 @@ export default defineConfig([
     },
   },
 
-  // prettier 集成
-  ...base,
+  // Prettier 集成（收尾）
+  ...prettier,
 ]);

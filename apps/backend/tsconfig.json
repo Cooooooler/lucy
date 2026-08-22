@@ -8,13 +8,11 @@
     "removeComments": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-    "allowSyntheticDefaultImports": true,
     "target": "ES2023",
     "sourceMap": true,
     "types": ["node", "vitest/globals"],
     "outDir": "./dist",
     "incremental": true,
-    "strict": true,
     // NestJS 依赖构造器外的属性初始化（@Inject/装饰器注入），保留为 false
     "strictPropertyInitialization": false
   }

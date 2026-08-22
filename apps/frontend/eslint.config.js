@@ -1,18 +1,17 @@
-import js from '@eslint/js';
 import reactDom from 'eslint-plugin-react-dom';
 import reactX from 'eslint-plugin-react-x';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
-import { parser as tsParser } from 'typescript-eslint';
-import base from '../../eslint.base.mjs';
+import { core, prettier } from '../../eslint.base.mjs';
 
 export default defineConfig([
   // 全局忽略
   globalIgnores(['dist', 'node_modules', '*.config.*']),
 
-  // 基础JS推荐规则
-  js.configs.recommended,
+  // 通用核心（JS 推荐规则 + TS 解析器/插件，react-x/react-dom 不含 parser，由 core 提供）
+  ...core,
 
+  // React + react-dom 推荐规则（仅提供 plugin，parser 由 core 注册）
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -20,7 +19,6 @@ export default defineConfig([
       reactDom.configs.recommended,
     ],
     languageOptions: {
-      parser: tsParser,
       globals: {
         ...globals.browser,
       },
@@ -36,6 +34,6 @@ export default defineConfig([
     },
   },
 
-  // prettier 集成（来自根公共配置）
-  ...base,
+  // Prettier 集成（收尾）
+  ...prettier,
 ]);
