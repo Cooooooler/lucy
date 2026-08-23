@@ -24,6 +24,9 @@ export class OllamaFactory {
       ),
       model: resolved,
       think,
+      // 把「给生成内容预留的空间」落到模型参数：numPredict 即 Ollama 的 num_predict，
+      // 明确限制本次生成的最大输出 token，让预留真正生效而非仅做算账。
+      numPredict: this.config.get<number>('AI_OUTPUT_MAX_TOKENS'),
     });
     this.cache.set(key, client);
     // 超限淘汰最旧条目（刚插入后必然非空）

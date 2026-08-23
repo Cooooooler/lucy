@@ -40,4 +40,15 @@ describe('OllamaFactory', () => {
     // m0 已被淘汰，重新获取会创建新实例
     expect(factory.getClient('m0')).not.toBe(m0);
   });
+
+  it('AI_OUTPUT_MAX_TOKENS 作为生成上限传入 numPredict', () => {
+    const cfg = new ConfigService({
+      OLLAMA_MODEL: 'm',
+      AI_OUTPUT_MAX_TOKENS: 32768,
+    });
+    const client = new OllamaFactory(cfg).getClient('qwen') as unknown as {
+      numPredict?: number;
+    };
+    expect(client.numPredict).toBe(32768);
+  });
 });
