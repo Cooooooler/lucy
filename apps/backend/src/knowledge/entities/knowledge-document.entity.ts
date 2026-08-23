@@ -30,7 +30,7 @@ export class KnowledgeDocument {
   fileId: string;
 
   @ApiHideProperty()
-  @ManyToOne(() => KnowledgeBase, (kb) => kb.documents, { onDelete: 'CASCADE' })
+  @ManyToOne(() => KnowledgeBase, { onDelete: 'CASCADE' })
   @JoinColumn({
     name: 'knowledge_base_id',
     foreignKeyConstraintName: 'FK_knowledge_documents_kb',

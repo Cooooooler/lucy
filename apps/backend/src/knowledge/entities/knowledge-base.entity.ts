@@ -6,12 +6,10 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
-  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { User } from '../../users/user.entity.js';
-import { KnowledgeDocument } from './knowledge-document.entity.js';
 
 export enum KnowledgeBaseVisibility {
   Private = 'private',
@@ -56,10 +54,6 @@ export class KnowledgeBase {
   @ApiProperty({ description: '描述', nullable: true })
   @Column({ type: 'varchar', length: 255, nullable: true })
   description: string | null;
-
-  @ApiProperty({ description: '文档列表', type: () => [KnowledgeDocument] })
-  @OneToMany(() => KnowledgeDocument, (d) => d.knowledgeBase)
-  documents: KnowledgeDocument[];
 
   @ApiProperty({ description: '创建时间' })
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
