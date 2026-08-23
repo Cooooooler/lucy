@@ -1,5 +1,5 @@
 import { ErrorCode } from '@lucy/shared';
-import { HttpStatus } from '@nestjs/common';
+import { HttpStatus, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -36,6 +36,7 @@ describe('KnowledgeService', () => {
     save: vi.fn(),
     delete: vi.fn(),
     createQueryBuilder: vi.fn(),
+    find: vi.fn(),
   };
   const fileRepo = {
     findOneBy: vi.fn(),
@@ -111,6 +112,25 @@ describe('KnowledgeService', () => {
     qb.skip.mockReturnValue(qb);
     qb.take.mockReturnValue(qb);
     qb.getManyAndCount.mockResolvedValue([[kb()], 1]);
+    return qb;
+  };
+
+  // 可链式 QueryBuilder mock：供 listDocuments 用（docRepo）
+  const makeDocQb = () => {
+    const qb = {
+      where: vi.fn(),
+      andWhere: vi.fn(),
+      orderBy: vi.fn(),
+      skip: vi.fn(),
+      take: vi.fn(),
+      getManyAndCount: vi.fn(),
+    };
+    qb.where.mockReturnValue(qb);
+    qb.andWhere.mockReturnValue(qb);
+    qb.orderBy.mockReturnValue(qb);
+    qb.skip.mockReturnValue(qb);
+    qb.take.mockReturnValue(qb);
+    qb.getManyAndCount.mockResolvedValue([[doc()], 1]);
     return qb;
   };
 
@@ -329,6 +349,202 @@ describe('KnowledgeService', () => {
     );
     expect(qb.andWhere).toHaveBeenCalledWith('kb.name ILIKE :name', {
       name: '%x%',
+    });
+  });
+
+  it('get 知识库不存在抛 404', async () => {
+    kbRepo.findOne.mockResolvedValue(null);
+    await expect(service.get('u1', 'kb1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('update 属主更新全字段并保存', async () => {
+    const kbEntity = kb();
+    kbRepo.findOne.mockResolvedValue(kbEntity);
+    kbRepo.save.mockResolvedValue(kbEntity);
+    await service.update('u1', 'kb1', {
+      name: 'y',
+      description: 'd',
+      visibility: KnowledgeBaseVisibility.Public,
+    });
+    expect(kbEntity.name).toBe('y');
+    expect(kbEntity.description).toBe('d');
+    expect(kbEntity.visibility).toBe(KnowledgeBaseVisibility.Public);
+    expect(kbRepo.save).toHaveBeenCalledWith(kbEntity);
+  });
+
+  it('update 知识库不存在抛 404', async () => {
+    kbRepo.findOne.mockResolvedValue(null);
+    await expect(
+      service.update('u1', 'kb1', { name: 'y' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('remove 删除知识库并清理底层文件（含文件缺失分支）', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    docRepo.find.mockResolvedValue([
+      doc({ fileId: 'f1' }),
+      doc({ id: 'd2', fileId: 'f2' }),
+    ]);
+    fileRepo.findOneBy
+      .mockResolvedValueOnce({ id: 'f1', key: 'f1.pdf' })
+      .mockResolvedValueOnce(null);
+    kbRepo.delete.mockResolvedValue({ affected: 1 });
+    await service.remove('u1', 'kb1');
+    expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
+    expect(fileRepo.delete).toHaveBeenCalledWith({ id: 'f1' });
+    expect(kbRepo.delete).toHaveBeenCalledWith({ id: 'kb1' });
+  });
+
+  it('remove 知识库不存在抛 404', async () => {
+    kbRepo.findOne.mockResolvedValue(null);
+    await expect(service.remove('u1', 'kb1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('addDocument 知识库不存在抛 404', async () => {
+    kbRepo.findOne.mockResolvedValue(null);
+    await expect(
+      service.addDocument('u1', 'kb1', {
+        buffer: Buffer.from('x'),
+        originalname: 'a.txt',
+        size: 1,
+      } as never),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('addDocument docx（非 pdf）跳过魔数校验正常入库', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    vi.mocked(extractContent).mockResolvedValue('正文');
+    fileService.save.mockResolvedValue(
+      stored({ ext: '.docx', key: 'f1.docx' }),
+    );
+    fileRepo.save.mockResolvedValue({ id: 'f1' });
+    docRepo.save.mockResolvedValue(doc());
+    await service.addDocument('u1', 'kb1', {
+      buffer: Buffer.from('zip'),
+      originalname: 'a.docx',
+      size: 4,
+    } as never);
+    expect(detectFileType).not.toHaveBeenCalled();
+    expect(docRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'a', content: '正文', fileId: 'f1' }),
+    );
+  });
+
+  it('listDocuments 公开库非属主可读', async () => {
+    kbRepo.findOne.mockResolvedValue(
+      kb({ visibility: KnowledgeBaseVisibility.Public }),
+    );
+    const qb = makeDocQb();
+    docRepo.createQueryBuilder.mockReturnValue(qb);
+    const result = await service.listDocuments('u2', 'kb1', {});
+    expect(qb.where).toHaveBeenCalledWith('d.knowledgeBaseId = :kbId', {
+      kbId: 'kb1',
+    });
+    expect(result).toEqual({
+      list: [expect.any(KnowledgeDocument)],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+  });
+
+  it('listDocuments 带 keyword 追加 ILIKE 过滤', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    const qb = makeDocQb();
+    docRepo.createQueryBuilder.mockReturnValue(qb);
+    await service.listDocuments('u1', 'kb1', { keyword: 'x' });
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      '(d.title ILIKE :kw OR d.content ILIKE :kw)',
+      { kw: '%x%' },
+    );
+  });
+
+  it('listDocuments 私有库非属主抛 FORBIDDEN', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    await expect(service.listDocuments('u2', 'kb1', {})).rejects.toMatchObject({
+      status: HttpStatus.FORBIDDEN,
+    });
+  });
+
+  it('listDocuments 知识库不存在抛 404', async () => {
+    kbRepo.findOne.mockResolvedValue(null);
+    await expect(service.listDocuments('u1', 'kb1', {})).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('getDocument 属主可读返回嵌套文档', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    docRepo.findOne.mockResolvedValue(doc());
+    await expect(service.getDocument('u1', 'kb1', 'd1')).resolves.toEqual(
+      expect.any(KnowledgeDocument),
+    );
+    expect(docRepo.findOne).toHaveBeenCalledWith({
+      where: { id: 'd1', knowledgeBaseId: 'kb1' },
+    });
+  });
+
+  it('getDocument 文档不存在抛 404', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    docRepo.findOne.mockResolvedValue(null);
+    await expect(service.getDocument('u1', 'kb1', 'd1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('getDocument 知识库不存在抛 404', async () => {
+    kbRepo.findOne.mockResolvedValue(null);
+    await expect(service.getDocument('u1', 'kb1', 'd1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('getDocument 私有库非属主抛 FORBIDDEN', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    await expect(service.getDocument('u2', 'kb1', 'd1')).rejects.toMatchObject({
+      status: HttpStatus.FORBIDDEN,
+    });
+  });
+
+  it('removeDocument 知识库不存在抛 404', async () => {
+    kbRepo.findOne.mockResolvedValue(null);
+    await expect(
+      service.removeDocument('u1', 'kb1', 'd1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('removeDocument 文档不存在抛 404', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    docRepo.findOne.mockResolvedValue(null);
+    await expect(
+      service.removeDocument('u1', 'kb1', 'd1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('removeDocument file 为 null 仍删文档行', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    docRepo.findOne.mockResolvedValue(doc());
+    fileRepo.findOneBy.mockResolvedValue(null);
+    docRepo.delete.mockResolvedValue({ affected: 1 });
+    await service.removeDocument('u1', 'kb1', 'd1');
+    expect(docRepo.delete).toHaveBeenCalledWith({
+      id: 'd1',
+      knowledgeBaseId: 'kb1',
+    });
+    expect(fileRepo.delete).toHaveBeenCalledWith({ id: 'f1' });
+    expect(fileService.remove).not.toHaveBeenCalled();
+  });
+
+  it('removeDocument 非属主抛 FORBIDDEN', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    await expect(
+      service.removeDocument('u2', 'kb1', 'd1'),
+    ).rejects.toMatchObject({
+      status: HttpStatus.FORBIDDEN,
     });
   });
 });
