@@ -26,7 +26,9 @@ export class OllamaFactory {
       think,
       // 把「给生成内容预留的空间」落到模型参数：numPredict 即 Ollama 的 num_predict，
       // 明确限制本次生成的最大输出 token，让预留真正生效而非仅做算账。
-      numPredict: this.config.get<number>('AI_OUTPUT_MAX_TOKENS'),
+      // ConfigService 不强制类型，env 值实际是 string（如 "32768"），此处 Number coerce
+      // 并给默认 32768，与 .env.example 的 AI_OUTPUT_MAX_TOKENS 一致；env 缺失时兜底。
+      numPredict: Number(this.config.get('AI_OUTPUT_MAX_TOKENS', 32768)),
     });
     this.cache.set(key, client);
     // 超限淘汰最旧条目（刚插入后必然非空）

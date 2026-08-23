@@ -54,6 +54,7 @@ export class Message {
   @ApiPropertyOptional({
     description: '思考过程（深度思考模型，可空）',
     type: String,
+    nullable: true,
   })
   @Column({ type: 'text', nullable: true })
   thinking: string | null;

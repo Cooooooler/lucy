@@ -114,8 +114,9 @@ function LayoutComponent() {
       placement="rightBottom"
       popupRender={() => userPanel}
     >
-      <div
-        className={`flex cursor-pointer items-center rounded-2xl p-2 transition hover:bg-(--ant-control-item-bg-hover) ${collapsed ? 'justify-center' : 'gap-2'}`}
+      <button
+        type="button"
+        className={`flex cursor-pointer items-center rounded-2xl border-0 bg-transparent p-2 text-inherit transition hover:bg-(--ant-control-item-bg-hover) ${collapsed ? 'justify-center' : 'gap-2'}`}
       >
         <Avatar
           rootClassName="bg-(--lucy-page-avatar-background)!"
@@ -125,7 +126,7 @@ function LayoutComponent() {
           {getAvatarLetter(user?.username)}
         </Avatar>
         {!collapsed && <Text ellipsis>{user?.username}</Text>}
-      </div>
+      </button>
     </Dropdown>
   );
 

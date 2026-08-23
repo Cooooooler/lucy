@@ -417,7 +417,7 @@ export interface components {
             /** @description 内容 */
             content: string;
             /** @description 思考过程（深度思考模型，可空） */
-            thinking?: string;
+            thinking?: string | null;
             /**
              * @description 生成状态
              * @enum {string|null}

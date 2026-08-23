@@ -19,9 +19,11 @@ const getAiStatusText = (m: Message) => {
   return m.status === 'failed' ? '生成失败' : '生成中断';
 };
 
-// 服务端消息 → UI 消息：补 error 文案
+// 服务端消息 → UI 消息：补 error 文案；后端 thinking 允许 null（DB nullable），
+// 交互上 null 与 undefined 均视为「无思考」，归一化为 undefined 便于下游 string 消费。
 const toChatMessage = (m: Message): ChatMessage => ({
   ...m,
+  thinking: m.thinking ?? undefined,
   error: getAiStatusText(m),
 });
 
