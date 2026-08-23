@@ -1,4 +1,3 @@
-import { FileEntity } from '@coool/file-nest';
 import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
 import {
   Column,
@@ -10,6 +9,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { BackendFileEntity } from './backend-file.entity.js';
 import { KnowledgeBase } from './knowledge-base.entity.js';
 
 @Entity('knowledge_documents')
@@ -38,12 +38,12 @@ export class KnowledgeDocument {
   knowledgeBase?: KnowledgeBase;
 
   @ApiHideProperty()
-  @ManyToOne(() => FileEntity, { onDelete: 'CASCADE' })
+  @ManyToOne(() => BackendFileEntity, { onDelete: 'CASCADE' })
   @JoinColumn({
     name: 'file_id',
     foreignKeyConstraintName: 'FK_knowledge_documents_file',
   })
-  file?: FileEntity;
+  file?: BackendFileEntity;
 
   @ApiProperty({ description: '标题' })
   @Column({ type: 'varchar', length: 255 })

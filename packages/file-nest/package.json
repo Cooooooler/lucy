@@ -1,7 +1,7 @@
 {
   "name": "@coool/file-nest",
   "version": "0.1.0",
-  "description": "NestJS file storage integration module: storage driver abstraction, metadata, DI",
+  "description": "NestJS file storage integration module: storage driver abstraction, file byte handling, DI",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -35,17 +35,11 @@
   "devDependencies": {
     "@nestjs/common": "catalog:",
     "@nestjs/core": "catalog:",
-    "@nestjs/swagger": "^11.4.6",
-    "@nestjs/typeorm": "^11.0.3",
     "@types/node": "^24.0.0",
-    "typeorm": "^1.1.0",
     "vitepress": "^1.6.4"
   },
   "peerDependencies": {
     "@nestjs/common": "^11.0.1",
-    "@nestjs/core": "^11.0.1",
-    "@nestjs/swagger": "^11.4.0",
-    "@nestjs/typeorm": "^11.0.3",
-    "typeorm": "^1.1.0"
+    "@nestjs/core": "^11.0.1"
   }
 }

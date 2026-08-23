@@ -37,9 +37,13 @@ describe('KnowledgeService', () => {
     delete: vi.fn(),
     createQueryBuilder: vi.fn(),
   };
+  const fileRepo = {
+    findOneBy: vi.fn(),
+    save: vi.fn(),
+    delete: vi.fn(),
+  };
   const fileService = {
     save: vi.fn(),
-    findById: vi.fn(),
     remove: vi.fn(),
   };
   const config = new ConfigService({ FILE_MAX_SIZE: 1024 });
@@ -51,10 +55,24 @@ describe('KnowledgeService', () => {
     service = new KnowledgeService(
       kbRepo as never,
       docRepo as never,
+      fileRepo as never,
       fileService as never,
       config,
     );
   });
+
+  const stored = (over = {}) =>
+    Object.assign(
+      {
+        key: 'f1.pdf',
+        ext: '.pdf',
+        mime: 'application/pdf',
+        size: 4,
+        hash: 'abc',
+        storage: 'local',
+      },
+      over,
+    );
 
   const kb = (over = {}) =>
     Object.assign(new KnowledgeBase(), {
@@ -202,11 +220,8 @@ describe('KnowledgeService', () => {
       ext: 'pdf',
       mime: 'application/pdf',
     });
-    fileService.save.mockResolvedValue({
-      id: 'f1',
-      key: 'f1.pdf',
-      storage: 'local',
-    });
+    fileService.save.mockResolvedValue(stored());
+    fileRepo.save.mockResolvedValue({ id: 'f1' });
     vi.mocked(extractContent).mockRejectedValue(new Error('parse fail'));
     await expect(
       service.addDocument('u1', 'kb1', {
@@ -217,9 +232,8 @@ describe('KnowledgeService', () => {
     ).rejects.toMatchObject({
       response: { code: ErrorCode.KNOWLEDGE_FILE_PARSE_FAILED },
     });
-    expect(fileService.remove).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'f1' }),
-    );
+    expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
+    expect(fileRepo.delete).toHaveBeenCalledWith({ id: 'f1' });
   });
 
   it('addDocument 正常上传并入库', async () => {
@@ -229,7 +243,8 @@ describe('KnowledgeService', () => {
       mime: 'application/pdf',
     });
     vi.mocked(extractContent).mockResolvedValue('正文');
-    fileService.save.mockResolvedValue({ id: 'f1', key: 'f1.pdf' });
+    fileService.save.mockResolvedValue(stored());
+    fileRepo.save.mockResolvedValue({ id: 'f1' });
     docRepo.save.mockResolvedValue(doc({ content: '正文' }));
     await service.addDocument('u1', 'kb1', {
       buffer: Buffer.from('%PDF'),
@@ -237,24 +252,33 @@ describe('KnowledgeService', () => {
       size: 4,
     } as never);
     expect(fileService.save).toHaveBeenCalled();
+    expect(fileRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerId: 'u1',
+        originalName: 'a.pdf',
+        ext: '.pdf',
+        key: 'f1.pdf',
+        storage: 'local',
+      }),
+    );
     expect(docRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'a', content: '正文' }),
+      expect.objectContaining({ title: 'a', content: '正文', fileId: 'f1' }),
     );
   });
 
   it('removeDocument 删文档并清文件', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
     docRepo.findOne.mockResolvedValue(doc());
-    fileService.findById.mockResolvedValue({ id: 'f1', key: 'f1.pdf' });
+    fileRepo.findOneBy.mockResolvedValue({ id: 'f1', key: 'f1.pdf' });
     docRepo.delete.mockResolvedValue({ affected: 1 });
+    fileRepo.delete.mockResolvedValue({ affected: 1 });
     await service.removeDocument('u1', 'kb1', 'd1');
     expect(docRepo.delete).toHaveBeenCalledWith({
       id: 'd1',
       knowledgeBaseId: 'kb1',
     });
-    expect(fileService.remove).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'f1' }),
-    );
+    expect(fileRepo.delete).toHaveBeenCalledWith({ id: 'f1' });
+    expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
   });
 
   it('list 默认可见性：属主或公开库（括号包裹 OR），返回 list/total/page/pageSize', async () => {

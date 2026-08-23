@@ -1,16 +1,19 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
 import {
   Column,
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { User } from '../../users/user.entity.js';
 
-/** 通用文件元数据，存储驱动无关键：文件对象交给 StorageDriver，此处只存描述信息 */
+/** 文件元数据：字节交 @coool/file-nest 的 StorageDriver，此处只存描述信息并关联属主用户 */
 @Entity('files')
-export class FileEntity {
+export class BackendFileEntity {
   @ApiProperty({ description: '文件 ID' })
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -19,6 +22,14 @@ export class FileEntity {
   @Index('IDX_files_owner')
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
+
+  @ApiHideProperty()
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({
+    name: 'owner_id',
+    foreignKeyConstraintName: 'FK_files_owner',
+  })
+  owner?: User;
 
   @ApiProperty({ description: '原始文件名' })
   @Column({ name: 'original_name', type: 'varchar', length: 255 })
@@ -44,11 +55,7 @@ export class FileEntity {
   @Column({ type: 'char', length: 64 })
   hash: string;
 
-  @ApiProperty({
-    description: '存储驱动标识',
-    default: 'local',
-    enum: ['local', 's3'],
-  })
+  @ApiProperty({ description: '存储驱动标识', default: 'local' })
   @Column({ type: 'varchar', length: 20, default: 'local' })
   storage: string;
 

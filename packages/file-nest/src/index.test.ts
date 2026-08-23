@@ -6,7 +6,6 @@ describe('file-nest exports', () => {
   it('导出核心符号', () => {
     expect(pkg.FileModule).toBeDefined();
     expect(pkg.FileService).toBeDefined();
-    expect(pkg.FileEntity).toBeDefined();
     expect(pkg.LocalStorageDriver).toBeDefined();
     expect(pkg.FILE_STORAGE).toBe(FILE_STORAGE);
     expect(pkg.FILE_MODULE_OPTIONS).toBe(FILE_MODULE_OPTIONS);

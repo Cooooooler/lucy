@@ -1,7 +1,5 @@
 import { DynamicModule, Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { FILE_MODULE_OPTIONS, FILE_STORAGE } from './file.constants.js';
-import { FileEntity } from './file.entity.js';
 import { FileService } from './file.service.js';
 import type { FileModuleAsyncOptions, FileModuleOptions } from './options.js';
 import { LocalStorageDriver } from './storage/local-storage.driver.js';
@@ -18,7 +16,6 @@ export class FileModule {
     return {
       module: FileModule,
       global: true,
-      imports: [TypeOrmModule.forFeature([FileEntity])],
       providers: [
         { provide: FILE_MODULE_OPTIONS, useValue: options },
         { provide: FILE_STORAGE, useValue: resolveStorageDriver(options) },
@@ -32,10 +29,7 @@ export class FileModule {
     return {
       module: FileModule,
       global: true,
-      imports: [
-        TypeOrmModule.forFeature([FileEntity]),
-        ...(options.imports ?? []),
-      ],
+      imports: [...(options.imports ?? [])],
       providers: [
         {
           provide: FILE_MODULE_OPTIONS,

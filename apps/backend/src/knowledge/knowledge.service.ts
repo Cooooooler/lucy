@@ -14,6 +14,7 @@ import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { DocumentListQueryDto } from './dto/document-list-query.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
+import { BackendFileEntity } from './entities/backend-file.entity.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
@@ -28,6 +29,8 @@ export class KnowledgeService {
     private readonly kbRepo: Repository<KnowledgeBase>,
     @InjectRepository(KnowledgeDocument)
     private readonly docRepo: Repository<KnowledgeDocument>,
+    @InjectRepository(BackendFileEntity)
+    private readonly fileRepo: Repository<BackendFileEntity>,
     private readonly fileService: FileService,
     private readonly config: ConfigService,
   ) {}
@@ -108,8 +111,11 @@ export class KnowledgeService {
     // 清理该库下所有文档的底层文件，避免孤儿
     const docs = await this.docRepo.find({ where: { knowledgeBaseId: id } });
     for (const d of docs) {
-      const file = await this.fileService.findById(d.fileId);
-      if (file) await this.fileService.remove(file);
+      const file = await this.fileRepo.findOneBy({ id: d.fileId });
+      if (file) {
+        await this.fileService.remove(file.key);
+        await this.fileRepo.delete({ id: file.id });
+      }
     }
     await this.kbRepo.delete({ id });
     return { success: true };
@@ -152,20 +158,29 @@ export class KnowledgeService {
       }
     }
 
-    const fileEntity = await this.fileService.save({
-      ownerId: userId,
-      originalName: file.originalname,
+    const stored = await this.fileService.save({
+      buffer: file.buffer,
       ext: origExt,
       mime: file.mimetype,
-      size: file.size,
-      buffer: file.buffer,
+    });
+
+    const fileEntity = await this.fileRepo.save({
+      ownerId: userId,
+      originalName: file.originalname,
+      ext: stored.ext,
+      mime: stored.mime,
+      size: stored.size,
+      key: stored.key,
+      hash: stored.hash,
+      storage: stored.storage,
     });
 
     let content: string;
     try {
       content = await extractContent(file.buffer, origExt);
     } catch {
-      await this.fileService.remove(fileEntity);
+      await this.fileService.remove(stored.key);
+      await this.fileRepo.delete({ id: fileEntity.id });
       throw new BusinessException(
         ErrorCode.KNOWLEDGE_FILE_PARSE_FAILED,
         '文档解析失败',
@@ -240,8 +255,9 @@ export class KnowledgeService {
     });
     if (!doc) throw new NotFoundException('文档不存在');
     await this.docRepo.delete({ id, knowledgeBaseId: kbId });
-    const file = await this.fileService.findById(doc.fileId);
-    if (file) await this.fileService.remove(file);
+    const file = await this.fileRepo.findOneBy({ id: doc.fileId });
+    await this.fileRepo.delete({ id: doc.fileId });
+    if (file) await this.fileService.remove(file.key);
     return { success: true };
   }
 

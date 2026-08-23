@@ -1,4 +1,3 @@
-import { FileEntity } from '@coool/file-nest';
 import 'dotenv/config';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +17,6 @@ export default new DataSource({
   username: process.env.DB_USER ?? 'postgres',
   password: process.env.DB_PASSWORD ?? 'postgres',
   database: process.env.DB_NAME ?? 'lucy',
-  entities: [__dirname + '/../**/*.entity{.ts,.js}', FileEntity],
+  entities: [__dirname + '/../**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/migrations/**/*{.ts,.js}'],
 });
