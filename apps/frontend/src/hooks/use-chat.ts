@@ -11,6 +11,7 @@ export interface ChatMessage extends Omit<Message, 'thinking'> {
   streaming?: boolean;
   error?: string;
   thinking?: string;
+  truncated?: boolean;
 }
 
 // ai 消息的 failed/aborted 状态映射为错误文案，其余状态返回 undefined（无错误）
@@ -148,7 +149,12 @@ export function useChatStream(conversationId: string | undefined) {
             error: event.data.message,
           }));
         } else if (event.type === 'done') {
-          updateMessage(aiId, (m) => ({ ...m, streaming: false }));
+          const truncated = event.data.truncated === true;
+          updateMessage(aiId, (m) => ({
+            ...m,
+            streaming: false,
+            ...(truncated ? { truncated: true } : {}),
+          }));
         }
       }
     } catch {

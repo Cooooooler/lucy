@@ -137,6 +137,33 @@ describe('AiService', () => {
       });
     });
 
+    it('长度截断（done_reason=length）：done 帧标记 truncated，finish_reason=length', async () => {
+      conversationRepo.findOne.mockResolvedValue(conv());
+      messageRepo.count.mockResolvedValue(2);
+      messageRepo.find.mockResolvedValue([]);
+      contextService.buildMessages.mockResolvedValue([]);
+      ollamaFactory.getClient.mockReturnValue(
+        fakeClient({
+          *stream() {
+            yield { content: '半截' };
+            yield {
+              content: '',
+              response_metadata: { done_reason: 'length' },
+            };
+          },
+        }),
+      );
+
+      const result = await events(
+        service.sendMessage('1', 'c1', { content: 'hi' }),
+      );
+      expect(result.map((e) => e.type)).toEqual(['delta', 'done']);
+      expect(result.at(-1)).toMatchObject({
+        type: 'done',
+        data: { finish_reason: 'length', truncated: true },
+      });
+    });
+
     it('中途抛错：落库 failed（含半截内容）', async () => {
       conversationRepo.findOne.mockResolvedValue(conv());
       messageRepo.count.mockResolvedValue(2);

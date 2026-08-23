@@ -185,7 +185,11 @@ export class AiService {
       dto.model ??
       conversation.model ??
       this.config.get<string>('OLLAMA_MODEL', 'qwen2.5:7b');
-    const client = this.ollamaFactory.getClient(model, dto.reasoning ?? false);
+    // 推理模型默认开启深度思考：推理模型以 think=false 运行，易产出退化/半途截断的
+    // 输出（如「先试着…」后即结束）。仅在调用方未显式指定时才按模型能力兜底，
+    // 显式 reasoning:{true|false} 仍被尊重。
+    const think = dto.reasoning ?? this.isReasoningModel(model);
+    const client = this.ollamaFactory.getClient(model, think);
 
     const messages = await this.contextService.buildMessages(
       history,
@@ -195,6 +199,7 @@ export class AiService {
 
     let answer = '';
     let thinkingAll = '';
+    let finishReason: string | undefined;
     // 空闲超时：模型持续无输出（含首 token 等待）超过阈值判为超时
     const timeoutMs = Number(this.config.get('OLLAMA_TIMEOUT_MS', 120000));
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -222,10 +227,12 @@ export class AiService {
         | AsyncIterable<{
             content: unknown;
             additional_kwargs?: { reasoning_content?: string };
+            response_metadata?: { done_reason?: string };
           }>
         | Iterable<{
             content: unknown;
             additional_kwargs?: { reasoning_content?: string };
+            response_metadata?: { done_reason?: string };
           }>;
       armIdle();
       const iterator = this.toAsyncIterator(stream);
@@ -245,6 +252,14 @@ export class AiService {
         };
         if (done) break;
         armIdle();
+        // 末 chunk 的 response_metadata.done_reason 透传 Ollama 的结束原因（stop/length），
+        // 用于识别「长度截断」生成，避免与正常结束混淆
+        const dr = (
+          chunk as {
+            response_metadata?: { done_reason?: string };
+          }
+        ).response_metadata?.done_reason;
+        if (dr) finishReason = dr;
         // 思考模型（think=true）把思考链放在 additional_kwargs.reasoning_content，
         // 实际回答在 content：拆成 thinking/content 两路帧，前端可区分展示
         const text = typeof chunk.content === 'string' ? chunk.content : '';
@@ -268,6 +283,7 @@ export class AiService {
           });
         }
       }
+      const truncated = finishReason === 'length';
       await this.messageRepo.save({
         conversationId,
         role: MessageRole.Ai,
@@ -279,7 +295,10 @@ export class AiService {
         type: 'done',
         requestId,
         role: 'ai',
-        data: { finish_reason: 'stop' },
+        data: {
+          finish_reason: truncated ? 'length' : 'stop',
+          ...(truncated ? { truncated: true } : {}),
+        },
       });
       subscriber.complete();
     } catch (error) {
@@ -317,6 +336,13 @@ export class AiService {
     }
     const iter = stream[Symbol.iterator]();
     return { next: () => iter.next() };
+  }
+
+  // 是否推理（深度思考）模型：按模型名家族粗判。真实能力以 Ollama capabilities 为准，
+  // 这里用名称启发式，避免每次请求都打 Ollama /api/show 探测。命中即默认开启 think，
+  // 因推理模型以 think=false 运行易产出退化/半途截断输出。
+  private isReasoningModel(model: string): boolean {
+    return /qwen3(?:\.\d+)?|deepseek-r1|(?:^|[-:])r1(?:[-:.]|$)/i.test(model);
   }
 
   // 区分流式失败类型：客户端中止（signal.reason）> 模型超时 > 其他生成失败

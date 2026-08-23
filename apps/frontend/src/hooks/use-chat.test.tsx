@@ -44,6 +44,12 @@ const done = (): AiStreamEvent => ({
   role: 'ai',
   data: { finish_reason: 'stop' },
 });
+const doneTruncated = (): AiStreamEvent => ({
+  type: 'done',
+  requestId,
+  role: 'ai',
+  data: { finish_reason: 'length', truncated: true },
+});
 const errorEvent = (code: number, message: string): AiStreamEvent => ({
   type: 'error',
   requestId,
@@ -138,6 +144,26 @@ describe('useChatStream', () => {
       streaming: false,
     });
     expect(result.current.streaming).toBe(false);
+  });
+
+  it('done 标记 truncated：message 置位 truncated 且结束流式', async () => {
+    mocks.createStreamRequest.mockReturnValue(
+      mockStreamRequest(() =>
+        streamOf([delta('先'), delta('试着'), doneTruncated()]),
+      ),
+    );
+    const { result } = renderHook(() => useChatStream('c1'), {
+      wrapper: createWrapper(),
+    });
+    await act(async () => {
+      await result.current.send('c1', 'hi');
+    });
+    expect(result.current.messages[1]).toMatchObject({
+      role: 'ai',
+      content: '先试着',
+      streaming: false,
+      truncated: true,
+    });
   });
 
   it('thinking 帧累积到 message.thinking，content 只累积回答', async () => {
