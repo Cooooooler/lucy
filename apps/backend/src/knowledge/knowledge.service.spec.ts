@@ -75,6 +75,27 @@ describe('KnowledgeService', () => {
       ...over,
     });
 
+  // 可链式 QueryBuilder mock：记录 where/orWhere/andWhere 等调用参数，供 list 用
+  const makeKbQb = () => {
+    const qb = {
+      where: vi.fn(),
+      orWhere: vi.fn(),
+      andWhere: vi.fn(),
+      orderBy: vi.fn(),
+      skip: vi.fn(),
+      take: vi.fn(),
+      getManyAndCount: vi.fn(),
+    };
+    qb.where.mockReturnValue(qb);
+    qb.orWhere.mockReturnValue(qb);
+    qb.andWhere.mockReturnValue(qb);
+    qb.orderBy.mockReturnValue(qb);
+    qb.skip.mockReturnValue(qb);
+    qb.take.mockReturnValue(qb);
+    qb.getManyAndCount.mockResolvedValue([[kb()], 1]);
+    return qb;
+  };
+
   it('create 保存知识库（默认 private）', async () => {
     kbRepo.save.mockResolvedValue(kb());
     await expect(service.create('u1', { name: 'x' })).resolves.toBeInstanceOf(
@@ -234,5 +255,56 @@ describe('KnowledgeService', () => {
     expect(fileService.remove).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'f1' }),
     );
+  });
+
+  it('list 默认可见性：属主或公开库（括号包裹 OR），返回 list/total/page/pageSize', async () => {
+    const qb = makeKbQb();
+    qb.getManyAndCount.mockResolvedValue([[kb()], 1]);
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+    const result = await service.list('u1', {});
+    expect(qb.where).toHaveBeenCalledWith(
+      '(kb.ownerId = :uid OR kb.visibility = :pub)',
+      { uid: 'u1', pub: KnowledgeBaseVisibility.Public },
+    );
+    expect(qb.orWhere).not.toHaveBeenCalled();
+    expect(qb.getManyAndCount).toHaveBeenCalled();
+    expect(result).toEqual({
+      list: [expect.any(KnowledgeBase)],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+  });
+
+  it('list visibility=private：属主私有库', async () => {
+    const qb = makeKbQb();
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+    await service.list('u1', { visibility: KnowledgeBaseVisibility.Private });
+    expect(qb.where).toHaveBeenCalledWith('kb.ownerId = :uid', { uid: 'u1' });
+    expect(qb.andWhere).toHaveBeenCalledWith('kb.visibility = :v', {
+      v: KnowledgeBaseVisibility.Private,
+    });
+  });
+
+  it('list visibility=public：公开库', async () => {
+    const qb = makeKbQb();
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+    await service.list('u1', { visibility: KnowledgeBaseVisibility.Public });
+    expect(qb.where).toHaveBeenCalledWith('kb.visibility = :v', {
+      v: KnowledgeBaseVisibility.Public,
+    });
+  });
+
+  it('list 带 name：在括号 OR 之外追加 ILIKE 过滤（属主自己的库也参与 name 过滤）', async () => {
+    const qb = makeKbQb();
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+    await service.list('u1', { name: 'x' });
+    expect(qb.where).toHaveBeenCalledWith(
+      '(kb.ownerId = :uid OR kb.visibility = :pub)',
+      { uid: 'u1', pub: KnowledgeBaseVisibility.Public },
+    );
+    expect(qb.andWhere).toHaveBeenCalledWith('kb.name ILIKE :name', {
+      name: '%x%',
+    });
   });
 });

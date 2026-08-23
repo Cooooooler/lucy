@@ -67,12 +67,10 @@ export class KnowledgeService {
         qb.where('kb.visibility = :v', { v: KnowledgeBaseVisibility.Public });
       }
     } else {
-      qb.where('kb.ownerId = :uid', { uid: userId }).orWhere(
-        'kb.visibility = :pub',
-        {
-          pub: KnowledgeBaseVisibility.Public,
-        },
-      );
+      qb.where('(kb.ownerId = :uid OR kb.visibility = :pub)', {
+        uid: userId,
+        pub: KnowledgeBaseVisibility.Public,
+      });
     }
     if (query.name) {
       qb.andWhere('kb.name ILIKE :name', { name: `%${query.name}%` });
