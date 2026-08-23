@@ -138,7 +138,8 @@ export class KnowledgeService {
         HttpStatus.UNSUPPORTED_MEDIA_TYPE,
       );
     }
-    const maxSize = Number(this.config.get<number>('FILE_MAX_SIZE', 10485760));
+    const parsed = Number(this.config.get<number>('FILE_MAX_SIZE', 10485760));
+    const maxSize = Number.isFinite(parsed) && parsed > 0 ? parsed : 10485760;
     if (file.size > maxSize) {
       throw new BusinessException(
         ErrorCode.KNOWLEDGE_FILE_TOO_LARGE,
@@ -189,12 +190,18 @@ export class KnowledgeService {
     }
 
     const title = basename(file.originalname, extname(file.originalname));
-    return this.docRepo.save({
-      knowledgeBaseId: kbId,
-      fileId: fileEntity.id,
-      title,
-      content,
-    });
+    try {
+      return await this.docRepo.save({
+        knowledgeBaseId: kbId,
+        fileId: fileEntity.id,
+        title,
+        content,
+      });
+    } catch (err) {
+      await this.fileService.remove(stored.key);
+      await this.fileRepo.delete({ id: fileEntity.id });
+      throw err;
+    }
   }
 
   async listDocuments(

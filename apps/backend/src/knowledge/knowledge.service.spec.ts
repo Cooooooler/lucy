@@ -415,6 +415,49 @@ describe('KnowledgeService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('addDocument FILE_MAX_SIZE 非数字时回退默认上限（不静默禁用）', async () => {
+    const svc = new KnowledgeService(
+      kbRepo as never,
+      docRepo as never,
+      fileRepo as never,
+      fileService as never,
+      new ConfigService({ FILE_MAX_SIZE: '10MB' }),
+    );
+    kbRepo.findOne.mockResolvedValue(kb());
+    const big = Buffer.alloc(20 * 1024 * 1024);
+    await expect(
+      svc.addDocument('u1', 'kb1', {
+        buffer: big,
+        originalname: 'a.txt',
+        size: big.length,
+      } as never),
+    ).rejects.toMatchObject({
+      response: { code: ErrorCode.KNOWLEDGE_FILE_TOO_LARGE },
+    });
+    expect(fileService.save).not.toHaveBeenCalled();
+  });
+
+  it('addDocument 入库失败回滚删除文件', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    vi.mocked(detectFileType).mockResolvedValue({
+      ext: 'pdf',
+      mime: 'application/pdf',
+    });
+    vi.mocked(extractContent).mockResolvedValue('正文');
+    fileService.save.mockResolvedValue(stored());
+    fileRepo.save.mockResolvedValue({ id: 'f1' });
+    docRepo.save.mockRejectedValue(new Error('db fail'));
+    await expect(
+      service.addDocument('u1', 'kb1', {
+        buffer: Buffer.from('%PDF'),
+        originalname: 'a.pdf',
+        size: 4,
+      } as never),
+    ).rejects.toThrow('db fail');
+    expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
+    expect(fileRepo.delete).toHaveBeenCalledWith({ id: 'f1' });
+  });
+
   it('addDocument docx（非 pdf）跳过魔数校验正常入库', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
     vi.mocked(extractContent).mockResolvedValue('正文');

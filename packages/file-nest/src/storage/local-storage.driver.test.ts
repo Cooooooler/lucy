@@ -35,6 +35,14 @@ describe('LocalStorageDriver', () => {
     await expect(driver.delete('c.txt')).resolves.toBeUndefined();
   });
 
+  it('delete 遇到非 ENOENT 错误（如目录）重抛，不静默吞掉', async () => {
+    await driver.write('sub/d.txt', Buffer.from('x'));
+    // 不存在文件 → ENOENT 视为已删成功
+    await expect(driver.delete('no-such.txt')).resolves.toBeUndefined();
+    // 对目录执行 unlink → EISDIR/EPERM 等非 ENOENT 错误应重抛
+    await expect(driver.delete('sub')).rejects.toThrow();
+  });
+
   it('拒绝含 .. / \\ 的 key（防路径穿越）', async () => {
     await expect(
       driver.write('../evil.txt', Buffer.from('z')),

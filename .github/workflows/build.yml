@@ -12,6 +12,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# 最小权限：仅读仓库内容；上传 artifact/Sonar 等如需额外写权限再单独补
+permissions:
+  contents: read
+
 jobs:
   lint-typecheck:
     name: Lint & Typecheck
