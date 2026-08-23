@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    /* 本包无数据库实体：关闭严格属性初始化以容纳部分字段延迟赋值的存储 DTO */
+    "strictPropertyInitialization": false,
+    /* 必须显式声明 node 类型：本包源码通过 `node:*` 导入 fs/path 且引用 Buffer/process。
+       实践验证：去掉此行会触发 TS2591（即便根 node_modules/@types 已 hoist @types/node，
+       该包的 typeRoots 仍不会自动包含它）。故此处显式声明，请勿误删。 */
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

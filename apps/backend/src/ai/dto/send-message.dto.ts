@@ -1,5 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class SendMessageDto {
   @ApiProperty({ description: '用户消息内容', example: '你好' })
@@ -16,4 +22,11 @@ export class SendMessageDto {
   @IsString()
   @MaxLength(100)
   model?: string;
+
+  @ApiPropertyOptional({
+    description: '是否开启深度思考（仅支持推理模型）',
+  })
+  @IsOptional()
+  @IsBoolean()
+  reasoning?: boolean;
 }

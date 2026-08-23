@@ -204,6 +204,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/knowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 知识库列表
+         * @description 返回自己的 + 公开的
+         */
+        get: operations["KnowledgeController_list"];
+        put?: never;
+        /** 创建知识库 */
+        post: operations["KnowledgeController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 知识库详情 */
+        get: operations["KnowledgeController_get"];
+        put?: never;
+        post?: never;
+        /** 删除知识库（级联清文档与文件） */
+        delete: operations["KnowledgeController_remove"];
+        options?: never;
+        head?: never;
+        /** 更新知识库 */
+        patch: operations["KnowledgeController_update"];
+        trace?: never;
+    };
+    "/knowledge/{kbId}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 某知识库文档列表 */
+        get: operations["KnowledgeController_listDocuments"];
+        put?: never;
+        /**
+         * 上传文档
+         * @description multipart/form-data，字段名 file
+         */
+        post: operations["KnowledgeController_addDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/{kbId}/documents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 文档详情（含解析文本） */
+        get: operations["KnowledgeController_getDocument"];
+        put?: never;
+        post?: never;
+        /** 删除文档（连带清理文件） */
+        delete: operations["KnowledgeController_removeDocument"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -337,6 +416,8 @@ export interface components {
             role: "user" | "ai" | "system";
             /** @description 内容 */
             content: string;
+            /** @description 思考过程（深度思考模型，可空） */
+            thinking?: string | null;
             /**
              * @description 生成状态
              * @enum {string|null}
@@ -404,6 +485,82 @@ export interface components {
              * @example qwen2.5:7b
              */
             model?: string;
+            /** @description 是否开启深度思考（仅支持推理模型） */
+            reasoning?: boolean;
+        };
+        CreateKnowledgeBaseDto: {
+            /** @description 名称 */
+            name: string;
+            /** @description 描述 */
+            description?: string;
+            /**
+             * @description 可见性
+             * @default private
+             * @enum {string}
+             */
+            visibility: "private" | "public";
+        };
+        KnowledgeDocument: {
+            /** @description 文档 ID */
+            id: string;
+            /** @description 所属知识库 ID */
+            knowledgeBaseId: string;
+            /** @description 源文件 ID */
+            fileId: string;
+            /** @description 标题 */
+            title: string;
+            /** @description 解析出的纯文本 */
+            content: Record<string, never> | null;
+            /**
+             * Format: date-time
+             * @description 创建时间
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description 更新时间
+             */
+            updatedAt: string;
+        };
+        KnowledgeBase: {
+            /** @description 知识库 ID */
+            id: string;
+            /** @description 属主用户 ID */
+            ownerId: string;
+            /**
+             * @description 可见性
+             * @default private
+             * @enum {string}
+             */
+            visibility: "private" | "public";
+            /** @description 名称 */
+            name: string;
+            /** @description 描述 */
+            description: Record<string, never> | null;
+            /** @description 文档列表 */
+            documents: components["schemas"]["KnowledgeDocument"][];
+            /**
+             * Format: date-time
+             * @description 创建时间
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description 更新时间
+             */
+            updatedAt: string;
+        };
+        UpdateKnowledgeBaseDto: {
+            /** @description 名称 */
+            name?: string;
+            /** @description 描述 */
+            description?: string;
+            /**
+             * @description 可见性
+             * @default private
+             * @enum {string}
+             */
+            visibility: "private" | "public";
         };
         HealthResultDto: {
             /**
@@ -741,6 +898,202 @@ export interface operations {
         };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    KnowledgeController_list: {
+        parameters: {
+            query?: {
+                /** @description 页码 */
+                page?: number;
+                /** @description 每页条数 */
+                pageSize?: number;
+                /** @description 按可见性过滤 */
+                visibility?: "private" | "public";
+                /** @description 名称关键字 */
+                name?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    KnowledgeController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateKnowledgeBaseDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeBase"];
+                };
+            };
+        };
+    };
+    KnowledgeController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 知识库不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    KnowledgeController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    KnowledgeController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateKnowledgeBaseDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    KnowledgeController_listDocuments: {
+        parameters: {
+            query?: {
+                /** @description 页码 */
+                page?: number;
+                /** @description 每页条数 */
+                pageSize?: number;
+                /** @description 匹配标题/内容的关键字 */
+                keyword?: string;
+            };
+            header?: never;
+            path: {
+                kbId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    KnowledgeController_addDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kbId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    KnowledgeController_getDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kbId: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    KnowledgeController_removeDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kbId: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

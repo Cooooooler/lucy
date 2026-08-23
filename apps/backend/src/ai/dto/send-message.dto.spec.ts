@@ -26,4 +26,21 @@ describe('SendMessageDto', () => {
     });
     expect(await validate(dto)).not.toHaveLength(0);
   });
+
+  it('reasoning 可选，布尔值通过校验', async () => {
+    expect(
+      await validate(plainToInstance(SendMessageDto, { content: 'hi' })),
+    ).toHaveLength(0);
+    expect(
+      await validate(
+        plainToInstance(SendMessageDto, { content: 'hi', reasoning: true }),
+      ),
+    ).toHaveLength(0);
+    // 非布尔（字符串）校验失败
+    expect(
+      await validate(
+        plainToInstance(SendMessageDto, { content: 'hi', reasoning: 'yes' }),
+      ),
+    ).not.toHaveLength(0);
+  });
 });

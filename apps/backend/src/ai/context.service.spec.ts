@@ -11,8 +11,8 @@ import { TokenizerService } from './tokenizer.service.js';
 describe('ContextService', () => {
   function makeConfig(overrides: Record<string, unknown> = {}) {
     return new ConfigService({
-      AI_CONTEXT_TOKEN_LIMIT: 15,
-      AI_CONTEXT_RESERVE_RATIO: 0.7,
+      AI_CONTEXT_TOKEN_LIMIT: 100,
+      AI_CONTEXT_SAFETY_MARGIN: 0,
       AI_SYSTEM_PROMPT: '',
       ...overrides,
     });
@@ -30,7 +30,7 @@ describe('ContextService', () => {
   }
 
   it('系统提示 + 预算内保留全部历史 + 新消息', async () => {
-    // 预算 floor(30*0.7)=21，扣系统提示 5 + 新消息 5 → historyBudget=11，
+    // 预算 = 30 − 0 = 30，扣系统提示 5 + 新消息 5 → historyBudget=20，
     // 两条历史(5+5=10)在预算内全保留
     const svc = makeSvc({
       AI_SYSTEM_PROMPT: 'sys',
@@ -46,8 +46,29 @@ describe('ContextService', () => {
   });
 
   it('超预算时保留最近消息，丢弃更早', async () => {
-    // 预算 floor(15*0.7)=10，扣新消息 5 → historyBudget=5，每条 5 token → 只够最近 1 条
-    const svc = makeSvc();
+    // 预算 15 − 0 = 15，扣新消息 5 → historyBudget=10；
+    // recent(5) 放得下，early(5) 与之一并放入也满足 <=10，故两条保留
+    const svc = makeSvc({ AI_CONTEXT_TOKEN_LIMIT: 15 });
+    const history = [
+      msg(MessageRole.User, 'early'),
+      msg(MessageRole.Ai, 'recent'),
+    ];
+    const out = await svc.buildMessages(history, 'new', 'qwen');
+    expect(out[0]).toBeInstanceOf(HumanMessage);
+    expect(out[0].content).toBe('early');
+    expect(out[1]).toBeInstanceOf(AIMessage);
+    expect(out[1].content).toBe('recent');
+    expect(out[2]).toBeInstanceOf(HumanMessage);
+    expect(out[2].content).toBe('new');
+  });
+
+  it('安全边际从输入预算中扣除，把放得下的历史挤掉', async () => {
+    // 预算 15 − 5 = 10，扣新消息 5 → historyBudget=5，只够最近 1 条(recent 5)，
+    // early(5) 放不下被丢弃——对比 margin=0 时两条都能保留
+    const svc = makeSvc({
+      AI_CONTEXT_TOKEN_LIMIT: 15,
+      AI_CONTEXT_SAFETY_MARGIN: 5,
+    });
     const history = [
       msg(MessageRole.User, 'early'),
       msg(MessageRole.Ai, 'recent'),
@@ -60,9 +81,9 @@ describe('ContextService', () => {
   });
 
   it('新消息计入预算：新消息挤占预算时历史被丢弃', async () => {
-    // 预算 floor(14*0.7)=9，扣新消息 5 → historyBudget=4，1 条历史(5)放不下；
+    // 预算 9 − 0 = 9，扣新消息 5 → historyBudget=4，recent(5) 放不下被丢弃；
     // 若新消息未计入，historyBudget=9 本可容纳 recent
-    const svc = makeSvc({ AI_CONTEXT_TOKEN_LIMIT: 14 });
+    const svc = makeSvc({ AI_CONTEXT_TOKEN_LIMIT: 9 });
     const out = await svc.buildMessages(
       [msg(MessageRole.Ai, 'recent')],
       'new',

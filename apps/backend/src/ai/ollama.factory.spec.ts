@@ -22,6 +22,16 @@ describe('OllamaFactory', () => {
     expect(factory.getClient()).toBe(factory.getClient('default-model'));
   });
 
+  it('同一 model 不同 think 返回不同实例', () => {
+    const factory = new OllamaFactory(config);
+    expect(factory.getClient('qwen', true)).not.toBe(
+      factory.getClient('qwen', false),
+    );
+    expect(factory.getClient('qwen', true)).toBe(
+      factory.getClient('qwen', true),
+    );
+  });
+
   it('超过缓存上限后淘汰最旧条目', () => {
     const factory = new OllamaFactory(config);
     const m0 = factory.getClient('m0');
@@ -29,5 +39,16 @@ describe('OllamaFactory', () => {
     for (let i = 1; i <= 50; i++) factory.getClient(`m${i}`);
     // m0 已被淘汰，重新获取会创建新实例
     expect(factory.getClient('m0')).not.toBe(m0);
+  });
+
+  it('AI_OUTPUT_MAX_TOKENS 作为生成上限传入 numPredict', () => {
+    const cfg = new ConfigService({
+      OLLAMA_MODEL: 'm',
+      AI_OUTPUT_MAX_TOKENS: 32768,
+    });
+    const client = new OllamaFactory(cfg).getClient('qwen') as unknown as {
+      numPredict?: number;
+    };
+    expect(client.numPredict).toBe(32768);
   });
 });

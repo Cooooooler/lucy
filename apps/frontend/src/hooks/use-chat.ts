@@ -9,6 +9,7 @@ import { conversationListAll, useConversation } from './use-ai';
 export interface ChatMessage extends Message {
   streaming?: boolean;
   error?: string;
+  thinking?: string;
 }
 
 // ai 消息的 failed/aborted 状态映射为错误文案，其余状态返回 undefined（无错误）
@@ -18,9 +19,11 @@ const getAiStatusText = (m: Message) => {
   return m.status === 'failed' ? '生成失败' : '生成中断';
 };
 
-// 服务端消息 → UI 消息：补 error 文案
+// 服务端消息 → UI 消息：补 error 文案；后端 thinking 允许 null（DB nullable），
+// 交互上 null 与 undefined 均视为「无思考」，归一化为 undefined 便于下游 string 消费。
 const toChatMessage = (m: Message): ChatMessage => ({
   ...m,
+  thinking: m.thinking ?? undefined,
   error: getAiStatusText(m),
 });
 
@@ -115,19 +118,27 @@ export function useChatStream(conversationId: string | undefined) {
     return aiId;
   }
 
-  async function send(conversationId: string | undefined, content: string) {
+  async function send(
+    conversationId: string | undefined,
+    content: string,
+    reasoning = false,
+  ) {
     if (!conversationId) return;
     const text = content.trim();
     const aiId = appendOptimistic(conversationId, text);
     try {
       // 逐帧消费事件流：delta 累积内容，done/error 结束流式态
-      for await (const chunk of stream(conversationId, { content: text })) {
+      for await (const chunk of stream(conversationId, {
+        content: text,
+        reasoning,
+      })) {
         const event = chunk.result as AiStreamEvent | null;
         if (!event) continue;
         if (event.type === 'delta') {
           updateMessage(aiId, (m) => ({
             ...m,
-            content: m.content + event.data.content,
+            content: m.content + (event.data.content ?? ''),
+            thinking: (m.thinking ?? '') + (event.data.thinking ?? ''),
           }));
         } else if (event.type === 'error') {
           updateMessage(aiId, (m) => ({

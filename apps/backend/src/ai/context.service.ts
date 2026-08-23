@@ -20,12 +20,14 @@ export class ContextService {
     newContent: string,
     model: string,
   ): Promise<(SystemMessage | HumanMessage | AIMessage)[]> {
-    const limit = this.config.get<number>('AI_CONTEXT_TOKEN_LIMIT', 4096);
-    const reserveRatio = this.config.get<number>(
-      'AI_CONTEXT_RESERVE_RATIO',
-      0.7,
+    // 输入预算 = 显式上限 − 安全边际。安全边际防本地 tokenizer（估算/模板/特殊
+    // token 未计满）与真实分词偏差造成的越界，而非靠比例粗放折算。
+    const limit = this.config.get<number>('AI_CONTEXT_TOKEN_LIMIT', 131072);
+    const safetyMargin = this.config.get<number>(
+      'AI_CONTEXT_SAFETY_MARGIN',
+      2048,
     );
-    const budget = Math.floor(limit * reserveRatio);
+    const budget = Math.max(0, limit - safetyMargin);
 
     const messages: (SystemMessage | HumanMessage | AIMessage)[] = [];
     const systemPrompt = this.config.get<string>('AI_SYSTEM_PROMPT', '');

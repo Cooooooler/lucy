@@ -1,8 +1,17 @@
 {
   "compilerOptions": {
+    /* 基础互操作（全包统一） */
     "esModuleInterop": true,
-    "isolatedModules": true,
+    "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+
+    /* 严格类型检查（最严格，全包统一；module/moduleResolution/target 等环境差异留在各包） */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
   }
 }

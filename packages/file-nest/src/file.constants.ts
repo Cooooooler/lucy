@@ -1,0 +1,2 @@
+export const FILE_MODULE_OPTIONS = 'FILE_MODULE_OPTIONS';
+export const FILE_STORAGE = 'FILE_STORAGE';

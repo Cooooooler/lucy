@@ -12,6 +12,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# 最小权限：仅读仓库内容；上传 artifact/Sonar 等如需额外写权限再单独补
+permissions:
+  contents: read
+
 jobs:
   lint-typecheck:
     name: Lint & Typecheck
@@ -30,6 +34,8 @@ jobs:
         run: pnpm --filter @lucy/shared build
       - name: Build redis package
         run: pnpm --filter @coool/redis-nest build
+      - name: Build file-nest package
+        run: pnpm --filter @coool/file-nest build
       - name: Lint
         run: pnpm lint
       - name: Typecheck
@@ -59,6 +65,8 @@ jobs:
         run: pnpm --filter @lucy/shared build
       - name: Build redis package
         run: pnpm --filter @coool/redis-nest build
+      - name: Build file-nest package
+        run: pnpm --filter @coool/file-nest build
       - name: Backend tests with coverage
         run: pnpm --filter @lucy/backend test:cov
       - name: Upload coverage report

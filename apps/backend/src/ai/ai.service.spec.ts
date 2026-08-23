@@ -132,6 +132,7 @@ describe('AiService', () => {
         conversationId: 'c1',
         role: MessageRole.Ai,
         content: '你好',
+        thinking: null,
         status: MessageStatus.Complete,
       });
     });
@@ -162,6 +163,7 @@ describe('AiService', () => {
         conversationId: 'c1',
         role: MessageRole.Ai,
         content: '半截',
+        thinking: null,
         status: MessageStatus.Failed,
       });
     });
@@ -192,6 +194,7 @@ describe('AiService', () => {
         conversationId: 'c1',
         role: MessageRole.Ai,
         content: '半截',
+        thinking: null,
         status: MessageStatus.Failed,
       });
     });
@@ -239,6 +242,7 @@ describe('AiService', () => {
           conversationId: 'c1',
           role: MessageRole.Ai,
           content: '你',
+          thinking: null,
           status: MessageStatus.Failed,
         });
       } finally {
@@ -264,6 +268,7 @@ describe('AiService', () => {
         conversationId: 'c1',
         role: MessageRole.Ai,
         content: '',
+        thinking: null,
         status: MessageStatus.Failed,
       });
     });
@@ -321,7 +326,62 @@ describe('AiService', () => {
       await events(
         service.sendMessage('1', 'c1', { content: 'hi', model: 'req-model' }),
       );
-      expect(ollamaFactory.getClient).toHaveBeenCalledWith('req-model');
+      expect(ollamaFactory.getClient).toHaveBeenCalledWith('req-model', false);
+    });
+
+    it('请求级 reasoning 透传给模型客户端', async () => {
+      conversationRepo.findOne.mockResolvedValue(conv());
+      messageRepo.count.mockResolvedValue(2);
+      messageRepo.find.mockResolvedValue([]);
+      contextService.buildMessages.mockResolvedValue([]);
+      ollamaFactory.getClient.mockReturnValue(fakeClient());
+
+      await events(
+        service.sendMessage('1', 'c1', { content: 'hi', reasoning: true }),
+      );
+      expect(ollamaFactory.getClient).toHaveBeenCalledWith(
+        'default-model',
+        true,
+      );
+    });
+
+    it('思考流：thinking 与 content 分为两路 delta，落库全文', async () => {
+      conversationRepo.findOne.mockResolvedValue(conv());
+      messageRepo.count.mockResolvedValue(2);
+      messageRepo.find.mockResolvedValue([]);
+      contextService.buildMessages.mockResolvedValue([]);
+      ollamaFactory.getClient.mockReturnValue(
+        fakeClient({
+          *stream() {
+            yield {
+              content: '',
+              additional_kwargs: { reasoning_content: '先思考' },
+            };
+            yield { content: '最终回答' };
+          },
+        }),
+      );
+
+      const result = await events(
+        service.sendMessage('1', 'c1', { content: 'hi' }),
+      );
+      // 思考与回答分为不同帧：思考帧只带 thinking，回答帧只带 content
+      expect(result.map((e) => e.type)).toEqual(['delta', 'delta', 'done']);
+      expect(result[0]).toMatchObject({
+        type: 'delta',
+        data: { thinking: '先思考' },
+      });
+      expect(result[1]).toMatchObject({
+        type: 'delta',
+        data: { content: '最终回答' },
+      });
+      expect(messageRepo.save).toHaveBeenCalledWith({
+        conversationId: 'c1',
+        role: MessageRole.Ai,
+        content: '最终回答',
+        thinking: '先思考',
+        status: MessageStatus.Complete,
+      });
     });
 
     it('用户消息只进上下文一次：历史读取先于保存，buildMessages 收到不含本次内容的 history', async () => {
@@ -414,6 +474,7 @@ describe('AiService', () => {
           conversationId: 'c1',
           role: MessageRole.Ai,
           content: '半截',
+          thinking: null,
           status: MessageStatus.Aborted,
         }),
       );

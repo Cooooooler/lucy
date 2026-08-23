@@ -32,6 +32,12 @@ const delta = (content: string): AiStreamEvent => ({
   role: 'ai',
   data: { content },
 });
+const deltaThinking = (thinking: string): AiStreamEvent => ({
+  type: 'delta',
+  requestId,
+  role: 'ai',
+  data: { thinking },
+});
 const done = (): AiStreamEvent => ({
   type: 'done',
   requestId,
@@ -119,6 +125,7 @@ describe('useChatStream', () => {
     });
     expect(mocks.createStreamRequest).toHaveBeenCalledWith('c1', {
       content: 'hi',
+      reasoning: false,
     });
     expect(result.current.messages).toHaveLength(2);
     expect(result.current.messages[0]).toMatchObject({
@@ -131,6 +138,22 @@ describe('useChatStream', () => {
       streaming: false,
     });
     expect(result.current.streaming).toBe(false);
+  });
+
+  it('thinking 帧累积到 message.thinking，content 只累积回答', async () => {
+    mocks.createStreamRequest.mockReturnValue(
+      mockStreamRequest(() =>
+        streamOf([deltaThinking('先思考'), delta('回答'), done()]),
+      ),
+    );
+    const { result } = renderHook(() => useChatStream('c1'), {
+      wrapper: createWrapper(),
+    });
+    await act(async () => {
+      await result.current.send('c1', 'hi');
+    });
+    const ai = result.current.messages.find((m) => m.role === 'ai');
+    expect(ai).toMatchObject({ thinking: '先思考', content: '回答' });
   });
 
   it('error 事件置 error 并结束流式', async () => {
