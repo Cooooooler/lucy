@@ -1,4 +1,4 @@
-import type { FileService } from '@coool/file-nest';
+import { FileService } from '@coool/file-nest';
 import { ErrorCode } from '@lucy/shared';
 import { HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
