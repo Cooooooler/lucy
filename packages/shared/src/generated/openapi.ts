@@ -423,6 +423,8 @@ export interface components {
              * @enum {string|null}
              */
             status: "complete" | "aborted" | "failed" | null;
+            /** @description 是否被长度截断（done_reason=length，可空） */
+            truncated?: boolean | null;
             /**
              * Format: date-time
              * @description 创建时间

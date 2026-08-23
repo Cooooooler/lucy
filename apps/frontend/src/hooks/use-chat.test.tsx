@@ -119,6 +119,39 @@ describe('useChatStream', () => {
     });
   });
 
+  it('历史消息携带 truncated:true → 映射到 ChatMessage.truncated（重开后仍识别截断）', async () => {
+    mockConversation([
+      {
+        id: 'm1',
+        role: 'ai',
+        content: '半截',
+        status: 'complete',
+        truncated: true,
+      },
+      {
+        id: 'm2',
+        role: 'ai',
+        content: '完整',
+        status: 'complete',
+        truncated: false,
+      },
+    ]);
+    const { result } = renderHook(() => useChatStream('c1'), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+    expect(result.current.messages[0]).toMatchObject({
+      role: 'ai',
+      content: '半截',
+      truncated: true,
+    });
+    expect(result.current.messages[1]).toMatchObject({
+      role: 'ai',
+      content: '完整',
+      truncated: false,
+    });
+  });
+
   it('send 追加 user/ai 并消费 delta 累积内容，done 结束', async () => {
     mocks.createStreamRequest.mockReturnValue(
       mockStreamRequest(() => streamOf([delta('你'), delta('好'), done()])),

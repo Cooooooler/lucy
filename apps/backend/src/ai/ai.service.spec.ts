@@ -134,6 +134,7 @@ describe('AiService', () => {
         content: '你好',
         thinking: null,
         status: MessageStatus.Complete,
+        truncated: false,
       });
     });
 
@@ -161,6 +162,15 @@ describe('AiService', () => {
       expect(result.at(-1)).toMatchObject({
         type: 'done',
         data: { finish_reason: 'length', truncated: true },
+      });
+      // 截断状态须持久化：刷新/重开会话后仍可识别半截回答
+      expect(messageRepo.save).toHaveBeenCalledWith({
+        conversationId: 'c1',
+        role: MessageRole.Ai,
+        content: '半截',
+        thinking: null,
+        status: MessageStatus.Complete,
+        truncated: true,
       });
     });
 
@@ -408,6 +418,7 @@ describe('AiService', () => {
         content: '最终回答',
         thinking: '先思考',
         status: MessageStatus.Complete,
+        truncated: false,
       });
     });
 

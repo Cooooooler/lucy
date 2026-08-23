@@ -6,8 +6,9 @@ import { useHookFetch } from 'hook-fetch/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { conversationListAll, useConversation } from './use-ai';
 
-// Message.thinking 为 string | null，ChatMessage 重新声明为可选 string，故用 Omit 剔除后重定义，避免类型冲突
-export interface ChatMessage extends Omit<Message, 'thinking'> {
+// Message.thinking 为 string | null，ChatMessage 重新声明为可选 string，故用 Omit 剔除后重定义，避免类型冲突；
+// truncated 同理：后端允许 null，归一化为可选 boolean
+export interface ChatMessage extends Omit<Message, 'thinking' | 'truncated'> {
   streaming?: boolean;
   error?: string;
   thinking?: string;
@@ -26,6 +27,7 @@ const getAiStatusText = (m: Message) => {
 const toChatMessage = (m: Message): ChatMessage => ({
   ...m,
   thinking: m.thinking ?? undefined,
+  truncated: m.truncated ?? undefined,
   error: getAiStatusText(m),
 });
 
