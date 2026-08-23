@@ -150,7 +150,7 @@ export class KnowledgeService {
     // pdf 用魔数防伪装（docx 是 zip 容器魔数不可靠，靠 mammoth 解析兜底）
     if (origExt === '.pdf') {
       const detected = await detectFileType(file.buffer);
-      if (!detected || detected.ext !== 'pdf') {
+      if (detected?.ext !== 'pdf') {
         throw new BusinessException(
           ErrorCode.KNOWLEDGE_INVALID_FILE_TYPE,
           'PDF 文件内容与扩展名不符',

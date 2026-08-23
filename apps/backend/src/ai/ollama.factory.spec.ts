@@ -51,4 +51,17 @@ describe('OllamaFactory', () => {
     };
     expect(client.numPredict).toBe(32768);
   });
+
+  it('AI_OUTPUT_MAX_TOKENS 非有限正整数时回退 32768', () => {
+    for (const bad of ['', 'abc', '0', '-5', '1.5', 'Infinity', 'NaN']) {
+      const cfg = new ConfigService({
+        OLLAMA_MODEL: 'm',
+        AI_OUTPUT_MAX_TOKENS: bad,
+      });
+      const client = new OllamaFactory(cfg).getClient('qwen') as unknown as {
+        numPredict?: number;
+      };
+      expect(client.numPredict).toBe(32768);
+    }
+  });
 });

@@ -26,9 +26,7 @@ export class OllamaFactory {
       think,
       // 把「给生成内容预留的空间」落到模型参数：numPredict 即 Ollama 的 num_predict，
       // 明确限制本次生成的最大输出 token，让预留真正生效而非仅做算账。
-      // ConfigService 不强制类型，env 值实际是 string（如 "32768"），此处 Number coerce
-      // 并给默认 32768，与 .env.example 的 AI_OUTPUT_MAX_TOKENS 一致；env 缺失时兜底。
-      numPredict: Number(this.config.get('AI_OUTPUT_MAX_TOKENS', 32768)),
+      numPredict: this.resolveMaxTokens(),
     });
     this.cache.set(key, client);
     // 超限淘汰最旧条目（刚插入后必然非空）
@@ -37,5 +35,15 @@ export class OllamaFactory {
       if (oldest !== undefined) this.cache.delete(oldest);
     }
     return client;
+  }
+
+  /**
+   * 解析并把有限正整数落到 numPredict：ConfigService 不强制类型，env 值实际是 string，
+   * 需 Number coerce（如 "32768" → 32768）。仅接受有限正整数，否则（缺失/0/负数/小数/NaN/Infinity）
+   * 回退默认 32768（与 .env.example 的 AI_OUTPUT_MAX_TOKENS 一致），避免把畸形值传给 ChatOllama。
+   */
+  private resolveMaxTokens(): number {
+    const parsed = Number(this.config.get('AI_OUTPUT_MAX_TOKENS', 32768));
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : 32768;
   }
 }
