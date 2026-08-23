@@ -409,18 +409,9 @@ importers:
       '@nestjs/core':
         specifier: 'catalog:'
         version: 11.1.28(@nestjs/common@11.1.28(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.1.28)(reflect-metadata@0.2.2)(rxjs@7.8.2)
-      '@nestjs/swagger':
-        specifier: ^11.4.6
-        version: 11.4.6(@nestjs/common@11.1.28(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.28)(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)
-      '@nestjs/typeorm':
-        specifier: ^11.0.3
-        version: 11.0.3(@nestjs/common@11.1.28(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.28)(reflect-metadata@0.2.2)(rxjs@7.8.2)(typeorm@1.1.0(babel-plugin-macros@3.1.0)(ioredis@5.11.1)(pg@8.22.0)(ts-node@10.9.2(@swc/core@1.15.47)(@types/node@24.13.3)(typescript@6.0.3)))
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
-      typeorm:
-        specifier: ^1.1.0
-        version: 1.1.0(babel-plugin-macros@3.1.0)(ioredis@5.11.1)(pg@8.22.0)(ts-node@10.9.2(@swc/core@1.15.47)(@types/node@24.13.3)(typescript@6.0.3))
       vitepress:
         specifier: ^1.6.4
         version: 1.6.4(@algolia/client-search@5.56.0)(@types/node@24.13.3)(@types/react@19.2.18)(change-case@5.4.4)(less@4.8.1)(lightningcss@1.33.0)(postcss@8.5.25)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(search-insights@2.17.3)(terser@5.49.0)(typescript@6.0.3)
