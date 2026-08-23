@@ -7,6 +7,8 @@
     "noEmit": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
+    /* TypeORM 实体由装饰器/构造器外部初始化（同后端），关闭严格属性初始化以贴合实体写法 */
+    "strictPropertyInitialization": false,
     /* 必须显式声明 node 类型：本包源码通过 `node:*` 导入 fs/path 且引用 Buffer/process。
        实践验证：去掉此行会触发 TS2591（即便根 node_modules/@types 已 hoist @types/node，
        该包的 typeRoots 仍不会自动包含它）。故此处显式声明，请勿误删。 */
