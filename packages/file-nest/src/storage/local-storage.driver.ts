@@ -7,7 +7,7 @@ export interface LocalStorageDriverConfig {
   dir?: string;
 }
 
-/** 本地磁盘存储驱动：文件落在 `dir/<key>`，目录自动创建 */
+/** 本地磁盘存储驱动：文件落在 `dir/<key>`，目录自动创建；key 为相对路径，通常为单层文件名（FileService 约定），驱动不强制单层。 */
 export class LocalStorageDriver implements StorageDriver {
   private readonly dir: string;
 
