@@ -12,6 +12,7 @@ import {
   DownOutlined,
   EditOutlined,
   OllamaFilled,
+  OpenAIOutlined,
   PlusOutlined,
   UserOutlined,
 } from '@ant-design/icons';
@@ -27,6 +28,7 @@ import {
 } from '@ant-design/x';
 import XMarkdown from '@ant-design/x-markdown';
 import type { RoleType } from '@ant-design/x/es/bubble/interface';
+import type { ThinkProps } from '@ant-design/x/es/think/Think';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useSelector } from '@tanstack/react-store';
 import { useBoolean } from 'ahooks';
@@ -41,7 +43,6 @@ import {
   Result,
   Spin,
   Splitter,
-  Switch,
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
@@ -55,6 +56,7 @@ import {
 } from 'react';
 
 const { Text } = Typography;
+const Switch = Sender.Switch;
 
 export const Route = createFileRoute('/_layout/chat')({
   // /chat?id=<conversationId>：可选 id，缺省时首条消息无感创建会话
@@ -63,6 +65,27 @@ export const Route = createFileRoute('/_layout/chat')({
   }),
   component: ChatPage,
 });
+
+/** 思考折叠块：思考进行中展开并闪烁；完成/历史默认收起，用户可手动切换 */
+function ThinkingBlock({
+  children,
+  thinkingActive,
+}: Readonly<ThinkProps & { thinkingActive: boolean }>) {
+  // override 记录用户手动切换；未手动时展开状态跟随 thinkingActive（思考中展开、完成/历史收起）
+  const [override, setOverride] = useState<boolean | null>(null);
+  const expanded = override ?? thinkingActive;
+  return (
+    <Think
+      title="深度思考"
+      loading={thinkingActive}
+      blink={thinkingActive}
+      expanded={expanded}
+      onExpand={(v) => setOverride(v)}
+    >
+      {children}
+    </Think>
+  );
+}
 
 const renderMarkdown: BubbleProps['contentRender'] = (content, info) => {
   // info.extraInfo 为完整 ChatMessage：ai 消息若带 thinking（深度思考）则用 Think 折叠展示
@@ -74,9 +97,9 @@ const renderMarkdown: BubbleProps['contentRender'] = (content, info) => {
   return (
     <div className={'flex flex-col gap-2'}>
       {thinking ? (
-        <Think title="深度思考" loading={thinkingActive} blink={thinkingActive}>
+        <ThinkingBlock thinkingActive={thinkingActive}>
           <XMarkdown content={thinking} />
-        </Think>
+        </ThinkingBlock>
       ) : null}
       <XMarkdown content={content} />
     </div>
@@ -383,18 +406,31 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
         </div>
       )}
       <div className="px-4">
-        <Flex align="center" justify="flex-end" className="mb-2">
-          <Text type="secondary" className="mr-2 text-xs">
-            深度思考
-          </Text>
-          <Switch
-            size="small"
-            checked={reasoning}
-            onChange={setReasoning}
-            aria-label="深度思考开关"
-          />
-        </Flex>
         <Sender
+          footer={() => {
+            return (
+              <Flex justify="space-between" align="center">
+                <Flex gap="small" align="center">
+                  <Switch
+                    value={reasoning}
+                    children={
+                      <Text
+                        type="secondary"
+                        className="text-xs"
+                        ellipsis={true}
+                      >
+                        深度思考
+                      </Text>
+                    }
+                    onChange={(checked: boolean) => {
+                      setReasoning(checked);
+                    }}
+                    icon={<OpenAIOutlined />}
+                  />
+                </Flex>
+              </Flex>
+            );
+          }}
           value={value}
           onChange={setValue}
           onSubmit={handleSubmit}
