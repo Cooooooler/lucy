@@ -1,0 +1,49 @@
+{
+  "name": "@coool/file-nest",
+  "version": "0.1.0",
+  "description": "NestJS file storage integration module: storage driver abstraction, metadata, DI",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./src/index.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./src/index.ts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --clean --dts --tsconfig tsconfig.build.json",
+    "dev": "tsup src/index.ts --format esm,cjs --clean --dts --watch --tsconfig tsconfig.build.json",
+    "docs:build": "vitepress build docs",
+    "docs:dev": "vitepress dev docs",
+    "lint": "eslint \"src/**/*.ts\" --fix",
+    "prepublishOnly": "pnpm run build && pnpm run test",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@nestjs/common": "catalog:",
+    "@nestjs/core": "catalog:",
+    "@nestjs/swagger": "^11.4.6",
+    "@nestjs/typeorm": "^11.0.3",
+    "typeorm": "^1.1.0",
+    "vitepress": "^1.6.4"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/core": "^11.0.1",
+    "@nestjs/typeorm": "^11.0.3",
+    "typeorm": "^1.1.0"
+  }
+}
