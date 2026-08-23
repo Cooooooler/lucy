@@ -256,8 +256,8 @@ export class KnowledgeService {
     if (!doc) throw new NotFoundException('文档不存在');
     await this.docRepo.delete({ id, knowledgeBaseId: kbId });
     const file = await this.fileRepo.findOneBy({ id: doc.fileId });
-    await this.fileRepo.delete({ id: doc.fileId });
     if (file) await this.fileService.remove(file.key);
+    await this.fileRepo.delete({ id: doc.fileId });
     return { success: true };
   }
 
