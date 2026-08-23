@@ -23,7 +23,7 @@ pnpm add @coool/file-nest
 ## 快速开始
 
 ```ts
-import { Module } from '@nestjs/common';
+import { Injectable, Module } from '@nestjs/common';
 import { FileModule, FileService } from '@coool/file-nest';
 
 @Module({
