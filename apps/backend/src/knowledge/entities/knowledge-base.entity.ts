@@ -31,7 +31,10 @@ export class KnowledgeBase {
 
   @ApiHideProperty()
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'owner_id' })
+  @JoinColumn({
+    name: 'owner_id',
+    foreignKeyConstraintName: 'FK_knowledge_bases_owner',
+  })
   owner?: User;
 
   @ApiProperty({

@@ -20,22 +20,29 @@ export class KnowledgeDocument {
   id: string;
 
   @ApiProperty({ description: '所属知识库 ID' })
-  @Index()
+  @Index('IDX_knowledge_documents_kb')
   @Column({ name: 'knowledge_base_id', type: 'uuid' })
   knowledgeBaseId: string;
 
   @ApiProperty({ description: '源文件 ID' })
+  @Index('IDX_knowledge_documents_file')
   @Column({ name: 'file_id', type: 'uuid' })
   fileId: string;
 
   @ApiHideProperty()
   @ManyToOne(() => KnowledgeBase, (kb) => kb.documents, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'knowledge_base_id' })
+  @JoinColumn({
+    name: 'knowledge_base_id',
+    foreignKeyConstraintName: 'FK_knowledge_documents_kb',
+  })
   knowledgeBase?: KnowledgeBase;
 
   @ApiHideProperty()
   @ManyToOne(() => FileEntity, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'file_id' })
+  @JoinColumn({
+    name: 'file_id',
+    foreignKeyConstraintName: 'FK_knowledge_documents_file',
+  })
   file?: FileEntity;
 
   @ApiProperty({ description: '标题' })

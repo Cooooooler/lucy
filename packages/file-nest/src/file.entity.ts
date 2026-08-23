@@ -16,7 +16,7 @@ export class FileEntity {
   id: string;
 
   @ApiProperty({ description: '文件属主用户 ID' })
-  @Index()
+  @Index('IDX_files_owner')
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
