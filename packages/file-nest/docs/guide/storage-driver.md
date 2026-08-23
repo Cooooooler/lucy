@@ -1,6 +1,6 @@
 # 存储驱动
 
-文件对象与元数据分离：`FileEntity` 只存描述信息，真正的字节交给 `StorageDriver`。实现该接口即可替换存储后端（本地磁盘、S3、OSS……）。
+本包为**纯存储层**，不落库任何元数据；文件对象与字节交给 `StorageDriver`。实现该接口即可替换存储后端（本地磁盘、S3、OSS……）。
 
 ## StorageDriver 接口
 
@@ -45,4 +45,4 @@ FileModule.forRootAsync({
 });
 ```
 
-> 驱动标识通过 `FileModuleOptions.storage` 写入 `FileEntity.storage`，便于同一库内多驱动混用（如 `local` / `s3`）。
+> 驱动标识通过 `FileModuleOptions.storage` 写入 `StoredFile.storage`，便于同一应用内多驱动混用（如 `local` / `s3`）。

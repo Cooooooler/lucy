@@ -5,9 +5,9 @@
 ## 当前可用
 
 - `FileModule.forRoot` / `forRootAsync`（全局注册，导出 `FileService`）
-- `FileService`：`save` / `findById` / `read` / `remove`
+- `FileService`：`save`（返回 `StoredFile`）/ `read` / `remove`（按 `key`）
 - `StorageDriver` 接口 + `LocalStorageDriver`（含路径穿越拦截）
-- `FileEntity`：元数据落库（原文件名 / MIME / 大小 / 扩展名 / `key` / SHA-256 哈希 / `storage` 标识）
+- `StoredFile`：字节存储后的文件描述（`key` / `ext` / `mime` / `size` / `hash` / `storage`）；纯存储层，元数据不落库、由调用方持久化
 
 ## 后续规划
 

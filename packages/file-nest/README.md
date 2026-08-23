@@ -1,15 +1,15 @@
 # @coool/file-nest
 
-NestJS 文件存储集成模块：**存储驱动抽象 · 元数据落库 · DI**。
+NestJS 文件存储集成模块：**纯存储层 · 存储驱动抽象 · NestJS DI**。
 
-把「文件字节怎么存」与「文件描述信息怎么记」解耦：字节交给 `StorageDriver`，描述信息（原文件名 / MIME / 大小 / SHA-256 哈希）落库到 `FileEntity`，业务侧不经底层存储即可读写删文件。
+本包只做一件事：把「文件字节」交给 `StorageDriver` 存储，并返回文件描述（`StoredFile`）。它是**纯存储层**——零 TypeORM、不管理任何数据库表；文件元数据（含属主、`owner_id→users` 外键等 schema）由**调用方**持久化与定义，`ownerId` 属主校验由调用方业务层承担。
 
 > 完整文档见 [VitePress 文档站](docs/index.md)（本地预览：`pnpm docs:dev`）。
 
 ## 特性
 
 - **存储驱动抽象**：`StorageDriver` 接口 + `LocalStorageDriver` 本地磁盘实现，可插拔换 S3。
-- **统一元数据**：`FileEntity` 落库记录文件名 / MIME / 大小 / 扩展名 / `key` / 哈希，便于溯源。
+- **纯存储层**：`save` 写入字节并返回 `StoredFile`（`key`/`ext`/`mime`/`size`/`hash`/`storage`），不落库任何元数据。
 - **NestJS DI**：`forRoot` / `forRootAsync` 注册全局（`global: true`），`FileService` 注入即用。
 
 ## 安装
@@ -18,7 +18,7 @@ NestJS 文件存储集成模块：**存储驱动抽象 · 元数据落库 · DI*
 pnpm add @coool/file-nest
 ```
 
-`@nestjs/common`、`@nestjs/core`、`@nestjs/swagger`、`@nestjs/typeorm`、`typeorm` 为 peerDependencies。
+`@nestjs/common`、`@nestjs/core` 为 peerDependencies。
 
 ## 快速开始
 
@@ -37,16 +37,17 @@ export class SomeService {
 
   async save(buffer: Buffer): Promise<void> {
     const file = await this.fileService.save({
-      ownerId: 'u1',
-      originalName: 'a.pdf',
+      buffer,
       ext: '.pdf',
       mime: 'application/pdf',
-      size: buffer.length,
-      buffer,
     });
+    // file: StoredFile = { key, ext, mime, size, hash, storage }
+    // 持久化 StoredFile（含属主等业务元数据）由调用方负责
   }
 }
 ```
+
+> 元数据（属主、关联业务实体等）不入本包；如需落库，由调用方自行定义表结构并持久化 `StoredFile`。
 
 ## 本地文档预览
 

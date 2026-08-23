@@ -1,42 +1,51 @@
 # FileService
 
-`FileService` 是 `@coool/file-nest` 的核心门面：负责「写对象存储 + 落元数据」。它由 `FileModule` 全局导出，注入即用。
+`FileService` 是 `@coool/file-nest` 的核心门面：负责「把文件字节写入存储驱动」。它由 `FileModule` 全局导出，注入即用。
+
+> 本包为**纯存储层**：`FileService` 不落库、不管理任何数据库表。文件元数据（含属主、`owner_id→users` 外键等 schema）由**调用方**持久化与定义，`ownerId` 属主校验由调用方业务层承担。
 
 ## save
 
-写入对象存储，并把描述信息落库到 `FileEntity`。`key` 在内部生成（`<uuid><ext>`），`hash` 为内容 SHA-256 校验和：
+把文件字节写入存储驱动，并返回文件描述。`key` 在内部生成（`<uuid><ext>`），`hash` 为内容 SHA-256 校验和；元数据落库由消费方负责：
 
 ```ts
 const file = await fileService.save({
-  ownerId: 'u1',
-  originalName: 'a.pdf',
+  buffer,
   ext: '.pdf',
   mime: 'application/pdf',
-  size: 1024,
-  buffer,
 });
-// FileEntity：含 id / key / hash / storage 等
+// file: StoredFile = { key, ext, mime, size, hash, storage }
 ```
 
-`SaveFileInput`：
+`save` 入参：
 
-| 字段           | 类型     | 说明                      |
-| -------------- | -------- | ------------------------- |
-| `ownerId`      | `string` | 文件属主用户 ID           |
-| `originalName` | `string` | 原始文件名                |
-| `ext`          | `string` | 扩展名（含点，如 `.pdf`） |
-| `mime`         | `string` | MIME 类型                 |
-| `size`         | `number` | 文件大小（字节）          |
-| `buffer`       | `Buffer` | 文件内容                  |
+| 字段     | 类型     | 说明                      |
+| -------- | -------- | ------------------------- |
+| `buffer` | `Buffer` | 文件内容                  |
+| `ext`    | `string` | 扩展名（含点，如 `.pdf`） |
+| `mime`   | `string` | MIME 类型                 |
 
-## findById / read / remove
+`StoredFile`（返回值）：
+
+| 字段      | 类型     | 说明                          |
+| --------- | -------- | ----------------------------- |
+| `key`     | `string` | 存储相对路径（`<uuid><ext>`） |
+| `ext`     | `string` | 扩展名（含点，如 `.pdf`）     |
+| `mime`    | `string` | MIME 类型                     |
+| `size`    | `number` | 文件大小（字节）              |
+| `hash`    | `string` | 内容 SHA-256 校验和           |
+| `storage` | `string` | 存储驱动标识，默认 `'local'`  |
+
+## read / remove
+
+按 `key` 读写删除文件字节（`key` 即 `save` 返回的 `StoredFile.key`）：
 
 ```ts
-const file = await fileService.findById('f1'); // FileEntity | null
-const buffer = await fileService.read(file); // Buffer
-await fileService.remove(file); // 删对象存储 + 删元数据
+const buffer = await fileService.read(file.key); // Buffer
+await fileService.remove(file.key); // 删存储对象
 ```
 
-- `findById(id)`：按主键查元数据，不存在返回 `null`。
-- `read(file)`：按 `file.key` 从存储驱动读回文件内容。
-- `remove(file)`：先删存储对象，再删除元数据记录。
+- `read(key)`：从存储驱动读回文件内容。
+- `remove(key)`：从存储驱动删除存储对象。
+
+> 本包不维护元数据，故无 `findById`。文件与其属主/业务实体的关联由调用方另行持久化。

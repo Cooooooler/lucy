@@ -5,7 +5,7 @@
 | 字段 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `dir` | `string` | `process.env.UPLOAD_DIR ?? 'uploads'` | 本地存储根目录（`LocalStorageDriver` 使用） |
-| `storage` | `string` | `'local'` | 写入 `FileEntity.storage` 的驱动标识 |
+| `storage` | `string` | `'local'` | 存储驱动标识（写回 `StoredFile.storage`） |
 | `driver` | `StorageDriver` | `LocalStorageDriver({ dir })` | 自定义存储驱动，缺省用本地磁盘实现 |
 
 ## forRoot

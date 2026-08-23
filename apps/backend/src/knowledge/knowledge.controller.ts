@@ -88,6 +88,8 @@ export class KnowledgeController {
 
   @Post(':kbId/documents')
   @UseInterceptors(
+    // 10MB 为此处 FileInterceptor 内存缓冲的 DoS 安全硬顶；FILE_MAX_SIZE（本服务）为次级校验，
+    // 有效上限取两者较小值——运维即便把 FILE_MAX_SIZE 调超 10MB，也会先被此硬顶拦截。
     FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
   )
   @ApiConsumes('multipart/form-data')

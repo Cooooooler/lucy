@@ -2,11 +2,13 @@
 
 ## 安装
 
-`@coool/file-nest` 的 peerDependencies 为 `@nestjs/common`、`@nestjs/core`、`@nestjs/swagger`、`@nestjs/typeorm` 与 `typeorm`，安装本包即可（NestJS 应用中通常已存在）：
+`@coool/file-nest` 的 peerDependencies 为 `@nestjs/common` 与 `@nestjs/core`，安装本包即可（NestJS 应用中通常已存在）：
 
 ```bash
 pnpm add @coool/file-nest
 ```
+
+本包为**纯存储层**：零 TypeORM、不管理任何数据库表。文件元数据（含属主、`owner_id→users` 外键等 schema）由**调用方**持久化与定义，`ownerId` 属主校验由调用方业务层承担。
 
 ## 注册模块
 
@@ -63,4 +65,4 @@ export class SomeService {
 }
 ```
 
-> 使用 `FileService.save` 前需确保 `FileEntity` 对应的表已迁移（`FileModule` 内通过 `TypeOrmModule.forFeature([FileEntity])` 接入仓库）。
+> 本包不落库：`save` 返回 `StoredFile` 后，由调用方决定是否/如何持久化其元数据（含属主关系）。
