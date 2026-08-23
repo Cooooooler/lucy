@@ -6,7 +6,8 @@ import { useHookFetch } from 'hook-fetch/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { conversationListAll, useConversation } from './use-ai';
 
-export interface ChatMessage extends Message {
+// Message.thinking 为 string | null，ChatMessage 重新声明为可选 string，故用 Omit 剔除后重定义，避免类型冲突
+export interface ChatMessage extends Omit<Message, 'thinking'> {
   streaming?: boolean;
   error?: string;
   thinking?: string;

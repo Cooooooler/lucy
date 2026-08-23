@@ -99,7 +99,9 @@ function LayoutComponent() {
         </div>
         <div className="flex items-center justify-between gap-3">
           <Text type="secondary">注册时间</Text>
-          <Text>{dayjs(user?.createdAt).format('YYYY-MM-DD')}</Text>
+          <Text>
+            {user?.createdAt ? dayjs(user.createdAt).format('YYYY-MM-DD') : '-'}
+          </Text>
         </div>
       </div>
       <Button block onClick={handleLogout}>
@@ -116,6 +118,7 @@ function LayoutComponent() {
     >
       <button
         type="button"
+        aria-label={user?.username ? `用户菜单：${user.username}` : '用户菜单'}
         className={`flex cursor-pointer items-center rounded-2xl border-0 bg-transparent p-2 text-inherit transition hover:bg-(--ant-control-item-bg-hover) ${collapsed ? 'justify-center' : 'gap-2'}`}
       >
         <Avatar
