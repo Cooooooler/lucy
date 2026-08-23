@@ -4,7 +4,7 @@ import type { StorageDriver } from './storage/storage-driver.interface.js';
 export interface FileModuleOptions {
   /** storage 根目录（LocalStorageDriver 用），默认 process.env.UPLOAD_DIR ?? 'uploads' */
   dir?: string;
-  /** 存储驱动标识（写入 FileEntity.storage），默认 'local' */
+  /** 存储驱动标识（写入调用方持久化的文件元数据），默认 'local' */
   storage?: string;
   /** 注入自定义存储驱动；缺省用 LocalStorageDriver(dir) */
   driver?: StorageDriver;
