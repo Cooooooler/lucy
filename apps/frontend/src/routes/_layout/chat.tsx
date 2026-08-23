@@ -22,6 +22,7 @@ import {
   Conversations,
   type ConversationsProps,
   Sender,
+  Think,
   Welcome,
 } from '@ant-design/x';
 import XMarkdown from '@ant-design/x-markdown';
@@ -40,6 +41,7 @@ import {
   Result,
   Spin,
   Splitter,
+  Switch,
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
@@ -62,8 +64,23 @@ export const Route = createFileRoute('/_layout/chat')({
   component: ChatPage,
 });
 
-const renderMarkdown: BubbleProps['contentRender'] = (content) => {
-  return <XMarkdown content={content} />;
+const renderMarkdown: BubbleProps['contentRender'] = (content, info) => {
+  // info.extraInfo 为完整 ChatMessage：ai 消息若带 thinking（深度思考）则用 Think 折叠展示
+  const msg = (info?.extraInfo ?? {}) as ChatMessage;
+  const thinking = msg.thinking;
+  // 思考进行中 = 还在流式且尚未产出回答
+  const thinkingActive =
+    Boolean(thinking) && Boolean(msg.streaming) && !msg.content;
+  return (
+    <div className={'flex flex-col gap-2'}>
+      {thinking ? (
+        <Think title="深度思考" loading={thinkingActive} blink={thinkingActive}>
+          <XMarkdown content={thinking} />
+        </Think>
+      ) : null}
+      <XMarkdown content={content} />
+    </div>
+  );
 };
 
 function ChatPage() {
@@ -223,6 +240,7 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
   const { messages, streaming, isLoading, error, send, stop } =
     useChatStream(id);
   const [value, setValue] = useState('');
+  const [reasoning, setReasoning] = useState(false);
   const [creating, { setTrue: setCreatingTrue, setFalse: setCreatingFalse }] =
     useBoolean(false);
   const navigate = useNavigate();
@@ -284,14 +302,14 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
     // 点击发送按钮后，输入框清空
     setValue('');
     if (id) {
-      await send(id, text);
+      await send(id, text, reasoning);
       return;
     }
     setCreatingTrue();
     try {
       const conv = await create.mutateAsync({});
       await navigate({ to: '/chat', search: { id: conv.id }, replace: true });
-      void send(conv.id, text);
+      void send(conv.id, text, reasoning);
     } finally {
       setCreatingFalse();
     }
@@ -304,7 +322,7 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
         key: m.id,
         role: m.role,
         content: m.error ?? m.content,
-        loading: Boolean(m.streaming && !m.content),
+        loading: Boolean(m.streaming && !m.content && !m.thinking),
         streaming: Boolean(m.streaming),
         extraInfo: m,
       })),
@@ -365,6 +383,17 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
         </div>
       )}
       <div className="px-4">
+        <Flex align="center" justify="flex-end" className="mb-2">
+          <Text type="secondary" className="mr-2 text-xs">
+            深度思考
+          </Text>
+          <Switch
+            size="small"
+            checked={reasoning}
+            onChange={setReasoning}
+            aria-label="深度思考开关"
+          />
+        </Flex>
         <Sender
           value={value}
           onChange={setValue}

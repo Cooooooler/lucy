@@ -337,6 +337,8 @@ export interface components {
             role: "user" | "ai" | "system";
             /** @description 内容 */
             content: string;
+            /** @description 思考过程（深度思考模型，可空） */
+            thinking?: string;
             /**
              * @description 生成状态
              * @enum {string|null}
@@ -404,6 +406,8 @@ export interface components {
              * @example qwen2.5:7b
              */
             model?: string;
+            /** @description 是否开启深度思考（仅支持推理模型） */
+            reasoning?: boolean;
         };
         HealthResultDto: {
             /**

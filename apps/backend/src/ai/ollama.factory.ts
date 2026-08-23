@@ -10,10 +10,12 @@ export class OllamaFactory {
 
   constructor(private readonly config: ConfigService) {}
 
-  getClient(model?: string): ChatOllama {
+  getClient(model?: string, think = false): ChatOllama {
     const resolved =
       model ?? this.config.get<string>('OLLAMA_MODEL', 'qwen2.5:7b');
-    const cached = this.cache.get(resolved);
+    // think 是 ChatOllama 实例级参数（invocationParams 透传顶层 think），须纳入缓存 key
+    const key = `${resolved}:${think}`;
+    const cached = this.cache.get(key);
     if (cached) return cached;
     const client = new ChatOllama({
       baseUrl: this.config.get<string>(
@@ -21,8 +23,9 @@ export class OllamaFactory {
         'http://localhost:11434',
       ),
       model: resolved,
+      think,
     });
-    this.cache.set(resolved, client);
+    this.cache.set(key, client);
     // 超限淘汰最旧条目（刚插入后必然非空）
     if (this.cache.size > this.maxCacheEntries) {
       const oldest = this.cache.keys().next().value;

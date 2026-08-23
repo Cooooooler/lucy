@@ -1,4 +1,8 @@
-import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
+import {
+  ApiHideProperty,
+  ApiProperty,
+  ApiPropertyOptional,
+} from '@nestjs/swagger';
 import {
   Column,
   CreateDateColumn,
@@ -46,6 +50,13 @@ export class Message {
   @ApiProperty({ description: '内容' })
   @Column({ type: 'text' })
   content: string;
+
+  @ApiPropertyOptional({
+    description: '思考过程（深度思考模型，可空）',
+    type: String,
+  })
+  @Column({ type: 'text', nullable: true })
+  thinking: string | null;
 
   @ApiProperty({ description: '生成状态', enum: MessageStatus, nullable: true })
   @Column({ type: 'enum', enum: MessageStatus, nullable: true })

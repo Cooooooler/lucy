@@ -45,7 +45,7 @@ export type AiStreamEvent =
       type: 'delta';
       requestId: string;
       role: 'ai';
-      data: { content: string };
+      data: { content?: string; thinking?: string };
     }
   | {
       type: 'error';

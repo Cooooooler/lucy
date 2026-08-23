@@ -22,6 +22,16 @@ describe('OllamaFactory', () => {
     expect(factory.getClient()).toBe(factory.getClient('default-model'));
   });
 
+  it('同一 model 不同 think 返回不同实例', () => {
+    const factory = new OllamaFactory(config);
+    expect(factory.getClient('qwen', true)).not.toBe(
+      factory.getClient('qwen', false),
+    );
+    expect(factory.getClient('qwen', true)).toBe(
+      factory.getClient('qwen', true),
+    );
+  });
+
   it('超过缓存上限后淘汰最旧条目', () => {
     const factory = new OllamaFactory(config);
     const m0 = factory.getClient('m0');

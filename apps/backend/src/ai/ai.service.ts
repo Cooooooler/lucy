@@ -185,7 +185,7 @@ export class AiService {
       dto.model ??
       conversation.model ??
       this.config.get<string>('OLLAMA_MODEL', 'qwen2.5:7b');
-    const client = this.ollamaFactory.getClient(model);
+    const client = this.ollamaFactory.getClient(model, dto.reasoning ?? false);
 
     const messages = await this.contextService.buildMessages(
       history,
@@ -193,7 +193,8 @@ export class AiService {
       model,
     );
 
-    let full = '';
+    let answer = '';
+    let thinkingAll = '';
     // 空闲超时：模型持续无输出（含首 token 等待）超过阈值判为超时
     const timeoutMs = Number(this.config.get('OLLAMA_TIMEOUT_MS', 120000));
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -218,7 +219,14 @@ export class AiService {
     try {
       // 传入 signal：订阅取消（SSE 断线）时中止底层流，半截内容落 aborted
       const stream = (await client.stream(messages, { signal })) as
-        AsyncIterable<{ content: unknown }> | Iterable<{ content: unknown }>;
+        | AsyncIterable<{
+            content: unknown;
+            additional_kwargs?: { reasoning_content?: string };
+          }>
+        | Iterable<{
+            content: unknown;
+            additional_kwargs?: { reasoning_content?: string };
+          }>;
       armIdle();
       const iterator = this.toAsyncIterator(stream);
       while (true) {
@@ -228,12 +236,30 @@ export class AiService {
         const { value: chunk, done } = (await Promise.race([
           nextPromise,
           abortPromise,
-        ])) as { value: { content: unknown }; done: boolean };
+        ])) as {
+          value: {
+            content: unknown;
+            additional_kwargs?: { reasoning_content?: string };
+          };
+          done: boolean;
+        };
         if (done) break;
         armIdle();
-        const text = chunk.content;
-        if (typeof text === 'string' && text.length > 0) {
-          full += text;
+        // 思考模型（think=true）把思考链放在 additional_kwargs.reasoning_content，
+        // 实际回答在 content：拆成 thinking/content 两路帧，前端可区分展示
+        const text = typeof chunk.content === 'string' ? chunk.content : '';
+        const reasoning = chunk.additional_kwargs?.reasoning_content ?? '';
+        if (reasoning) {
+          thinkingAll += reasoning;
+          subscriber.next({
+            type: 'delta',
+            requestId,
+            role: 'ai',
+            data: { thinking: reasoning },
+          });
+        }
+        if (text) {
+          answer += text;
           subscriber.next({
             type: 'delta',
             requestId,
@@ -245,7 +271,8 @@ export class AiService {
       await this.messageRepo.save({
         conversationId,
         role: MessageRole.Ai,
-        content: full,
+        content: answer,
+        thinking: thinkingAll || null,
         status: MessageStatus.Complete,
       });
       subscriber.next({
@@ -265,7 +292,8 @@ export class AiService {
       await this.messageRepo.save({
         conversationId,
         role: MessageRole.Ai,
-        content: full,
+        content: answer,
+        thinking: thinkingAll || null,
         status,
       });
       subscriber.next({
