@@ -93,6 +93,25 @@ describe('loggerModuleOptions', () => {
     expect(res.headers.get('x-request-id')).toBe(id);
   });
 
+  it('genReqId 空白 x-request-id 不遮盖有效 x-trace-id', () => {
+    const res = mockRes();
+    const id = genReqId(
+      mockReq({ 'x-request-id': '   ', 'x-trace-id': 'trace-abc' }),
+      res,
+    );
+    expect(id).toBe('trace-abc');
+    expect(res.headers.get('x-request-id')).toBe('trace-abc');
+  });
+
+  it('genReqId 优先取有效 x-request-id（先于 x-trace-id）', () => {
+    const res = mockRes();
+    const id = genReqId(
+      mockReq({ 'x-request-id': 'req-1', 'x-trace-id': 'trace-1' }),
+      res,
+    );
+    expect(id).toBe('req-1');
+  });
+
   it('redact 脱敏敏感路径，renameContext 为 context', () => {
     setEnv({ NODE_ENV: 'production' });
     const opts = loggerModuleOptions();

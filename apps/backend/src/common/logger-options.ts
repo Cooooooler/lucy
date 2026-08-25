@@ -27,13 +27,19 @@ export function genReqId(
   },
   res: { setHeader: (name: string, value: string) => void },
 ): string {
-  const incoming = req.headers['x-request-id'] ?? req.headers['x-trace-id'];
-  const existing = Array.isArray(incoming) ? incoming[0] : incoming;
-  // 空字符串/纯空白视为缺失，避免回写空关联 ID
-  const id =
-    typeof existing === 'string' && existing.trim()
-      ? existing.trim()
-      : randomUUID();
+  // 逐一校验并 trim 候选头：优先取有效 x-request-id，其次有效 x-trace-id，两者皆无效才生成 UUID。
+  // 先判定 x-request-id 是否存在会放过「空白值遮盖有效 x-trace-id」的情况，故对每个头单独校验。
+  const candidates = ['x-request-id', 'x-trace-id'];
+  for (const name of candidates) {
+    const value = req.headers[name];
+    const existing = Array.isArray(value) ? value[0] : value;
+    if (typeof existing === 'string' && existing.trim()) {
+      const id = existing.trim();
+      res.setHeader('x-request-id', id);
+      return id;
+    }
+  }
+  const id = randomUUID();
   res.setHeader('x-request-id', id);
   return id;
 }
