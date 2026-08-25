@@ -500,28 +500,6 @@ export interface components {
              */
             visibility: "private" | "public";
         };
-        KnowledgeDocument: {
-            /** @description 文档 ID */
-            id: string;
-            /** @description 所属知识库 ID */
-            knowledgeBaseId: string;
-            /** @description 源文件 ID */
-            fileId: string;
-            /** @description 标题 */
-            title: string;
-            /** @description 解析出的纯文本 */
-            content: Record<string, never> | null;
-            /**
-             * Format: date-time
-             * @description 创建时间
-             */
-            createdAt: string;
-            /**
-             * Format: date-time
-             * @description 更新时间
-             */
-            updatedAt: string;
-        };
         KnowledgeBase: {
             /** @description 知识库 ID */
             id: string;
@@ -537,8 +515,6 @@ export interface components {
             name: string;
             /** @description 描述 */
             description: Record<string, never> | null;
-            /** @description 文档列表 */
-            documents: components["schemas"]["KnowledgeDocument"][];
             /**
              * Format: date-time
              * @description 创建时间
