@@ -6,11 +6,13 @@ import { useHookFetch } from 'hook-fetch/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { conversationListAll, useConversation } from './use-ai';
 
-// Message.thinking 为 string | null，ChatMessage 重新声明为可选 string，故用 Omit 剔除后重定义，避免类型冲突
-export interface ChatMessage extends Omit<Message, 'thinking'> {
+// Message.thinking 为 string | null，ChatMessage 重新声明为可选 string，故用 Omit 剔除后重定义，避免类型冲突；
+// truncated 同理：后端允许 null，归一化为可选 boolean
+export interface ChatMessage extends Omit<Message, 'thinking' | 'truncated'> {
   streaming?: boolean;
   error?: string;
   thinking?: string;
+  truncated?: boolean;
 }
 
 // ai 消息的 failed/aborted 状态映射为错误文案，其余状态返回 undefined（无错误）
@@ -25,6 +27,7 @@ const getAiStatusText = (m: Message) => {
 const toChatMessage = (m: Message): ChatMessage => ({
   ...m,
   thinking: m.thinking ?? undefined,
+  truncated: m.truncated ?? undefined,
   error: getAiStatusText(m),
 });
 
@@ -148,7 +151,12 @@ export function useChatStream(conversationId: string | undefined) {
             error: event.data.message,
           }));
         } else if (event.type === 'done') {
-          updateMessage(aiId, (m) => ({ ...m, streaming: false }));
+          const truncated = event.data.truncated === true;
+          updateMessage(aiId, (m) => ({
+            ...m,
+            streaming: false,
+            ...(truncated ? { truncated: true } : {}),
+          }));
         }
       }
     } catch {

@@ -102,6 +102,11 @@ const renderMarkdown: BubbleProps['contentRender'] = (content, info) => {
         </ThinkingBlock>
       ) : null}
       <XMarkdown content={content} />
+      {msg.truncated ? (
+        <div className="text-xs text-amber-600">
+          ⚠️ 回复被截断（已达长度上限），可重新发送后再试
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -263,7 +268,7 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
   const { messages, streaming, isLoading, error, send, stop } =
     useChatStream(id);
   const [value, setValue] = useState('');
-  const [reasoning, setReasoning] = useState(false);
+  const [reasoning, setReasoning] = useState(true);
   const [creating, { setTrue: setCreatingTrue, setFalse: setCreatingFalse }] =
     useBoolean(false);
   const navigate = useNavigate();

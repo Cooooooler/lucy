@@ -63,6 +63,14 @@ export class Message {
   @Column({ type: 'enum', enum: MessageStatus, nullable: true })
   status: MessageStatus | null;
 
+  @ApiPropertyOptional({
+    description: '是否被长度截断（done_reason=length，可空）',
+    type: Boolean,
+    nullable: true,
+  })
+  @Column({ type: 'boolean', nullable: true })
+  truncated: boolean | null;
+
   @ApiProperty({ description: '创建时间' })
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

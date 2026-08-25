@@ -62,7 +62,7 @@ export type AiStreamEvent =
       type: 'done';
       requestId: string;
       role: 'ai';
-      data: { finish_reason: 'stop' };
+      data: { finish_reason: 'stop' | 'length'; truncated?: boolean };
     };
 
 // 接口契约类型由后端 Swagger spec 生成（openapi-typescript），勿手改：

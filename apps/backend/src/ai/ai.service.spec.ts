@@ -134,6 +134,43 @@ describe('AiService', () => {
         content: '你好',
         thinking: null,
         status: MessageStatus.Complete,
+        truncated: false,
+      });
+    });
+
+    it('长度截断（done_reason=length）：done 帧标记 truncated，finish_reason=length', async () => {
+      conversationRepo.findOne.mockResolvedValue(conv());
+      messageRepo.count.mockResolvedValue(2);
+      messageRepo.find.mockResolvedValue([]);
+      contextService.buildMessages.mockResolvedValue([]);
+      ollamaFactory.getClient.mockReturnValue(
+        fakeClient({
+          *stream() {
+            yield { content: '半截' };
+            yield {
+              content: '',
+              response_metadata: { done_reason: 'length' },
+            };
+          },
+        }),
+      );
+
+      const result = await events(
+        service.sendMessage('1', 'c1', { content: 'hi' }),
+      );
+      expect(result.map((e) => e.type)).toEqual(['delta', 'done']);
+      expect(result.at(-1)).toMatchObject({
+        type: 'done',
+        data: { finish_reason: 'length', truncated: true },
+      });
+      // 截断状态须持久化：刷新/重开会话后仍可识别半截回答
+      expect(messageRepo.save).toHaveBeenCalledWith({
+        conversationId: 'c1',
+        role: MessageRole.Ai,
+        content: '半截',
+        thinking: null,
+        status: MessageStatus.Complete,
+        truncated: true,
       });
     });
 
@@ -381,6 +418,7 @@ describe('AiService', () => {
         content: '最终回答',
         thinking: '先思考',
         status: MessageStatus.Complete,
+        truncated: false,
       });
     });
 
