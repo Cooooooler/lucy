@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { loggerModuleOptions } from './logger-options.js';
+import { genReqId, loggerModuleOptions } from './logger-options.js';
 
 const ORIGINAL_ENV = process.env;
 
@@ -15,11 +15,16 @@ function mockRes() {
   };
 }
 
-function mockReq(header?: string) {
-  return {
-    headers: header
-      ? { 'x-request-id': header }
-      : ({} as Record<string, string>),
+function mockReq(headers?: Record<string, string>) {
+  return { headers: headers ?? {} };
+}
+
+function pinoHttpOf() {
+  return loggerModuleOptions().pinoHttp as {
+    stream?: unknown;
+    transport?: unknown;
+    level?: string;
+    genReqId?: unknown;
   };
 }
 
@@ -28,54 +33,51 @@ afterEach(() => {
 });
 
 describe('loggerModuleOptions', () => {
-  it('开发环境（非 production）默认开启 pino-pretty 美化输出', () => {
+  it('开发环境（非 production）通过 multistream 输出，不再使用单 transport', () => {
     setEnv({ NODE_ENV: 'development', LOG_PRETTY: undefined });
-    const { pinoHttp } = loggerModuleOptions();
-    expect(pinoHttp).toMatchObject({
-      transport: { target: 'pino-pretty' },
-    });
+    const pinoHttp = pinoHttpOf();
+    expect(pinoHttp.transport).toBeUndefined();
+    expect(pinoHttp.stream).toBeDefined();
   });
 
-  it('LOG_PRETTY=1 即使在 production 也开启美化输出', () => {
+  it('LOG_PRETTY=1 即使在 production 也走 multistream（非单 transport）', () => {
     setEnv({ NODE_ENV: 'production', LOG_PRETTY: '1' });
-    const { pinoHttp } = loggerModuleOptions();
-    expect(pinoHttp).toMatchObject({
-      transport: { target: 'pino-pretty' },
-    });
+    const pinoHttp = pinoHttpOf();
+    expect(pinoHttp.transport).toBeUndefined();
+    expect(pinoHttp.stream).toBeDefined();
   });
 
-  it('production 且未设 LOG_PRETTY 时输出 JSON（无 transport）', () => {
+  it('production 且未设 LOG_PRETTY 时仍走 stream（纯 JSON 输出）', () => {
     setEnv({ NODE_ENV: 'production', LOG_PRETTY: undefined });
-    const { pinoHttp } = loggerModuleOptions();
-    expect((pinoHttp as { transport?: unknown }).transport).toBeUndefined();
+    const pinoHttp = pinoHttpOf();
+    expect(pinoHttp.transport).toBeUndefined();
+    expect(pinoHttp.stream).toBeDefined();
   });
 
   it('LOG_LEVEL 生效，默认 info', () => {
     setEnv({ LOG_LEVEL: 'debug' });
-    expect(loggerModuleOptions().pinoHttp).toMatchObject({ level: 'debug' });
+    expect(pinoHttpOf().level).toBe('debug');
     setEnv({ LOG_LEVEL: undefined });
-    expect(loggerModuleOptions().pinoHttp).toMatchObject({ level: 'info' });
+    expect(pinoHttpOf().level).toBe('info');
   });
 
   it('genReqId 透传请求头 x-request-id 并回写响应头', () => {
-    const { pinoHttp } = loggerModuleOptions();
     const res = mockRes();
-    const req = mockReq('trace-abc');
-    const id = (
-      pinoHttp as { genReqId: (r: unknown, s: unknown) => unknown }
-    ).genReqId(req, res);
+    const id = genReqId(mockReq({ 'x-request-id': 'trace-abc' }), res);
     expect(id).toBe('trace-abc');
     expect(res.headers.get('x-request-id')).toBe('trace-abc');
   });
 
-  it('genReqId 无请求头时生成 UUID 并回写响应头', () => {
-    const { pinoHttp } = loggerModuleOptions();
+  it('genReqId 透传 x-trace-id 并回写响应头（traceId 链路追踪）', () => {
     const res = mockRes();
-    const req = mockReq();
-    const id = (
-      pinoHttp as { genReqId: (r: unknown, s: unknown) => unknown }
-    ).genReqId(req, res);
-    expect(id).toEqual(expect.any(String));
+    const id = genReqId(mockReq({ 'x-trace-id': 'trace-xyz' }), res);
+    expect(id).toBe('trace-xyz');
+    expect(res.headers.get('x-request-id')).toBe('trace-xyz');
+  });
+
+  it('genReqId 无请求头时生成 UUID 并回写响应头', () => {
+    const res = mockRes();
+    const id = genReqId(mockReq(), res);
     expect(id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
@@ -83,12 +85,8 @@ describe('loggerModuleOptions', () => {
   });
 
   it('genReqId 空白请求头视为缺失并生成 UUID', () => {
-    const { pinoHttp } = loggerModuleOptions();
     const res = mockRes();
-    const req = { headers: { 'x-request-id': '   ' } };
-    const id = (
-      pinoHttp as { genReqId: (r: unknown, s: unknown) => unknown }
-    ).genReqId(req, res);
+    const id = genReqId(mockReq({ 'x-request-id': '   ' }), res);
     expect(id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
