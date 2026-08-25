@@ -1,6 +1,10 @@
 import { createStreamRequest } from '@/api/ai';
 import type { Message } from '@/api/types.ts';
-import type { AiStreamEvent } from '@lucy/shared';
+import {
+  ErrorCode,
+  type AiStreamEvent,
+  type ErrorCodeValue,
+} from '@lucy/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useHookFetch } from 'hook-fetch/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -11,9 +15,23 @@ import { conversationListAll, useConversation } from './use-ai';
 export interface ChatMessage extends Omit<Message, 'thinking' | 'truncated'> {
   streaming?: boolean;
   error?: string;
+  errorCode?: number;
   thinking?: string;
   truncated?: boolean;
 }
+
+// SSE error 事件码 → 用户文案。后端 AI_GENERATE_FAILED 透传的是原始 err.message，
+// 可能含技术细节，故按码统一映射为稳定文案；未知码回退到后端 message。
+const SSE_ERROR_TEXT: Partial<Record<ErrorCodeValue, string>> = {
+  [ErrorCode.AI_CONVERSATION_NOT_FOUND]: '会话不存在或已被删除',
+  [ErrorCode.AI_CONVERSATION_BUSY]: '该会话正在生成中，请稍候',
+  [ErrorCode.AI_GENERATE_ABORTED]: '生成中断',
+  [ErrorCode.AI_GENERATE_FAILED]: '生成失败，请稍后重试',
+  [ErrorCode.AI_GENERATE_TIMEOUT]: '模型响应超时，请稍后重试',
+};
+
+const sseErrorText = (code: number, fallback: string): string =>
+  SSE_ERROR_TEXT[code as ErrorCodeValue] ?? fallback;
 
 // ai 消息的 failed/aborted 状态映射为错误文案，其余状态返回 undefined（无错误）
 const getAiStatusText = (m: Message) => {
@@ -148,7 +166,8 @@ export function useChatStream(conversationId: string | undefined) {
           updateMessage(aiId, (m) => ({
             ...m,
             streaming: false,
-            error: event.data.message,
+            error: sseErrorText(event.data.code, event.data.message),
+            errorCode: event.data.code,
           }));
         } else if (event.type === 'done') {
           const truncated = event.data.truncated === true;

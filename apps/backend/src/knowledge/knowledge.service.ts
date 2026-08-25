@@ -1,11 +1,16 @@
 import { FileService } from '@coool/file-nest';
-import { ErrorCode } from '@lucy/shared';
-import { HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  PayloadTooLargeException,
+  UnprocessableEntityException,
+  UnsupportedMediaTypeException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { basename, extname } from 'node:path';
 import { Repository } from 'typeorm';
-import { BusinessException } from '../common/exceptions/business.exception.js';
 import {
   extractContent,
   SUPPORTED_DOCUMENT_EXTS,
@@ -104,7 +109,7 @@ export class KnowledgeService {
     return this.kbRepo.save(kb);
   }
 
-  async remove(userId: string, id: string): Promise<{ success: true }> {
+  async remove(userId: string, id: string): Promise<null> {
     const kb = await this.kbRepo.findOne({ where: { id } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertOwner(kb, userId);
@@ -118,7 +123,7 @@ export class KnowledgeService {
       }
     }
     await this.kbRepo.delete({ id });
-    return { success: true };
+    return null;
   }
 
   async addDocument(
@@ -132,30 +137,20 @@ export class KnowledgeService {
 
     const origExt = extname(file.originalname).toLowerCase();
     if (!SUPPORTED_DOCUMENT_EXTS.includes(origExt)) {
-      throw new BusinessException(
-        ErrorCode.KNOWLEDGE_INVALID_FILE_TYPE,
+      throw new UnsupportedMediaTypeException(
         '不支持的文档类型，仅支持 txt/md/pdf/docx',
-        HttpStatus.UNSUPPORTED_MEDIA_TYPE,
       );
     }
     const parsed = Number(this.config.get<number>('FILE_MAX_SIZE', 10485760));
     const maxSize = Number.isFinite(parsed) && parsed > 0 ? parsed : 10485760;
     if (file.size > maxSize) {
-      throw new BusinessException(
-        ErrorCode.KNOWLEDGE_FILE_TOO_LARGE,
-        '文件超过大小上限',
-        HttpStatus.PAYLOAD_TOO_LARGE,
-      );
+      throw new PayloadTooLargeException('文件超过大小上限');
     }
     // pdf 用魔数防伪装（docx 是 zip 容器魔数不可靠，靠 mammoth 解析兜底）
     if (origExt === '.pdf') {
       const detected = await detectFileType(file.buffer);
       if (detected?.ext !== 'pdf') {
-        throw new BusinessException(
-          ErrorCode.KNOWLEDGE_INVALID_FILE_TYPE,
-          'PDF 文件内容与扩展名不符',
-          HttpStatus.UNSUPPORTED_MEDIA_TYPE,
-        );
+        throw new UnsupportedMediaTypeException('PDF 文件内容与扩展名不符');
       }
     }
 
@@ -182,11 +177,7 @@ export class KnowledgeService {
     } catch {
       await this.fileService.remove(stored.key);
       await this.fileRepo.delete({ id: fileEntity.id });
-      throw new BusinessException(
-        ErrorCode.KNOWLEDGE_FILE_PARSE_FAILED,
-        '文档解析失败',
-        HttpStatus.UNPROCESSABLE_ENTITY,
-      );
+      throw new UnprocessableEntityException('文档解析失败');
     }
 
     const title = basename(file.originalname, extname(file.originalname));
@@ -253,7 +244,7 @@ export class KnowledgeService {
     userId: string,
     kbId: string,
     id: string,
-  ): Promise<{ success: true }> {
+  ): Promise<null> {
     const kb = await this.kbRepo.findOne({ where: { id: kbId } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertOwner(kb, userId);
@@ -265,26 +256,18 @@ export class KnowledgeService {
     const file = await this.fileRepo.findOneBy({ id: doc.fileId });
     if (file) await this.fileService.remove(file.key);
     await this.fileRepo.delete({ id: doc.fileId });
-    return { success: true };
+    return null;
   }
 
   private assertOwner(kb: KnowledgeBase, userId: string): void {
     if (kb.ownerId !== userId) {
-      throw new BusinessException(
-        ErrorCode.KNOWLEDGE_FORBIDDEN,
-        '仅知识库属主可操作',
-        HttpStatus.FORBIDDEN,
-      );
+      throw new ForbiddenException('仅知识库属主可操作');
     }
   }
 
   private assertReadable(kb: KnowledgeBase, userId: string): void {
     if (kb.ownerId === userId) return;
     if (kb.visibility === KnowledgeBaseVisibility.Public) return;
-    throw new BusinessException(
-      ErrorCode.KNOWLEDGE_FORBIDDEN,
-      '无权访问该知识库',
-      HttpStatus.FORBIDDEN,
-    );
+    throw new ForbiddenException('无权访问该知识库');
   }
 }

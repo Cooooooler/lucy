@@ -15,7 +15,6 @@ import { User as UserEntity } from '../users/user.entity.js';
 import { AuthService } from './auth.service.js';
 import { LoginResultDto } from './dto/login-result.dto.js';
 import { LoginDto } from './dto/login.dto.js';
-import { LogoutResultDto } from './dto/logout-result.dto.js';
 import { RefreshResultDto } from './dto/refresh-result.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 
@@ -94,7 +93,7 @@ export class AuthController {
     summary: '登出',
     description: '撤销当前会话整个家族并清除 cookie',
   })
-  @ApiResponse({ status: 201, description: '登出成功', type: LogoutResultDto })
+  @ApiResponse({ status: 201, description: '登出成功' })
   @ApiResponse({ status: 401, description: '未登录或令牌失效' })
   async logout(
     @CurrentUser() user: CurrentUserPayload,
@@ -104,7 +103,7 @@ export class AuthController {
     const refreshToken = req.cookies?.[REFRESH_COOKIE] as string | undefined;
     await this.authService.logout(user.jti, refreshToken);
     res.clearCookie(REFRESH_COOKIE, this.cookieOptions());
-    return { success: true };
+    return null;
   }
 
   @ApiBearerAuth()

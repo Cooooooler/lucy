@@ -215,7 +215,7 @@ describe('useChatStream', () => {
     expect(ai).toMatchObject({ thinking: '先思考', content: '回答' });
   });
 
-  it('error 事件置 error 并结束流式', async () => {
+  it('error 事件按错误码映射文案并暴露 errorCode，结束流式', async () => {
     mocks.createStreamRequest.mockReturnValue(
       mockStreamRequest(() => streamOf([errorEvent(50002, '模型调用超时')])),
     );
@@ -227,7 +227,25 @@ describe('useChatStream', () => {
     });
     expect(result.current.messages[1]).toMatchObject({
       streaming: false,
-      error: '模型调用超时',
+      error: '模型响应超时，请稍后重试',
+      errorCode: 50002,
+    });
+  });
+
+  it('未知错误码回退到后端 message', async () => {
+    mocks.createStreamRequest.mockReturnValue(
+      mockStreamRequest(() => streamOf([errorEvent(59999, '未知错误')])),
+    );
+    const { result } = renderHook(() => useChatStream('c1'), {
+      wrapper: createWrapper(),
+    });
+    await act(async () => {
+      await result.current.send('c1', 'hi');
+    });
+    expect(result.current.messages[1]).toMatchObject({
+      streaming: false,
+      error: '未知错误',
+      errorCode: 59999,
     });
   });
 

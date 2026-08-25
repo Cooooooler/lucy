@@ -1,12 +1,10 @@
 import { RedisService } from '@coool/redis-nest';
 import type { components } from '@lucy/shared';
-import { ErrorCode } from '@lucy/shared';
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { ChainableCommander } from 'ioredis';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { BusinessException } from '../common/exceptions/business.exception.js';
 import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
 import { User } from '../users/user.entity.js';
@@ -112,25 +110,13 @@ export class AuthService {
         dto.password,
         'scrypt:16384:8:1:AAAAAAAAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==',
       );
-      throw new BusinessException(
-        ErrorCode.INVALID_CREDENTIALS,
-        '用户名或密码错误',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('用户名或密码错误');
     }
     if (!(await this.passwordService.verify(dto.password, user.passwordHash))) {
-      throw new BusinessException(
-        ErrorCode.INVALID_CREDENTIALS,
-        '用户名或密码错误',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('用户名或密码错误');
     }
     if (user.status !== 1) {
-      throw new BusinessException(
-        ErrorCode.ACCOUNT_DISABLED,
-        '账号已禁用',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('账号已禁用');
     }
     const family = randomUUID();
     // 先签 access token：signAsync 失败时不落任何 refresh 状态，避免泄漏无人可达的 Redis 记录
@@ -217,17 +203,11 @@ export class AuthService {
             await this.revokeFamily(parsed.family);
           }
         }
-        throw new BusinessException(
-          ErrorCode.UNAUTHORIZED,
+        throw new UnauthorizedException(
           theft ? '刷新令牌无效（检测到令牌复用）' : '刷新令牌无效',
-          HttpStatus.UNAUTHORIZED,
         );
       }
-      throw new BusinessException(
-        ErrorCode.UNAUTHORIZED,
-        '刷新令牌无效',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('刷新令牌无效');
     }
     const parsed = this.parseActive(active);
     if (!parsed) {
@@ -238,20 +218,12 @@ export class AuthService {
         this.reuseKey(refreshToken),
         this.reuseAtKey(refreshToken),
       );
-      throw new BusinessException(
-        ErrorCode.UNAUTHORIZED,
-        '刷新令牌无效',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('刷新令牌无效');
     }
     const { userId, family } = parsed;
     const user = await this.usersService.findById(userId);
     if (user?.status !== 1) {
-      throw new BusinessException(
-        ErrorCode.UNAUTHORIZED,
-        '账号不可用',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('账号不可用');
     }
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
@@ -307,20 +279,12 @@ export class AuthService {
   async me(userId: string): Promise<SharedUser> {
     const user = await this.usersService.findById(userId);
     if (!user) {
-      throw new BusinessException(
-        ErrorCode.UNAUTHORIZED,
-        '用户不存在',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('用户不存在');
     }
     return this.toSharedUser(user);
   }
 
   throwMissingRefresh(): never {
-    throw new BusinessException(
-      ErrorCode.UNAUTHORIZED,
-      '缺少刷新令牌',
-      HttpStatus.UNAUTHORIZED,
-    );
+    throw new UnauthorizedException('缺少刷新令牌');
   }
 }

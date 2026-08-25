@@ -390,13 +390,6 @@ export interface components {
              */
             accessToken: string;
         };
-        LogoutResultDto: {
-            /**
-             * @description 是否登出成功
-             * @example true
-             */
-            success: boolean;
-        };
         CreateConversationDto: {
             /**
              * @description 会话默认模型
@@ -540,6 +533,28 @@ export interface components {
              */
             visibility: "private" | "public";
         };
+        KnowledgeDocument: {
+            /** @description 文档 ID */
+            id: string;
+            /** @description 所属知识库 ID */
+            knowledgeBaseId: string;
+            /** @description 源文件 ID */
+            fileId: string;
+            /** @description 标题 */
+            title: string;
+            /** @description 解析出的纯文本 */
+            content: Record<string, never> | null;
+            /**
+             * Format: date-time
+             * @description 创建时间
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description 更新时间
+             */
+            updatedAt: string;
+        };
         HealthResultDto: {
             /**
              * @description 整体状态：ok 或 degraded（任一组件不可用）
@@ -682,9 +697,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["LogoutResultDto"];
-                };
+                content?: never;
             };
             /** @description 未登录或令牌失效 */
             401: {
@@ -1035,7 +1048,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["KnowledgeDocument"];
+                };
             };
         };
     };
@@ -1055,7 +1070,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["KnowledgeDocument"];
+                };
             };
         };
     };

@@ -18,3 +18,17 @@ export type MessageRole = Message['role'];
 export type MessageStatus = Message['status'];
 export type ConversationListResult =
   components['schemas']['ConversationListResultDto'];
+
+// 知识库：契约类型来自后端 Swagger 生成的 components.schemas
+export type KnowledgeBase = components['schemas']['KnowledgeBase'];
+export type KnowledgeBaseVisibility = KnowledgeBase['visibility'];
+export type CreateKnowledgeBaseRequest =
+  components['schemas']['CreateKnowledgeBaseDto'];
+export type UpdateKnowledgeBaseRequest =
+  components['schemas']['UpdateKnowledgeBaseDto'];
+
+// KnowledgeDocument：由后端文档接口 @ApiResponse({ type: KnowledgeDocument })
+// 生成（Swagger 已将字段推给该 schema），勿手写。
+// 注：content 为 nullable 文本，openapi-typescript 会推为 Record<string, never> | null
+// （与 KnowledgeBase.description 同源），与后端正文字段值一致。
+export type KnowledgeDocument = components['schemas']['KnowledgeDocument'];

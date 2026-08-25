@@ -93,10 +93,10 @@ export class AiService {
     return this.conversationRepo.save(conversation);
   }
 
-  async remove(userId: string, id: string): Promise<{ success: true }> {
+  async remove(userId: string, id: string): Promise<null> {
     const result = await this.conversationRepo.delete({ id, userId });
     if (!result.affected) throw new NotFoundException('会话不存在');
-    return { success: true };
+    return null;
   }
 
   sendMessage(

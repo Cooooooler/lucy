@@ -101,7 +101,7 @@ export class AiController {
   remove(
     @CurrentUser() user: CurrentUserPayload,
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<{ success: true }> {
+  ): Promise<null> {
     return this.aiService.remove(user.userId, id);
   }
 

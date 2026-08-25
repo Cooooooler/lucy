@@ -47,12 +47,12 @@ describe('api/auth', () => {
     expect(result).toEqual(user);
   });
 
-  it('logoutApi 调用 auth/logout 并返回结果', async () => {
+  it('logoutApi 调用 auth/logout', async () => {
     mocks.post.mockReturnValueOnce({
-      json: vi.fn().mockResolvedValueOnce({ success: true }),
+      json: vi.fn().mockResolvedValueOnce(null),
     });
     const result = await logoutApi();
     expect(mocks.post).toHaveBeenCalledWith('auth/logout');
-    expect(result).toEqual({ success: true });
+    expect(result).toBeNull();
   });
 });
