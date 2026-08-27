@@ -3,30 +3,25 @@ import type {
   CreateKnowledgeBaseRequest,
   KnowledgeBase,
   KnowledgeBaseVisibility,
-  KnowledgeDocument,
   UpdateKnowledgeBaseRequest,
 } from '@/api/types';
 import {
-  useAddDocument,
   useCreateKnowledgeBase,
-  useDeleteDocument,
   useDeleteKnowledgeBase,
-  useDocumentList,
   useKnowledgeBaseList,
   useUpdateKnowledgeBase,
 } from '@/hooks/use-knowledge';
 import {
+  DatabaseOutlined,
   DeleteOutlined,
   EditOutlined,
-  FileTextOutlined,
   PlusOutlined,
-  UploadOutlined,
 } from '@ant-design/icons';
-import { type ProColumns, ProTable } from '@ant-design/pro-components';
 import { createFileRoute } from '@tanstack/react-router';
 import {
   App,
   Button,
+  Card,
   Empty,
   Flex,
   Form,
@@ -34,19 +29,16 @@ import {
   Modal,
   Popconfirm,
   Radio,
-  Space,
-  Splitter,
-  Table,
-  type TableColumnsType,
+  Skeleton,
   Tag,
+  Tooltip,
   Typography,
-  Upload,
-  type UploadProps,
 } from 'antd';
 import dayjs from 'dayjs';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 const { Text, Paragraph } = Typography;
+const { Search } = Input;
 
 export const Route = createFileRoute('/_layout/knowledge')({
   component: KnowledgePage,
@@ -65,20 +57,36 @@ const visibilityTag: Record<
   public: { color: 'blue', label: '公开' },
 };
 
+function describeDescription(d: KnowledgeBase['description']): string | null {
+  if (d == null) return null;
+  if (typeof d === 'string') return d;
+  return null;
+}
+
 function KnowledgePage() {
   const { message } = App.useApp();
   const list = useKnowledgeBaseList();
   const create = useCreateKnowledgeBase();
   const update = useUpdateKnowledgeBase();
   const remove = useDeleteKnowledgeBase();
-  const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [keyword, setKeyword] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<KnowledgeBase | null>(null);
   const [createForm] = Form.useForm<CreateKnowledgeBaseRequest>();
   const [editForm] = Form.useForm<UpdateKnowledgeBaseRequest>();
 
-  // 默认选中第一条
-  const currentId = selectedId ?? list.data?.list?.[0]?.id;
+  const data = useMemo(() => list.data?.list ?? [], [list.data?.list]);
+
+  const filtered = useMemo(() => {
+    const kw = keyword.trim().toLowerCase();
+    if (!kw) return data;
+    return data.filter((kb) => {
+      const desc = describeDescription(kb.description) ?? '';
+      return (
+        kb.name.toLowerCase().includes(kw) || desc.toLowerCase().includes(kw)
+      );
+    });
+  }, [data, keyword]);
 
   function openCreate() {
     createForm.resetFields();
@@ -89,10 +97,9 @@ function KnowledgePage() {
   async function handleCreate() {
     const values = await createForm.validateFields();
     try {
-      const created = await create.mutateAsync(values);
+      await create.mutateAsync(values);
       message.success('创建成功');
       setCreateOpen(false);
-      setSelectedId(created.id);
     } catch (e) {
       if (e instanceof ApiError) message.error(e.message);
     }
@@ -101,13 +108,7 @@ function KnowledgePage() {
   function openEdit(record: KnowledgeBase) {
     editForm.setFieldsValue({
       name: record.name,
-      // 描述是 Record<string, never> | null；编辑表单按 string 处理
-      description:
-        record.description == null
-          ? undefined
-          : typeof record.description === 'string'
-            ? record.description
-            : undefined,
+      description: describeDescription(record.description) ?? undefined,
       visibility: record.visibility,
     });
     setEditing(record);
@@ -129,125 +130,127 @@ function KnowledgePage() {
     try {
       await remove.mutateAsync(id);
       message.success('已删除');
-      if (currentId === id) setSelectedId(undefined);
     } catch (e) {
       if (e instanceof ApiError) message.error(e.message);
     }
   }
 
-  const columns: ProColumns<KnowledgeBase>[] = [
-    { title: '名称', dataIndex: 'name', ellipsis: true, width: 200 },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      ellipsis: true,
-      width: 280,
-      render: (_, r) => {
-        const d = r.description;
-        if (d == null) return '-';
-        if (typeof d === 'string') return d;
-        return '-';
-      },
-    },
-    {
-      title: '可见性',
-      dataIndex: 'visibility',
-      width: 100,
-      render: (_, r) => {
-        const tag = visibilityTag[r.visibility] ?? {
-          color: 'default',
-          label: r.visibility,
-        };
-        return <Tag color={tag.color}>{tag.label}</Tag>;
-      },
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'createdAt',
-      width: 160,
-      render: (_, r) => dayjs(r.createdAt).format('YYYY-MM-DD HH:mm'),
-    },
-    {
-      title: '操作',
-      valueType: 'option',
-      width: 160,
-      render: (_, record) => [
-        <Button
-          key="edit"
-          type="link"
-          size="small"
-          icon={<EditOutlined />}
-          onClick={() => openEdit(record)}
-        >
-          编辑
-        </Button>,
-        <Popconfirm
-          key="delete"
-          title="删除知识库"
-          description="将同时删除其下所有文档，确认删除？"
-          okText="删除"
-          okButtonProps={{ danger: true }}
-          cancelText="取消"
-          onConfirm={() => handleDelete(record.id)}
-        >
-          <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-            删除
-          </Button>
-        </Popconfirm>,
-      ],
-    },
-  ];
-
   return (
-    <>
-      <Splitter className="h-full" collapsible={{ motion: true }}>
-        <Splitter.Panel collapsible defaultSize="40%" min="25%" max="60%">
-          <ProTable<KnowledgeBase>
-            rowKey="id"
-            search={false}
-            options={false}
-            loading={list.isLoading}
-            dataSource={list.data?.list ?? []}
-            columns={columns}
-            rowSelection={{
-              type: 'radio',
-              selectedRowKeys: currentId ? [currentId] : [],
-              onChange: (keys) => setSelectedId(keys[0] as string | undefined),
-            }}
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: false,
-              total: list.data?.total,
-            }}
-            toolBarRender={() => [
-              <Button
-                key="create"
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={openCreate}
-              >
-                新建知识库
-              </Button>,
-            ]}
-            dateFormatter="string"
+    <div className="box-border flex h-full w-full flex-col gap-4 px-8 pt-8">
+      <div className="box-border flex flex-row-reverse items-center gap-4">
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          新建知识库
+        </Button>
+        <Search
+          allowClear
+          placeholder="搜索名称或描述"
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+          style={{ width: 240 }}
+        />
+      </div>
+      {list.isLoading ? (
+        <Flex gap="middle" wrap="wrap">
+          {Array.from({ length: 6 }).map((i) => (
+            <Card key={`skeleton-${i}`} style={{ width: 280 }} loading>
+              <Skeleton active paragraph={{ rows: 2 }} />
+            </Card>
+          ))}
+        </Flex>
+      ) : filtered.length === 0 ? (
+        <Flex className="flex-1" align="center" justify="center" vertical>
+          <Empty
+            description={
+              keyword ? '没有匹配的知识库' : '还没有知识库，点击右上角新建'
+            }
           />
-        </Splitter.Panel>
-        <Splitter.Panel>
-          {currentId ? (
-            <DocumentPanel kbId={currentId} />
-          ) : (
-            <Flex
-              className="h-full w-full"
-              align="center"
-              justify="center"
-              vertical
-              gap="middle"
-            >
-              <Empty description="请选择左侧知识库查看文档" />
-            </Flex>
-          )}
-        </Splitter.Panel>
-      </Splitter>
+        </Flex>
+      ) : (
+        <div
+          className="grid gap-4"
+          style={{
+            gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+          }}
+        >
+          {filtered.map((kb) => {
+            const desc = describeDescription(kb.description);
+            const tag = visibilityTag[kb.visibility] ?? {
+              color: 'default',
+              label: kb.visibility,
+            };
+            return (
+              <Card
+                key={kb.id}
+                hoverable
+                styles={{
+                  body: { display: 'flex', flexDirection: 'column', gap: 12 },
+                }}
+                actions={[
+                  <Tooltip key="edit" title="编辑">
+                    <Button
+                      type="text"
+                      icon={<EditOutlined />}
+                      onClick={() => openEdit(kb)}
+                      aria-label="编辑"
+                    />
+                  </Tooltip>,
+                  <Popconfirm
+                    key="delete"
+                    title="删除知识库"
+                    description="将同时删除其下所有文档，确认删除？"
+                    okText="删除"
+                    okButtonProps={{ danger: true }}
+                    cancelText="取消"
+                    onConfirm={() => handleDelete(kb.id)}
+                  >
+                    <Tooltip title="删除">
+                      <Button
+                        type="text"
+                        danger
+                        icon={<DeleteOutlined />}
+                        aria-label="删除"
+                      />
+                    </Tooltip>
+                  </Popconfirm>,
+                ]}
+              >
+                <Flex align="center" gap="small">
+                  <Flex
+                    align="center"
+                    justify="center"
+                    className="bg-(--ant-color-fill-tertiary) text-(--ant-color-primary)"
+                    style={{ width: 40, height: 40, borderRadius: 8 }}
+                  >
+                    <DatabaseOutlined style={{ fontSize: 20 }} />
+                  </Flex>
+                  <Flex vertical gap={2} className="min-w-0 flex-1">
+                    <Text strong ellipsis>
+                      {kb.name}
+                    </Text>
+                    <Tag
+                      color={tag.color}
+                      className="m-0! w-fit"
+                      style={{ marginInlineStart: 0 }}
+                    >
+                      {tag.label}
+                    </Tag>
+                  </Flex>
+                </Flex>
+                <Paragraph
+                  type="secondary"
+                  ellipsis={{ rows: 2, expandable: false }}
+                  className="m-0! text-sm"
+                >
+                  {desc ?? '暂无描述'}
+                </Paragraph>
+                <Text type="secondary" className="text-xs">
+                  创建于 {dayjs(kb.createdAt).format('YYYY-MM-DD HH:mm')}
+                </Text>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       <Modal
         title="新建知识库"
@@ -310,114 +313,6 @@ function KnowledgePage() {
           </Form.Item>
         </Form>
       </Modal>
-    </>
-  );
-}
-
-function DocumentPanel({ kbId }: Readonly<{ kbId: string }>) {
-  const { message } = App.useApp();
-  const docs = useDocumentList(kbId);
-  const add = useAddDocument();
-  const remove = useDeleteDocument();
-
-  const uploadProps: UploadProps = {
-    multiple: false,
-    showUploadList: false,
-    beforeUpload: async (file) => {
-      try {
-        await add.mutateAsync({ kbId, file });
-        message.success(`已上传：${file.name}`);
-      } catch (e) {
-        if (e instanceof ApiError) message.error(e.message);
-      }
-      return false;
-    },
-  };
-
-  async function handleDelete(id: string) {
-    try {
-      await remove.mutateAsync({ kbId, id });
-      message.success('已删除');
-    } catch (e) {
-      if (e instanceof ApiError) message.error(e.message);
-    }
-  }
-
-  const docColumns: TableColumnsType<KnowledgeDocument> = [
-    {
-      title: '标题',
-      dataIndex: 'title',
-      ellipsis: true,
-      render: (title: string) => (
-        <Space>
-          <FileTextOutlined />
-          <Text ellipsis>{title}</Text>
-        </Space>
-      ),
-    },
-    {
-      title: '文件',
-      dataIndex: 'fileId',
-      ellipsis: true,
-      width: 200,
-      render: (id: string) => <Text type="secondary">{id}</Text>,
-    },
-    {
-      title: '上传时间',
-      dataIndex: 'createdAt',
-      width: 160,
-      render: (t: string) => dayjs(t).format('YYYY-MM-DD HH:mm'),
-    },
-    {
-      title: '操作',
-      key: 'action',
-      width: 100,
-      render: (_, record) => (
-        <Popconfirm
-          title="删除文档"
-          okText="删除"
-          okButtonProps={{ danger: true }}
-          cancelText="取消"
-          onConfirm={() => handleDelete(record.id)}
-        >
-          <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-            删除
-          </Button>
-        </Popconfirm>
-      ),
-    },
-  ];
-
-  return (
-    <Flex vertical className="h-full w-full gap-3">
-      <Flex justify="space-between" align="center">
-        <Text strong>知识库文档</Text>
-        <Upload {...uploadProps}>
-          <Button
-            type="primary"
-            icon={<UploadOutlined />}
-            loading={add.isPending}
-          >
-            上传文档
-          </Button>
-        </Upload>
-      </Flex>
-      <Paragraph type="secondary" className="m-0!">
-        支持向当前选中的知识库上传文档，列表按上传时间倒序展示。
-      </Paragraph>
-      <Table<KnowledgeDocument>
-        rowKey="id"
-        loading={docs.isLoading}
-        dataSource={docs.data?.list ?? []}
-        columns={docColumns}
-        size="small"
-        pagination={{
-          pageSize: 10,
-          showSizeChanger: false,
-          total: docs.data?.total,
-        }}
-        scroll={{ y: 'calc(100% - 120px)' }}
-      />
-    </Flex>
+    </div>
   );
 }
