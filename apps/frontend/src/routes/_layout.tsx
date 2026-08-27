@@ -2,6 +2,7 @@ import { logoutApi } from '@/api/auth.ts';
 import { authStore, logout } from '@/stores/auth.ts';
 import { ThemeSwitcher } from '@/theme';
 import {
+  DatabaseOutlined,
   HomeOutlined,
   InfoCircleOutlined,
   OllamaFilled,
@@ -38,6 +39,7 @@ const menuData = {
   routes: [
     { path: '/', name: '首页', icon: <HomeOutlined /> },
     { path: '/about', name: '关于', icon: <InfoCircleOutlined /> },
+    { path: '/knowledge', name: '知识库', icon: <DatabaseOutlined /> },
     { path: '/chat', name: '聊天机器人', icon: <OllamaFilled /> },
   ],
 };
