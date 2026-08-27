@@ -29,10 +29,14 @@
     height: 100%;
   }
 
+  .ant-pro-top-nav-header-main {
+    padding-inline-end: 16px;
+  }
+
   /* 让 PageContainer 内容铺满去掉头部后的剩余高度。
-           .ant-pro-layout-content 本身已撑满视口，但 .ant-pro-page-container 这一串默认
-           flex: 0 1 auto 只按内容定高，不向下传递高度，导致子页 h-full 塌陷。
-           flex: 1 1 auto 保证短内容铺满、长内容仍能随内容生长触发页面滚动。 */
+             .ant-pro-layout-content 本身已撑满视口，但 .ant-pro-page-container 这一串默认
+             flex: 0 1 auto 只按内容定高，不向下传递高度，导致子页 h-full 塌陷。
+             flex: 1 1 auto 保证短内容铺满、长内容仍能随内容生长触发页面滚动。 */
 
   .ant-pro-page-container,
   .ant-pro-page-container > .ant-pro-grid-content,
@@ -51,7 +55,7 @@
   }
 
   /* 布局壳固定为视口高度，防止子页内容把整页撑出滚动条；
-           长内容应在其内部容器滚动，而不是撑大外部页面。 */
+             长内容应在其内部容器滚动，而不是撑大外部页面。 */
 
   .ant-pro-layout > .ant-layout {
     height: 100%;
