@@ -40,6 +40,12 @@ export class KnowledgeService {
     private readonly config: ConfigService,
   ) {}
 
+  /**
+   * 创建一个知识库。
+   * @param userId 属主用户 ID
+   * @param dto 创建参数（名称必填，描述/可见性可选）
+   * @returns 持久化后的知识库
+   */
   create(userId: string, dto: CreateKnowledgeBaseDto): Promise<KnowledgeBase> {
     return this.kbRepo.save({
       ownerId: userId,
@@ -49,6 +55,13 @@ export class KnowledgeService {
     });
   }
 
+  /**
+   * 分页查询知识库列表。
+   * 默认返回当前用户拥有的 + 公开的知识库；可按 `visibility` / 名称关键字过滤。
+   * @param userId 当前用户 ID
+   * @param query 分页与过滤参数
+   * @returns 分页结果（list/total/page/pageSize）
+   */
   async list(
     userId: string,
     query: KnowledgeListQueryDto,
@@ -88,6 +101,11 @@ export class KnowledgeService {
     return { list, total, page, pageSize };
   }
 
+  /**
+   * 获取知识库详情。
+   * @throws NotFoundException 知识库不存在
+   * @throws ForbiddenException 用户无权访问（既非属主，也非公开）
+   */
   async get(userId: string, id: string): Promise<KnowledgeBase> {
     const kb = await this.kbRepo.findOne({ where: { id } });
     if (!kb) throw new NotFoundException('知识库不存在');
@@ -95,6 +113,11 @@ export class KnowledgeService {
     return kb;
   }
 
+  /**
+   * 更新知识库元信息。
+   * 仅属主可操作；只更新 DTO 中显式提供的字段。
+   * @throws NotFoundException / ForbiddenException
+   */
   async update(
     userId: string,
     id: string,
@@ -109,6 +132,10 @@ export class KnowledgeService {
     return this.kbRepo.save(kb);
   }
 
+  /**
+   * 删除知识库（级联清空其下所有文档与底层文件）。
+   * @throws NotFoundException / ForbiddenException
+   */
   async remove(userId: string, id: string): Promise<null> {
     const kb = await this.kbRepo.findOne({ where: { id } });
     if (!kb) throw new NotFoundException('知识库不存在');
@@ -126,6 +153,12 @@ export class KnowledgeService {
     return null;
   }
 
+  /**
+   * 上传并解析一个文档到指定知识库。
+   * 流程：扩展名校验 → 大小校验 → PDF 魔数校验 → 落底层存储 →
+   *       解析文本 → 落库；任一步失败会回滚已落库的文件。
+   * @throws UnsupportedMediaTypeException / PayloadTooLargeException / UnprocessableEntityException
+   */
   async addDocument(
     userId: string,
     kbId: string,
@@ -195,6 +228,11 @@ export class KnowledgeService {
     }
   }
 
+  /**
+   * 分页查询某知识库下的文档。
+   * 可按 `keyword` 模糊匹配标题或解析出的纯文本。
+   * @throws NotFoundException / ForbiddenException
+   */
   async listDocuments(
     userId: string,
     kbId: string,
@@ -225,6 +263,10 @@ export class KnowledgeService {
     return { list, total, page, pageSize };
   }
 
+  /**
+   * 获取文档详情（含解析文本）。
+   * @throws NotFoundException / ForbiddenException
+   */
   async getDocument(
     userId: string,
     kbId: string,
@@ -240,6 +282,10 @@ export class KnowledgeService {
     return doc;
   }
 
+  /**
+   * 删除某知识库下的一个文档（连带清理底层文件）。
+   * @throws NotFoundException / ForbiddenException
+   */
   async removeDocument(
     userId: string,
     kbId: string,

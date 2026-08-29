@@ -51,7 +51,7 @@ export class KnowledgeBase {
   @Column({ type: 'varchar', length: 100 })
   name: string;
 
-  @ApiProperty({ description: '描述', nullable: true })
+  @ApiProperty({ description: '描述', type: 'string', nullable: true })
   @Column({ type: 'varchar', length: 255, nullable: true })
   description: string | null;
 
