@@ -126,7 +126,7 @@ function LayoutComponent() {
         <ThemeSwitcher key="theme" className="mx-1!" />,
         <Dropdown key="user" trigger={['click']} popupRender={() => userPanel}>
           <Avatar
-            rootClassName="bg-(--lucy-page-avatar-background)! ml-1! rounded-full!"
+            rootClassName="bg-(--lucy-page-avatar-background)! ml-1! rounded-full! cursor-pointer"
             size="middle"
             gap={4}
           >

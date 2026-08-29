@@ -63,6 +63,144 @@ function describeDescription(d: KnowledgeBase['description']): string | null {
   return null;
 }
 
+function KnowledgeGridSkeleton() {
+  return (
+    <Flex gap="middle" wrap="wrap">
+      {Array.from({ length: 6 }).map((i) => (
+        <Card key={`skeleton-${i}`} style={{ width: 280 }} loading>
+          <Skeleton active paragraph={{ rows: 2 }} />
+        </Card>
+      ))}
+    </Flex>
+  );
+}
+
+function KnowledgeGridEmpty({ keyword }: Readonly<{ keyword: string }>) {
+  return (
+    <Flex className="flex-1" align="center" justify="center" vertical>
+      <Empty
+        description={
+          keyword ? '没有匹配的知识库' : '还没有知识库，点击右上角新建'
+        }
+      />
+    </Flex>
+  );
+}
+
+function KnowledgeCard({
+  kb,
+  onEdit,
+  onDelete,
+}: Readonly<{
+  kb: KnowledgeBase;
+  onEdit: (kb: KnowledgeBase) => void;
+  onDelete: (id: string) => void;
+}>) {
+  const desc = describeDescription(kb.description);
+  const tag = visibilityTag[kb.visibility] ?? {
+    color: 'default',
+    label: kb.visibility,
+  };
+  return (
+    <Card
+      key={kb.id}
+      hoverable
+      styles={{
+        body: { display: 'flex', flexDirection: 'column', gap: 12 },
+      }}
+      actions={[
+        <Tooltip key="edit" title="编辑">
+          <Button
+            type="text"
+            icon={<EditOutlined />}
+            onClick={() => onEdit(kb)}
+            aria-label="编辑"
+          />
+        </Tooltip>,
+        <Popconfirm
+          key="delete"
+          title="删除知识库"
+          description="将同时删除其下所有文档，确认删除？"
+          okText="删除"
+          okButtonProps={{ danger: true }}
+          cancelText="取消"
+          onConfirm={() => onDelete(kb.id)}
+        >
+          <Tooltip title="删除">
+            <Button
+              type="text"
+              danger
+              icon={<DeleteOutlined />}
+              aria-label="删除"
+            />
+          </Tooltip>
+        </Popconfirm>,
+      ]}
+    >
+      <Flex align="center" gap="small">
+        <Flex
+          align="center"
+          justify="center"
+          className="bg-(--ant-color-fill-tertiary) text-(--ant-color-primary)"
+          style={{ width: 40, height: 40, borderRadius: 8 }}
+        >
+          <DatabaseOutlined style={{ fontSize: 20 }} />
+        </Flex>
+        <Flex vertical gap={2} className="min-w-0 flex-1">
+          <Text strong ellipsis>
+            {kb.name}
+          </Text>
+          <Tag
+            color={tag.color}
+            className="m-0! w-fit"
+            style={{ marginInlineStart: 0 }}
+          >
+            {tag.label}
+          </Tag>
+        </Flex>
+      </Flex>
+      <Paragraph
+        type="secondary"
+        ellipsis={{ rows: 2, expandable: false }}
+        className="m-0! text-sm"
+      >
+        {desc ?? '暂无描述'}
+      </Paragraph>
+      <Text type="secondary" className="text-xs">
+        创建于 {dayjs(kb.createdAt).format('YYYY-MM-DD HH:mm')}
+      </Text>
+    </Card>
+  );
+}
+
+function KnowledgeGrid({
+  items,
+  onEdit,
+  onDelete,
+}: Readonly<{
+  items: KnowledgeBase[];
+  onEdit: (kb: KnowledgeBase) => void;
+  onDelete: (id: string) => void;
+}>) {
+  return (
+    <div
+      className="grid gap-4"
+      style={{
+        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+      }}
+    >
+      {items.map((kb) => (
+        <KnowledgeCard
+          key={kb.id}
+          kb={kb}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      ))}
+    </div>
+  );
+}
+
 function KnowledgePage() {
   const { message } = App.useApp();
   const list = useKnowledgeBaseList();
@@ -98,10 +236,10 @@ function KnowledgePage() {
     const values = await createForm.validateFields();
     try {
       await create.mutateAsync(values);
-      message.success('创建成功');
+      void message.success('创建成功');
       setCreateOpen(false);
     } catch (e) {
-      if (e instanceof ApiError) message.error(e.message);
+      if (e instanceof ApiError) void message.error(e.message);
     }
   }
 
@@ -119,19 +257,19 @@ function KnowledgePage() {
     const values = await editForm.validateFields();
     try {
       await update.mutateAsync({ id: editing.id, input: values });
-      message.success('已更新');
+      void message.success('已更新');
       setEditing(null);
     } catch (e) {
-      if (e instanceof ApiError) message.error(e.message);
+      if (e instanceof ApiError) void message.error(e.message);
     }
   }
 
   async function handleDelete(id: string) {
     try {
       await remove.mutateAsync(id);
-      message.success('已删除');
+      void message.success('已删除');
     } catch (e) {
-      if (e instanceof ApiError) message.error(e.message);
+      if (e instanceof ApiError) void message.error(e.message);
     }
   }
 
@@ -149,108 +287,18 @@ function KnowledgePage() {
           style={{ width: 240 }}
         />
       </div>
-      {list.isLoading ? (
-        <Flex gap="middle" wrap="wrap">
-          {Array.from({ length: 6 }).map((i) => (
-            <Card key={`skeleton-${i}`} style={{ width: 280 }} loading>
-              <Skeleton active paragraph={{ rows: 2 }} />
-            </Card>
-          ))}
-        </Flex>
-      ) : filtered.length === 0 ? (
-        <Flex className="flex-1" align="center" justify="center" vertical>
-          <Empty
-            description={
-              keyword ? '没有匹配的知识库' : '还没有知识库，点击右上角新建'
-            }
+      {(() => {
+        if (list.isLoading) return <KnowledgeGridSkeleton />;
+        if (filtered.length === 0)
+          return <KnowledgeGridEmpty keyword={keyword} />;
+        return (
+          <KnowledgeGrid
+            items={filtered}
+            onEdit={openEdit}
+            onDelete={handleDelete}
           />
-        </Flex>
-      ) : (
-        <div
-          className="grid gap-4"
-          style={{
-            gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-          }}
-        >
-          {filtered.map((kb) => {
-            const desc = describeDescription(kb.description);
-            const tag = visibilityTag[kb.visibility] ?? {
-              color: 'default',
-              label: kb.visibility,
-            };
-            return (
-              <Card
-                key={kb.id}
-                hoverable
-                styles={{
-                  body: { display: 'flex', flexDirection: 'column', gap: 12 },
-                }}
-                actions={[
-                  <Tooltip key="edit" title="编辑">
-                    <Button
-                      type="text"
-                      icon={<EditOutlined />}
-                      onClick={() => openEdit(kb)}
-                      aria-label="编辑"
-                    />
-                  </Tooltip>,
-                  <Popconfirm
-                    key="delete"
-                    title="删除知识库"
-                    description="将同时删除其下所有文档，确认删除？"
-                    okText="删除"
-                    okButtonProps={{ danger: true }}
-                    cancelText="取消"
-                    onConfirm={() => handleDelete(kb.id)}
-                  >
-                    <Tooltip title="删除">
-                      <Button
-                        type="text"
-                        danger
-                        icon={<DeleteOutlined />}
-                        aria-label="删除"
-                      />
-                    </Tooltip>
-                  </Popconfirm>,
-                ]}
-              >
-                <Flex align="center" gap="small">
-                  <Flex
-                    align="center"
-                    justify="center"
-                    className="bg-(--ant-color-fill-tertiary) text-(--ant-color-primary)"
-                    style={{ width: 40, height: 40, borderRadius: 8 }}
-                  >
-                    <DatabaseOutlined style={{ fontSize: 20 }} />
-                  </Flex>
-                  <Flex vertical gap={2} className="min-w-0 flex-1">
-                    <Text strong ellipsis>
-                      {kb.name}
-                    </Text>
-                    <Tag
-                      color={tag.color}
-                      className="m-0! w-fit"
-                      style={{ marginInlineStart: 0 }}
-                    >
-                      {tag.label}
-                    </Tag>
-                  </Flex>
-                </Flex>
-                <Paragraph
-                  type="secondary"
-                  ellipsis={{ rows: 2, expandable: false }}
-                  className="m-0! text-sm"
-                >
-                  {desc ?? '暂无描述'}
-                </Paragraph>
-                <Text type="secondary" className="text-xs">
-                  创建于 {dayjs(kb.createdAt).format('YYYY-MM-DD HH:mm')}
-                </Text>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+        );
+      })()}
 
       <Modal
         title="新建知识库"
