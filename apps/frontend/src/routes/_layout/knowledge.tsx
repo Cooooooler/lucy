@@ -31,6 +31,7 @@ import {
   Pagination,
   Popconfirm,
   Radio,
+  Result,
   Tag,
   Tooltip,
   Typography,
@@ -81,6 +82,23 @@ function KnowledgeGridEmpty({ keyword }: Readonly<{ keyword: string }>) {
       <Empty
         description={
           keyword ? '没有匹配的知识库' : '还没有知识库，点击右上角新建'
+        }
+      />
+    </Flex>
+  );
+}
+
+function KnowledgeGridError({ onRetry }: Readonly<{ onRetry: () => void }>) {
+  return (
+    <Flex className="flex-1" align="center" justify="center">
+      <Result
+        status="error"
+        title="加载失败"
+        subTitle="知识库列表获取失败，请稍后重试"
+        extra={
+          <Button type="primary" onClick={onRetry}>
+            重试
+          </Button>
         }
       />
     </Flex>
@@ -278,6 +296,10 @@ function KnowledgePage() {
   async function handleDelete(id: string) {
     try {
       await remove.mutateAsync(id);
+      // 当前页仅剩这一条且不是首页时，跳回上一页避免停留在空状态
+      if (data.length === 1 && page > 1) {
+        setPage((p) => p - 1);
+      }
       void message.success('已删除');
     } catch (e) {
       if (e instanceof ApiError) void message.error(e.message);
@@ -300,6 +322,11 @@ function KnowledgePage() {
       </div>
       {(() => {
         if (list.isLoading) return <KnowledgeGridSkeleton />;
+        // 错误优先于空：仅在错误且无任何缓存数据时显示错误状态，
+        // 避免一过性错误把已有列表覆盖掉；error.refetch 用于重试
+        if (list.isError && data.length === 0) {
+          return <KnowledgeGridError onRetry={() => void list.refetch()} />;
+        }
         if (data.length === 0) return <KnowledgeGridEmpty keyword={keyword} />;
         return (
           <KnowledgeGrid
