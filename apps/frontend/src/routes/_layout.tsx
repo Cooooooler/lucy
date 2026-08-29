@@ -125,13 +125,19 @@ function LayoutComponent() {
       actionsRender={() => [
         <ThemeSwitcher key="theme" className="mx-1!" />,
         <Dropdown key="user" trigger={['click']} popupRender={() => userPanel}>
-          <Avatar
-            rootClassName="bg-(--lucy-page-avatar-background)! ml-1! rounded-full! cursor-pointer"
-            size="middle"
-            gap={4}
+          <Button
+            type="text"
+            aria-label="用户菜单"
+            className="ml-1! h-auto! p-0!"
           >
-            {getAvatarLetter(user?.username)}
-          </Avatar>
+            <Avatar
+              rootClassName="bg-(--lucy-page-avatar-background)! rounded-full! cursor-pointer"
+              size="middle"
+              gap={4}
+            >
+              {getAvatarLetter(user?.username)}
+            </Avatar>
+          </Button>
         </Dropdown>,
       ]}
     >

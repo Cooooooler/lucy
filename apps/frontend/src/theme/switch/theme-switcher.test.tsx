@@ -69,10 +69,13 @@ describe('ThemeSwitcher', () => {
     useThemeState.mode = 'dark';
     useThemeState.resolvedTheme = 'dark';
     render(<ThemeSwitcher />);
-    // 触发器按钮内含 svg 图标；不论图标差异，存在按钮即可证明分支未抛错
-    expect(
-      screen.getByRole('button', { name: '切换主题' }),
-    ).toBeInTheDocument();
+    const trigger = screen.getByRole('button', { name: '切换主题' });
+    expect(trigger).toBeInTheDocument();
+    // dark 分支用 MoonOutlined（aria-hidden svg），light 用 SunOutlined。
+    // 通过 svg 数量区分：light 也只有 1 个 svg，所以额外断言存在
+    // antd icon-moon 字体类，证明确实进入了 dark 分支。
+    const moonIcon = trigger.querySelector('.anticon-moon');
+    expect(moonIcon).not.toBeNull();
     useThemeState.mode = 'light';
     useThemeState.resolvedTheme = 'light';
   });

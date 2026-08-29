@@ -17,6 +17,7 @@ import {
   EditOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
+import type { KnowledgeListQuery } from '@lucy/shared';
 import { createFileRoute } from '@tanstack/react-router';
 import {
   App,
@@ -27,15 +28,15 @@ import {
   Form,
   Input,
   Modal,
+  Pagination,
   Popconfirm,
   Radio,
-  Skeleton,
   Tag,
   Tooltip,
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const { Text, Paragraph } = Typography;
 const { Search } = Input;
@@ -58,18 +59,17 @@ const visibilityTag: Record<
 };
 
 function describeDescription(d: KnowledgeBase['description']): string | null {
-  if (d == null) return null;
-  if (typeof d === 'string') return d;
-  return null;
+  return d ?? null;
 }
 
+// 骨架屏：固定 6 个占位，位置/数量稳定，索引当 key 安全
+
 function KnowledgeGridSkeleton() {
+  const placeholders = Array.from({ length: 6 }, (_, i) => i);
   return (
     <Flex gap="middle" wrap="wrap">
-      {Array.from({ length: 6 }).map((i) => (
-        <Card key={`skeleton-${i}`} style={{ width: 280 }} loading>
-          <Skeleton active paragraph={{ rows: 2 }} />
-        </Card>
+      {placeholders.map((i) => (
+        <Card key={`skeleton-${i}`} style={{ width: 280 }} loading />
       ))}
     </Flex>
   );
@@ -203,28 +203,34 @@ function KnowledgeGrid({
 
 function KnowledgePage() {
   const { message } = App.useApp();
-  const list = useKnowledgeBaseList();
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(20);
+  const [keywordInput, setKeywordInput] = useState('');
+  const [keyword, setKeyword] = useState('');
+  // 输入防抖：避免每个键击都发请求，等用户停手 300ms 再同步到实际查询关键字
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setKeyword(keywordInput.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [keywordInput]);
+
+  const listQuery = useMemo<KnowledgeListQuery>(
+    () => ({ page, pageSize, name: keyword || undefined }),
+    [page, pageSize, keyword],
+  );
+  const list = useKnowledgeBaseList(listQuery);
   const create = useCreateKnowledgeBase();
   const update = useUpdateKnowledgeBase();
   const remove = useDeleteKnowledgeBase();
-  const [keyword, setKeyword] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<KnowledgeBase | null>(null);
   const [createForm] = Form.useForm<CreateKnowledgeBaseRequest>();
   const [editForm] = Form.useForm<UpdateKnowledgeBaseRequest>();
 
-  const data = useMemo(() => list.data?.list ?? [], [list.data?.list]);
-
-  const filtered = useMemo(() => {
-    const kw = keyword.trim().toLowerCase();
-    if (!kw) return data;
-    return data.filter((kb) => {
-      const desc = describeDescription(kb.description) ?? '';
-      return (
-        kb.name.toLowerCase().includes(kw) || desc.toLowerCase().includes(kw)
-      );
-    });
-  }, [data, keyword]);
+  const data = list.data?.list ?? [];
+  const total = list.data?.total ?? 0;
 
   function openCreate() {
     createForm.resetFields();
@@ -233,13 +239,16 @@ function KnowledgePage() {
   }
 
   async function handleCreate() {
-    const values = await createForm.validateFields();
     try {
+      const values = await createForm.validateFields();
       await create.mutateAsync(values);
       void message.success('创建成功');
       setCreateOpen(false);
     } catch (e) {
-      if (e instanceof ApiError) void message.error(e.message);
+      if (e instanceof ApiError) {
+        void message.error(e.message);
+      }
+      // 校验失败由 Form 自行展示错误；网络/未知错误静默吞掉，由全局拦截器兜底
     }
   }
 
@@ -254,13 +263,15 @@ function KnowledgePage() {
 
   async function handleEdit() {
     if (!editing) return;
-    const values = await editForm.validateFields();
     try {
+      const values = await editForm.validateFields();
       await update.mutateAsync({ id: editing.id, input: values });
       void message.success('已更新');
       setEditing(null);
     } catch (e) {
-      if (e instanceof ApiError) void message.error(e.message);
+      if (e instanceof ApiError) {
+        void message.error(e.message);
+      }
     }
   }
 
@@ -281,24 +292,33 @@ function KnowledgePage() {
         </Button>
         <Search
           allowClear
-          placeholder="搜索名称或描述"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
+          placeholder="搜索名称"
+          value={keywordInput}
+          onChange={(e) => setKeywordInput(e.target.value)}
           style={{ width: 240 }}
         />
       </div>
       {(() => {
         if (list.isLoading) return <KnowledgeGridSkeleton />;
-        if (filtered.length === 0)
-          return <KnowledgeGridEmpty keyword={keyword} />;
+        if (data.length === 0) return <KnowledgeGridEmpty keyword={keyword} />;
         return (
           <KnowledgeGrid
-            items={filtered}
+            items={data}
             onEdit={openEdit}
             onDelete={handleDelete}
           />
         );
       })()}
+
+      <Flex justify="end">
+        <Pagination
+          current={page}
+          pageSize={pageSize}
+          total={total}
+          showSizeChanger={false}
+          onChange={setPage}
+        />
+      </Flex>
 
       <Modal
         title="新建知识库"

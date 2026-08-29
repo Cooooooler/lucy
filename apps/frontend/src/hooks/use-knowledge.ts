@@ -26,9 +26,11 @@ export const knowledgeKeys = {
   all: ['knowledge'] as const,
   // 知识库维度
   bases: () => [...knowledgeKeys.all, 'bases'] as const,
+  // 列表失效前缀：只命中知识库列表查询（documents 段不在该前缀下，不会被误伤）
+  baseListAll: () => [...knowledgeKeys.bases(), 'list'] as const,
   // 列表查询（含分页参数）
   baseList: (query: KnowledgeListQuery = {}) =>
-    [...knowledgeKeys.bases(), 'list', query] as const,
+    [...knowledgeKeys.baseListAll(), query] as const,
   base: (id: string) => [...knowledgeKeys.bases(), id] as const,
   // 文档维度：嵌在某个知识库下，key 携带 kbId 自动隔离
   documents: (kbId: string) =>
@@ -40,7 +42,7 @@ export const knowledgeKeys = {
 };
 
 // 列表失效前缀：命中该知识库下所有分页的文档查询，
-// 但不会误伤知识库本身（base(id) 没有 documents 段）和其它知识库的文档（key 含 kbId）
+// 但不会误伤其它知识库的文档（key 含 kbId）。
 export const documentListAll = (kbId: string) =>
   [...knowledgeKeys.documents(kbId), 'list'] as const;
 
@@ -70,7 +72,9 @@ export function useCreateKnowledgeBase() {
     mutationFn: (input: CreateKnowledgeBaseRequest) =>
       createKnowledgeBaseApi(input),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: knowledgeKeys.bases() });
+      await queryClient.invalidateQueries({
+        queryKey: knowledgeKeys.baseListAll(),
+      });
     },
   });
 }
@@ -83,7 +87,9 @@ export function useUpdateKnowledgeBase() {
       input: UpdateKnowledgeBaseRequest;
     }) => updateKnowledgeBaseApi(variables.id, variables.input),
     onSuccess: async (_updated, { id }) => {
-      await queryClient.invalidateQueries({ queryKey: knowledgeKeys.bases() });
+      await queryClient.invalidateQueries({
+        queryKey: knowledgeKeys.baseListAll(),
+      });
       await queryClient.invalidateQueries({ queryKey: knowledgeKeys.base(id) });
     },
   });
@@ -94,12 +100,11 @@ export function useDeleteKnowledgeBase() {
   return useMutation({
     mutationFn: (id: string) => deleteKnowledgeBaseApi(id),
     onSuccess: async (_data, id) => {
-      // 知识库删除后其下文档全部失效；单条 base 缓存也移除
-      await queryClient.invalidateQueries({ queryKey: knowledgeKeys.bases() });
-      queryClient.removeQueries({ queryKey: knowledgeKeys.base(id) });
-      queryClient.removeQueries({
-        queryKey: knowledgeKeys.documents(id),
+      // 仅失效知识库列表缓存；该知识库单条/其下文档的缓存一并移除（base(id) 是 documents(id) 的前缀，命中即一并清掉）
+      await queryClient.invalidateQueries({
+        queryKey: knowledgeKeys.baseListAll(),
       });
+      queryClient.removeQueries({ queryKey: knowledgeKeys.base(id) });
     },
   });
 }
