@@ -509,7 +509,7 @@ export interface components {
             /** @description 名称 */
             name: string;
             /** @description 描述 */
-            description: Record<string, never> | null;
+            description: string | null;
             /**
              * Format: date-time
              * @description 创建时间
@@ -543,7 +543,7 @@ export interface components {
             /** @description 标题 */
             title: string;
             /** @description 解析出的纯文本 */
-            content: Record<string, never> | null;
+            content: string | null;
             /**
              * Format: date-time
              * @description 创建时间

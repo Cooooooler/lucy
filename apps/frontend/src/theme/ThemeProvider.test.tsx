@@ -6,7 +6,7 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ThemeProvider, useTheme } from './ThemeProvider';
+import { ThemeProvider, useTheme } from './ThemeProvider.js';
 
 const THEME_KEY = 'lucy.theme';
 

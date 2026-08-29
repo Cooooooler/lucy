@@ -13,7 +13,7 @@ import {
   useKnowledgeBase,
   useKnowledgeBaseList,
   useUpdateKnowledgeBase,
-} from './use-knowledge';
+} from './use-knowledge.js';
 
 const api = vi.hoisted(() => ({
   listKnowledgeBasesApi: vi.fn(),

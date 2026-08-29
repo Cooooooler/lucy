@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeUser } from '../test/fixtures';
-import { loginApi, logoutApi, meApi, registerApi } from './auth';
+import { loginApi, logoutApi, meApi, registerApi } from './auth.js';
 
 const mocks = vi.hoisted(() => ({
   post: vi.fn(),

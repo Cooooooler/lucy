@@ -20,7 +20,7 @@
   height: 100vh;
   overflow: hidden;
 
-  /* antd pro component 样式变更设置*/
+  /* antd pro component 样式变更设置 */
 
   .ant-pro-global-header-header-actions-item {
     cursor: unset !important;

@@ -9,8 +9,8 @@ import {
   listDocumentsApi,
   listKnowledgeBasesApi,
   updateKnowledgeBaseApi,
-} from './knowledge';
-import type { KnowledgeBase, KnowledgeDocument } from './types';
+} from './knowledge.js';
+import type { KnowledgeBase, KnowledgeDocument } from './types.js';
 
 // 保留真实 http（走真实 fetch 与完整插件链），仅覆盖 authStore 以便注入 Bearer
 vi.mock('../stores/auth', () => ({

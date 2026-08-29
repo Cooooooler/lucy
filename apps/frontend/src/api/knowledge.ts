@@ -3,13 +3,13 @@ import type {
   KnowledgeListQuery,
   PageResult,
 } from '@lucy/shared';
-import { http } from './client';
+import { http } from './client.js';
 import type {
   CreateKnowledgeBaseRequest,
   KnowledgeBase,
   KnowledgeDocument,
   UpdateKnowledgeBaseRequest,
-} from './types';
+} from './types.js';
 
 // 知识库/文档 REST 客户端：全部经 http 实例（自动附加 Bearer + 401 单飞刷新 + 信封解包）。
 // 分页响应结构复用共享 PageResult<T>；列表接口经 `http.get` 以 query 参数发送。

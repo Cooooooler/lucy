@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to Command Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## 项目概览
 
@@ -98,7 +98,7 @@ Redis 集成逻辑已抽到 `packages/redis`（`@coool/redis-nest`），后端�
 
 Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite build`（`tsconfig.json` 引用 `tsconfig.app.json` + `tsconfig.node.json`）。dev server 将 `/api` 代理到 `http://localhost:3000`（后端，`/api` 前缀在代理处 rewrite 去除），前端 dev 请求 baseURL 为 `/api/`。
 
-- **路由**：TanStack Router 文件式路由（`src/routes/`，`_auth/login|register`、`_layout/about|index`）；`src/routeTree.gen.ts` 由 `@tanstack/router-plugin` 自动生成，勿手改。
+- **路由**：TanStack Router 文件式路由（`src/routes/`，`_auth/login|register`、`_layout/{about,chat,index,knowledge}`）；`src/routeTree.gen.ts` 由 `@tanstack/router-plugin` 自动生成，勿手改。
 - **状态/请求**：TanStack Store（`src/stores/auth.ts`）+ TanStack Query（`src/queryClient.ts`）；antd 6 + `@ant-design/pro-components` + ahooks。
 - **别名**（tsconfig paths + vite-tsconfig-paths）：`@`→`src/`、`@api`→`src/api/`、`@bg`→`src/backgrounds/index.ts`、`@components`→`src/components/index.ts`。
 - **目录**：`src/api`（ky HTTP 客户端）、`src/auth`（AuthProvider）、`src/backgrounds`（视觉特效）、`src/components`、`src/routes`、`src/stores`、`src/test`（fixtures + setup）。
