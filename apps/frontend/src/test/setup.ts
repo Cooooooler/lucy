@@ -2,6 +2,11 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
+// 测试期间显式指定 API baseURL 为 '/api/'，与 vite dev 服务器（带 /api proxy）行为
+// 一致。被 client.ts 顶层读取，必须在 client.ts 导入前赋值，否则 baseURL 已被
+// 解析。setupFiles 在每个测试文件 import 之前执行，时机合适。
+(globalThis as { __lucyApiBaseUrl?: string }).__lucyApiBaseUrl = '/api/';
+
 afterEach(() => {
   cleanup();
 });

@@ -6,7 +6,7 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ThemeProvider, useTheme } from './index';
+import { ThemeProvider, useTheme } from './ThemeProvider';
 
 const THEME_KEY = 'lucy.theme';
 
@@ -175,5 +175,20 @@ describe('ThemeProvider', () => {
       </ThemeProvider>,
     );
     expect(listenerCount()).toBe(1);
+  });
+});
+
+describe('useTheme', () => {
+  it('在 Provider 外调用时抛出明确错误', () => {
+    function Naked() {
+      useTheme();
+      return null;
+    }
+    // 关掉 React 错误边界日志噪音（该错误本就预期）
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => render(<Naked />)).toThrow(
+      'useTheme 必须在 <ThemeProvider> 内使用',
+    );
+    spy.mockRestore();
   });
 });

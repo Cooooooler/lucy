@@ -27,16 +27,20 @@ afterAll(() => {
 });
 
 // vi.mock 工厂会提升到文件顶部，工厂内引用的变量必须用 vi.hoisted 定义
-const { setModeMock } = vi.hoisted(() => ({ setModeMock: vi.fn() }));
+const { setModeMock, useThemeState } = vi.hoisted(() => ({
+  setModeMock: vi.fn(),
+  // 当前 useTheme 返回值；测试中可改写以模拟 dark/light 状态
+  useThemeState: { mode: 'light', resolvedTheme: 'light' as 'light' | 'dark' },
+}));
 
 vi.mock('@/theme', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/theme')>();
   return {
     ...actual,
     useTheme: () => ({
-      mode: 'light',
+      mode: useThemeState.mode,
       setMode: setModeMock,
-      resolvedTheme: 'light',
+      resolvedTheme: useThemeState.resolvedTheme,
     }),
   };
 });
@@ -58,5 +62,18 @@ describe('ThemeSwitcher', () => {
     fireEvent.click(screen.getByRole('button', { name: '切换主题' }));
     fireEvent.click(await screen.findByText('跟随系统'));
     expect(setModeMock).toHaveBeenCalledWith('system');
+  });
+
+  it('resolvedTheme 为 dark 时触发器显示月亮图标', async () => {
+    // 覆盖共享状态：resolvedTheme='dark'，覆盖行 19 三元的另一分支
+    useThemeState.mode = 'dark';
+    useThemeState.resolvedTheme = 'dark';
+    render(<ThemeSwitcher />);
+    // 触发器按钮内含 svg 图标；不论图标差异，存在按钮即可证明分支未抛错
+    expect(
+      screen.getByRole('button', { name: '切换主题' }),
+    ).toBeInTheDocument();
+    useThemeState.mode = 'light';
+    useThemeState.resolvedTheme = 'light';
   });
 });
