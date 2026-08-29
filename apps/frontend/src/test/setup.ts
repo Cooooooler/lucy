@@ -43,3 +43,43 @@ if (typeof window !== 'undefined') {
     writable: true,
   });
 }
+
+// antd 6 / pro-components 在多处读 matchMedia（如 responsiveObserver、
+// useBreakpoint、StatisticsCard）。jsdom 不实现，统一桩为「无匹配 + 无监听」，
+// 不影响任何渲染路径（生产 CSS 媒体查询仍由浏览器负责）。
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
+// jsdom 不实现 ResizeObserver，antd Dropdown / Splitter / rc-resize-observer
+// 等会在挂载时使用它；统一桩为 no-op，避免组件一渲染就 ReferenceError。
+if (typeof window !== 'undefined' && !('ResizeObserver' in globalThis)) {
+  class ResizeObserverStub {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  // antd 通过 window.ResizeObserver 拿到
+  Object.defineProperty(window, 'ResizeObserver', {
+    writable: true,
+    configurable: true,
+    value: ResizeObserverStub,
+  });
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    writable: true,
+    configurable: true,
+    value: ResizeObserverStub,
+  });
+}

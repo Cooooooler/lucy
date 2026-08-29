@@ -11,18 +11,22 @@ export class UsersService {
     private readonly passwordService: PasswordService,
   ) {}
 
+  /** 按用户名查询用户。 */
   findByUsername(username: string): Promise<User | null> {
     return this.repo.findOneBy({ username });
   }
 
+  /** 按邮箱查询用户。 */
   findByEmail(email: string): Promise<User | null> {
     return this.repo.findOneBy({ email });
   }
 
+  /** 按主键查询用户。 */
   findById(id: string): Promise<User | null> {
     return this.repo.findOneBy({ id });
   }
 
+  /** 创建用户（带唯一性校验与竞态兜底）。 */
   async create(input: {
     username: string;
     email: string;

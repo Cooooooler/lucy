@@ -33,7 +33,12 @@ export default defineConfig({
         'src/main.tsx',
         'src/router.ts',
         'src/routeTree.gen.ts',
-        'src/routes/**',
+        // Tier3 / 富组件：非核心静态壳或富组件，hook 层已验，routes smoke 已覆盖
+        'src/routes/__root.tsx',
+        'src/routes/_auth.tsx',
+        'src/routes/_layout.tsx',
+        'src/routes/_layout/chat.tsx',
+        'src/routes/_layout/knowledge.tsx',
         'src/components/ui/**',
         'src/components/bits/**',
         'src/backgrounds/**',
