@@ -95,15 +95,18 @@ if (typeof window !== 'undefined') {
 }
 if (typeof window !== 'undefined') {
   const NotificationStub = class {
-    static permission = 'default';
-    static requestPermission = async () => 'default' as NotificationPermission;
-    close() {}
+    static readonly permission = 'default';
+    static readonly requestPermission = async () =>
+      'default' as NotificationPermission;
+    close(): void {
+      void 0;
+    }
   };
   for (const target of [
     globalThis as Record<string, unknown>,
     window as unknown as Record<string, unknown>,
   ]) {
-    if (typeof target.Notification === 'undefined') {
+    if (target.Notification === undefined) {
       Object.defineProperty(target, 'Notification', {
         writable: true,
         configurable: true,
