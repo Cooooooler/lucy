@@ -294,11 +294,14 @@ function KnowledgePage() {
   }
 
   async function handleDelete(id: string) {
+    const capturedPage = page;
     try {
       await remove.mutateAsync(id);
       // 当前页仅剩这一条且不是首页时，跳回上一页避免停留在空状态
-      if (data.length === 1 && page > 1) {
-        setPage((p) => p - 1);
+      if (data.length === 1 && capturedPage > 1) {
+        setPage((current) =>
+          current === capturedPage ? current - 1 : current,
+        );
       }
       void message.success('已删除');
     } catch (e) {

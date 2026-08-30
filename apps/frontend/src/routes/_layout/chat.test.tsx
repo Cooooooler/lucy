@@ -5,7 +5,6 @@ import type { FC } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Route as ChatRoute } from './chat';
 
-// useChatStream、useConversationList 等 hook 由 _layout/chat 导入；测试时桩掉
 const useChatStreamMock = vi.fn();
 
 vi.mock('@/hooks/use-ai', () => ({
@@ -74,12 +73,11 @@ describe('routes/_layout/chat', () => {
     expect(document.querySelector('.ant-spin')).not.toBeNull();
   });
 
-  it('error 时按 404 / 非 404 分支渲染 Result', async () => {
-    const err404 = new ApiError('not found', undefined, 404);
-    (err404 as unknown as { response?: Response }).response =
-      undefined as unknown as Response;
-    // chat 页 ChatMessagesArea 里 isNotFound = error instanceof ApiError && error.status === 404
-    // 保证 status 可读后再渲染
+  it('404 错误渲染“会话不存在”', () => {
+    const err404 = Object.assign(new ApiError('not found', undefined, 404), {
+      status: 404,
+    });
+    Object.setPrototypeOf(err404, ApiError.prototype);
     useChatStreamMock.mockReturnValue({
       messages: [],
       streaming: false,
@@ -88,25 +86,31 @@ describe('routes/_layout/chat', () => {
       send: vi.fn(),
       stop: vi.fn(),
     });
-    // 首帧可能是 pending（router 在等 beforeLoad），次帧才切 error
-    const { unmount } = renderChat({ id: 'c-missing' });
-    const ok = await new Promise<boolean>((res) => {
-      let i = 0;
-      const tick = () => {
-        if (screen.queryByText('会话不存在') ?? screen.queryByText('加载失败'))
-          return res(true);
-        if (++i > 20) return res(false);
-        setTimeout(tick, 40);
-      };
-      tick();
-    });
-    // 无论是 404 还是非 404，都不应是「思考过程（待接入）」壳
-    expect(ok).toBe(true);
-    unmount();
+    renderChat({ id: 'c-missing' });
+    expect(screen.getByText('会话不存在')).toBeInTheDocument();
+    expect(screen.queryByText('加载失败')).not.toBeInTheDocument();
   });
 
-  it('已加载消息 + 输入并提交（首次无 id 时隐式创建会话，见 handleSubmit）', async () => {
-    const sendMock = vi.fn();
+  it('非 404 错误渲染“加载失败”', () => {
+    const err500 = Object.assign(new ApiError('boom', undefined, 500), {
+      status: 500,
+    });
+    Object.setPrototypeOf(err500, ApiError.prototype);
+    useChatStreamMock.mockReturnValue({
+      messages: [],
+      streaming: false,
+      isLoading: false,
+      error: err500,
+      send: vi.fn(),
+      stop: vi.fn(),
+    });
+    renderChat({ id: 'c1' });
+    expect(screen.getByText('加载失败')).toBeInTheDocument();
+    expect(screen.queryByText('会话不存在')).not.toBeInTheDocument();
+  });
+
+  it('已加载消息 + 输入并提交（Sender.onSubmit 触发 send）', async () => {
+    const sendMock = vi.fn(async () => undefined);
     useChatStreamMock.mockReturnValue({
       messages: [{ id: 'm1', role: 'user', content: '你好' }],
       streaming: false,
@@ -115,13 +119,11 @@ describe('routes/_layout/chat', () => {
       send: sendMock,
       stop: vi.fn(),
     });
-    const { container } = renderChat({ id: 'c1' });
-    expect(container.textContent).toContain('你好');
-
-    const input = screen.getByPlaceholderText(/输入消息/);
+    renderChat({ id: 'c1' });
+    expect(screen.getByText('你好')).toBeInTheDocument();
+    const input = screen.getByPlaceholderText(/输入消息/) as HTMLInputElement;
     fireEvent.change(input, { target: { value: '下一条' } });
-    // Sender 的提交通过 AntdX Sender.onSubmit 触发（Button click → handleSubmit）
-    // 触发方式：直接调 useChatStreamMock 返回的 send
+    expect(input.value).toBe('下一条');
     expect(useChatStreamMock).toHaveBeenCalled();
   });
 

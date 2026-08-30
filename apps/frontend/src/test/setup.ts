@@ -67,9 +67,17 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
 // 等会在挂载时使用它；统一桩为 no-op，避免组件一渲染就 ReferenceError。
 if (typeof window !== 'undefined' && !('ResizeObserver' in globalThis)) {
   class ResizeObserverStub {
-    observe(): void {}
-    unobserve(): void {}
-    disconnect(): void {}
+    observe(): void {
+      void 0;
+    }
+
+    unobserve(): void {
+      void 0;
+    }
+
+    disconnect(): void {
+      void 0;
+    }
   }
   // antd 通过 window.ResizeObserver 拿到
   Object.defineProperty(window, 'ResizeObserver', {

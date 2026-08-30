@@ -67,7 +67,7 @@ describe('routes/_layout/knowledge', () => {
     vi.clearAllMocks();
   });
 
-  it('error 且无缓存时渲染 KnowledgeGridError（带重试）', () => {
+  it('error 且无缓存时渲染 KnowledgeGridError（重试可点击且仅调一次 refetch）', async () => {
     const refetch = vi.fn();
     listMock.mockImplementation(() => ({
       data: undefined,
@@ -75,12 +75,15 @@ describe('routes/_layout/knowledge', () => {
       isError: true,
       refetch,
     }));
-    const { container } = renderKnowledge();
-    expect(container.textContent).toContain('加载失败');
-    // Result.extra 里的重试按钮：Result 会把 extra 作为子节点渲染，这里 funRef 校验 refetch 是否可达
-    expect(typeof refetch).toBe('function');
-    // 通过 container 的文本验证且该分支确实是 KnowledgeGridError 的渲染路径即可
-    expect(refetch).not.toHaveBeenCalled();
+    renderKnowledge();
+    expect(screen.getByText('加载失败')).toBeInTheDocument();
+    const buttons = screen.getAllByRole('button');
+    const retryBtn = buttons.find(
+      (b) => b.textContent?.replace(/\s+/g, '') === '重试',
+    );
+    expect(retryBtn).toBeDefined();
+    fireEvent.click(retryBtn!);
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
   });
 
   it('error 但有缓存数据时不盖掉列表（分支保护）', () => {
