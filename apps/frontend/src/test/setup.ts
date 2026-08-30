@@ -63,6 +63,56 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
   });
 }
 
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'scrollTo', {
+    writable: true,
+    configurable: true,
+    value: () => {},
+  });
+  Object.defineProperty(window, 'scroll', {
+    writable: true,
+    configurable: true,
+    value: () => {},
+  });
+  Object.defineProperty(Element.prototype, 'scrollTo', {
+    writable: true,
+    configurable: true,
+    value: () => {},
+  });
+  if (!Element.prototype.scrollIntoView) {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      writable: true,
+      configurable: true,
+      value: () => {},
+    });
+  } else {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      writable: true,
+      configurable: true,
+      value: () => {},
+    });
+  }
+}
+if (typeof window !== 'undefined') {
+  const NotificationStub = class {
+    static permission = 'default';
+    static requestPermission = async () => 'default' as NotificationPermission;
+    close() {}
+  };
+  for (const target of [
+    globalThis as Record<string, unknown>,
+    window as unknown as Record<string, unknown>,
+  ]) {
+    if (typeof target.Notification === 'undefined') {
+      Object.defineProperty(target, 'Notification', {
+        writable: true,
+        configurable: true,
+        value: NotificationStub,
+      });
+    }
+  }
+}
+
 // jsdom 不实现 ResizeObserver，antd Dropdown / Splitter / rc-resize-observer
 // 等会在挂载时使用它；统一桩为 no-op，避免组件一渲染就 ReferenceError。
 if (typeof window !== 'undefined' && !('ResizeObserver' in globalThis)) {

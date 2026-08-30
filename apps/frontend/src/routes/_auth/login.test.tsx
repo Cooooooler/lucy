@@ -17,14 +17,21 @@ vi.mock('@/api/auth', () => ({
   loginApi: vi.fn(),
 }));
 
-const rootRoute = createRootRoute({});
+const rootRoute = createRootRoute({
+  notFoundComponent: () => null,
+});
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
   component: LoginRoute.options.component,
 });
+const homeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/',
+  component: () => null,
+});
 const testRouter = createRouter({
-  routeTree: rootRoute.addChildren([loginRoute]),
+  routeTree: rootRoute.addChildren([loginRoute, homeRoute]),
   history: createMemoryHistory({ initialEntries: ['/login'] }),
 });
 

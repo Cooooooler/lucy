@@ -5,6 +5,25 @@ import type { FC } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Route as ChatRoute } from './chat';
 
+vi.mock('@tanstack/react-router', async () => {
+  const actual = (await vi.importActual('@tanstack/react-router')) as Record<
+    string,
+    unknown
+  >;
+  return {
+    ...actual,
+    useNavigate: () => vi.fn(async () => {}),
+    useRouter: () => ({
+      navigate: vi.fn(async () => {}),
+      buildLocation: (opts: unknown) => opts,
+      history: { push: vi.fn(), replace: vi.fn() },
+    }),
+    useRouterState: () => ({ location: { pathname: '/chat' } }),
+    useMatch: () => null,
+    useMatches: () => [],
+  };
+});
+
 const useChatStreamMock = vi.fn();
 
 vi.mock('@/hooks/use-ai', () => ({
