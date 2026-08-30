@@ -79,6 +79,8 @@ export class UsersService {
   }
 
   // 竞态兜底：预检查之外的并发写入触发唯一约束，解析冲突列给出具体提示
+  // 兜底仅覆盖已识别的 username/email 约束；其他唯一约束视为未知错误向上传递，
+  // 避免用 USERNAME_TAKEN 误导客户端。
   private toUniqueConflict(err: QueryFailedError): BusinessException {
     const detail = (err.driverError as { detail?: string }).detail ?? '';
     if (detail.includes('(email)')) {
@@ -95,10 +97,6 @@ export class UsersService {
         HttpStatus.CONFLICT,
       );
     }
-    return new BusinessException(
-      ErrorCode.USERNAME_TAKEN,
-      '用户名或邮箱已存在',
-      HttpStatus.CONFLICT,
-    );
+    throw err;
   }
 }
