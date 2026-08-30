@@ -33,7 +33,7 @@ export function renameConversationApi(
 }
 
 export function deleteConversationApi(id: string) {
-  return http.delete<{ success: boolean }>(`ai/conversations/${id}`).json();
+  return http.delete<null>(`ai/conversations/${id}`).json();
 }
 
 export function createStreamRequest(

@@ -138,7 +138,7 @@ describe('useRenameConversation', () => {
 
 describe('useDeleteConversation', () => {
   it('删除会话并移除详情缓存', async () => {
-    api.deleteConversationApi.mockResolvedValue({ success: true });
+    api.deleteConversationApi.mockResolvedValue(null);
     const { result } = renderHook(() => useDeleteConversation(), {
       wrapper: createWrapper(),
     });
@@ -146,7 +146,7 @@ describe('useDeleteConversation', () => {
       await result.current.mutateAsync('c1');
     });
     expect(api.deleteConversationApi).toHaveBeenCalledWith('c1');
-    await waitFor(() => expect(result.current.data).toEqual({ success: true }));
+    await waitFor(() => expect(result.current.data).toBeNull());
   });
 });
 

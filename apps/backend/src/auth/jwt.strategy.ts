@@ -1,4 +1,3 @@
-import { ErrorCode } from '@lucy/shared';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
@@ -23,10 +22,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     jti: string;
   }): Promise<{ userId: string; jti: string }> {
     if (await this.denylist.isDenied(payload.jti)) {
-      throw new UnauthorizedException({
-        code: ErrorCode.UNAUTHORIZED,
-        message: '令牌已失效',
-      });
+      throw new UnauthorizedException('令牌已失效');
     }
     return { userId: payload.sub, jti: payload.jti };
   }

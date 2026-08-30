@@ -48,6 +48,7 @@ import {
 import dayjs from 'dayjs';
 import {
   type ComponentRef,
+  type FC,
   type UIEvent,
   useEffect,
   useMemo,
@@ -184,7 +185,7 @@ function ChatPage() {
 
   return (
     <Splitter className="h-full" collapsible={{ motion: true }}>
-      <Splitter.Panel collapsible defaultSize="0%" min="15%" max="40%">
+      <Splitter.Panel defaultSize="15%" min="15%" max="40%">
         <Conversations
           menu={menuConfig}
           items={items}
@@ -264,7 +265,7 @@ function InlineRenameInput({
   );
 }
 
-function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
+const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
   const { messages, streaming, isLoading, error, send, stop } =
     useChatStream(id);
   const [value, setValue] = useState('');
@@ -378,7 +379,7 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
   return (
     <Flex vertical className="h-full w-full">
       {id ? (
-        <div className="relative min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1 pt-8">
           <Bubble.List
             ref={listRef}
             items={items}
@@ -418,20 +419,15 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
                 <Flex gap="small" align="center">
                   <Switch
                     value={reasoning}
-                    children={
-                      <Text
-                        type="secondary"
-                        className="text-xs"
-                        ellipsis={true}
-                      >
-                        深度思考
-                      </Text>
-                    }
                     onChange={(checked: boolean) => {
                       setReasoning(checked);
                     }}
                     icon={<OpenAIOutlined />}
-                  />
+                  >
+                    <Text type="secondary" className="text-xs" ellipsis={true}>
+                      深度思考
+                    </Text>
+                  </Switch>
                 </Flex>
               </Flex>
             );
@@ -446,7 +442,7 @@ function ChatMessagesArea({ id }: Readonly<{ id: string | undefined }>) {
       </div>
     </Flex>
   );
-}
+};
 
 function ThoughtChainPlaceholder() {
   return (

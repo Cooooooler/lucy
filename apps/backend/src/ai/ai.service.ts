@@ -45,10 +45,12 @@ export class AiService {
   // 同会话并发锁：key=conversationId，防止同会话并发生成（同时消除首条消息重复触发标题生成）
   private readonly inFlight = new Map<string, Promise<unknown>>();
 
+  /** AI：创建会话。 */
   create(userId: string, dto: CreateConversationDto): Promise<Conversation> {
     return this.conversationRepo.save({ userId, model: dto.model ?? null });
   }
 
+  /** AI：分页查询会话列表。 */
   async list(
     userId: string,
     page: number,
@@ -68,6 +70,7 @@ export class AiService {
     return { list, total, page, pageSize };
   }
 
+  /** AI：拉取单会话（带消息）。 */
   async get(userId: string, id: string): Promise<Conversation> {
     const conversation = await this.conversationRepo.findOne({
       where: { id, userId },
@@ -80,6 +83,7 @@ export class AiService {
     return conversation;
   }
 
+  /** AI：重命名会话。 */
   async rename(
     userId: string,
     id: string,
@@ -93,12 +97,14 @@ export class AiService {
     return this.conversationRepo.save(conversation);
   }
 
-  async remove(userId: string, id: string): Promise<{ success: true }> {
+  /** AI：删除会话（含消息级联）。 */
+  async remove(userId: string, id: string): Promise<null> {
     const result = await this.conversationRepo.delete({ id, userId });
     if (!result.affected) throw new NotFoundException('会话不存在');
-    return { success: true };
+    return null;
   }
 
+  /** AI：发送消息并以 SSE 事件流返回模型输出。 */
   sendMessage(
     userId: string,
     conversationId: string,

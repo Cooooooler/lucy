@@ -97,6 +97,7 @@ export class KnowledgeController {
     summary: '上传文档',
     description: 'multipart/form-data，字段名 file',
   })
+  @ApiResponse({ status: 201, type: KnowledgeDocument })
   addDocument(
     @CurrentUser() user: CurrentUserPayload,
     @Param('kbId', ParseUUIDPipe) kbId: string,
@@ -118,6 +119,7 @@ export class KnowledgeController {
 
   @Get(':kbId/documents/:id')
   @ApiOperation({ summary: '文档详情（含解析文本）' })
+  @ApiResponse({ status: 200, type: KnowledgeDocument })
   getDocument(
     @CurrentUser() user: CurrentUserPayload,
     @Param('kbId', ParseUUIDPipe) kbId: string,

@@ -59,4 +59,6 @@ dist-ssr
 apps/backend/openapi.json
 components.json
 .claude
+.commandcode
 **/.vitepress/cache
+/apps/backend/uploads/

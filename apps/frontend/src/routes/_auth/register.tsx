@@ -345,21 +345,21 @@ function SignupPageBlock() {
                     >
                       <span className="whitespace-nowrap">
                         我已阅读并同意{' '}
-                        <a
-                          href="#"
+                        <button
+                          type="button"
                           className="text-cyan-400 transition-colors hover:text-cyan-300"
                         >
                           《服务条款》
-                        </a>
+                        </button>
                       </span>
                       <span className="whitespace-nowrap">
                         和{' '}
-                        <a
-                          href="#"
+                        <button
+                          type="button"
                           className="text-cyan-400 transition-colors hover:text-cyan-300"
                         >
                           《隐私政策》
-                        </a>
+                        </button>
                       </span>
                     </label>
                   </div>

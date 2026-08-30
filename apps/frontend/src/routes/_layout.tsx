@@ -2,6 +2,7 @@ import { logoutApi } from '@/api/auth.ts';
 import { authStore, logout } from '@/stores/auth.ts';
 import { ThemeSwitcher } from '@/theme';
 import {
+  DatabaseOutlined,
   HomeOutlined,
   InfoCircleOutlined,
   OllamaFilled,
@@ -19,7 +20,7 @@ import { useSelector } from '@tanstack/react-store';
 import { Avatar, Button, Divider, Dropdown, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { pinyin } from 'pinyin-pro';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode } from 'react';
 
 const { Text } = Typography;
 
@@ -38,6 +39,7 @@ const menuData = {
   routes: [
     { path: '/', name: '首页', icon: <HomeOutlined /> },
     { path: '/about', name: '关于', icon: <InfoCircleOutlined /> },
+    { path: '/knowledge', name: '知识库', icon: <DatabaseOutlined /> },
     { path: '/chat', name: '聊天机器人', icon: <OllamaFilled /> },
   ],
 };
@@ -62,7 +64,6 @@ function LayoutComponent() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const user = useSelector(authStore, (s) => s.user);
-  const [collapsed, setCollapsed] = useState(false);
 
   const handleLogout = async () => {
     await logoutApi().catch(() => undefined);
@@ -110,51 +111,37 @@ function LayoutComponent() {
     </div>
   );
 
-  const AvatarComponent = (
-    <Dropdown
-      trigger={['click']}
-      placement="rightBottom"
-      popupRender={() => userPanel}
-    >
-      <button
-        type="button"
-        aria-label={user?.username ? `用户菜单：${user.username}` : '用户菜单'}
-        className={`flex cursor-pointer items-center rounded-2xl border-0 bg-transparent p-2 text-inherit transition hover:bg-(--ant-control-item-bg-hover) ${collapsed ? 'justify-center' : 'gap-2'}`}
-      >
-        <Avatar
-          rootClassName="bg-(--lucy-page-avatar-background)!"
-          size="middle"
-          gap={4}
-        >
-          {getAvatarLetter(user?.username)}
-        </Avatar>
-        {!collapsed && <Text ellipsis>{user?.username}</Text>}
-      </button>
-    </Dropdown>
-  );
-
   return (
     <ProLayout
       className={'h-full'}
       title="Lucy"
       logo={<img src="/favicon.svg" alt="Lucy" />}
-      layout="side"
-      collapsed={collapsed}
-      onCollapse={setCollapsed}
+      layout="top"
       fixedHeader
-      fixSiderbar
       menu={{ locale: false }}
       location={{ pathname }}
       route={menuData}
       menuItemRender={renderMenuItem}
-      menuFooterRender={() => AvatarComponent}
+      actionsRender={() => [
+        <ThemeSwitcher key="theme" className="mx-1!" />,
+        <Dropdown key="user" trigger={['click']} popupRender={() => userPanel}>
+          <Button
+            type="text"
+            aria-label="用户菜单"
+            className="ml-1! h-auto! p-0!"
+          >
+            <Avatar
+              rootClassName="bg-(--lucy-page-avatar-background)! rounded-full! cursor-pointer"
+              size="middle"
+              gap={4}
+            >
+              {getAvatarLetter(user?.username)}
+            </Avatar>
+          </Button>
+        </Dropdown>,
+      ]}
     >
-      <PageContainer
-        fixedHeader
-        header={{
-          extra: [<ThemeSwitcher key={'theme'} />],
-        }}
-      >
+      <PageContainer pageHeaderRender={() => <></>}>
         <Outlet />
       </PageContainer>
     </ProLayout>

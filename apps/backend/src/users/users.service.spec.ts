@@ -1,8 +1,7 @@
-import { ErrorCode } from '@lucy/shared';
+import { ConflictException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { QueryFailedError } from 'typeorm';
-import { BusinessException } from '../common/exceptions/business.exception.js';
 import { PasswordService } from '../password/password.service.js';
 import { User } from './user.entity.js';
 import { UsersService } from './users.service.js';
@@ -30,11 +29,11 @@ describe('UsersService', () => {
     service = module.get(UsersService);
   });
 
-  it('create 用户名重复抛 40901', async () => {
+  it('create 用户名重复抛 409', async () => {
     repo.findOneBy.mockResolvedValueOnce({ id: '1' });
     await expect(
       service.create({ username: 'a', email: 'a@x.com', password: '12345678' }),
-    ).rejects.toThrow(BusinessException);
+    ).rejects.toThrow(ConflictException);
   });
 
   it('create 成功时调用 hash 并 save', async () => {
@@ -65,8 +64,25 @@ describe('UsersService', () => {
         password: '12345678',
       }),
     ).rejects.toMatchObject({
-      response: { code: ErrorCode.EMAIL_TAKEN },
+      response: { statusCode: 409 },
     });
+  });
+
+  it('create 命中非 username/email 的唯一约束时向上传递原始错误', async () => {
+    repo.findOneBy.mockResolvedValue(null);
+    const driverError = Object.assign(new Error('duplicate key value'), {
+      code: '23505',
+      detail: 'Key (phone)=(13800000000) already exists.',
+    });
+    const dbError = new QueryFailedError('INSERT INTO users', [], driverError);
+    repo.save.mockRejectedValue(dbError);
+    await expect(
+      service.create({
+        username: 'a',
+        email: 'a@x.com',
+        password: '12345678',
+      }),
+    ).rejects.toBe(dbError);
   });
 
   it('findByUsername 委托 repo', async () => {
