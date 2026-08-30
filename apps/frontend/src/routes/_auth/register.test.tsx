@@ -124,7 +124,7 @@ describe('routes/_auth/register', () => {
       target: { value: 'Strong1!Pass' },
     });
     // 勾选条款
-    fireEvent.click(screen.getByLabelText(/我已阅读并同意/));
+    fireEvent.click(screen.getByRole('checkbox', { name: /我已阅读并同意/ }));
     fireEvent.click(await screen.findByRole('button', { name: /^注册/ }));
 
     await waitFor(() => {

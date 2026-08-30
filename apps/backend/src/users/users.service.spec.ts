@@ -68,6 +68,23 @@ describe('UsersService', () => {
     });
   });
 
+  it('create 命中非 username/email 的唯一约束时向上传递原始错误', async () => {
+    repo.findOneBy.mockResolvedValue(null);
+    const driverError = Object.assign(new Error('duplicate key value'), {
+      code: '23505',
+      detail: 'Key (phone)=(13800000000) already exists.',
+    });
+    const dbError = new QueryFailedError('INSERT INTO users', [], driverError);
+    repo.save.mockRejectedValue(dbError);
+    await expect(
+      service.create({
+        username: 'a',
+        email: 'a@x.com',
+        password: '12345678',
+      }),
+    ).rejects.toBe(dbError);
+  });
+
   it('findByUsername 委托 repo', async () => {
     repo.findOneBy.mockResolvedValue({ id: '1' });
     await expect(service.findByUsername('a')).resolves.toEqual({ id: '1' });

@@ -115,12 +115,12 @@ function LoginPageBlock() {
               <label htmlFor="password" className="text-white/80">
                 密码
               </label>
-              <a
-                href="#"
+              <button
+                type="button"
                 className="text-xs text-cyan-400 transition-colors hover:text-cyan-300"
               >
                 忘记密码？
-              </a>
+              </button>
             </div>
             <Controller
               name="password"

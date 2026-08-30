@@ -189,30 +189,7 @@ export class AuthService {
   ): Promise<{ accessToken: string; refreshToken: string }> {
     const active = await this.redis.get(this.refreshKey(refreshToken));
     if (!active) {
-      // 已不在 active 集合：可能是被轮换掉的旧 token，或已过期
-      const reused = await this.redis.get(this.reuseKey(refreshToken));
-      if (reused) {
-        const parsed = this.parseActive(reused);
-        let theft = false;
-        if (parsed) {
-          // 复用宽限期：仅当 reuse-at 存在且在宽限期内视为良性 cookie 滞后（多标签页竞态）；
-          // reuse-at 缺失或超过宽限期均按泄露处理（fail-closed），吊销整个家族
-          const reuseAtRaw = await this.redis.get(
-            this.reuseAtKey(refreshToken),
-          );
-          const withinGrace =
-            reuseAtRaw &&
-            Date.now() - Number(reuseAtRaw) < this.reuseGraceSeconds() * 1000;
-          theft = !withinGrace;
-          if (theft) {
-            await this.revokeFamily(parsed.family);
-          }
-        }
-        throw new UnauthorizedException(
-          theft ? '刷新令牌无效（检测到令牌复用）' : '刷新令牌无效',
-        );
-      }
-      throw new UnauthorizedException('刷新令牌无效');
+      throw await this.handleInactiveRefreshToken(refreshToken);
     }
     const parsed = this.parseActive(active);
     if (!parsed) {
@@ -234,14 +211,66 @@ export class AuthService {
       sub: user.id,
       jti: randomUUID(),
     });
-    // 时间化轮换：token 未到轮换年龄时不轮换、保持同一 refresh cookie，
-    // 从根上降低多标签页共享 cookie 的轮换竞态频率
+    return this.maybeRotate(refreshToken, userId, family, active, accessToken);
+  }
+
+  // 已不在 active 集合：可能是被轮换掉的旧 token，或已过期
+  private async handleInactiveRefreshToken(
+    refreshToken: string,
+  ): Promise<UnauthorizedException> {
+    const reused = await this.redis.get(this.reuseKey(refreshToken));
+    if (!reused) {
+      return new UnauthorizedException('刷新令牌无效');
+    }
+    const parsed = this.parseActive(reused);
+    const theft = await this.detectTheft(refreshToken, parsed);
+    if (theft && parsed) {
+      await this.revokeFamily(parsed.family);
+    }
+    return new UnauthorizedException(
+      theft ? '刷新令牌无效（检测到令牌复用）' : '刷新令牌无效',
+    );
+  }
+
+  // 复用宽限期：仅当 reuse-at 存在且在宽限期内视为良性 cookie 滞后（多标签页竞态）；
+  // reuse-at 缺失或超过宽限期均按泄露处理（fail-closed）
+  private async detectTheft(
+    refreshToken: string,
+    parsed: { userId: string; family: string } | null,
+  ): Promise<boolean> {
+    if (!parsed) return false;
+    const reuseAtRaw = await this.redis.get(this.reuseAtKey(refreshToken));
+    const withinGrace =
+      reuseAtRaw !== null &&
+      Date.now() - Number(reuseAtRaw) < this.reuseGraceSeconds() * 1000;
+    return !withinGrace;
+  }
+
+  // 时间化轮换：token 未到轮换年龄时不轮换、保持同一 refresh cookie，
+  // 从根上降低多标签页共享 cookie 的轮换竞态频率
+  private async maybeRotate(
+    refreshToken: string,
+    userId: string,
+    family: string,
+    active: string,
+    accessToken: string,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
     const createdAtRaw = await this.redis.get(this.activeAtKey(refreshToken));
     const createdAt = createdAtRaw ? Number(createdAtRaw) : 0;
     if (Date.now() - createdAt < this.rotationMs()) {
       return { accessToken, refreshToken };
     }
-    // 轮换：删除旧 token → 记录复用标记（含轮换时间）→ 同家族签发新 token
+    return this.rotate(refreshToken, userId, family, active, accessToken);
+  }
+
+  // 轮换：删除旧 token → 记录复用标记（含轮换时间）→ 同家族签发新 token
+  private async rotate(
+    refreshToken: string,
+    userId: string,
+    family: string,
+    active: string,
+    accessToken: string,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
     const ttl = this.refreshTtl();
     await this.execMulti(
       this.redis.raw

@@ -419,20 +419,15 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
                 <Flex gap="small" align="center">
                   <Switch
                     value={reasoning}
-                    children={
-                      <Text
-                        type="secondary"
-                        className="text-xs"
-                        ellipsis={true}
-                      >
-                        深度思考
-                      </Text>
-                    }
                     onChange={(checked: boolean) => {
                       setReasoning(checked);
                     }}
                     icon={<OpenAIOutlined />}
-                  />
+                  >
+                    <Text type="secondary" className="text-xs" ellipsis={true}>
+                      深度思考
+                    </Text>
+                  </Switch>
                 </Flex>
               </Flex>
             );

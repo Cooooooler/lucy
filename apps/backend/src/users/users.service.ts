@@ -33,12 +33,8 @@ export class UsersService {
     password: string;
     nickname?: string;
   }): Promise<User> {
-    if (await this.findByUsername(input.username)) {
-      throw new ConflictException('用户名已存在');
-    }
-    if (await this.findByEmail(input.email)) {
-      throw new ConflictException('邮箱已存在');
-    }
+    await this.assertUsernameAvailable(input.username);
+    await this.assertEmailAvailable(input.email);
     const passwordHash = await this.passwordService.hash(input.password);
     const user = this.repo.create({
       username: input.username,
@@ -50,23 +46,43 @@ export class UsersService {
     try {
       return await this.repo.save(user);
     } catch (err) {
-      if (
-        err instanceof QueryFailedError &&
-        (err.driverError as { code?: string }).code === '23505'
-      ) {
-        // 竞态兜底：预检查之外的并发写入触发唯一约束，解析冲突列给出具体提示
-        const detail = (err.driverError as { detail?: string }).detail ?? '';
-        const isEmail = detail.includes('(email)');
-        const isUsername = detail.includes('(username)');
-        throw new ConflictException(
-          isEmail
-            ? '邮箱已存在'
-            : isUsername
-              ? '用户名已存在'
-              : '用户名或邮箱已存在',
-        );
+      if (this.isUniqueViolation(err)) {
+        throw this.toUniqueConflict(err);
       }
       throw err;
     }
+  }
+
+  private async assertUsernameAvailable(username: string): Promise<void> {
+    if (await this.findByUsername(username)) {
+      throw new ConflictException('用户名已存在');
+    }
+  }
+
+  private async assertEmailAvailable(email: string): Promise<void> {
+    if (await this.findByEmail(email)) {
+      throw new ConflictException('邮箱已存在');
+    }
+  }
+
+  private isUniqueViolation(err: unknown): err is QueryFailedError {
+    return (
+      err instanceof QueryFailedError &&
+      (err.driverError as { code?: string }).code === '23505'
+    );
+  }
+
+  // 竞态兜底：预检查之外的并发写入触发唯一约束，解析冲突列给出具体提示
+  // 兜底仅覆盖已识别的 username/email 约束；其他唯一约束视为未知错误向上传递，
+  // 避免用 USERNAME_TAKEN 误导客户端。
+  private toUniqueConflict(err: QueryFailedError): ConflictException {
+    const detail = (err.driverError as { detail?: string }).detail ?? '';
+    if (detail.includes('(email)')) {
+      return new ConflictException('邮箱已存在');
+    }
+    if (detail.includes('(username)')) {
+      return new ConflictException('用户名已存在');
+    }
+    throw err;
   }
 }
