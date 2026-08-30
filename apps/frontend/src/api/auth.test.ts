@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeUser } from '../test/fixtures';
-import { loginApi, logoutApi, registerApi } from './auth';
+import { loginApi, logoutApi, meApi, registerApi } from './auth.js';
 
 const mocks = vi.hoisted(() => ({
   post: vi.fn(),
+  get: vi.fn(),
 }));
 
 vi.mock('./client', () => ({
-  http: { post: mocks.post },
+  http: { post: mocks.post, get: mocks.get },
 }));
 
 const user = makeUser();
@@ -15,6 +16,7 @@ const user = makeUser();
 describe('api/auth', () => {
   beforeEach(() => {
     mocks.post.mockReset();
+    mocks.get.mockReset();
   });
 
   it('loginApi 调用 auth/login 并返回结果', async () => {
@@ -47,12 +49,21 @@ describe('api/auth', () => {
     expect(result).toEqual(user);
   });
 
-  it('logoutApi 调用 auth/logout 并返回结果', async () => {
+  it('logoutApi 调用 auth/logout', async () => {
     mocks.post.mockReturnValueOnce({
-      json: vi.fn().mockResolvedValueOnce({ success: true }),
+      json: vi.fn().mockResolvedValueOnce(null),
     });
     const result = await logoutApi();
     expect(mocks.post).toHaveBeenCalledWith('auth/logout');
-    expect(result).toEqual({ success: true });
+    expect(result).toBeNull();
+  });
+
+  it('meApi 调用 auth/me', async () => {
+    mocks.get.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValueOnce(user),
+    });
+    const result = await meApi();
+    expect(mocks.get).toHaveBeenCalledWith('auth/me');
+    expect(result).toEqual(user);
   });
 });

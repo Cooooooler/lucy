@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
+import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module.js';
@@ -18,6 +19,16 @@ async function bootstrap() {
     credentials: true,
   });
   app.use(cookieParser());
+
+  // Scalar 文档页需从 jsDelivr 加载脚本并执行内联脚本，helmet 默认 CSP 会拦截；
+  // 仅对 /docs（及其子路径）覆盖为宽松 CSP，避免全局放宽。docs 仅非生产环境挂载。
+  app.use('/docs', (_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; connect-src 'self' https:;",
+    );
+    next();
+  });
 
   DocsModule.setup(app);
   await app.listen(process.env.PORT ?? 3000);

@@ -1,4 +1,4 @@
-import type { ApiResponse } from '@lucy/shared';
+import { ErrorCode, type ApiResponse } from '@lucy/shared';
 import type { BodyType, HookFetchPlugin, RequestConfig } from 'hook-fetch';
 import hookFetch, { ResponseError } from 'hook-fetch';
 import { sseTextDecoderPlugin } from 'hook-fetch/plugins';
@@ -30,9 +30,16 @@ type RequestExtra = {
 
 // 基础配置：baseURL、Content-Type（hook-fetch 直接拼接 baseURL+url，baseURL 需以 / 结尾）
 // withCredentials: hook-fetch 默认 credentials:'omit' 不携带 cookie；长效 token 走 HttpOnly
-// cookie，必须显式带上，否则 /auth/refresh 收不到刷新令牌
+// cookie，必须显式带上，否则 /auth/refresh 收不到刷新令牌。
+// baseURL 解析顺序：
+// 1. globalThis.__lucyApiBaseUrl（测试 setupFiles 注入，覆盖 dev/prod 默认）
+// 2. VITE_API_BASE_URL 构建期注入（CI/CD 不同环境部署用）
+// 3. dev 默认 '/api/'（vite proxy 转发），prod 同源 '/'
 const baseOptions = {
-  baseURL: import.meta.env.DEV ? '/api/' : '/',
+  baseURL:
+    (globalThis as { __lucyApiBaseUrl?: string }).__lucyApiBaseUrl ??
+    import.meta.env.VITE_API_BASE_URL ??
+    (import.meta.env.DEV ? '/api/' : '/'),
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
 };
@@ -53,6 +60,19 @@ const authHeader: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
   },
 };
 
+// multipart/form-data：去除默认的 application/json Content-Type，
+// 让 fetch 为 FormData body 自动生成 boundary（库上传等文件接口依赖）
+const multipartFormData: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
+  name: 'multipart-form-data',
+  async beforeRequest(ctx) {
+    if (ctx.config.data instanceof FormData) {
+      ctx.config.headers = new Headers(ctx.config.headers);
+      ctx.config.headers.delete('Content-Type');
+    }
+    return ctx.config;
+  },
+};
+
 // 统一错误归一化：非 2xx 响应从响应体还原业务码，包装成 ApiError
 const normalizeError: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
   name: 'normalize-error',
@@ -66,7 +86,7 @@ const normalizeError: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
       .clone()
       .json()
       .catch(() => null);
-    if (body && body.code !== 0) {
+    if (body && body.code !== ErrorCode.OK) {
       return ctx.reject(
         new ApiError(
           body.message ?? `请求失败（${status}）`,
@@ -92,14 +112,14 @@ const normalizeError: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
 };
 
 // 解包同时进行前后端约定错误处理
-// 解包 { code, message, data } 信封；非 0 / 非 2xx 抛出 ApiError
+// 解包 { code, message, data } 信封；非 OK / 非 2xx 抛出 ApiError
 const unwrapEnvelope: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
   name: 'unwrap-envelope',
   afterResponse(ctx) {
     if (ctx.responseType !== 'json') return ctx;
     const body = ctx.result;
-    // 2xx 但业务码非 0（防御性处理）：仍按错误处理，还原业务码与 message
-    if (body.code !== 0) {
+    // 2xx 但业务码非 OK（防御性处理）：仍按错误处理，还原业务码与 message
+    if (body.code !== ErrorCode.OK) {
       return ctx.reject(
         new ApiError(
           body.message ?? `请求失败（${ctx.response.status}）`,
@@ -168,6 +188,7 @@ const refreshOn401: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
 export const http = hookFetch
   .create(baseOptions)
   .use(authHeader)
+  .use(multipartFormData)
   .use(
     sseTextDecoderPlugin({
       json: true, // 自动解析 JSON

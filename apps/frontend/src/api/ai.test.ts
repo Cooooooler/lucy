@@ -138,10 +138,8 @@ describe('api/ai', () => {
     });
 
     it('deleteConversationApi 调用 DELETE', async () => {
-      fetchMock.mockResolvedValueOnce(okEnvelope({ success: true }));
-      await expect(deleteConversationApi('c1')).resolves.toEqual({
-        success: true,
-      });
+      fetchMock.mockResolvedValueOnce(okEnvelope(null));
+      await expect(deleteConversationApi('c1')).resolves.toBeNull();
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/ai/conversations/c1',
         expect.objectContaining({ method: 'DELETE' }),

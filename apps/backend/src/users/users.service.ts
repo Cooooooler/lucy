@@ -1,8 +1,6 @@
-import { ErrorCode } from '@lucy/shared';
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
-import { BusinessException } from '../common/exceptions/business.exception.js';
 import { PasswordService } from '../password/password.service.js';
 import { User } from './user.entity.js';
 
@@ -13,18 +11,22 @@ export class UsersService {
     private readonly passwordService: PasswordService,
   ) {}
 
+  /** 按用户名查询用户。 */
   findByUsername(username: string): Promise<User | null> {
     return this.repo.findOneBy({ username });
   }
 
+  /** 按邮箱查询用户。 */
   findByEmail(email: string): Promise<User | null> {
     return this.repo.findOneBy({ email });
   }
 
+  /** 按主键查询用户。 */
   findById(id: string): Promise<User | null> {
     return this.repo.findOneBy({ id });
   }
 
+  /** 创建用户（带唯一性校验与竞态兜底）。 */
   async create(input: {
     username: string;
     email: string;
@@ -53,21 +55,13 @@ export class UsersService {
 
   private async assertUsernameAvailable(username: string): Promise<void> {
     if (await this.findByUsername(username)) {
-      throw new BusinessException(
-        ErrorCode.USERNAME_TAKEN,
-        '用户名已存在',
-        HttpStatus.CONFLICT,
-      );
+      throw new ConflictException('用户名已存在');
     }
   }
 
   private async assertEmailAvailable(email: string): Promise<void> {
     if (await this.findByEmail(email)) {
-      throw new BusinessException(
-        ErrorCode.EMAIL_TAKEN,
-        '邮箱已存在',
-        HttpStatus.CONFLICT,
-      );
+      throw new ConflictException('邮箱已存在');
     }
   }
 
@@ -81,21 +75,13 @@ export class UsersService {
   // 竞态兜底：预检查之外的并发写入触发唯一约束，解析冲突列给出具体提示
   // 兜底仅覆盖已识别的 username/email 约束；其他唯一约束视为未知错误向上传递，
   // 避免用 USERNAME_TAKEN 误导客户端。
-  private toUniqueConflict(err: QueryFailedError): BusinessException {
+  private toUniqueConflict(err: QueryFailedError): ConflictException {
     const detail = (err.driverError as { detail?: string }).detail ?? '';
     if (detail.includes('(email)')) {
-      return new BusinessException(
-        ErrorCode.EMAIL_TAKEN,
-        '邮箱已存在',
-        HttpStatus.CONFLICT,
-      );
+      return new ConflictException('邮箱已存在');
     }
     if (detail.includes('(username)')) {
-      return new BusinessException(
-        ErrorCode.USERNAME_TAKEN,
-        '用户名已存在',
-        HttpStatus.CONFLICT,
-      );
+      return new ConflictException('用户名已存在');
     }
     throw err;
   }

@@ -1,3 +1,4 @@
+import { ErrorCode } from '@lucy/shared';
 import {
   CallHandler,
   ExecutionContext,
@@ -23,6 +24,8 @@ export class ApiResponseInterceptor implements NestInterceptor {
     if (isSse) return next.handle();
     return next
       .handle()
-      .pipe(map((data: unknown) => ({ code: 0, message: 'ok', data })));
+      .pipe(
+        map((data: unknown) => ({ code: ErrorCode.OK, message: 'ok', data })),
+      );
   }
 }

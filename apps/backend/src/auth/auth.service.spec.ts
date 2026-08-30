@@ -1,9 +1,8 @@
 import { RedisService } from '@coool/redis-nest';
-import { ErrorCode } from '@lucy/shared';
+import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
-import { BusinessException } from '../common/exceptions/business.exception.js';
 import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
 import { User } from '../users/user.entity.js';
@@ -125,20 +124,20 @@ describe('AuthService', () => {
     ).rejects.toThrow(/Redis transaction failed/);
   });
 
-  it('login 密码错误抛 40102', async () => {
+  it('login 密码错误抛 401', async () => {
     usersService.findByUsername.mockResolvedValue(user);
     passwordService.verify.mockResolvedValue(false);
     await expect(
       service.login({ account: 'alice', password: 'x' }),
-    ).rejects.toThrow(BusinessException);
+    ).rejects.toThrow(UnauthorizedException);
   });
 
-  it('login 用户不存在也执行一次虚拟 verify 且抛 40102', async () => {
+  it('login 用户不存在也执行一次虚拟 verify 且抛 401', async () => {
     usersService.findByUsername.mockResolvedValue(null);
     passwordService.verify.mockResolvedValue(false);
     await expect(
       service.login({ account: 'ghost', password: 'x' }),
-    ).rejects.toThrow(BusinessException);
+    ).rejects.toThrow(UnauthorizedException);
     expect(passwordService.verify).toHaveBeenCalledTimes(1);
   });
 
@@ -154,7 +153,7 @@ describe('AuthService', () => {
     passwordService.verify.mockResolvedValue(true);
     await expect(
       service.login({ account: 'alice', password: 'p' }),
-    ).rejects.toThrow(BusinessException);
+    ).rejects.toThrow(UnauthorizedException);
   });
 
   // 按 key 返回值的 get mock，避免用单一返回值掩盖 active/at/reuse 读取
@@ -164,13 +163,13 @@ describe('AuthService', () => {
     );
   }
 
-  // 断言拒绝且业务码为 UNAUTHORIZED（40101）
+  // 断言拒绝且状态码为 401（Nest 原生 UnauthorizedException）
   function expectUnauthorized(p: Promise<unknown>): Promise<void> {
     return p.then(
       () => Promise.reject(new Error('expected rejection')),
       (e: unknown) => {
         expect((e as { getResponse?: () => unknown }).getResponse?.()).toEqual(
-          expect.objectContaining({ code: ErrorCode.UNAUTHORIZED }),
+          expect.objectContaining({ statusCode: 401 }),
         );
       },
     );
@@ -233,7 +232,7 @@ describe('AuthService', () => {
       'auth:refresh:reuse:old': activeVal,
       'auth:refresh:reuse-at:old': String(now - 5000),
     });
-    await expect(service.refresh('old')).rejects.toThrow(BusinessException);
+    await expect(service.refresh('old')).rejects.toThrow(UnauthorizedException);
     expect(redisService.smembers).not.toHaveBeenCalled();
     expect(redisService.raw.multi).not.toHaveBeenCalled();
   });
@@ -279,7 +278,7 @@ describe('AuthService', () => {
 
   it('refresh 遇到旧格式（无 family）的 active 值视为无效并清理', async () => {
     mockGet({ 'auth:refresh:old': 'u1' }); // 旧格式：只有 userId
-    await expect(service.refresh('old')).rejects.toThrow(BusinessException);
+    await expect(service.refresh('old')).rejects.toThrow(UnauthorizedException);
     expect(redisService.del).toHaveBeenCalledWith(
       'auth:refresh:old',
       'auth:refresh:at:old',
@@ -292,13 +291,13 @@ describe('AuthService', () => {
   it('refresh 用户不存在抛 Unauthorized', async () => {
     mockGet({ 'auth:refresh:t': activeVal });
     usersService.findById.mockResolvedValue(null);
-    await expect(service.refresh('t')).rejects.toThrow(BusinessException);
+    await expect(service.refresh('t')).rejects.toThrow(UnauthorizedException);
   });
 
   it('refresh 用户已禁用抛 Unauthorized', async () => {
     mockGet({ 'auth:refresh:t': activeVal });
     usersService.findById.mockResolvedValue({ ...user, status: 0 });
-    await expect(service.refresh('t')).rejects.toThrow(BusinessException);
+    await expect(service.refresh('t')).rejects.toThrow(UnauthorizedException);
   });
 
   it('me 返回用户信息且不含 passwordHash', async () => {
@@ -310,7 +309,7 @@ describe('AuthService', () => {
 
   it('me 用户不存在抛 Unauthorized', async () => {
     usersService.findById.mockResolvedValue(null);
-    await expect(service.me('x')).rejects.toThrow(BusinessException);
+    await expect(service.me('x')).rejects.toThrow(UnauthorizedException);
   });
 
   it('logout 带有效 refreshToken 吊销整个家族', async () => {
@@ -348,8 +347,8 @@ describe('AuthService', () => {
     expect(denylist.add).toHaveBeenCalledWith('jti-1');
   });
 
-  it('throwMissingRefresh 抛 BusinessException', () => {
-    expect(() => service.throwMissingRefresh()).toThrow(BusinessException);
+  it('throwMissingRefresh 抛 UnauthorizedException', () => {
+    expect(() => service.throwMissingRefresh()).toThrow(UnauthorizedException);
   });
 
   it('refreshTtl 返回默认 7 天', () => {
