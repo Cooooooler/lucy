@@ -2,6 +2,11 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
+// 测试期间显式指定 API baseURL 为 '/api/'，与 vite dev 服务器（带 /api proxy）行为
+// 一致。被 client.ts 顶层读取，必须在 client.ts 导入前赋值，否则 baseURL 已被
+// 解析。setupFiles 在每个测试文件 import 之前执行，时机合适。
+(globalThis as { __lucyApiBaseUrl?: string }).__lucyApiBaseUrl = '/api/';
+
 afterEach(() => {
   cleanup();
 });
@@ -36,5 +41,106 @@ if (typeof window !== 'undefined') {
     value: createMemoryStorage(),
     configurable: true,
     writable: true,
+  });
+}
+
+// antd 6 / pro-components 在多处读 matchMedia（如 responsiveObserver、
+// useBreakpoint、StatisticsCard）。jsdom 不实现，统一桩为「无匹配 + 无监听」，
+// 不影响任何渲染路径（生产 CSS 媒体查询仍由浏览器负责）。
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'scrollTo', {
+    writable: true,
+    configurable: true,
+    value: () => {},
+  });
+  Object.defineProperty(window, 'scroll', {
+    writable: true,
+    configurable: true,
+    value: () => {},
+  });
+  Object.defineProperty(Element.prototype, 'scrollTo', {
+    writable: true,
+    configurable: true,
+    value: () => {},
+  });
+  if (!Element.prototype.scrollIntoView) {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      writable: true,
+      configurable: true,
+      value: () => {},
+    });
+  } else {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      writable: true,
+      configurable: true,
+      value: () => {},
+    });
+  }
+}
+if (typeof window !== 'undefined') {
+  const NotificationStub = class {
+    static readonly permission = 'default';
+    static readonly requestPermission = async () =>
+      'default' as NotificationPermission;
+    close(): void {
+      void 0;
+    }
+  };
+  for (const target of [
+    globalThis as Record<string, unknown>,
+    window as unknown as Record<string, unknown>,
+  ]) {
+    if (target.Notification === undefined) {
+      Object.defineProperty(target, 'Notification', {
+        writable: true,
+        configurable: true,
+        value: NotificationStub,
+      });
+    }
+  }
+}
+
+// jsdom 不实现 ResizeObserver，antd Dropdown / Splitter / rc-resize-observer
+// 等会在挂载时使用它；统一桩为 no-op，避免组件一渲染就 ReferenceError。
+if (typeof window !== 'undefined' && !('ResizeObserver' in globalThis)) {
+  class ResizeObserverStub {
+    observe(): void {
+      void 0;
+    }
+
+    unobserve(): void {
+      void 0;
+    }
+
+    disconnect(): void {
+      void 0;
+    }
+  }
+  // antd 通过 window.ResizeObserver 拿到
+  Object.defineProperty(window, 'ResizeObserver', {
+    writable: true,
+    configurable: true,
+    value: ResizeObserverStub,
+  });
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    writable: true,
+    configurable: true,
+    value: ResizeObserverStub,
   });
 }

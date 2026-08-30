@@ -1,4 +1,3 @@
-import { ErrorCode } from '@lucy/shared';
 import { HttpStatus, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -168,7 +167,7 @@ describe('KnowledgeService', () => {
     kbRepo.findOne.mockResolvedValue(kb());
     await expect(service.get('u2', 'kb1')).rejects.toMatchObject({
       status: HttpStatus.FORBIDDEN,
-      response: { code: ErrorCode.KNOWLEDGE_FORBIDDEN },
+      response: { statusCode: 403 },
     });
   });
 
@@ -177,14 +176,14 @@ describe('KnowledgeService', () => {
     await expect(
       service.update('u2', 'kb1', { name: 'y' }),
     ).rejects.toMatchObject({
-      response: { code: ErrorCode.KNOWLEDGE_FORBIDDEN },
+      response: { statusCode: 403 },
     });
   });
 
   it('remove 非属主抛 FORBIDDEN', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
     await expect(service.remove('u2', 'kb1')).rejects.toMatchObject({
-      response: { code: ErrorCode.KNOWLEDGE_FORBIDDEN },
+      response: { statusCode: 403 },
     });
   });
 
@@ -197,7 +196,7 @@ describe('KnowledgeService', () => {
         size: 1,
       } as never),
     ).rejects.toMatchObject({
-      response: { code: ErrorCode.KNOWLEDGE_INVALID_FILE_TYPE },
+      response: { statusCode: 415 },
     });
   });
 
@@ -211,7 +210,7 @@ describe('KnowledgeService', () => {
         size: big.length,
       } as never),
     ).rejects.toMatchObject({
-      response: { code: ErrorCode.KNOWLEDGE_FILE_TOO_LARGE },
+      response: { statusCode: 413 },
     });
     expect(fileService.save).not.toHaveBeenCalled();
   });
@@ -230,7 +229,7 @@ describe('KnowledgeService', () => {
         size: 4,
       } as never),
     ).rejects.toMatchObject({
-      response: { code: ErrorCode.KNOWLEDGE_INVALID_FILE_TYPE },
+      response: { statusCode: 415 },
     });
   });
 
@@ -250,7 +249,7 @@ describe('KnowledgeService', () => {
         size: 4,
       } as never),
     ).rejects.toMatchObject({
-      response: { code: ErrorCode.KNOWLEDGE_FILE_PARSE_FAILED },
+      response: { statusCode: 422 },
     });
     expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
     expect(fileRepo.delete).toHaveBeenCalledWith({ id: 'f1' });
@@ -432,7 +431,7 @@ describe('KnowledgeService', () => {
         size: big.length,
       } as never),
     ).rejects.toMatchObject({
-      response: { code: ErrorCode.KNOWLEDGE_FILE_TOO_LARGE },
+      response: { statusCode: 413 },
     });
     expect(fileService.save).not.toHaveBeenCalled();
   });

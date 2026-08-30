@@ -49,7 +49,11 @@ export class KnowledgeDocument {
   @Column({ type: 'varchar', length: 255 })
   title: string;
 
-  @ApiProperty({ description: '解析出的纯文本', nullable: true })
+  @ApiProperty({
+    description: '解析出的纯文本',
+    type: 'string',
+    nullable: true,
+  })
   @Column({ type: 'text', nullable: true })
   content: string | null;
 

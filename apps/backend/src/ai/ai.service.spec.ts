@@ -90,7 +90,7 @@ describe('AiService', () => {
 
   it('remove 删除会话，不存在抛错', async () => {
     conversationRepo.delete.mockResolvedValue({ affected: 1 });
-    await expect(service.remove('1', 'c1')).resolves.toEqual({ success: true });
+    await expect(service.remove('1', 'c1')).resolves.toBeNull();
     conversationRepo.delete.mockResolvedValue({ affected: 0 });
     await expect(service.remove('1', 'c1')).rejects.toThrow('会话不存在');
   });

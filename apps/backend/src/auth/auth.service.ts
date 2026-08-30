@@ -1,12 +1,10 @@
 import { RedisService } from '@coool/redis-nest';
 import type { components } from '@lucy/shared';
-import { ErrorCode } from '@lucy/shared';
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { ChainableCommander } from 'ioredis';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { BusinessException } from '../common/exceptions/business.exception.js';
 import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
 import { User } from '../users/user.entity.js';
@@ -26,20 +24,22 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
 
+  /** 读配置：长效 token 过期秒数（默认 7 天）。 */
   refreshTtl(): number {
     return this.config.get<number>('REFRESH_TTL_SECONDS', 604800);
   }
 
+  /** 仅 production 下给刷新 Cookie 打 Secure 标记。 */
   cookieSecure(): boolean {
     return this.config.get<string>('NODE_ENV', 'development') === 'production';
   }
 
-  // 时间化轮换：refresh token 超过该年龄才轮换，否则保持同一 token（降低多标签页竞态）
+  /** 时间化轮换：refresh token 超过该年龄才轮换，否则保持同一 token（降低多标签页竞态）。 */
   rotationMs(): number {
     return this.config.get<number>('REFRESH_ROTATION_MS', 600000);
   }
 
-  // 复用宽限期：轮换后短时间内再次出现视为良性 cookie 滞后，超过才判定泄露
+  /** 复用宽限期：轮换后短时间内再次出现视为良性 cookie 滞后，超过才判定泄露。 */
   reuseGraceSeconds(): number {
     return this.config.get<number>('REUSE_GRACE_SECONDS', 10);
   }
@@ -88,6 +88,7 @@ export class AuthService {
     };
   }
 
+  /** 认证服务：注册。 */
   async register(input: {
     username: string;
     email: string;
@@ -98,6 +99,7 @@ export class AuthService {
     return this.toSharedUser(user);
   }
 
+  /** 认证服务：登录（支持用户名或邮箱）。 */
   async login(dto: { account: string; password: string }): Promise<{
     user: SharedUser;
     accessToken: string;
@@ -112,25 +114,13 @@ export class AuthService {
         dto.password,
         'scrypt:16384:8:1:AAAAAAAAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==',
       );
-      throw new BusinessException(
-        ErrorCode.INVALID_CREDENTIALS,
-        '用户名或密码错误',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('用户名或密码错误');
     }
     if (!(await this.passwordService.verify(dto.password, user.passwordHash))) {
-      throw new BusinessException(
-        ErrorCode.INVALID_CREDENTIALS,
-        '用户名或密码错误',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('用户名或密码错误');
     }
     if (user.status !== 1) {
-      throw new BusinessException(
-        ErrorCode.ACCOUNT_DISABLED,
-        '账号已禁用',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('账号已禁用');
     }
     const family = randomUUID();
     // 先签 access token：signAsync 失败时不落任何 refresh 状态，避免泄漏无人可达的 Redis 记录
@@ -193,6 +183,7 @@ export class AuthService {
     }
   }
 
+  /** 认证服务：刷新令牌（带复用检测与轮换）。 */
   async refresh(
     refreshToken: string,
   ): Promise<{ accessToken: string; refreshToken: string }> {
@@ -217,17 +208,11 @@ export class AuthService {
             await this.revokeFamily(parsed.family);
           }
         }
-        throw new BusinessException(
-          ErrorCode.UNAUTHORIZED,
+        throw new UnauthorizedException(
           theft ? '刷新令牌无效（检测到令牌复用）' : '刷新令牌无效',
-          HttpStatus.UNAUTHORIZED,
         );
       }
-      throw new BusinessException(
-        ErrorCode.UNAUTHORIZED,
-        '刷新令牌无效',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('刷新令牌无效');
     }
     const parsed = this.parseActive(active);
     if (!parsed) {
@@ -238,20 +223,12 @@ export class AuthService {
         this.reuseKey(refreshToken),
         this.reuseAtKey(refreshToken),
       );
-      throw new BusinessException(
-        ErrorCode.UNAUTHORIZED,
-        '刷新令牌无效',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('刷新令牌无效');
     }
     const { userId, family } = parsed;
     const user = await this.usersService.findById(userId);
     if (user?.status !== 1) {
-      throw new BusinessException(
-        ErrorCode.UNAUTHORIZED,
-        '账号不可用',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('账号不可用');
     }
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
@@ -278,6 +255,7 @@ export class AuthService {
     return { accessToken, refreshToken: newRefreshToken };
   }
 
+  /** 认证服务：登出（吊销 family + 单 jti 拉黑）。 */
   async logout(jti: string, refreshToken?: string): Promise<void> {
     if (refreshToken) {
       const active = await this.redis.get(this.refreshKey(refreshToken));
@@ -304,23 +282,17 @@ export class AuthService {
     await this.denylist.add(jti);
   }
 
+  /** 认证服务：拉取当前用户档案。 */
   async me(userId: string): Promise<SharedUser> {
     const user = await this.usersService.findById(userId);
     if (!user) {
-      throw new BusinessException(
-        ErrorCode.UNAUTHORIZED,
-        '用户不存在',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new UnauthorizedException('用户不存在');
     }
     return this.toSharedUser(user);
   }
 
+  /** 抛「缺少刷新令牌」401。 */
   throwMissingRefresh(): never {
-    throw new BusinessException(
-      ErrorCode.UNAUTHORIZED,
-      '缺少刷新令牌',
-      HttpStatus.UNAUTHORIZED,
-    );
+    throw new UnauthorizedException('缺少刷新令牌');
   }
 }

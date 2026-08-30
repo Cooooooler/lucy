@@ -100,13 +100,11 @@ describe('AuthController', () => {
     expect(authService.throwMissingRefresh).toHaveBeenCalled();
   });
 
-  it('logout 读 cookie 吊销家族、清除 cookie 并返回 success', async () => {
+  it('logout 读 cookie 吊销家族、清除 cookie 并返回 null', async () => {
     authService.logout.mockResolvedValue(undefined);
     const user = { userId: '1', jti: 'jti-1' };
     const req = { cookies: { refreshToken: 'r' } } as unknown as Request;
-    await expect(controller.logout(user, req, res)).resolves.toEqual({
-      success: true,
-    });
+    await expect(controller.logout(user, req, res)).resolves.toBeNull();
     expect(authService.logout).toHaveBeenCalledWith('jti-1', 'r');
     expect(resMock.clearCookie).toHaveBeenCalledWith(
       'refreshToken',

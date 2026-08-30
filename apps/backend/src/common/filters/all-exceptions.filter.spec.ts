@@ -28,14 +28,14 @@ describe('AllExceptionsFilter', () => {
   it('HttpException 携带自定义 code 时使用该 code', () => {
     filter.catch(
       new HttpException(
-        { code: ErrorCode.INVALID_CREDENTIALS, message: '密码错误' },
-        HttpStatus.UNAUTHORIZED,
+        { code: ErrorCode.AI_CONVERSATION_BUSY, message: '会话繁忙' },
+        HttpStatus.CONFLICT,
       ),
       host,
     );
     expect(json).toHaveBeenCalledWith({
-      code: ErrorCode.INVALID_CREDENTIALS,
-      message: '密码错误',
+      code: ErrorCode.AI_CONVERSATION_BUSY,
+      message: '会话繁忙',
       data: null,
     });
   });
