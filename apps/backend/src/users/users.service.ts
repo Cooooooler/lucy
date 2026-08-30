@@ -31,20 +31,8 @@ export class UsersService {
     password: string;
     nickname?: string;
   }): Promise<User> {
-    if (await this.findByUsername(input.username)) {
-      throw new BusinessException(
-        ErrorCode.USERNAME_TAKEN,
-        '用户名已存在',
-        HttpStatus.CONFLICT,
-      );
-    }
-    if (await this.findByEmail(input.email)) {
-      throw new BusinessException(
-        ErrorCode.EMAIL_TAKEN,
-        '邮箱已存在',
-        HttpStatus.CONFLICT,
-      );
-    }
+    await this.assertUsernameAvailable(input.username);
+    await this.assertEmailAvailable(input.email);
     const passwordHash = await this.passwordService.hash(input.password);
     const user = this.repo.create({
       username: input.username,
@@ -56,25 +44,61 @@ export class UsersService {
     try {
       return await this.repo.save(user);
     } catch (err) {
-      if (
-        err instanceof QueryFailedError &&
-        (err.driverError as { code?: string }).code === '23505'
-      ) {
-        // 竞态兜底：预检查之外的并发写入触发唯一约束，解析冲突列给出具体提示
-        const detail = (err.driverError as { detail?: string }).detail ?? '';
-        const isEmail = detail.includes('(email)');
-        const isUsername = detail.includes('(username)');
-        throw new BusinessException(
-          isEmail ? ErrorCode.EMAIL_TAKEN : ErrorCode.USERNAME_TAKEN,
-          isEmail
-            ? '邮箱已存在'
-            : isUsername
-              ? '用户名已存在'
-              : '用户名或邮箱已存在',
-          HttpStatus.CONFLICT,
-        );
+      if (this.isUniqueViolation(err)) {
+        throw this.toUniqueConflict(err);
       }
       throw err;
     }
+  }
+
+  private async assertUsernameAvailable(username: string): Promise<void> {
+    if (await this.findByUsername(username)) {
+      throw new BusinessException(
+        ErrorCode.USERNAME_TAKEN,
+        '用户名已存在',
+        HttpStatus.CONFLICT,
+      );
+    }
+  }
+
+  private async assertEmailAvailable(email: string): Promise<void> {
+    if (await this.findByEmail(email)) {
+      throw new BusinessException(
+        ErrorCode.EMAIL_TAKEN,
+        '邮箱已存在',
+        HttpStatus.CONFLICT,
+      );
+    }
+  }
+
+  private isUniqueViolation(err: unknown): err is QueryFailedError {
+    return (
+      err instanceof QueryFailedError &&
+      (err.driverError as { code?: string }).code === '23505'
+    );
+  }
+
+  // 竞态兜底：预检查之外的并发写入触发唯一约束，解析冲突列给出具体提示
+  private toUniqueConflict(err: QueryFailedError): BusinessException {
+    const detail = (err.driverError as { detail?: string }).detail ?? '';
+    if (detail.includes('(email)')) {
+      return new BusinessException(
+        ErrorCode.EMAIL_TAKEN,
+        '邮箱已存在',
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (detail.includes('(username)')) {
+      return new BusinessException(
+        ErrorCode.USERNAME_TAKEN,
+        '用户名已存在',
+        HttpStatus.CONFLICT,
+      );
+    }
+    return new BusinessException(
+      ErrorCode.USERNAME_TAKEN,
+      '用户名或邮箱已存在',
+      HttpStatus.CONFLICT,
+    );
   }
 }

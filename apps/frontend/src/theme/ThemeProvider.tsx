@@ -27,6 +27,16 @@ function isThemeMode(value: unknown): value is ThemeMode {
   return value === 'light' || value === 'dark' || value === 'system';
 }
 
+function resolveTheme(
+  safeMode: ThemeMode,
+  systemDark: boolean,
+): 'light' | 'dark' {
+  if (safeMode === 'system') {
+    return systemDark ? 'dark' : 'light';
+  }
+  return safeMode;
+}
+
 function getSystemDark(): boolean {
   if (
     typeof window === 'undefined' ||
@@ -78,8 +88,7 @@ export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
   );
 
   // 仅 system 依赖动态的 systemDark，其余直接取模式；避免每次渲染重建临时对象
-  const resolvedTheme: 'light' | 'dark' =
-    safeMode === 'system' ? (systemDark ? 'dark' : 'light') : safeMode;
+  const resolvedTheme: 'light' | 'dark' = resolveTheme(safeMode, systemDark);
 
   const setMode = useCallback(
     (next: ThemeMode) => setModeState(next),
