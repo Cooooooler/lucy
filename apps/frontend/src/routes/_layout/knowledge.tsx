@@ -55,12 +55,10 @@ const KnowledgeList: FC<{ knowledgeBases: KnowledgeBase[] }> = ({
   knowledgeBases,
 }) => {
   return (
-    <div className="box-border h-full scrollbar-gutter-stable overflow-auto pt-4">
-      <div className="grid grid-cols-1 gap-4 pr-2 pb-8 pl-4 sm:grid-cols-1 sm:pr-4 sm:pl-6 md:grid-cols-1 md:pr-6 md:pl-8 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-        {knowledgeBases.map((kb) => (
-          <KnowledgeCard kb={kb} key={kb.id} />
-        ))}
-      </div>
+    <div className="box-border grid grid-cols-1 gap-4 px-4 pt-4 pb-8 sm:grid-cols-1 sm:px-6 md:grid-cols-1 md:px-8 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      {knowledgeBases.map((kb) => (
+        <KnowledgeCard kb={kb} key={kb.id} />
+      ))}
     </div>
   );
 };
@@ -90,7 +88,7 @@ function KnowledgeComponent() {
 
   return (
     <>
-      <div className="flex w-full items-center justify-between gap-4 px-4 py-6 shadow-lg sm:px-6 md:px-8">
+      <div className="sticky top-0 z-10 flex w-full items-center justify-between gap-4 bg-(--ant-color-bg-container) px-4 py-6 shadow-lg sm:px-6 md:px-8">
         <Segmented<VisibilityFilter>
           options={VISIBILITY_OPTIONS}
           value={visibility}
