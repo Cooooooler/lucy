@@ -3,11 +3,11 @@ import {
   KnowledgeToolbar,
   type VisibilityFilter,
 } from '@/components/knowledge/KnowledgeToolbar.tsx';
+import { useInfiniteScrollContent } from '@/hooks/use-infinite-scroll.tsx';
 import { useInfiniteKnowledgeBaseList } from '@/hooks/use-knowledge.ts';
 import type { KnowledgeListQuery } from '@lucy/shared';
 import { createFileRoute } from '@tanstack/react-router';
-import { useInViewport } from 'ahooks';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/_layout/knowledge')({
   component: KnowledgeComponent,
@@ -25,35 +25,23 @@ function KnowledgeComponent() {
     [committedName, visibility],
   );
 
-  const parentRef = useRef<HTMLDivElement | null>(null);
-  const childrenRef = useRef<HTMLDivElement | null>(null);
+  const queryState = useInfiniteKnowledgeBaseList(query);
 
-  const [inViewport] = useInViewport(() => childrenRef.current, {
-    rootMargin: '250px', // 距离视口底部250px就触发，不要等元素完全进入
-    threshold: [0, 0.25, 0.5, 0.75, 1],
-    root: () => parentRef.current,
+  const { scrollRef, content } = useInfiniteScrollContent({
+    query: queryState,
+    renderList: (items) => <KnowledgeList knowledgeBases={items} />,
+    emptyText: { filtered: '没有匹配的知识库', default: '暂无知识库' },
+    hasFilter: Boolean(query?.name),
   });
 
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } =
-    useInfiniteKnowledgeBaseList(query);
-  const allItems = data?.pages.flatMap((p) => p.list) ?? [];
-
-  // 触发加载逻辑
-  useEffect(() => {
-    // 条件：哨兵进入视口、有下一页、当前不在加载
-    if (inViewport && hasNextPage && !isFetchingNextPage && !isLoading) {
-      void fetchNextPage();
-    }
-  }, [inViewport, hasNextPage, isFetchingNextPage, fetchNextPage, isLoading]);
   return (
-    <div ref={parentRef} className="h-full overflow-y-auto">
+    <div ref={scrollRef} className="h-full overflow-y-auto">
       <KnowledgeToolbar
         visibility={visibility}
         onVisibilityChange={setVisibility}
         onSearch={setCommittedName}
       />
-      <KnowledgeList knowledgeBases={allItems} />
-      <div ref={childrenRef}></div>
+      {content}
     </div>
   );
 }
