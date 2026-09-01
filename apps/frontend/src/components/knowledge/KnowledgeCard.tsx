@@ -16,14 +16,10 @@ const actions = [
   <EditOutlined key="edit" style={{ color: '#45b7d1' }} />,
 ];
 
-export const KnowledgeCard: FC<{ kb: KnowledgeBase; key: string }> = ({
-  kb,
-  key,
-}) => {
+export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
   return (
     <Card
       hoverable
-      key={key}
       actions={actions}
       title={kb.name}
       extra={<Button type="link">详情</Button>}

@@ -75,7 +75,8 @@ export class KnowledgeService {
     const pageSize = query.pageSize ?? 20;
     const qb = this.kbRepo
       .createQueryBuilder('kb')
-      .orderBy('kb.updatedAt', 'DESC');
+      .orderBy('kb.updatedAt', 'DESC')
+      .addOrderBy('kb.id', 'DESC');
     if (query.visibility) {
       if (query.visibility === KnowledgeBaseVisibility.Private) {
         qb.where('kb.ownerId = :uid', { uid: userId }).andWhere(
@@ -252,7 +253,8 @@ export class KnowledgeService {
     const qb = this.docRepo
       .createQueryBuilder('d')
       .where('d.knowledgeBaseId = :kbId', { kbId })
-      .orderBy('d.createdAt', 'DESC');
+      .orderBy('d.createdAt', 'DESC')
+      .addOrderBy('d.id', 'DESC');
     if (query.keyword) {
       qb.andWhere('(d.title ILIKE :kw OR d.content ILIKE :kw)', {
         kw: `%${query.keyword}%`,
