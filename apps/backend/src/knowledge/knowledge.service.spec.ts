@@ -100,6 +100,7 @@ describe('KnowledgeService', () => {
       orWhere: vi.fn(),
       andWhere: vi.fn(),
       orderBy: vi.fn(),
+      addOrderBy: vi.fn(),
       skip: vi.fn(),
       take: vi.fn(),
       getManyAndCount: vi.fn(),
@@ -108,6 +109,7 @@ describe('KnowledgeService', () => {
     qb.orWhere.mockReturnValue(qb);
     qb.andWhere.mockReturnValue(qb);
     qb.orderBy.mockReturnValue(qb);
+    qb.addOrderBy.mockReturnValue(qb);
     qb.skip.mockReturnValue(qb);
     qb.take.mockReturnValue(qb);
     qb.getManyAndCount.mockResolvedValue([[kb()], 1]);
@@ -120,6 +122,7 @@ describe('KnowledgeService', () => {
       where: vi.fn(),
       andWhere: vi.fn(),
       orderBy: vi.fn(),
+      addOrderBy: vi.fn(),
       skip: vi.fn(),
       take: vi.fn(),
       getManyAndCount: vi.fn(),
@@ -127,6 +130,7 @@ describe('KnowledgeService', () => {
     qb.where.mockReturnValue(qb);
     qb.andWhere.mockReturnValue(qb);
     qb.orderBy.mockReturnValue(qb);
+    qb.addOrderBy.mockReturnValue(qb);
     qb.skip.mockReturnValue(qb);
     qb.take.mockReturnValue(qb);
     qb.getManyAndCount.mockResolvedValue([[doc()], 1]);

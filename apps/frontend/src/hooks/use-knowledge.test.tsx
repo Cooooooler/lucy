@@ -10,6 +10,8 @@ import {
   useDeleteKnowledgeBase,
   useDocument,
   useDocumentList,
+  useInfiniteDocumentList,
+  useInfiniteKnowledgeBaseList,
   useKnowledgeBase,
   useKnowledgeBaseList,
   useUpdateKnowledgeBase,
@@ -79,6 +81,63 @@ describe('useKnowledgeBaseList', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(api.listKnowledgeBasesApi).toHaveBeenCalledWith({});
     expect(result.current.data).toEqual(data);
+  });
+});
+
+describe('useInfiniteKnowledgeBaseList', () => {
+  it('首次加载调用接口并使用默认分页', async () => {
+    const data = { list: [makeBase()], total: 1, page: 1, pageSize: 20 };
+    api.listKnowledgeBasesApi.mockResolvedValue(data);
+    const { result } = renderHook(() => useInfiniteKnowledgeBaseList(), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(api.listKnowledgeBasesApi).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 20,
+    });
+    expect(result.current.data?.pages).toHaveLength(1);
+    expect(result.current.data?.pages[0]).toEqual(data);
+  });
+
+  it('还有更多数据时提供下一页参数', async () => {
+    const page1 = {
+      list: [makeBase({ id: 'a' })],
+      total: 40,
+      page: 1,
+      pageSize: 20,
+    };
+    const page2 = {
+      list: [makeBase({ id: 'b' })],
+      total: 40,
+      page: 2,
+      pageSize: 20,
+    };
+    api.listKnowledgeBasesApi
+      .mockResolvedValueOnce(page1)
+      .mockResolvedValueOnce(page2);
+    const { result } = renderHook(() => useInfiniteKnowledgeBaseList(), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.hasNextPage).toBe(true);
+
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
+    expect(result.current.hasNextPage).toBe(false);
+    expect(result.current.data?.pages[1]).toEqual(page2);
+  });
+
+  it('数据已加载完时不提供下一页参数', async () => {
+    const data = { list: [makeBase()], total: 1, page: 1, pageSize: 20 };
+    api.listKnowledgeBasesApi.mockResolvedValue(data);
+    const { result } = renderHook(() => useInfiniteKnowledgeBaseList(), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.hasNextPage).toBe(false);
   });
 });
 
@@ -182,6 +241,72 @@ describe('useDocumentList', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(api.listDocumentsApi).toHaveBeenCalledWith('kb1', {});
     expect(result.current.data).toEqual(data);
+  });
+});
+
+describe('useInfiniteDocumentList', () => {
+  it('kbId 为空时禁用请求', () => {
+    vi.clearAllMocks();
+    const { result } = renderHook(() => useInfiniteDocumentList(undefined), {
+      wrapper: createWrapper(),
+    });
+    expect(result.current.isPending).toBe(true);
+    expect(api.listDocumentsApi).not.toHaveBeenCalled();
+  });
+
+  it('首次加载调用接口并使用默认分页', async () => {
+    const data = { list: [makeDoc()], total: 1, page: 1, pageSize: 20 };
+    api.listDocumentsApi.mockResolvedValue(data);
+    const { result } = renderHook(() => useInfiniteDocumentList('kb1'), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(api.listDocumentsApi).toHaveBeenCalledWith('kb1', {
+      page: 1,
+      pageSize: 20,
+    });
+    expect(result.current.data?.pages).toHaveLength(1);
+    expect(result.current.data?.pages[0]).toEqual(data);
+  });
+
+  it('还有更多数据时提供下一页参数', async () => {
+    const page1 = {
+      list: [makeDoc({ id: 'd1' })],
+      total: 40,
+      page: 1,
+      pageSize: 20,
+    };
+    const page2 = {
+      list: [makeDoc({ id: 'd2' })],
+      total: 40,
+      page: 2,
+      pageSize: 20,
+    };
+    api.listDocumentsApi
+      .mockResolvedValueOnce(page1)
+      .mockResolvedValueOnce(page2);
+    const { result } = renderHook(() => useInfiniteDocumentList('kb1'), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.hasNextPage).toBe(true);
+
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
+    expect(result.current.hasNextPage).toBe(false);
+    expect(result.current.data?.pages[1]).toEqual(page2);
+  });
+
+  it('数据已加载完时不提供下一页参数', async () => {
+    const data = { list: [makeDoc()], total: 1, page: 1, pageSize: 20 };
+    api.listDocumentsApi.mockResolvedValue(data);
+    const { result } = renderHook(() => useInfiniteDocumentList('kb1'), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.hasNextPage).toBe(false);
   });
 });
 
