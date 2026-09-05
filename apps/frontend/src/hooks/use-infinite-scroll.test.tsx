@@ -3,7 +3,7 @@ import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { useInfiniteScrollContent } from './use-infinite-scroll';
 
-/** 构建 mock query 状态 */
+/** 构建 useInfiniteScrollContent 所需的 mock query 状态 */
 function mockQuery(overrides: {
   data?: { pages: { list: string[] }[] };
   hasNextPage?: boolean;

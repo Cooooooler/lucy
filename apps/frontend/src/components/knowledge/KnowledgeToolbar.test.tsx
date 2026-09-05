@@ -3,6 +3,7 @@ import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { KnowledgeToolbar, VISIBILITY_OPTIONS } from './KnowledgeToolbar';
 
+/** 渲染 KnowledgeToolbar 的工厂函数，支持配置 visibility 和回调 */
 function renderToolbar(
   props: Partial<{
     visibility: 'all' | 'private' | 'public';
@@ -12,7 +13,7 @@ function renderToolbar(
 ) {
   return render(
     <KnowledgeToolbar
-      visibility="all"
+      visibility={props.visibility ?? 'all'}
       onVisibilityChange={props.onVisibilityChange ?? (() => {})}
       onSearch={props.onSearch ?? (() => {})}
     />,
@@ -32,6 +33,11 @@ describe('KnowledgeToolbar', () => {
     renderToolbar({ onVisibilityChange });
     await userEvent.click(screen.getByText('公开'));
     expect(onVisibilityChange).toHaveBeenCalledWith('public');
+  });
+
+  it('私有选项初始选中时渲染正确', () => {
+    renderToolbar({ visibility: 'private' });
+    expect(screen.getByText('私有')).toBeInTheDocument();
   });
 
   it('搜索触发 onSearch 并 trim', async () => {
