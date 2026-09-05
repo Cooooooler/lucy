@@ -27,25 +27,26 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 
+/** 知识库查询 key 工厂，统一管理 queryKey 生成逻辑 */
 export const knowledgeKeys = {
   all: ['knowledge'] as const,
-  // 知识库维度
+  /** 知识库维度 */
   bases: () => [...knowledgeKeys.all, 'bases'] as const,
-  // 列表失效前缀：只命中知识库列表查询（documents 段不在该前缀下，不会被误伤）
+  /** 列表失效前缀：只命中知识库列表查询（documents 段不在该前缀下，不会被误伤） */
   baseListAll: () => [...knowledgeKeys.bases(), 'list'] as const,
-  // 列表查询（含分页参数）
+  /** 列表查询（含分页参数） */
   baseList: (query: KnowledgeListQuery = {}) =>
     [...knowledgeKeys.baseListAll(), query] as const,
-  // 无限滚动列表查询（page 由 useInfiniteQuery 控制，不入 key）
+  /** 无限滚动列表查询（page 由 useInfiniteQuery 控制，不入 key） */
   baseListInfinite: (query: KnowledgeListQuery = {}) =>
     [...knowledgeKeys.baseListAll(), 'infinite', query] as const,
   base: (id: string) => [...knowledgeKeys.bases(), id] as const,
-  // 文档维度：嵌在某个知识库下，key 携带 kbId 自动隔离
+  /** 文档维度：嵌在某个知识库下，key 携带 kbId 自动隔离 */
   documents: (kbId: string) =>
     [...knowledgeKeys.bases(), kbId, 'documents'] as const,
   documentList: (kbId: string, query: DocumentListQuery = {}) =>
     [...knowledgeKeys.documents(kbId), 'list', query] as const,
-  // 无限滚动文档列表查询（page 由 useInfiniteQuery 控制，不入 key）
+  /** 无限滚动文档列表查询（page 由 useInfiniteQuery 控制，不入 key） */
   documentListInfinite: (kbId: string, query: DocumentListQuery = {}) =>
     [...knowledgeKeys.documents(kbId), 'list', 'infinite', query] as const,
   document: (kbId: string, id: string) =>
@@ -67,12 +68,19 @@ export function useKnowledgeBaseList(query: KnowledgeListQuery = {}) {
   });
 }
 
+/**
+ * 无限滚动知识库列表查询。
+ * queryKey 包含 pageSize，确保不同 pageSize 使用独立缓存。
+ */
 export function useInfiniteKnowledgeBaseList(
   query: Omit<KnowledgeListQuery, 'page' | 'pageSize'> = {},
   pageSize = 20,
 ) {
   return useInfiniteQuery<PageResult<KnowledgeBase>>({
-    queryKey: knowledgeKeys.baseListInfinite(query as KnowledgeListQuery),
+    queryKey: [
+      ...knowledgeKeys.baseListInfinite(query as KnowledgeListQuery),
+      pageSize,
+    ],
     queryFn: ({ pageParam = 1 }) =>
       listKnowledgeBasesApi({ ...query, page: pageParam as number, pageSize }),
     initialPageParam: 1,
@@ -153,16 +161,23 @@ export function useDocumentList(
   });
 }
 
+/**
+ * 无限滚动文档列表查询。
+ * queryKey 包含 pageSize，确保不同 pageSize 使用独立缓存。
+ */
 export function useInfiniteDocumentList(
   kbId: string | undefined,
   query: Omit<DocumentListQuery, 'page' | 'pageSize'> = {},
   pageSize = 20,
 ) {
   return useInfiniteQuery<PageResult<KnowledgeDocument>>({
-    queryKey: knowledgeKeys.documentListInfinite(
-      kbId ?? '',
-      query as DocumentListQuery,
-    ),
+    queryKey: [
+      ...knowledgeKeys.documentListInfinite(
+        kbId ?? '',
+        query as DocumentListQuery,
+      ),
+      pageSize,
+    ],
     queryFn: ({ pageParam = 1 }) =>
       listDocumentsApi(kbId!, {
         ...query,

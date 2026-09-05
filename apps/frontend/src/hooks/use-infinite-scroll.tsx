@@ -41,6 +41,10 @@ const FetchingText: FC = () => (
   </div>
 );
 
+/**
+ * 无限滚动内容渲染 hook。
+ * 监听 sentinel 元素进入视口时自动加载下一页，统一处理 loading/error/empty/列表状态。
+ */
 export function useInfiniteScrollContent<T>({
   query,
   renderList,
@@ -88,7 +92,7 @@ export function useInfiniteScrollContent<T>({
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasNextPage, fetchNextPage, isLoading, rootMargin]);
+  }, [hasNextPage, fetchNextPage, isLoading, rootMargin, items.length]);
 
   let content: ReactNode;
   if (isLoading) {
