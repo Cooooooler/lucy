@@ -66,25 +66,29 @@ export function useInfiniteScrollContent<T>({
     () => (data?.pages.flatMap((p) => p.list) ?? []) as T[],
     [data],
   );
-  console.log(items);
+
+  const fetchingRef = useRef(false);
+  useEffect(() => {
+    fetchingRef.current = isFetchingNextPage;
+  }, [isFetchingNextPage]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
     const root = scrollRef.current;
     if (!sentinel || !root) return;
     if (!hasNextPage) return;
-
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && hasNextPage) {
-          fetchNextPage();
-        }
+        if (!entry.isIntersecting || !hasNextPage) return;
+        if (fetchingRef.current) return;
+        fetchingRef.current = true;
+        fetchNextPage();
       },
       { root, rootMargin, threshold: 0 },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasNextPage, fetchNextPage, isFetchingNextPage, isLoading, rootMargin]);
+  }, [hasNextPage, fetchNextPage, isLoading, rootMargin]);
 
   let content: ReactNode;
   if (isLoading) {
