@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  plugins: [tanstackRouter(), react(), tailwindcss()],
+  plugins: [tanstackRouter({ routeFileIgnorePattern: '.*\\.test\\.tsx$' }), react(), tailwindcss()],
   resolve: {
     tsconfigPaths: true,
   },
