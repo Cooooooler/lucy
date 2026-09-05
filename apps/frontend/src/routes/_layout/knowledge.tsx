@@ -4,10 +4,14 @@ import {
   type VisibilityFilter,
 } from '@/components/knowledge/KnowledgeToolbar.tsx';
 import { useInfiniteScrollContent } from '@/hooks/use-infinite-scroll.tsx';
-import { useInfiniteKnowledgeBaseList } from '@/hooks/use-knowledge.ts';
+import {
+  knowledgeKeys,
+  useInfiniteKnowledgeBaseList,
+} from '@/hooks/use-knowledge.ts';
 import type { KnowledgeListQuery } from '@lucy/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/_layout/knowledge')({
   component: KnowledgeComponent,
@@ -25,7 +29,15 @@ function KnowledgeComponent() {
     [committedName, visibility],
   );
 
+  const queryClient = useQueryClient();
   const queryState = useInfiniteKnowledgeBaseList(query);
+
+  useEffect(
+    () => () => {
+      queryClient.removeQueries({ queryKey: knowledgeKeys.baseListAll() });
+    },
+    [queryClient],
+  );
 
   const { scrollRef, content } = useInfiniteScrollContent({
     query: queryState,

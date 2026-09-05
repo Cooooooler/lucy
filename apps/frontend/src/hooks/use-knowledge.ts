@@ -81,6 +81,7 @@ export function useInfiniteKnowledgeBaseList(
       return loaded < lastPage.total ? lastPage.page + 1 : undefined;
     },
     staleTime: 0,
+    gcTime: 0,
     refetchOnWindowFocus: false,
   });
 }
@@ -175,6 +176,7 @@ export function useInfiniteDocumentList(
     },
     enabled: !!kbId,
     staleTime: 0,
+    gcTime: 0,
     refetchOnWindowFocus: false,
   });
 }
