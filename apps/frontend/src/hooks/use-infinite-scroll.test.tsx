@@ -1,4 +1,5 @@
-import { render, renderHook } from '@testing-library/react';
+import { renderContent } from '@/test/render-helpers';
+import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { useInfiniteScrollContent } from './use-infinite-scroll';
 
@@ -31,7 +32,7 @@ describe('useInfiniteScrollContent', () => {
         renderList: (items) => <div>{items.join(',')}</div>,
       }),
     );
-    const { container } = render(<div>{result.current.content}</div>);
+    const { container } = renderContent(result.current.content);
     expect(container.textContent).toContain('加载中');
   });
 
@@ -54,7 +55,7 @@ describe('useInfiniteScrollContent', () => {
         renderList: (items) => <div>{items.join(',')}</div>,
       }),
     );
-    const { container } = render(<div>{result.current.content}</div>);
+    const { container } = renderContent(result.current.content);
     expect(container.textContent).toContain('加载失败');
     expect(container.textContent).toContain('请求失败');
   });
@@ -67,7 +68,7 @@ describe('useInfiniteScrollContent', () => {
         emptyText: { filtered: '没有匹配', default: '暂无数据' },
       }),
     );
-    const { container } = render(<div>{result.current.content}</div>);
+    const { container } = renderContent(result.current.content);
     expect(container.textContent).toContain('暂无数据');
   });
 
@@ -80,7 +81,7 @@ describe('useInfiniteScrollContent', () => {
         hasFilter: true,
       }),
     );
-    const { container } = render(<div>{result.current.content}</div>);
+    const { container } = renderContent(result.current.content);
     expect(container.textContent).toContain('没有匹配');
   });
 
@@ -94,7 +95,7 @@ describe('useInfiniteScrollContent', () => {
         renderList: (items) => <div>{items.join(',')}</div>,
       }),
     );
-    const { container } = render(<div>{result.current.content}</div>);
+    const { container } = renderContent(result.current.content);
     expect(container.textContent).toContain('已加载全部');
   });
 
@@ -109,7 +110,7 @@ describe('useInfiniteScrollContent', () => {
         renderList: (items) => <div>{items.join(',')}</div>,
       }),
     );
-    const { container } = render(<div>{result.current.content}</div>);
+    const { container } = renderContent(result.current.content);
     expect(container.textContent).toContain('加载中');
   });
 });
