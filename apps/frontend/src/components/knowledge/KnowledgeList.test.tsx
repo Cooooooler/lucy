@@ -1,19 +1,7 @@
-import type { KnowledgeBase } from '@/api/types';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { KnowledgeList } from './KnowledgeList';
-
-function makeKb(id: string, name: string): KnowledgeBase {
-  return {
-    id,
-    ownerId: 'u1',
-    visibility: 'private',
-    name,
-    description: `${name} 的描述`,
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-01T00:00:00Z',
-  };
-}
+import { makeKb } from './knowledge-test-fixture';
 
 describe('KnowledgeList', () => {
   it('渲染多个知识库卡片', () => {

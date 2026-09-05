@@ -1,16 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { KnowledgeCard } from './KnowledgeCard';
-
-const baseKb = {
-  id: 'kb1',
-  ownerId: 'u1',
-  visibility: 'private' as const,
-  name: '产品文档',
-  description: '这是一段描述',
-  createdAt: '2024-01-01T00:00:00Z',
-  updatedAt: '2024-01-01T00:00:00Z',
-};
+import { baseKb } from './knowledge-test-fixture';
 
 describe('KnowledgeCard', () => {
   it('渲染知识库名称', () => {
