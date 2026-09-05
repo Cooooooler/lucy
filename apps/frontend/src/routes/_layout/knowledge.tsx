@@ -1,416 +1,47 @@
-import { ApiError } from '@/api/client';
-import type {
-  CreateKnowledgeBaseRequest,
-  KnowledgeBase,
-  KnowledgeBaseVisibility,
-  UpdateKnowledgeBaseRequest,
-} from '@/api/types';
+import { KnowledgeList } from '@/components/knowledge/KnowledgeList.tsx';
 import {
-  useCreateKnowledgeBase,
-  useDeleteKnowledgeBase,
-  useKnowledgeBaseList,
-  useUpdateKnowledgeBase,
-} from '@/hooks/use-knowledge';
-import {
-  DatabaseOutlined,
-  DeleteOutlined,
-  EditOutlined,
-  PlusOutlined,
-} from '@ant-design/icons';
+  KnowledgeToolbar,
+  type VisibilityFilter,
+} from '@/components/knowledge/KnowledgeToolbar.tsx';
+import { useInfiniteScrollContent } from '@/hooks/use-infinite-scroll.tsx';
+import { useInfiniteKnowledgeBaseList } from '@/hooks/use-knowledge.ts';
 import type { KnowledgeListQuery } from '@lucy/shared';
 import { createFileRoute } from '@tanstack/react-router';
-import {
-  App,
-  Button,
-  Card,
-  Empty,
-  Flex,
-  Form,
-  Input,
-  Modal,
-  Pagination,
-  Popconfirm,
-  Radio,
-  Result,
-  Tag,
-  Tooltip,
-  Typography,
-} from 'antd';
-import dayjs from 'dayjs';
-import { useEffect, useMemo, useState } from 'react';
-
-const { Text, Paragraph } = Typography;
-const { Search } = Input;
+import { useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/_layout/knowledge')({
-  component: KnowledgePage,
+  component: KnowledgeComponent,
 });
 
-const visibilityOptions: { label: string; value: KnowledgeBaseVisibility }[] = [
-  { label: '私有', value: 'private' },
-  { label: '公开', value: 'public' },
-];
+function KnowledgeComponent() {
+  const [committedName, setCommittedName] = useState('');
+  const [visibility, setVisibility] = useState<VisibilityFilter>('all');
 
-const visibilityTag: Record<
-  KnowledgeBaseVisibility,
-  { color: string; label: string }
-> = {
-  private: { color: 'default', label: '私有' },
-  public: { color: 'blue', label: '公开' },
-};
-
-function describeDescription(d: KnowledgeBase['description']): string | null {
-  return d ?? null;
-}
-
-// 骨架屏：固定 6 个占位，位置/数量稳定，索引当 key 安全
-
-function KnowledgeGridSkeleton() {
-  const placeholders = Array.from({ length: 6 }, (_, i) => i);
-  return (
-    <Flex gap="middle" wrap="wrap">
-      {placeholders.map((i) => (
-        <Card key={`skeleton-${i}`} style={{ width: 280 }} loading />
-      ))}
-    </Flex>
+  const query = useMemo<KnowledgeListQuery>(
+    () => ({
+      name: committedName || undefined,
+      visibility: visibility === 'all' ? undefined : visibility,
+    }),
+    [committedName, visibility],
   );
-}
 
-function KnowledgeGridEmpty({ keyword }: Readonly<{ keyword: string }>) {
+  const queryState = useInfiniteKnowledgeBaseList(query);
+
+  const { scrollRef, content } = useInfiniteScrollContent({
+    query: queryState,
+    renderList: (items) => <KnowledgeList knowledgeBases={items} />,
+    emptyText: { filtered: '没有匹配的知识库', default: '暂无知识库' },
+    hasFilter: Boolean(query?.name || query?.visibility),
+  });
+
   return (
-    <Flex className="flex-1" align="center" justify="center" vertical>
-      <Empty
-        description={
-          keyword ? '没有匹配的知识库' : '还没有知识库，点击右上角新建'
-        }
+    <div ref={scrollRef} className="h-full overflow-y-auto">
+      <KnowledgeToolbar
+        visibility={visibility}
+        onVisibilityChange={setVisibility}
+        onSearch={setCommittedName}
       />
-    </Flex>
-  );
-}
-
-function KnowledgeGridError({ onRetry }: Readonly<{ onRetry: () => void }>) {
-  return (
-    <Flex className="flex-1" align="center" justify="center">
-      <Result
-        status="error"
-        title="加载失败"
-        subTitle="知识库列表获取失败，请稍后重试"
-        extra={
-          <Button type="primary" onClick={onRetry}>
-            重试
-          </Button>
-        }
-      />
-    </Flex>
-  );
-}
-
-function KnowledgeCard({
-  kb,
-  onEdit,
-  onDelete,
-}: Readonly<{
-  kb: KnowledgeBase;
-  onEdit: (kb: KnowledgeBase) => void;
-  onDelete: (id: string) => void;
-}>) {
-  const desc = describeDescription(kb.description);
-  const tag = visibilityTag[kb.visibility] ?? {
-    color: 'default',
-    label: kb.visibility,
-  };
-  return (
-    <Card
-      key={kb.id}
-      hoverable
-      styles={{
-        body: { display: 'flex', flexDirection: 'column', gap: 12 },
-      }}
-      actions={[
-        <Tooltip key="edit" title="编辑">
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            onClick={() => onEdit(kb)}
-            aria-label="编辑"
-          />
-        </Tooltip>,
-        <Popconfirm
-          key="delete"
-          title="删除知识库"
-          description="将同时删除其下所有文档，确认删除？"
-          okText="删除"
-          okButtonProps={{ danger: true }}
-          cancelText="取消"
-          onConfirm={() => onDelete(kb.id)}
-        >
-          <Tooltip title="删除">
-            <Button
-              type="text"
-              danger
-              icon={<DeleteOutlined />}
-              aria-label="删除"
-            />
-          </Tooltip>
-        </Popconfirm>,
-      ]}
-    >
-      <Flex align="center" gap="small">
-        <Flex
-          align="center"
-          justify="center"
-          className="bg-(--ant-color-fill-tertiary) text-(--ant-color-primary)"
-          style={{ width: 40, height: 40, borderRadius: 8 }}
-        >
-          <DatabaseOutlined style={{ fontSize: 20 }} />
-        </Flex>
-        <Flex vertical gap={2} className="min-w-0 flex-1">
-          <Text strong ellipsis>
-            {kb.name}
-          </Text>
-          <Tag
-            color={tag.color}
-            className="m-0! w-fit"
-            style={{ marginInlineStart: 0 }}
-          >
-            {tag.label}
-          </Tag>
-        </Flex>
-      </Flex>
-      <Paragraph
-        type="secondary"
-        ellipsis={{ rows: 2, expandable: false }}
-        className="m-0! text-sm"
-      >
-        {desc ?? '暂无描述'}
-      </Paragraph>
-      <Text type="secondary" className="text-xs">
-        创建于 {dayjs(kb.createdAt).format('YYYY-MM-DD HH:mm')}
-      </Text>
-    </Card>
-  );
-}
-
-function KnowledgeGrid({
-  items,
-  onEdit,
-  onDelete,
-}: Readonly<{
-  items: KnowledgeBase[];
-  onEdit: (kb: KnowledgeBase) => void;
-  onDelete: (id: string) => void;
-}>) {
-  return (
-    <div
-      className="grid gap-4"
-      style={{
-        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-      }}
-    >
-      {items.map((kb) => (
-        <KnowledgeCard
-          key={kb.id}
-          kb={kb}
-          onEdit={onEdit}
-          onDelete={onDelete}
-        />
-      ))}
-    </div>
-  );
-}
-
-function KnowledgePage() {
-  const { message } = App.useApp();
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
-  const [keywordInput, setKeywordInput] = useState('');
-  const [keyword, setKeyword] = useState('');
-  // 输入防抖：避免每个键击都发请求，等用户停手 300ms 再同步到实际查询关键字
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setKeyword(keywordInput.trim());
-      setPage(1);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [keywordInput]);
-
-  const listQuery = useMemo<KnowledgeListQuery>(
-    () => ({ page, pageSize, name: keyword || undefined }),
-    [page, pageSize, keyword],
-  );
-  const list = useKnowledgeBaseList(listQuery);
-  const create = useCreateKnowledgeBase();
-  const update = useUpdateKnowledgeBase();
-  const remove = useDeleteKnowledgeBase();
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<KnowledgeBase | null>(null);
-  const [createForm] = Form.useForm<CreateKnowledgeBaseRequest>();
-  const [editForm] = Form.useForm<UpdateKnowledgeBaseRequest>();
-
-  const data = list.data?.list ?? [];
-  const total = list.data?.total ?? 0;
-
-  function openCreate() {
-    createForm.resetFields();
-    createForm.setFieldsValue({ visibility: 'private' });
-    setCreateOpen(true);
-  }
-
-  async function handleCreate() {
-    try {
-      const values = await createForm.validateFields();
-      await create.mutateAsync(values);
-      void message.success('创建成功');
-      setCreateOpen(false);
-    } catch (e) {
-      if (e instanceof ApiError) {
-        void message.error(e.message);
-      }
-      // 校验失败由 Form 自行展示错误；网络/未知错误静默吞掉，由全局拦截器兜底
-    }
-  }
-
-  function openEdit(record: KnowledgeBase) {
-    editForm.setFieldsValue({
-      name: record.name,
-      description: describeDescription(record.description) ?? undefined,
-      visibility: record.visibility,
-    });
-    setEditing(record);
-  }
-
-  async function handleEdit() {
-    if (!editing) return;
-    try {
-      const values = await editForm.validateFields();
-      await update.mutateAsync({ id: editing.id, input: values });
-      void message.success('已更新');
-      setEditing(null);
-    } catch (e) {
-      if (e instanceof ApiError) {
-        void message.error(e.message);
-      }
-    }
-  }
-
-  async function handleDelete(id: string) {
-    const capturedPage = page;
-    try {
-      await remove.mutateAsync(id);
-      // 当前页仅剩这一条且不是首页时，跳回上一页避免停留在空状态
-      if (data.length === 1 && capturedPage > 1) {
-        setPage((current) =>
-          current === capturedPage ? current - 1 : current,
-        );
-      }
-      void message.success('已删除');
-    } catch (e) {
-      if (e instanceof ApiError) void message.error(e.message);
-    }
-  }
-
-  return (
-    <div className="box-border flex h-full w-full flex-col gap-4 px-8 pt-8">
-      <div className="box-border flex flex-row-reverse items-center gap-4">
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          新建知识库
-        </Button>
-        <Search
-          allowClear
-          placeholder="搜索名称"
-          value={keywordInput}
-          onChange={(e) => setKeywordInput(e.target.value)}
-          style={{ width: 240 }}
-        />
-      </div>
-      {(() => {
-        if (list.isLoading) return <KnowledgeGridSkeleton />;
-        // 错误优先于空：仅在错误且无任何缓存数据时显示错误状态，
-        // 避免一过性错误把已有列表覆盖掉；error.refetch 用于重试
-        if (list.isError && data.length === 0) {
-          return <KnowledgeGridError onRetry={() => void list.refetch()} />;
-        }
-        if (data.length === 0) return <KnowledgeGridEmpty keyword={keyword} />;
-        return (
-          <KnowledgeGrid
-            items={data}
-            onEdit={openEdit}
-            onDelete={handleDelete}
-          />
-        );
-      })()}
-
-      <Flex justify="end">
-        <Pagination
-          current={page}
-          pageSize={pageSize}
-          total={total}
-          showSizeChanger={false}
-          onChange={setPage}
-        />
-      </Flex>
-
-      <Modal
-        title="新建知识库"
-        open={createOpen}
-        onCancel={() => setCreateOpen(false)}
-        onOk={handleCreate}
-        confirmLoading={create.isPending}
-        destroyOnHidden
-      >
-        <Form form={createForm} layout="vertical" preserve={false}>
-          <Form.Item
-            name="name"
-            label="名称"
-            rules={[{ required: true, message: '请输入名称' }]}
-          >
-            <Input maxLength={100} placeholder="知识库名称" />
-          </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea
-              rows={3}
-              maxLength={500}
-              placeholder="可选，简要说明用途"
-            />
-          </Form.Item>
-          <Form.Item
-            name="visibility"
-            label="可见性"
-            rules={[{ required: true }]}
-          >
-            <Radio.Group options={visibilityOptions} />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        title="编辑知识库"
-        open={editing !== null}
-        onCancel={() => setEditing(null)}
-        onOk={handleEdit}
-        confirmLoading={update.isPending}
-        destroyOnHidden
-      >
-        <Form form={editForm} layout="vertical" preserve={false}>
-          <Form.Item
-            name="name"
-            label="名称"
-            rules={[{ required: true, message: '请输入名称' }]}
-          >
-            <Input maxLength={100} />
-          </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={3} maxLength={500} />
-          </Form.Item>
-          <Form.Item
-            name="visibility"
-            label="可见性"
-            rules={[{ required: true }]}
-          >
-            <Radio.Group options={visibilityOptions} />
-          </Form.Item>
-        </Form>
-      </Modal>
+      {content}
     </div>
   );
 }

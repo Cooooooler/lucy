@@ -2,6 +2,7 @@ import type { KnowledgeBase, KnowledgeDocument } from '@/api/types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   useAddDocument,
@@ -10,6 +11,8 @@ import {
   useDeleteKnowledgeBase,
   useDocument,
   useDocumentList,
+  useInfiniteDocumentList,
+  useInfiniteKnowledgeBaseList,
   useKnowledgeBase,
   useKnowledgeBaseList,
   useUpdateKnowledgeBase,
@@ -29,6 +32,7 @@ const api = vi.hoisted(() => ({
 
 vi.mock('@/api/knowledge', () => api);
 
+/** 知识库数据工厂 */
 function makeBase(overrides: Partial<KnowledgeBase> = {}): KnowledgeBase {
   return {
     id: 'kb1',
@@ -42,6 +46,7 @@ function makeBase(overrides: Partial<KnowledgeBase> = {}): KnowledgeBase {
   };
 }
 
+/** 文档数据工厂 */
 function makeDoc(
   overrides: Partial<KnowledgeDocument> = {},
 ): KnowledgeDocument {
@@ -57,16 +62,73 @@ function makeDoc(
   };
 }
 
+/** 创建测试用 QueryClient wrapper */
 function createWrapper() {
   const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
+}
+
+/** 分页数据工厂 */
+function makePage<T>(items: T[], page: number, total = items.length) {
+  return { list: items, total, page, pageSize: 20 };
+}
+
+/** 无限滚动通用测试：首次加载、翻页、结束 */
+function describeInfiniteQueryTests(opts: {
+  name: string;
+  useHook: (id?: string) => {
+    data: { pages: unknown[] } | undefined;
+    hasNextPage: boolean;
+    isSuccess: boolean;
+    fetchNextPage: () => void;
+  };
+  apiMock: Mock;
+  singlePageData: unknown;
+  firstPageData: unknown;
+  secondPageData: unknown;
+  id?: string;
+}) {
+  describe(opts.name, () => {
+    it('首次加载调用接口并使用默认分页', async () => {
+      opts.apiMock.mockResolvedValue(opts.singlePageData);
+      const { result } = renderHook(() => opts.useHook(opts.id), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(result.current.data?.pages).toHaveLength(1);
+      expect(result.current.data?.pages[0]).toEqual(opts.singlePageData);
+    });
+
+    it('还有更多数据时提供下一页参数', async () => {
+      opts.apiMock
+        .mockResolvedValueOnce(opts.firstPageData)
+        .mockResolvedValueOnce(opts.secondPageData);
+      const { result } = renderHook(() => opts.useHook(opts.id), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(result.current.hasNextPage).toBe(true);
+      await act(async () => {
+        await result.current.fetchNextPage();
+      });
+      await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
+      expect(result.current.hasNextPage).toBe(false);
+      expect(result.current.data?.pages[1]).toEqual(opts.secondPageData);
+    });
+
+    it('数据已加载完时不提供下一页参数', async () => {
+      opts.apiMock.mockResolvedValue(opts.singlePageData);
+      const { result } = renderHook(() => opts.useHook(opts.id), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(result.current.hasNextPage).toBe(false);
+    });
+  });
 }
 
 describe('useKnowledgeBaseList', () => {
@@ -80,6 +142,15 @@ describe('useKnowledgeBaseList', () => {
     expect(api.listKnowledgeBasesApi).toHaveBeenCalledWith({});
     expect(result.current.data).toEqual(data);
   });
+});
+
+describeInfiniteQueryTests({
+  name: 'useInfiniteKnowledgeBaseList',
+  useHook: () => useInfiniteKnowledgeBaseList(),
+  apiMock: api.listKnowledgeBasesApi,
+  singlePageData: makePage([makeBase()], 1, 1),
+  firstPageData: makePage([makeBase({ id: 'a' })], 1, 40),
+  secondPageData: makePage([makeBase({ id: 'b' })], 2, 40),
 });
 
 describe('useKnowledgeBase', () => {
@@ -103,14 +174,11 @@ describe('useKnowledgeBase', () => {
 });
 
 describe('useCreateKnowledgeBase', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+  beforeEach(() => vi.clearAllMocks());
 
   it('创建后调用 createKnowledgeBaseApi 并返回结果', async () => {
     const created = makeBase();
     api.createKnowledgeBaseApi.mockResolvedValue(created);
-
     const mutation = renderHook(() => useCreateKnowledgeBase(), {
       wrapper: createWrapper(),
     });
@@ -132,7 +200,6 @@ describe('useUpdateKnowledgeBase', () => {
   it('更新后调用 updateKnowledgeBaseApi', async () => {
     const updated = makeBase({ name: '新标题' });
     api.updateKnowledgeBaseApi.mockResolvedValue(updated);
-
     const mutation = renderHook(() => useUpdateKnowledgeBase(), {
       wrapper: createWrapper(),
     });
@@ -183,6 +250,16 @@ describe('useDocumentList', () => {
     expect(api.listDocumentsApi).toHaveBeenCalledWith('kb1', {});
     expect(result.current.data).toEqual(data);
   });
+});
+
+describeInfiniteQueryTests({
+  name: 'useInfiniteDocumentList',
+  useHook: (id?: string) => useInfiniteDocumentList(id),
+  apiMock: api.listDocumentsApi,
+  id: 'kb1',
+  singlePageData: makePage([makeDoc()], 1, 1),
+  firstPageData: makePage([makeDoc({ id: 'd1' })], 1, 40),
+  secondPageData: makePage([makeDoc({ id: 'd2' })], 2, 40),
 });
 
 describe('useDocument', () => {
