@@ -1,5 +1,6 @@
 import { FileService } from '@coool/file-nest';
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -25,6 +26,7 @@ import {
   KnowledgeBaseVisibility,
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
+import { KnowledgeLike } from './entities/knowledge-like.entity.js';
 import { detectFileType } from './magic-bytes.js';
 
 @Injectable()
@@ -36,6 +38,8 @@ export class KnowledgeService {
     private readonly docRepo: Repository<KnowledgeDocument>,
     @InjectRepository(BackendFileEntity)
     private readonly fileRepo: Repository<BackendFileEntity>,
+    @InjectRepository(KnowledgeLike)
+    private readonly likeRepo: Repository<KnowledgeLike>,
     private readonly fileService: FileService,
     private readonly config: ConfigService,
   ) {}
@@ -58,9 +62,10 @@ export class KnowledgeService {
   /**
    * 分页查询知识库列表。
    * 默认返回当前用户拥有的 + 公开的知识库；可按 `visibility` / 名称关键字过滤。
+   * 附加每个知识库的 likeCount 与当前用户的 isLiked（查询后批量回写，避免 JOIN 破坏分页）。
    * @param userId 当前用户 ID
    * @param query 分页与过滤参数
-   * @returns 分页结果（list/total/page/pageSize）
+   * @returns 分页结果（list 含 likeCount/isLiked/total/page/pageSize）
    */
   async list(
     userId: string,
@@ -99,6 +104,8 @@ export class KnowledgeService {
     }
     qb.skip((page - 1) * pageSize).take(pageSize);
     const [list, total] = await qb.getManyAndCount();
+    // 批量回写 likeCount / isLiked，单次聚合查询，避免 N+1
+    await this.fillLikeInfo(userId, list);
     return { list, total, page, pageSize };
   }
 
@@ -111,7 +118,95 @@ export class KnowledgeService {
     const kb = await this.kbRepo.findOne({ where: { id } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertReadable(kb, userId);
+    await this.fillLikeInfo(userId, [kb]);
     return kb;
+  }
+
+  /**
+   * 点赞一个知识库（重复点赞抛 409）。
+   * @returns 操作后的 likeCount 与 isLiked
+   * @throws NotFoundException 知识库不存在
+   * @throws ForbiddenException 用户无权访问
+   * @throws ConflictException 已点赞
+   */
+  async like(
+    userId: string,
+    id: string,
+  ): Promise<{ likeCount: number; isLiked: true }> {
+    const kb = await this.kbRepo.findOne({ where: { id } });
+    if (!kb) throw new NotFoundException('知识库不存在');
+    this.assertReadable(kb, userId);
+    const existing = await this.likeRepo.findOneBy({
+      knowledgeBaseId: id,
+      userId,
+    });
+    if (existing) throw new ConflictException('已点赞');
+    try {
+      await this.likeRepo.save({ knowledgeBaseId: id, userId });
+    } catch (err) {
+      // 并发竞态：两个请求同时通过 findOneBy 校验后，save 触发 UNIQUE 约束冲突
+      if ((err as { code?: string }).code === '23505') {
+        throw new ConflictException('已点赞');
+      }
+      throw err;
+    }
+    const likeCount = await this.likeRepo.count({
+      where: { knowledgeBaseId: id },
+    });
+    return { likeCount, isLiked: true };
+  }
+
+  /**
+   * 取消点赞一个知识库（未点赞时静默成功）。
+   * @returns 操作后的 likeCount 与 isLiked
+   * @throws NotFoundException 知识库不存在
+   * @throws ForbiddenException 用户无权访问
+   */
+  async unlike(
+    userId: string,
+    id: string,
+  ): Promise<{ likeCount: number; isLiked: false }> {
+    const kb = await this.kbRepo.findOne({ where: { id } });
+    if (!kb) throw new NotFoundException('知识库不存在');
+    this.assertReadable(kb, userId);
+    await this.likeRepo.delete({ knowledgeBaseId: id, userId });
+    const likeCount = await this.likeRepo.count({
+      where: { knowledgeBaseId: id },
+    });
+    return { likeCount, isLiked: false };
+  }
+
+  /**
+   * 批量回写知识库的 likeCount 与 isLiked。
+   * 单条聚合 GROUP BY 查询计数 + 单条查询当前用户点赞集合，避免 N+1。
+   */
+  private async fillLikeInfo(
+    userId: string,
+    list: KnowledgeBase[],
+  ): Promise<void> {
+    if (list.length === 0) return;
+    const ids = list.map((kb) => kb.id);
+    // 计数：GROUP BY knowledge_base_id
+    const counts = await this.likeRepo
+      .createQueryBuilder('kl')
+      .select('kl.knowledge_base_id', 'kbId')
+      .addSelect('COUNT(*)', 'cnt')
+      .where('kl.knowledge_base_id IN (:...ids)', { ids })
+      .groupBy('kl.knowledge_base_id')
+      .getRawMany<{ kbId: string; cnt: string }>();
+    const countMap = new Map(counts.map((r) => [r.kbId, Number(r.cnt)]));
+    // 当前用户点赞集合
+    const liked = await this.likeRepo
+      .createQueryBuilder('kl')
+      .select('kl.knowledge_base_id', 'kbId')
+      .where('kl.knowledge_base_id IN (:...ids)', { ids })
+      .andWhere('kl.user_id = :uid', { uid: userId })
+      .getRawMany<{ kbId: string }>();
+    const likedSet = new Set(liked.map((r) => r.kbId));
+    for (const kb of list) {
+      kb.likeCount = countMap.get(kb.id) ?? 0;
+      kb.isLiked = likedSet.has(kb.id);
+    }
   }
 
   /**

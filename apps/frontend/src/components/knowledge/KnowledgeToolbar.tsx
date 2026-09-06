@@ -111,7 +111,7 @@ export const KnowledgeToolbar: FC<KnowledgeToolbarProps> = ({
               { required: true, whitespace: true, message: '请输入知识库名称' },
             ]}
           >
-            <Input maxLength={100} placeholder="请输入知识库名称" />
+            <Input maxLength={20} placeholder="请输入知识库名称" />
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea

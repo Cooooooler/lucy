@@ -62,4 +62,10 @@ export class KnowledgeBase {
   @ApiProperty({ description: '更新时间' })
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
+
+  @ApiProperty({ description: '点赞数', required: false })
+  likeCount?: number;
+
+  @ApiProperty({ description: '当前用户是否已点赞', required: false })
+  isLiked?: boolean;
 }

@@ -1,4 +1,8 @@
-import { useUpdateKnowledgeBase } from '@/hooks/use-knowledge';
+import {
+  useLikeKnowledgeBase,
+  useUnlikeKnowledgeBase,
+  useUpdateKnowledgeBase,
+} from '@/hooks/use-knowledge';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
@@ -8,9 +12,13 @@ import { baseKb } from './knowledge-test-fixture';
 
 vi.mock('@/hooks/use-knowledge', () => ({
   useUpdateKnowledgeBase: vi.fn(),
+  useLikeKnowledgeBase: vi.fn(),
+  useUnlikeKnowledgeBase: vi.fn(),
 }));
 
 const mockedUpdate = vi.mocked(useUpdateKnowledgeBase);
+const mockedLike = vi.mocked(useLikeKnowledgeBase);
+const mockedUnlike = vi.mocked(useUnlikeKnowledgeBase);
 
 function updateMutationMock(
   overrides: Partial<ReturnType<typeof useUpdateKnowledgeBase>> = {},
@@ -22,7 +30,34 @@ function updateMutationMock(
   } as unknown as ReturnType<typeof useUpdateKnowledgeBase>;
 }
 
-function renderCard(kb = baseKb) {
+function noopMutationMock() {
+  return {
+    mutate: vi.fn(),
+    isPending: false,
+    mutateAsync: vi.fn(),
+    data: undefined,
+    error: null,
+    isSuccess: false,
+    isError: false,
+    isIdle: true,
+    reset: vi.fn(),
+    status: 'idle',
+    variables: undefined,
+    context: undefined,
+    submittedAt: 0,
+    failureCount: 0,
+    failureReason: null,
+  } as unknown as ReturnType<typeof useLikeKnowledgeBase> &
+    ReturnType<typeof useUnlikeKnowledgeBase>;
+}
+
+function renderCard(
+  kb = baseKb,
+  likeMock: ReturnType<typeof noopMutationMock> | null = null,
+  unlikeMock: ReturnType<typeof noopMutationMock> | null = null,
+) {
+  mockedLike.mockReturnValue(likeMock ?? noopMutationMock());
+  mockedUnlike.mockReturnValue(unlikeMock ?? noopMutationMock());
   return render(
     <AntdApp>
       <KnowledgeCard kb={kb} />
@@ -43,10 +78,10 @@ describe('KnowledgeCard', () => {
     expect(screen.getByText('这是一段描述')).toBeInTheDocument();
   });
 
-  it('渲染详情按钮', () => {
+  it('渲染点赞按钮', () => {
     mockedUpdate.mockReturnValue(updateMutationMock());
     renderCard();
-    expect(screen.getByText('详情')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '点赞' })).toBeInTheDocument();
   });
 
   it('点击编辑按钮打开编辑抽屉并预填数据', async () => {
@@ -140,5 +175,40 @@ describe('KnowledgeCard', () => {
     await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
 
     expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('未点赞时点击点赞按钮调用 like', async () => {
+    const likeMock = noopMutationMock();
+    const unlikeMock = noopMutationMock();
+    renderCard(baseKb, likeMock, unlikeMock);
+
+    await userEvent.click(screen.getByRole('button', { name: '点赞' }));
+    expect(likeMock.mutate).toHaveBeenCalledWith('kb1');
+    expect(unlikeMock.mutate).not.toHaveBeenCalled();
+  });
+
+  it('已点赞时点击取消点赞按钮调用 unlike', async () => {
+    const likeMock = noopMutationMock();
+    const unlikeMock = noopMutationMock();
+    renderCard(
+      { ...baseKb, isLiked: true, likeCount: 5 },
+      likeMock,
+      unlikeMock,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: '取消点赞' }));
+    expect(unlikeMock.mutate).toHaveBeenCalledWith('kb1');
+    expect(likeMock.mutate).not.toHaveBeenCalled();
+  });
+
+  it('已点赞时显示点赞数', async () => {
+    mockedUpdate.mockReturnValue(updateMutationMock());
+    renderCard({
+      ...baseKb,
+      isLiked: true,
+      likeCount: 42,
+    });
+
+    expect(screen.getByText('42')).toBeInTheDocument();
   });
 });

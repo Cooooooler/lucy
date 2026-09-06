@@ -244,6 +244,24 @@ export interface paths {
         patch: operations["KnowledgeController_update"];
         trace?: never;
     };
+    "/knowledge/{id}/like": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 点赞知识库 */
+        post: operations["KnowledgeController_like"];
+        /** 取消点赞知识库 */
+        delete: operations["KnowledgeController_unlike"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/knowledge/{kbId}/documents": {
         parameters: {
             query?: never;
@@ -520,6 +538,10 @@ export interface components {
              * @description 更新时间
              */
             updatedAt: string;
+            /** @description 点赞数 */
+            likeCount?: number;
+            /** @description 当前用户是否已点赞 */
+            isLiked?: boolean;
         };
         UpdateKnowledgeBaseDto: {
             /** @description 名称 */
@@ -532,6 +554,12 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "public";
+        };
+        LikeResultDto: {
+            /** @description 操作后的点赞数 */
+            likeCount: number;
+            /** @description 操作后当前用户是否已点赞 */
+            isLiked: boolean;
         };
         KnowledgeDocument: {
             /** @description 文档 ID */
@@ -1004,6 +1032,48 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    KnowledgeController_like: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LikeResultDto"];
+                };
+            };
+        };
+    };
+    KnowledgeController_unlike: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LikeResultDto"];
+                };
             };
         };
     };

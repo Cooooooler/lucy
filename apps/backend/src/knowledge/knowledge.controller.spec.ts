@@ -12,6 +12,8 @@ describe('KnowledgeController', () => {
     get: vi.fn(),
     update: vi.fn(),
     remove: vi.fn(),
+    like: vi.fn(),
+    unlike: vi.fn(),
     addDocument: vi.fn(),
     listDocuments: vi.fn(),
     getDocument: vi.fn(),
@@ -84,5 +86,15 @@ describe('KnowledgeController', () => {
   it('removeDocument 转发 userId、kbId、id', async () => {
     await controller.removeDocument(user, 'kb1', 'd1');
     expect(service.removeDocument).toHaveBeenCalledWith('u1', 'kb1', 'd1');
+  });
+
+  it('like 转发 userId 与 id', async () => {
+    await controller.like(user, 'kb1');
+    expect(service.like).toHaveBeenCalledWith('u1', 'kb1');
+  });
+
+  it('unlike 转发 userId 与 id', async () => {
+    await controller.unlike(user, 'kb1');
+    expect(service.unlike).toHaveBeenCalledWith('u1', 'kb1');
   });
 });

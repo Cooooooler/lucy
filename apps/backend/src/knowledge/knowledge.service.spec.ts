@@ -42,6 +42,13 @@ describe('KnowledgeService', () => {
     save: vi.fn(),
     delete: vi.fn(),
   };
+  const likeRepo = {
+    findOneBy: vi.fn(),
+    save: vi.fn(),
+    delete: vi.fn(),
+    count: vi.fn(),
+    createQueryBuilder: vi.fn(),
+  };
   const fileService = {
     save: vi.fn(),
     remove: vi.fn(),
@@ -50,12 +57,32 @@ describe('KnowledgeService', () => {
 
   let service: KnowledgeService;
 
+  // 可链式 QueryBuilder mock：供 likeRepo 用（getRawMany）
+  const makeLikeQb = () => {
+    const qb = {
+      select: vi.fn(),
+      addSelect: vi.fn(),
+      where: vi.fn(),
+      andWhere: vi.fn(),
+      groupBy: vi.fn(),
+      getRawMany: vi.fn(),
+    };
+    qb.select.mockReturnValue(qb);
+    qb.addSelect.mockReturnValue(qb);
+    qb.where.mockReturnValue(qb);
+    qb.andWhere.mockReturnValue(qb);
+    qb.groupBy.mockReturnValue(qb);
+    qb.getRawMany.mockResolvedValue([]);
+    return qb;
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     service = new KnowledgeService(
       kbRepo as never,
       docRepo as never,
       fileRepo as never,
+      likeRepo as never,
       fileService as never,
       config,
     );
@@ -151,17 +178,20 @@ describe('KnowledgeService', () => {
     );
   });
 
-  it('get 属主可读', async () => {
+  it('get 属主可读，附带 likeCount/isLiked', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
-    await expect(service.get('u1', 'kb1')).resolves.toEqual(
-      expect.any(KnowledgeBase),
-    );
+    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
+    const result = await service.get('u1', 'kb1');
+    expect(result).toEqual(expect.any(KnowledgeBase));
+    expect(result.likeCount).toBe(0);
+    expect(result.isLiked).toBe(false);
   });
 
   it('get 公开库非属主可读', async () => {
     kbRepo.findOne.mockResolvedValue(
       kb({ visibility: KnowledgeBaseVisibility.Public }),
     );
+    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
     await expect(service.get('u2', 'kb1')).resolves.toEqual(
       expect.any(KnowledgeBase),
     );
@@ -304,10 +334,12 @@ describe('KnowledgeService', () => {
     expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
   });
 
-  it('list 默认可见性：属主或公开库（括号包裹 OR），返回 list/total/page/pageSize', async () => {
+  it('list 默认可见性：属主或公开库（括号包裹 OR），返回 list/total/page/pageSize，附带 likeCount/isLiked', async () => {
     const qb = makeKbQb();
     qb.getManyAndCount.mockResolvedValue([[kb()], 1]);
     kbRepo.createQueryBuilder.mockReturnValue(qb);
+    const likeQb = makeLikeQb();
+    likeRepo.createQueryBuilder.mockReturnValue(likeQb);
     const result = await service.list('u1', {});
     expect(qb.where).toHaveBeenCalledWith(
       '(kb.ownerId = :uid OR kb.visibility = :pub)',
@@ -321,11 +353,16 @@ describe('KnowledgeService', () => {
       page: 1,
       pageSize: 20,
     });
+    // 验证 like 回写
+    expect(likeRepo.createQueryBuilder).toHaveBeenCalledTimes(2);
+    expect(result.list[0].likeCount).toBe(0);
+    expect(result.list[0].isLiked).toBe(false);
   });
 
   it('list visibility=private：属主私有库', async () => {
     const qb = makeKbQb();
     kbRepo.createQueryBuilder.mockReturnValue(qb);
+    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
     await service.list('u1', { visibility: KnowledgeBaseVisibility.Private });
     expect(qb.where).toHaveBeenCalledWith('kb.ownerId = :uid', { uid: 'u1' });
     expect(qb.andWhere).toHaveBeenCalledWith('kb.visibility = :v', {
@@ -336,6 +373,7 @@ describe('KnowledgeService', () => {
   it('list visibility=public：公开库', async () => {
     const qb = makeKbQb();
     kbRepo.createQueryBuilder.mockReturnValue(qb);
+    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
     await service.list('u1', { visibility: KnowledgeBaseVisibility.Public });
     expect(qb.where).toHaveBeenCalledWith('kb.visibility = :v', {
       v: KnowledgeBaseVisibility.Public,
@@ -345,6 +383,7 @@ describe('KnowledgeService', () => {
   it('list 带 name：在括号 OR 之外追加 ILIKE 过滤（属主自己的库也参与 name 过滤）', async () => {
     const qb = makeKbQb();
     kbRepo.createQueryBuilder.mockReturnValue(qb);
+    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
     await service.list('u1', { name: 'x' });
     expect(qb.where).toHaveBeenCalledWith(
       '(kb.ownerId = :uid OR kb.visibility = :pub)',
@@ -423,6 +462,7 @@ describe('KnowledgeService', () => {
       kbRepo as never,
       docRepo as never,
       fileRepo as never,
+      likeRepo as never,
       fileService as never,
       new ConfigService({ FILE_MAX_SIZE: '10MB' }),
     );
@@ -590,6 +630,106 @@ describe('KnowledgeService', () => {
     await expect(
       service.removeDocument('u2', 'kb1', 'd1'),
     ).rejects.toMatchObject({
+      status: HttpStatus.FORBIDDEN,
+    });
+  });
+
+  it('like 首次点赞落库成功，返回 likeCount 与 isLiked', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    likeRepo.findOneBy.mockResolvedValue(null);
+    likeRepo.save.mockResolvedValue({});
+    likeRepo.count.mockResolvedValue(1);
+    await expect(service.like('u1', 'kb1')).resolves.toEqual({
+      likeCount: 1,
+      isLiked: true,
+    });
+    expect(likeRepo.findOneBy).toHaveBeenCalledWith({
+      knowledgeBaseId: 'kb1',
+      userId: 'u1',
+    });
+    expect(likeRepo.save).toHaveBeenCalledWith({
+      knowledgeBaseId: 'kb1',
+      userId: 'u1',
+    });
+    expect(likeRepo.count).toHaveBeenCalledWith({
+      where: { knowledgeBaseId: 'kb1' },
+    });
+  });
+
+  it('like 重复点赞抛 409', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    likeRepo.findOneBy.mockResolvedValue({ id: 'like1' });
+    await expect(service.like('u1', 'kb1')).rejects.toMatchObject({
+      status: HttpStatus.CONFLICT,
+    });
+    expect(likeRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('like 并发竞态：save 触发 UNIQUE 约束冲突抛 409', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    likeRepo.findOneBy.mockResolvedValue(null);
+    // 模拟 PostgreSQL UNIQUE 约束冲突 (error code 23505)
+    const uniqueError = new Error(
+      'duplicate key value violates unique constraint',
+    ) as Error & { code?: string };
+    uniqueError.code = '23505';
+    likeRepo.save.mockRejectedValue(uniqueError);
+    await expect(service.like('u1', 'kb1')).rejects.toMatchObject({
+      status: HttpStatus.CONFLICT,
+    });
+  });
+
+  it('like 知识库不存在抛 404', async () => {
+    kbRepo.findOne.mockResolvedValue(null);
+    await expect(service.like('u1', 'kb1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('like 私有库非属主抛 FORBIDDEN', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    await expect(service.like('u2', 'kb1')).rejects.toMatchObject({
+      status: HttpStatus.FORBIDDEN,
+    });
+  });
+
+  it('unlike 取消点赞成功，返回 likeCount 与 isLiked', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    likeRepo.delete.mockResolvedValue({ affected: 1 });
+    likeRepo.count.mockResolvedValue(0);
+    await expect(service.unlike('u1', 'kb1')).resolves.toEqual({
+      likeCount: 0,
+      isLiked: false,
+    });
+    expect(likeRepo.delete).toHaveBeenCalledWith({
+      knowledgeBaseId: 'kb1',
+      userId: 'u1',
+    });
+    expect(likeRepo.count).toHaveBeenCalledWith({
+      where: { knowledgeBaseId: 'kb1' },
+    });
+  });
+
+  it('unlike 未点赞也成功（幂等），返回 likeCount 0', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    likeRepo.delete.mockResolvedValue({ affected: 0 });
+    likeRepo.count.mockResolvedValue(0);
+    await expect(service.unlike('u1', 'kb1')).resolves.toEqual({
+      likeCount: 0,
+      isLiked: false,
+    });
+  });
+
+  it('unlike 知识库不存在抛 404', async () => {
+    kbRepo.findOne.mockResolvedValue(null);
+    await expect(service.unlike('u1', 'kb1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('unlike 私有库非属主抛 FORBIDDEN', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    await expect(service.unlike('u2', 'kb1')).rejects.toMatchObject({
       status: HttpStatus.FORBIDDEN,
     });
   });

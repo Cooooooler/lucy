@@ -117,6 +117,8 @@ const unwrapEnvelope: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
   name: 'unwrap-envelope',
   afterResponse(ctx) {
     if (ctx.responseType !== 'json') return ctx;
+    // 204 No Content 无响应体，直接放行（如 like/unlike 等幂等操作）
+    if (ctx.response.status === 204) return ctx;
     const body = ctx.result;
     // 2xx 但业务码非 OK（防御性处理）：仍按错误处理，还原业务码与 message
     if (body.code !== ErrorCode.OK) {

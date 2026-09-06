@@ -15,6 +15,8 @@ import {
   useInfiniteKnowledgeBaseList,
   useKnowledgeBase,
   useKnowledgeBaseList,
+  useLikeKnowledgeBase,
+  useUnlikeKnowledgeBase,
   useUpdateKnowledgeBase,
 } from './use-knowledge.js';
 
@@ -28,6 +30,8 @@ const api = vi.hoisted(() => ({
   getDocumentApi: vi.fn(),
   addDocumentApi: vi.fn(),
   deleteDocumentApi: vi.fn(),
+  likeKnowledgeBaseApi: vi.fn(),
+  unlikeKnowledgeBaseApi: vi.fn(),
 }));
 
 vi.mock('@/api/knowledge', () => api);
@@ -309,5 +313,403 @@ describe('useDeleteDocument', () => {
     });
     expect(api.deleteDocumentApi).toHaveBeenCalledWith('kb1', 'd1');
     await waitFor(() => expect(mutation.result.current.data).toBeNull());
+  });
+});
+
+describe('useLikeKnowledgeBase', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('调用 likeKnowledgeBaseApi 并返回结果', async () => {
+    api.likeKnowledgeBaseApi.mockResolvedValue({ likeCount: 1, isLiked: true });
+    const mutation = renderHook(() => useLikeKnowledgeBase(), {
+      wrapper: createWrapper(),
+    });
+    await act(async () => {
+      await mutation.result.current.mutateAsync('kb1');
+    });
+    expect(api.likeKnowledgeBaseApi).toHaveBeenCalledWith(
+      'kb1',
+      expect.anything(),
+    );
+    await waitFor(() =>
+      expect(mutation.result.current.data).toEqual({
+        likeCount: 1,
+        isLiked: true,
+      }),
+    );
+  });
+
+  it('成功后更新缓存中的 likeCount/isLiked', async () => {
+    api.likeKnowledgeBaseApi.mockResolvedValue({ likeCount: 5, isLiked: true });
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    // 预设缓存数据
+    queryClient.setQueryData(['knowledge', 'bases', 'list'], {
+      list: [makeBase({ id: 'kb1', likeCount: 4, isLiked: false })],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const mutation = renderHook(() => useLikeKnowledgeBase(), { wrapper });
+    await act(async () => {
+      await mutation.result.current.mutateAsync('kb1');
+    });
+    // 验证缓存已更新
+    const cached = queryClient.getQueryData<{
+      list: KnowledgeBase[];
+    }>(['knowledge', 'bases', 'list']);
+    expect(cached?.list[0].isLiked).toBe(true);
+    expect(cached?.list[0].likeCount).toBe(5);
+  });
+
+  it('失败时回滚缓存', async () => {
+    api.likeKnowledgeBaseApi.mockRejectedValue(new Error('network error'));
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const original = {
+      list: [makeBase({ id: 'kb1', likeCount: 4, isLiked: false })],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    };
+    queryClient.setQueryData(['knowledge', 'bases', 'list'], original);
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const mutation = renderHook(() => useLikeKnowledgeBase(), { wrapper });
+    await act(async () => {
+      try {
+        await mutation.result.current.mutateAsync('kb1');
+      } catch {
+        // 预期失败
+      }
+    });
+    // 验证缓存已回滚
+    const cached = queryClient.getQueryData<{
+      list: KnowledgeBase[];
+    }>(['knowledge', 'bases', 'list']);
+    expect(cached?.list[0].isLiked).toBe(false);
+    expect(cached?.list[0].likeCount).toBe(4);
+  });
+});
+
+describe('useUnlikeKnowledgeBase', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('调用 unlikeKnowledgeBaseApi 并返回结果', async () => {
+    api.unlikeKnowledgeBaseApi.mockResolvedValue({
+      likeCount: 0,
+      isLiked: false,
+    });
+    const mutation = renderHook(() => useUnlikeKnowledgeBase(), {
+      wrapper: createWrapper(),
+    });
+    await act(async () => {
+      await mutation.result.current.mutateAsync('kb1');
+    });
+    expect(api.unlikeKnowledgeBaseApi).toHaveBeenCalledWith(
+      'kb1',
+      expect.anything(),
+    );
+    await waitFor(() =>
+      expect(mutation.result.current.data).toEqual({
+        likeCount: 0,
+        isLiked: false,
+      }),
+    );
+  });
+
+  it('成功后更新缓存中的 likeCount/isLiked', async () => {
+    api.unlikeKnowledgeBaseApi.mockResolvedValue({
+      likeCount: 3,
+      isLiked: false,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    queryClient.setQueryData(['knowledge', 'bases', 'list'], {
+      list: [makeBase({ id: 'kb1', likeCount: 4, isLiked: true })],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const mutation = renderHook(() => useUnlikeKnowledgeBase(), { wrapper });
+    await act(async () => {
+      await mutation.result.current.mutateAsync('kb1');
+    });
+    const cached = queryClient.getQueryData<{
+      list: KnowledgeBase[];
+    }>(['knowledge', 'bases', 'list']);
+    expect(cached?.list[0].isLiked).toBe(false);
+    expect(cached?.list[0].likeCount).toBe(3);
+  });
+
+  it('失败时回滚缓存', async () => {
+    api.unlikeKnowledgeBaseApi.mockRejectedValue(new Error('network error'));
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const original = {
+      list: [makeBase({ id: 'kb1', likeCount: 4, isLiked: true })],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    };
+    queryClient.setQueryData(['knowledge', 'bases', 'list'], original);
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const mutation = renderHook(() => useUnlikeKnowledgeBase(), { wrapper });
+    await act(async () => {
+      try {
+        await mutation.result.current.mutateAsync('kb1');
+      } catch {
+        // 预期失败
+      }
+    });
+    const cached = queryClient.getQueryData<{
+      list: KnowledgeBase[];
+    }>(['knowledge', 'bases', 'list']);
+    expect(cached?.list[0].isLiked).toBe(true);
+    expect(cached?.list[0].likeCount).toBe(4);
+  });
+
+  it('更新无限滚动（pages 形态）缓存中的 like 状态', async () => {
+    api.likeKnowledgeBaseApi.mockResolvedValue({ likeCount: 2, isLiked: true });
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    // 无限滚动形态：{ pages: [{ list, total, page, pageSize }], pageParams: [...] }
+    queryClient.setQueryData(['knowledge', 'bases', 'list', 'infinite', {}], {
+      pages: [
+        {
+          list: [makeBase({ id: 'kb1', likeCount: 1, isLiked: false })],
+          total: 1,
+          page: 1,
+          pageSize: 20,
+        },
+      ],
+      pageParams: [1],
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const mutation = renderHook(() => useLikeKnowledgeBase(), { wrapper });
+    await act(async () => {
+      await mutation.result.current.mutateAsync('kb1');
+    });
+    const cached = queryClient.getQueryData<{
+      pages: Array<{ list: KnowledgeBase[] }>;
+    }>(['knowledge', 'bases', 'list', 'infinite', {}]);
+    expect(cached?.pages[0].list[0].isLiked).toBe(true);
+    expect(cached?.pages[0].list[0].likeCount).toBe(2);
+  });
+
+  it('乐观更新从列表缓存（非 base 单条）获取 likeCount', async () => {
+    api.likeKnowledgeBaseApi.mockResolvedValue({ likeCount: 6, isLiked: true });
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    // 只设置列表缓存，不设置 base(id) 缓存
+    queryClient.setQueryData(['knowledge', 'bases', 'list'], {
+      list: [makeBase({ id: 'kb1', likeCount: 5, isLiked: false })],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const mutation = renderHook(() => useLikeKnowledgeBase(), { wrapper });
+    await act(async () => {
+      await mutation.result.current.mutateAsync('kb1');
+    });
+    // 验证 onSuccess 用服务端返回覆盖
+    const cached = queryClient.getQueryData<{
+      list: KnowledgeBase[];
+    }>(['knowledge', 'bases', 'list']);
+    expect(cached?.list[0].isLiked).toBe(true);
+    expect(cached?.list[0].likeCount).toBe(6);
+  });
+
+  it('缓存中不存在目标知识库时 likeCount 从 0 开始', async () => {
+    api.likeKnowledgeBaseApi.mockResolvedValue({ likeCount: 1, isLiked: true });
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    // 列表缓存中有其他知识库，但没有目标 kb999
+    queryClient.setQueryData(['knowledge', 'bases', 'list'], {
+      list: [
+        makeBase({ id: 'other', name: '其他', likeCount: 10, isLiked: false }),
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const mutation = renderHook(() => useLikeKnowledgeBase(), { wrapper });
+    await act(async () => {
+      await mutation.result.current.mutateAsync('kb999');
+    });
+    // 验证 onSuccess 用服务端返回覆盖
+    const cached = queryClient.getQueryData<{
+      list: KnowledgeBase[];
+    }>(['knowledge', 'bases', 'list']);
+    // 列表中的其他项不受影响
+    expect(cached?.list[0].id).toBe('other');
+    expect(cached?.list[0].likeCount).toBe(10);
+  });
+
+  it('从无限滚动 pages 中提取 likeCount', async () => {
+    api.unlikeKnowledgeBaseApi.mockResolvedValue({
+      likeCount: 4,
+      isLiked: false,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    // 无限滚动形态，likeCount = 5
+    queryClient.setQueryData(['knowledge', 'bases', 'list', 'infinite', {}], {
+      pages: [
+        {
+          list: [makeBase({ id: 'kb1', likeCount: 5, isLiked: true })],
+          total: 1,
+          page: 1,
+          pageSize: 20,
+        },
+      ],
+      pageParams: [1],
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const mutation = renderHook(() => useUnlikeKnowledgeBase(), { wrapper });
+    await act(async () => {
+      await mutation.result.current.mutateAsync('kb1');
+    });
+    const cached = queryClient.getQueryData<{
+      pages: Array<{ list: KnowledgeBase[] }>;
+    }>(['knowledge', 'bases', 'list', 'infinite', {}]);
+    expect(cached?.pages[0].list[0].isLiked).toBe(false);
+    expect(cached?.pages[0].list[0].likeCount).toBe(4);
+  });
+
+  it('unlike 失败时回滚列表缓存（无 base 缓存场景）', async () => {
+    api.unlikeKnowledgeBaseApi.mockRejectedValue(new Error('network error'));
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    // 只设置列表缓存，不设置 base(id) 缓存
+    const originalList = {
+      list: [makeBase({ id: 'kb1', likeCount: 5, isLiked: true })],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    };
+    queryClient.setQueryData(['knowledge', 'bases', 'list'], originalList);
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const mutation = renderHook(() => useUnlikeKnowledgeBase(), { wrapper });
+    await act(async () => {
+      try {
+        await mutation.result.current.mutateAsync('kb1');
+      } catch {
+        // 预期失败
+      }
+    });
+    // 验证列表缓存已回滚
+    const cached = queryClient.getQueryData<{
+      list: KnowledgeBase[];
+    }>(['knowledge', 'bases', 'list']);
+    expect(cached?.list[0].isLiked).toBe(true);
+    expect(cached?.list[0].likeCount).toBe(5);
+  });
+
+  it('base 缓存 likeCount 为 0 时使用列表缓存的值', async () => {
+    api.likeKnowledgeBaseApi.mockResolvedValue({
+      likeCount: 11,
+      isLiked: true,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    // base 缓存 likeCount = 0
+    queryClient.setQueryData(
+      ['knowledge', 'bases', 'kb1'],
+      makeBase({ id: 'kb1', likeCount: 0, isLiked: false }),
+    );
+    // 列表缓存 likeCount = 10
+    queryClient.setQueryData(['knowledge', 'bases', 'list'], {
+      list: [makeBase({ id: 'kb1', likeCount: 10, isLiked: false })],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const mutation = renderHook(() => useLikeKnowledgeBase(), { wrapper });
+    await act(async () => {
+      await mutation.result.current.mutateAsync('kb1');
+    });
+    // 验证 onSuccess 用服务端返回覆盖
+    const cached = queryClient.getQueryData<{ list: KnowledgeBase[] }>([
+      'knowledge',
+      'bases',
+      'list',
+    ]);
+    expect(cached?.list[0].isLiked).toBe(true);
+    expect(cached?.list[0].likeCount).toBe(11);
   });
 });
