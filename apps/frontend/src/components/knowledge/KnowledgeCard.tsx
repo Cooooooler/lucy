@@ -1,26 +1,86 @@
+import { ApiError } from '@/api/client';
 import type { KnowledgeBase } from '@/api/types.ts';
+import { useUpdateKnowledgeBase } from '@/hooks/use-knowledge';
 import {
   EditOutlined,
   HeartOutlined,
   ShareAltOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Card, Typography } from 'antd';
+import {
+  App,
+  Avatar,
+  Button,
+  Card,
+  Drawer,
+  Form,
+  Input,
+  Segmented,
+  Tooltip,
+  Typography,
+} from 'antd';
 import type { FC } from 'react';
+import { useState } from 'react';
 
 const { Meta } = Card;
 const { Paragraph } = Typography;
 
-const actions = [
-  <HeartOutlined key="heart" style={{ color: '#ff6b6b' }} />,
-  <ShareAltOutlined key="share" style={{ color: '#4ecdc4' }} />,
-  <EditOutlined key="edit" style={{ color: '#45b7d1' }} />,
+const VISIBILITY_OPTIONS: { label: string; value: 'private' | 'public' }[] = [
+  { label: '私有', value: 'private' },
+  { label: '公开', value: 'public' },
 ];
 
 export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
+  const [open, setOpen] = useState(false);
+  const { message } = App.useApp();
+  const updateMutation = useUpdateKnowledgeBase();
+  const [form] = Form.useForm();
+
+  const handleSubmit = async () => {
+    let values: {
+      name: string;
+      description?: string;
+      visibility: 'private' | 'public';
+    };
+    try {
+      values = await form.validateFields();
+    } catch {
+      return;
+    }
+    try {
+      await updateMutation.mutateAsync({
+        id: kb.id,
+        input: {
+          name: values.name.trim(),
+          description: values.description?.trim() ?? undefined,
+          visibility: values.visibility,
+        },
+      });
+      message.success('知识库更新成功');
+      setOpen(false);
+    } catch (e) {
+      if (e instanceof ApiError) {
+        message.error(e.message);
+      } else {
+        message.error('更新失败，请稍后重试');
+      }
+    }
+  };
+
   return (
     <Card
       hoverable
-      actions={actions}
+      actions={[
+        <HeartOutlined key="heart" style={{ color: '#ff6b6b' }} />,
+        <ShareAltOutlined key="share" style={{ color: '#4ecdc4' }} />,
+        <Tooltip key="edit" title="编辑">
+          <Button
+            type="text"
+            aria-label="编辑知识库"
+            icon={<EditOutlined style={{ color: '#45b7d1' }} />}
+            onClick={() => setOpen(true)}
+          />
+        </Tooltip>,
+      ]}
       title={kb.name}
       extra={<Button type="link">详情</Button>}
       variant="borderless"
@@ -38,6 +98,57 @@ export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
           </Paragraph>
         }
       />
+      <Drawer
+        title="编辑知识库"
+        size="large"
+        open={open}
+        destroyOnHidden
+        onClose={() => setOpen(false)}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setOpen(false)}>取消</Button>
+            <Button
+              type="primary"
+              loading={updateMutation.isPending}
+              onClick={handleSubmit}
+            >
+              保存
+            </Button>
+          </div>
+        }
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          preserve={false}
+          initialValues={{
+            name: kb.name,
+            description: kb.description,
+            visibility: kb.visibility,
+          }}
+        >
+          <Form.Item
+            name="name"
+            label="名称"
+            rules={[
+              { required: true, whitespace: true, message: '请输入知识库名称' },
+            ]}
+          >
+            <Input maxLength={100} placeholder="请输入知识库名称" />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea
+              maxLength={200}
+              showCount
+              rows={4}
+              placeholder="请输入描述（可选）"
+            />
+          </Form.Item>
+          <Form.Item name="visibility" label="可见性">
+            <Segmented options={VISIBILITY_OPTIONS} block />
+          </Form.Item>
+        </Form>
+      </Drawer>
     </Card>
   );
 };
