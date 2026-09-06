@@ -49,11 +49,11 @@ describe('KnowledgeCard', () => {
     expect(screen.getByText('详情')).toBeInTheDocument();
   });
 
-  it('点击编辑图标打开编辑抽屉并预填数据', async () => {
+  it('点击编辑按钮打开编辑抽屉并预填数据', async () => {
     mockedUpdate.mockReturnValue(updateMutationMock());
     renderCard();
 
-    await userEvent.click(screen.getByRole('img', { name: 'edit' }));
+    await userEvent.click(screen.getByRole('button', { name: '编辑知识库' }));
 
     expect(screen.getByLabelText('名称')).toHaveValue('产品文档');
     expect(screen.getByLabelText('描述')).toHaveValue('这是一段描述');
@@ -72,7 +72,7 @@ describe('KnowledgeCard', () => {
     mockedUpdate.mockReturnValue(updateMutationMock({ mutateAsync }));
     renderCard();
 
-    await userEvent.click(screen.getByRole('img', { name: 'edit' }));
+    await userEvent.click(screen.getByRole('button', { name: '编辑知识库' }));
     await userEvent.clear(screen.getByLabelText('名称'));
     await userEvent.type(screen.getByLabelText('名称'), '新名称');
 
@@ -88,5 +88,57 @@ describe('KnowledgeCard', () => {
         },
       });
     });
+  });
+
+  it('清空描述提交时发送空字符串', async () => {
+    const mutateAsync = vi.fn(async () => ({
+      id: 'kb1',
+      ownerId: 'u1',
+      visibility: 'private' as const,
+      name: '产品文档',
+      description: '',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+    }));
+    mockedUpdate.mockReturnValue(updateMutationMock({ mutateAsync }));
+    renderCard();
+
+    await userEvent.click(screen.getByRole('button', { name: '编辑知识库' }));
+    await userEvent.clear(screen.getByLabelText('描述'));
+
+    await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledWith({
+        id: 'kb1',
+        input: {
+          name: '产品文档',
+          description: '',
+          visibility: 'private',
+        },
+      });
+    });
+  });
+
+  it('纯空格名称不提交', async () => {
+    const mutateAsync = vi.fn(async () => ({
+      id: 'kb1',
+      ownerId: 'u1',
+      visibility: 'private' as const,
+      name: '产品文档',
+      description: '这是一段描述',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+    }));
+    mockedUpdate.mockReturnValue(updateMutationMock({ mutateAsync }));
+    renderCard();
+
+    await userEvent.click(screen.getByRole('button', { name: '编辑知识库' }));
+    await userEvent.clear(screen.getByLabelText('名称'));
+    await userEvent.type(screen.getByLabelText('名称'), '   ');
+
+    await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
+
+    expect(mutateAsync).not.toHaveBeenCalled();
   });
 });

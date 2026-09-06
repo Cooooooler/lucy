@@ -51,7 +51,7 @@ export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
         id: kb.id,
         input: {
           name: values.name.trim(),
-          description: values.description?.trim() || undefined,
+          description: values.description?.trim() ?? undefined,
           visibility: values.visibility,
         },
       });
@@ -73,8 +73,10 @@ export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
         <HeartOutlined key="heart" style={{ color: '#ff6b6b' }} />,
         <ShareAltOutlined key="share" style={{ color: '#4ecdc4' }} />,
         <Tooltip key="edit" title="编辑">
-          <EditOutlined
-            style={{ color: '#45b7d1' }}
+          <Button
+            type="text"
+            aria-label="编辑知识库"
+            icon={<EditOutlined style={{ color: '#45b7d1' }} />}
             onClick={() => setOpen(true)}
           />
         </Tooltip>,
@@ -128,7 +130,9 @@ export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
           <Form.Item
             name="name"
             label="名称"
-            rules={[{ required: true, message: '请输入知识库名称' }]}
+            rules={[
+              { required: true, whitespace: true, message: '请输入知识库名称' },
+            ]}
           >
             <Input maxLength={100} placeholder="请输入知识库名称" />
           </Form.Item>

@@ -107,7 +107,9 @@ export const KnowledgeToolbar: FC<KnowledgeToolbarProps> = ({
           <Form.Item
             name="name"
             label="名称"
-            rules={[{ required: true, message: '请输入知识库名称' }]}
+            rules={[
+              { required: true, whitespace: true, message: '请输入知识库名称' },
+            ]}
           >
             <Input maxLength={100} placeholder="请输入知识库名称" />
           </Form.Item>
