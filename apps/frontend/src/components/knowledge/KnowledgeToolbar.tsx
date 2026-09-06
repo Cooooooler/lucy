@@ -113,7 +113,7 @@ export const KnowledgeToolbar: FC<KnowledgeToolbarProps> = ({
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea
-              maxLength={500}
+              maxLength={200}
               showCount
               rows={4}
               placeholder="请输入描述（可选）"

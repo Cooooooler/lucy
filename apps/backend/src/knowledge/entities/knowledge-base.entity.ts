@@ -52,7 +52,7 @@ export class KnowledgeBase {
   name: string;
 
   @ApiProperty({ description: '描述', type: 'string', nullable: true })
-  @Column({ type: 'varchar', length: 500, nullable: true })
+  @Column({ type: 'varchar', length: 200, nullable: true })
   description: string | null;
 
   @ApiProperty({ description: '创建时间' })
