@@ -9,9 +9,9 @@ import {
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { basename, extname } from 'node:path';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import {
   extractContent,
   SUPPORTED_DOCUMENT_EXTS,
@@ -32,12 +32,11 @@ import { detectFileType } from './magic-bytes.js';
 @Injectable()
 export class KnowledgeService {
   constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(KnowledgeBase)
     private readonly kbRepo: Repository<KnowledgeBase>,
     @InjectRepository(KnowledgeDocument)
     private readonly docRepo: Repository<KnowledgeDocument>,
-    @InjectRepository(BackendFileEntity)
-    private readonly fileRepo: Repository<BackendFileEntity>,
     @InjectRepository(KnowledgeLike)
     private readonly likeRepo: Repository<KnowledgeLike>,
     private readonly fileService: FileService,
@@ -236,16 +235,21 @@ export class KnowledgeService {
     const kb = await this.kbRepo.findOne({ where: { id } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertOwner(kb, userId);
-    // 清理该库下所有文档的底层文件，避免孤儿
-    const docs = await this.docRepo.find({ where: { knowledgeBaseId: id } });
-    for (const d of docs) {
-      const file = await this.fileRepo.findOneBy({ id: d.fileId });
-      if (file) {
-        await this.fileService.remove(file.key);
-        await this.fileRepo.delete({ id: file.id });
+    // 事务：级联删除文档及其关联的文件记录，保证原子性
+    await this.dataSource.transaction(async (manager) => {
+      const docRepo = manager.getRepository(KnowledgeDocument);
+      const fileRepo = manager.getRepository(BackendFileEntity);
+
+      const docs = await docRepo.find({ where: { knowledgeBaseId: id } });
+      for (const d of docs) {
+        const file = await fileRepo.findOneBy({ id: d.fileId });
+        if (file) {
+          await this.fileService.remove(file.key);
+          await fileRepo.delete({ id: file.id });
+        }
       }
-    }
-    await this.kbRepo.delete({ id });
+      await this.kbRepo.delete({ id });
+    });
     return null;
   }
 
@@ -289,37 +293,39 @@ export class KnowledgeService {
       mime: file.mimetype,
     });
 
-    const fileEntity = await this.fileRepo.save({
-      ownerId: userId,
-      originalName: file.originalname,
-      ext: stored.ext,
-      mime: stored.mime,
-      size: stored.size,
-      key: stored.key,
-      hash: stored.hash,
-      storage: stored.storage,
-    });
-
-    let content: string;
+    // 事务：保存文件记录 + 文档记录，任一步失败自动回滚
     try {
-      content = await extractContent(file.buffer, origExt);
-    } catch {
-      await this.fileService.remove(stored.key);
-      await this.fileRepo.delete({ id: fileEntity.id });
-      throw new UnprocessableEntityException('文档解析失败');
-    }
+      return await this.dataSource.transaction(async (manager) => {
+        const fileRepo = manager.getRepository(BackendFileEntity);
+        const docRepo = manager.getRepository(KnowledgeDocument);
 
-    const title = basename(file.originalname, extname(file.originalname));
-    try {
-      return await this.docRepo.save({
-        knowledgeBaseId: kbId,
-        fileId: fileEntity.id,
-        title,
-        content,
+        const fileEntity = await fileRepo.save({
+          ownerId: userId,
+          originalName: file.originalname,
+          ext: stored.ext,
+          mime: stored.mime,
+          size: stored.size,
+          key: stored.key,
+          hash: stored.hash,
+          storage: stored.storage,
+        });
+
+        const content = await extractContent(file.buffer, origExt);
+        const title = basename(file.originalname, extname(file.originalname));
+
+        return docRepo.save({
+          knowledgeBaseId: kbId,
+          fileId: fileEntity.id,
+          title,
+          content,
+        });
       });
     } catch (err) {
+      // 事务回滚后清理已上传的底层文件
       await this.fileService.remove(stored.key);
-      await this.fileRepo.delete({ id: fileEntity.id });
+      if (err instanceof Error) {
+        throw new UnprocessableEntityException('文档解析失败');
+      }
       throw err;
     }
   }
@@ -395,10 +401,15 @@ export class KnowledgeService {
       where: { id, knowledgeBaseId: kbId },
     });
     if (!doc) throw new NotFoundException('文档不存在');
-    await this.docRepo.delete({ id, knowledgeBaseId: kbId });
-    const file = await this.fileRepo.findOneBy({ id: doc.fileId });
-    if (file) await this.fileService.remove(file.key);
-    await this.fileRepo.delete({ id: doc.fileId });
+    // 事务：删除文档 + 关联文件记录，保证原子性
+    await this.dataSource.transaction(async (manager) => {
+      const fileRepo = manager.getRepository(BackendFileEntity);
+
+      await this.docRepo.delete({ id, knowledgeBaseId: kbId });
+      const file = await fileRepo.findOneBy({ id: doc.fileId });
+      if (file) await this.fileService.remove(file.key);
+      await fileRepo.delete({ id: doc.fileId });
+    });
     return null;
   }
 

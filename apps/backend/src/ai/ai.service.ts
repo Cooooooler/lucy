@@ -2,10 +2,10 @@ import { HumanMessage } from '@langchain/core/messages';
 import { AiStreamEvent, ErrorCode, type ErrorCodeValue } from '@lucy/shared';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
-import { IsNull, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 import { ContextService } from './context.service.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
@@ -33,6 +33,7 @@ type Subscriber = {
 @Injectable()
 export class AiService {
   constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(Conversation)
     private readonly conversationRepo: Repository<Conversation>,
     @InjectRepository(Message)
@@ -267,15 +268,21 @@ export class AiService {
       order: { createdAt: 'ASC' },
     });
 
-    await this.messageRepo.save({
-      conversationId,
-      role: MessageRole.User,
-      content: dto.content,
+    // 事务：保存用户消息 + 刷新会话 updatedAt，保证原子性
+    await this.dataSource.transaction(async (manager) => {
+      const messageRepo = manager.getRepository(Message);
+      const conversationRepo = manager.getRepository(Conversation);
+
+      await messageRepo.save({
+        conversationId,
+        role: MessageRole.User,
+        content: dto.content,
+      });
+      // 刷新会话 updatedAt，保证会话列表按最近活跃排序；
+      // 显式设值确保脏检查必触发 UPDATE，不依赖 UpdateDateColumn 的自动刷新
+      conversation.updatedAt = new Date();
+      await conversationRepo.save(conversation);
     });
-    // 刷新会话 updatedAt，保证会话列表按最近活跃排序；
-    // 显式设值确保脏检查必触发 UPDATE，不依赖 UpdateDateColumn 的自动刷新
-    conversation.updatedAt = new Date();
-    await this.conversationRepo.save(conversation);
 
     // 首条消息：先同步生成标题再开始回答，保证回答流结束时标题已就绪（前端拉列表时不再缺失）
     const count = await this.messageRepo.count({ where: { conversationId } });
