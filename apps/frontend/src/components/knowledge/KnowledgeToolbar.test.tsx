@@ -1,8 +1,9 @@
+import { ApiError } from '@/api/client';
 import { useCreateKnowledgeBase } from '@/hooks/use-knowledge';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { KnowledgeToolbar, VISIBILITY_OPTIONS } from './KnowledgeToolbar';
 
 vi.mock('@/hooks/use-knowledge', () => ({
@@ -41,6 +42,12 @@ function renderToolbar(
 }
 
 describe('KnowledgeToolbar', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // 清理 antd message 残留
+    document.body.innerHTML = '';
+  });
+
   it('渲染三个可见性选项', () => {
     mockedCreate.mockReturnValue(createMutationMock());
     renderToolbar();
@@ -126,6 +133,26 @@ describe('KnowledgeToolbar', () => {
       expect(
         document.querySelector('.ant-form-item-explain-error'),
       ).toBeInTheDocument();
+    });
+  });
+
+  it('创建失败时调用 mutateAsync 并传入正确参数', async () => {
+    const mutateAsync = vi
+      .fn()
+      .mockRejectedValue(new ApiError('名称已存在', 409, 409));
+    mockedCreate.mockReturnValue(createMutationMock({ mutateAsync }));
+    renderToolbar();
+
+    await userEvent.click(screen.getByText('新增知识库'));
+    await userEvent.type(screen.getByLabelText('名称'), '重复名称');
+    await userEvent.click(screen.getByRole('button', { name: /创\s*建/ }));
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledWith({
+        name: '重复名称',
+        description: undefined,
+        visibility: 'private',
+      });
     });
   });
 });

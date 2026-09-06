@@ -34,13 +34,30 @@ function noopMutationMock() {
   return {
     mutate: vi.fn(),
     isPending: false,
+    mutateAsync: vi.fn(),
+    data: undefined,
+    error: null,
+    isSuccess: false,
+    isError: false,
+    isIdle: true,
+    reset: vi.fn(),
+    status: 'idle',
+    variables: undefined,
+    context: undefined,
+    submittedAt: 0,
+    failureCount: 0,
+    failureReason: null,
   } as unknown as ReturnType<typeof useLikeKnowledgeBase> &
     ReturnType<typeof useUnlikeKnowledgeBase>;
 }
 
-function renderCard(kb = baseKb) {
-  mockedLike.mockReturnValue(noopMutationMock());
-  mockedUnlike.mockReturnValue(noopMutationMock());
+function renderCard(
+  kb = baseKb,
+  likeMock: ReturnType<typeof noopMutationMock> | null = null,
+  unlikeMock: ReturnType<typeof noopMutationMock> | null = null,
+) {
+  mockedLike.mockReturnValue(likeMock ?? noopMutationMock());
+  mockedUnlike.mockReturnValue(unlikeMock ?? noopMutationMock());
   return render(
     <AntdApp>
       <KnowledgeCard kb={kb} />
@@ -158,5 +175,40 @@ describe('KnowledgeCard', () => {
     await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
 
     expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('未点赞时点击点赞按钮调用 like', async () => {
+    const likeMock = noopMutationMock();
+    const unlikeMock = noopMutationMock();
+    renderCard(baseKb, likeMock, unlikeMock);
+
+    await userEvent.click(screen.getByRole('button', { name: '点赞' }));
+    expect(likeMock.mutate).toHaveBeenCalledWith('kb1');
+    expect(unlikeMock.mutate).not.toHaveBeenCalled();
+  });
+
+  it('已点赞时点击取消点赞按钮调用 unlike', async () => {
+    const likeMock = noopMutationMock();
+    const unlikeMock = noopMutationMock();
+    renderCard(
+      { ...baseKb, isLiked: true, likeCount: 5 },
+      likeMock,
+      unlikeMock,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: '取消点赞' }));
+    expect(unlikeMock.mutate).toHaveBeenCalledWith('kb1');
+    expect(likeMock.mutate).not.toHaveBeenCalled();
+  });
+
+  it('已点赞时显示点赞数', async () => {
+    mockedUpdate.mockReturnValue(updateMutationMock());
+    renderCard({
+      ...baseKb,
+      isLiked: true,
+      likeCount: 42,
+    });
+
+    expect(screen.getByText('42')).toBeInTheDocument();
   });
 });
