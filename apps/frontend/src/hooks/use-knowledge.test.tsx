@@ -327,7 +327,10 @@ describe('useLikeKnowledgeBase', () => {
     await act(async () => {
       await mutation.result.current.mutateAsync('kb1');
     });
-    expect(api.likeKnowledgeBaseApi).toHaveBeenCalledWith('kb1');
+    expect(api.likeKnowledgeBaseApi).toHaveBeenCalledWith(
+      'kb1',
+      expect.anything(),
+    );
     await waitFor(() =>
       expect(mutation.result.current.data).toEqual({
         likeCount: 1,
@@ -417,7 +420,10 @@ describe('useUnlikeKnowledgeBase', () => {
     await act(async () => {
       await mutation.result.current.mutateAsync('kb1');
     });
-    expect(api.unlikeKnowledgeBaseApi).toHaveBeenCalledWith('kb1');
+    expect(api.unlikeKnowledgeBaseApi).toHaveBeenCalledWith(
+      'kb1',
+      expect.anything(),
+    );
     await waitFor(() =>
       expect(mutation.result.current.data).toEqual({
         likeCount: 0,

@@ -263,14 +263,16 @@ function extractLikeCountFromListData(
   return undefined;
 }
 
-/**
- * 点赞知识库。
- * 乐观更新 UI，onSuccess 用服务端返回的真实 likeCount/isLiked 覆盖缓存。
- */
+/** 点赞/取消点赞 mutation 共享的 queryClient */
+function useLikeQueryClient() {
+  return useQueryClient();
+}
+
+/** 点赞知识库。乐观更新 UI，onSuccess 用服务端返回的真实值覆盖缓存。 */
 export function useLikeKnowledgeBase() {
-  const queryClient = useQueryClient();
+  const queryClient = useLikeQueryClient();
   return useMutation({
-    mutationFn: (id: string) => likeKnowledgeBaseApi(id),
+    mutationFn: likeKnowledgeBaseApi,
     onMutate: async (id) => {
       await Promise.all([
         queryClient.cancelQueries({ queryKey: knowledgeKeys.baseListAll() }),
@@ -280,16 +282,14 @@ export function useLikeKnowledgeBase() {
         knowledgeKeys.base(id),
       );
       const previousLists = snapshotLists(queryClient);
-      const currentLikeCount = getMaxLikeCountFromCache(queryClient, id);
+      const count = getMaxLikeCountFromCache(queryClient, id);
       updateLikeInCache(queryClient, id, {
         isLiked: true,
-        likeCount: currentLikeCount + 1,
+        likeCount: count + 1,
       });
       return { previousBase, previousLists };
     },
-    onSuccess: (result, id) => {
-      updateLikeInCache(queryClient, id, result);
-    },
+    onSuccess: (result, id) => updateLikeInCache(queryClient, id, result),
     onError: (_err, id, context) => {
       if (context?.previousBase) {
         queryClient.setQueryData(knowledgeKeys.base(id), context.previousBase);
@@ -299,14 +299,11 @@ export function useLikeKnowledgeBase() {
   });
 }
 
-/**
- * 取消点赞知识库。
- * 乐观更新 UI，onSuccess 用服务端返回的真实 likeCount/isLiked 覆盖缓存。
- */
+/** 取消点赞知识库。乐观更新 UI，onSuccess 用服务端返回的真实值覆盖缓存。 */
 export function useUnlikeKnowledgeBase() {
-  const queryClient = useQueryClient();
+  const queryClient = useLikeQueryClient();
   return useMutation({
-    mutationFn: (id: string) => unlikeKnowledgeBaseApi(id),
+    mutationFn: unlikeKnowledgeBaseApi,
     onMutate: async (id) => {
       await Promise.all([
         queryClient.cancelQueries({ queryKey: knowledgeKeys.baseListAll() }),
@@ -316,16 +313,14 @@ export function useUnlikeKnowledgeBase() {
         knowledgeKeys.base(id),
       );
       const previousLists = snapshotLists(queryClient);
-      const currentLikeCount = getMaxLikeCountFromCache(queryClient, id);
+      const count = getMaxLikeCountFromCache(queryClient, id);
       updateLikeInCache(queryClient, id, {
         isLiked: false,
-        likeCount: Math.max(currentLikeCount - 1, 0),
+        likeCount: Math.max(count - 1, 0),
       });
       return { previousBase, previousLists };
     },
-    onSuccess: (result, id) => {
-      updateLikeInCache(queryClient, id, result);
-    },
+    onSuccess: (result, id) => updateLikeInCache(queryClient, id, result),
     onError: (_err, id, context) => {
       if (context?.previousBase) {
         queryClient.setQueryData(knowledgeKeys.base(id), context.previousBase);
