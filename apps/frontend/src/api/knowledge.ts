@@ -2,6 +2,7 @@ import type {
   DocumentListQuery,
   KnowledgeListQuery,
   PageResult,
+  components,
 } from '@lucy/shared';
 import { http } from './client.js';
 import type {
@@ -10,6 +11,8 @@ import type {
   KnowledgeDocument,
   UpdateKnowledgeBaseRequest,
 } from './types.js';
+
+type LikeResultDto = components['schemas']['LikeResultDto'];
 
 // 知识库/文档 REST 客户端：全部经 http 实例（自动附加 Bearer + 401 单飞刷新 + 信封解包）。
 // 分页响应结构复用共享 PageResult<T>；列表接口经 `http.get` 以 query 参数发送。
@@ -36,6 +39,14 @@ export function updateKnowledgeBaseApi(
 
 export function deleteKnowledgeBaseApi(id: string) {
   return http.delete<null>(`knowledge/${id}`).json();
+}
+
+export function likeKnowledgeBaseApi(id: string) {
+  return http.post<LikeResultDto>(`knowledge/${id}/like`).json();
+}
+
+export function unlikeKnowledgeBaseApi(id: string) {
+  return http.delete<LikeResultDto>(`knowledge/${id}/like`).json();
 }
 
 // 上传文档：multipart/form-data，字段名 file。FormData 经 http 原样透传，

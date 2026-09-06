@@ -1,8 +1,13 @@
 import { ApiError } from '@/api/client';
 import type { KnowledgeBase } from '@/api/types.ts';
-import { useUpdateKnowledgeBase } from '@/hooks/use-knowledge';
+import {
+  useLikeKnowledgeBase,
+  useUnlikeKnowledgeBase,
+  useUpdateKnowledgeBase,
+} from '@/hooks/use-knowledge';
 import {
   EditOutlined,
+  HeartFilled,
   HeartOutlined,
   ShareAltOutlined,
 } from '@ant-design/icons';
@@ -15,6 +20,7 @@ import {
   Form,
   Input,
   Segmented,
+  Tag,
   Tooltip,
   Typography,
 } from 'antd';
@@ -33,7 +39,17 @@ export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
   const [open, setOpen] = useState(false);
   const { message } = App.useApp();
   const updateMutation = useUpdateKnowledgeBase();
+  const likeMutation = useLikeKnowledgeBase();
+  const unlikeMutation = useUnlikeKnowledgeBase();
   const [form] = Form.useForm();
+
+  const handleToggleLike = () => {
+    if (kb.isLiked) {
+      unlikeMutation.mutate(kb.id);
+    } else {
+      likeMutation.mutate(kb.id);
+    }
+  };
 
   const handleSubmit = async () => {
     let values: {
@@ -70,8 +86,32 @@ export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
     <Card
       hoverable
       actions={[
-        <HeartOutlined key="heart" style={{ color: '#ff6b6b' }} />,
-        <ShareAltOutlined key="share" style={{ color: '#4ecdc4' }} />,
+        <Tooltip key="heart" title={kb.isLiked ? '取消点赞' : '点赞'}>
+          <Button
+            type="text"
+            loading={likeMutation.isPending || unlikeMutation.isPending}
+            aria-label={kb.isLiked ? '取消点赞' : '点赞'}
+            onClick={handleToggleLike}
+            icon={
+              kb.isLiked ? (
+                <HeartFilled style={{ color: '#ff6b6b' }} />
+              ) : (
+                <HeartOutlined style={{ color: '#ff6b6b' }} />
+              )
+            }
+          >
+            {kb.likeCount ? (
+              <span className="text-xs">{kb.likeCount}</span>
+            ) : null}
+          </Button>
+        </Tooltip>,
+        <Tooltip key="share" title="分享">
+          <Button
+            type="text"
+            aria-label="分享知识库"
+            icon={<ShareAltOutlined style={{ color: '#4ecdc4' }} />}
+          />
+        </Tooltip>,
         <Tooltip key="edit" title="编辑">
           <Button
             type="text"
@@ -82,7 +122,11 @@ export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
         </Tooltip>,
       ]}
       title={kb.name}
-      extra={<Button type="link">详情</Button>}
+      extra={
+        <Tag color={kb.visibility === 'public' ? 'green' : 'default'}>
+          {kb.visibility === 'public' ? '公开' : '私有'}
+        </Tag>
+      }
       variant="borderless"
     >
       <Meta
@@ -134,7 +178,7 @@ export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
               { required: true, whitespace: true, message: '请输入知识库名称' },
             ]}
           >
-            <Input maxLength={100} placeholder="请输入知识库名称" />
+            <Input maxLength={20} placeholder="请输入知识库名称" />
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea

@@ -5,8 +5,10 @@ import {
   deleteKnowledgeBaseApi,
   getDocumentApi,
   getKnowledgeBaseApi,
+  likeKnowledgeBaseApi,
   listDocumentsApi,
   listKnowledgeBasesApi,
+  unlikeKnowledgeBaseApi,
   updateKnowledgeBaseApi,
 } from '@/api/knowledge';
 import type {
@@ -20,6 +22,7 @@ import type {
   KnowledgeListQuery,
   PageResult,
 } from '@lucy/shared';
+import type { QueryClient } from '@tanstack/react-query';
 import {
   useInfiniteQuery,
   useMutation,
@@ -143,6 +146,142 @@ export function useDeleteKnowledgeBase() {
         queryKey: knowledgeKeys.baseListAll(),
       });
       queryClient.removeQueries({ queryKey: knowledgeKeys.base(id) });
+    },
+  });
+}
+
+/**
+ * 更新缓存中指定知识库的 like 状态。
+ * 同时处理：
+ * - knowledgeKeys.base(id) 单条缓存（KnowledgeBase 形态）
+ * - knowledgeKeys.baseListAll() 前缀下的列表/无限滚动缓存（PageResult / 无限滚动 pages 形态）
+ */
+function updateLikeInCache(
+  queryClient: QueryClient,
+  id: string,
+  result: { likeCount: number; isLiked: boolean },
+) {
+  // 单条缓存
+  queryClient.setQueryData<KnowledgeBase>(knowledgeKeys.base(id), (old) =>
+    old ? { ...old, ...result } : old,
+  );
+  // 列表/无限滚动缓存（前缀匹配）
+  queryClient.setQueriesData({ queryKey: knowledgeKeys.baseListAll() }, (old) =>
+    updateListLike(old, id, result),
+  );
+}
+
+/** 递归处理可能的列表数据形态 */
+function updateListLike(
+  old: unknown,
+  id: string,
+  result: { likeCount: number; isLiked: boolean },
+): unknown {
+  if (!old || typeof old !== 'object') return old;
+  const obj = old as Record<string, unknown>;
+  // 形态 1：{ list: KnowledgeBase[], total, page, pageSize }
+  if (Array.isArray(obj.list)) {
+    return {
+      ...obj,
+      list: (obj.list as KnowledgeBase[]).map((kb) =>
+        kb.id === id ? { ...kb, ...result } : kb,
+      ),
+    };
+  }
+  // 形态 2：无限滚动 { pages: PageResult[], pageParams: number[] }
+  if (Array.isArray(obj.pages)) {
+    return {
+      ...obj,
+      pages: (obj.pages as Array<Record<string, unknown>>).map((page) =>
+        updateListLike(page, id, result),
+      ),
+    };
+  }
+  return old;
+}
+
+/** 快照 baseListAll 前缀下所有查询，用于 onError 回滚 */
+function snapshotLists(queryClient: QueryClient) {
+  return queryClient.getQueriesData<unknown>({
+    queryKey: knowledgeKeys.baseListAll(),
+  });
+}
+
+function restoreLists(
+  queryClient: QueryClient,
+  snapshot: ReadonlyArray<[readonly unknown[], unknown]>,
+) {
+  for (const [key, data] of snapshot) {
+    queryClient.setQueryData(key, data);
+  }
+}
+
+/**
+ * 点赞知识库。
+ * 乐观更新 UI，onSuccess 用服务端返回的真实 likeCount/isLiked 覆盖缓存。
+ */
+export function useLikeKnowledgeBase() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => likeKnowledgeBaseApi(id),
+    onMutate: async (id) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: knowledgeKeys.baseListAll() }),
+        queryClient.cancelQueries({ queryKey: knowledgeKeys.base(id) }),
+      ]);
+      const previousBase = queryClient.getQueryData<KnowledgeBase>(
+        knowledgeKeys.base(id),
+      );
+      const previousLists = snapshotLists(queryClient);
+      updateLikeInCache(queryClient, id, {
+        isLiked: true,
+        likeCount: (previousBase?.likeCount ?? 0) + 1,
+      });
+      return { previousBase, previousLists };
+    },
+    onSuccess: (result, id) => {
+      updateLikeInCache(queryClient, id, result);
+    },
+    onError: (_err, id, context) => {
+      if (context?.previousBase) {
+        queryClient.setQueryData(knowledgeKeys.base(id), context.previousBase);
+      }
+      restoreLists(queryClient, context?.previousLists ?? []);
+    },
+  });
+}
+
+/**
+ * 取消点赞知识库。
+ * 乐观更新 UI，onSuccess 用服务端返回的真实 likeCount/isLiked 覆盖缓存。
+ */
+export function useUnlikeKnowledgeBase() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => unlikeKnowledgeBaseApi(id),
+    onMutate: async (id) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: knowledgeKeys.baseListAll() }),
+        queryClient.cancelQueries({ queryKey: knowledgeKeys.base(id) }),
+      ]);
+      const previousBase = queryClient.getQueryData<KnowledgeBase>(
+        knowledgeKeys.base(id),
+      );
+      const previousLists = snapshotLists(queryClient);
+      updateLikeInCache(queryClient, id, {
+        isLiked: false,
+        likeCount: Math.max((previousBase?.likeCount ?? 0) - 1, 0),
+      });
+      return { previousBase, previousLists };
+    },
+    onSuccess: (result, id) => {
+      updateLikeInCache(queryClient, id, result);
+    },
+    onError: (_err, id, context) => {
+      if (context?.previousBase) {
+        queryClient.setQueryData(knowledgeKeys.base(id), context.previousBase);
+      }
+      restoreLists(queryClient, context?.previousLists ?? []);
     },
   });
 }

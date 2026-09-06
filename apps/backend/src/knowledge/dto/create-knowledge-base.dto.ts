@@ -3,9 +3,9 @@ import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { KnowledgeBaseVisibility } from '../entities/knowledge-base.entity.js';
 
 export class CreateKnowledgeBaseDto {
-  @ApiProperty({ description: '名称', maxLength: 100 })
+  @ApiProperty({ description: '名称', maxLength: 20 })
   @IsString()
-  @MaxLength(100)
+  @MaxLength(20)
   name: string;
 
   @ApiPropertyOptional({ description: '描述', maxLength: 200 })

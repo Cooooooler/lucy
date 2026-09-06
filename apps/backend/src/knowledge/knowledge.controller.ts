@@ -27,6 +27,7 @@ import {
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { DocumentListQueryDto } from './dto/document-list-query.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
+import { LikeResultDto } from './dto/like-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
 import { KnowledgeBase } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
@@ -84,6 +85,26 @@ export class KnowledgeController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.knowledgeService.remove(user.userId, id);
+  }
+
+  @Post(':id/like')
+  @ApiOperation({ summary: '点赞知识库' })
+  @ApiResponse({ status: 200, type: LikeResultDto })
+  like(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.knowledgeService.like(user.userId, id);
+  }
+
+  @Delete(':id/like')
+  @ApiOperation({ summary: '取消点赞知识库' })
+  @ApiResponse({ status: 200, type: LikeResultDto })
+  unlike(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.knowledgeService.unlike(user.userId, id);
   }
 
   @Post(':kbId/documents')

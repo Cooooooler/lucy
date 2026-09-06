@@ -19,7 +19,7 @@ export type MessageStatus = Message['status'];
 export type ConversationListResult =
   components['schemas']['ConversationListResultDto'];
 
-// 知识库：契约类型来自后端 Swagger 生成的 components.schemas
+// 知识库：契约类型来自后端 Swagger 生成的 components.schemas（含 likeCount/isLiked optional 字段）
 export type KnowledgeBase = components['schemas']['KnowledgeBase'];
 export type KnowledgeBaseVisibility = KnowledgeBase['visibility'];
 export type CreateKnowledgeBaseRequest =

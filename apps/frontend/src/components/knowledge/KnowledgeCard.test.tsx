@@ -1,4 +1,8 @@
-import { useUpdateKnowledgeBase } from '@/hooks/use-knowledge';
+import {
+  useLikeKnowledgeBase,
+  useUnlikeKnowledgeBase,
+  useUpdateKnowledgeBase,
+} from '@/hooks/use-knowledge';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
@@ -8,9 +12,13 @@ import { baseKb } from './knowledge-test-fixture';
 
 vi.mock('@/hooks/use-knowledge', () => ({
   useUpdateKnowledgeBase: vi.fn(),
+  useLikeKnowledgeBase: vi.fn(),
+  useUnlikeKnowledgeBase: vi.fn(),
 }));
 
 const mockedUpdate = vi.mocked(useUpdateKnowledgeBase);
+const mockedLike = vi.mocked(useLikeKnowledgeBase);
+const mockedUnlike = vi.mocked(useUnlikeKnowledgeBase);
 
 function updateMutationMock(
   overrides: Partial<ReturnType<typeof useUpdateKnowledgeBase>> = {},
@@ -22,7 +30,17 @@ function updateMutationMock(
   } as unknown as ReturnType<typeof useUpdateKnowledgeBase>;
 }
 
+function noopMutationMock() {
+  return {
+    mutate: vi.fn(),
+    isPending: false,
+  } as unknown as ReturnType<typeof useLikeKnowledgeBase> &
+    ReturnType<typeof useUnlikeKnowledgeBase>;
+}
+
 function renderCard(kb = baseKb) {
+  mockedLike.mockReturnValue(noopMutationMock());
+  mockedUnlike.mockReturnValue(noopMutationMock());
   return render(
     <AntdApp>
       <KnowledgeCard kb={kb} />
@@ -43,10 +61,10 @@ describe('KnowledgeCard', () => {
     expect(screen.getByText('这是一段描述')).toBeInTheDocument();
   });
 
-  it('渲染详情按钮', () => {
+  it('渲染点赞按钮', () => {
     mockedUpdate.mockReturnValue(updateMutationMock());
     renderCard();
-    expect(screen.getByText('详情')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '点赞' })).toBeInTheDocument();
   });
 
   it('点击编辑按钮打开编辑抽屉并预填数据', async () => {
