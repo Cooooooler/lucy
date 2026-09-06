@@ -665,6 +665,20 @@ describe('KnowledgeService', () => {
     expect(likeRepo.save).not.toHaveBeenCalled();
   });
 
+  it('like 并发竞态：save 触发 UNIQUE 约束冲突抛 409', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    likeRepo.findOneBy.mockResolvedValue(null);
+    // 模拟 PostgreSQL UNIQUE 约束冲突 (error code 23505)
+    const uniqueError = new Error(
+      'duplicate key value violates unique constraint',
+    ) as Error & { code?: string };
+    uniqueError.code = '23505';
+    likeRepo.save.mockRejectedValue(uniqueError);
+    await expect(service.like('u1', 'kb1')).rejects.toMatchObject({
+      status: HttpStatus.CONFLICT,
+    });
+  });
+
   it('like 知识库不存在抛 404', async () => {
     kbRepo.findOne.mockResolvedValue(null);
     await expect(service.like('u1', 'kb1')).rejects.toBeInstanceOf(

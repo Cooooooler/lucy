@@ -141,7 +141,15 @@ export class KnowledgeService {
       userId,
     });
     if (existing) throw new ConflictException('已点赞');
-    await this.likeRepo.save({ knowledgeBaseId: id, userId });
+    try {
+      await this.likeRepo.save({ knowledgeBaseId: id, userId });
+    } catch (err) {
+      // 并发竞态：两个请求同时通过 findOneBy 校验后，save 触发 UNIQUE 约束冲突
+      if ((err as { code?: string }).code === '23505') {
+        throw new ConflictException('已点赞');
+      }
+      throw err;
+    }
     const likeCount = await this.likeRepo.count({
       where: { knowledgeBaseId: id },
     });

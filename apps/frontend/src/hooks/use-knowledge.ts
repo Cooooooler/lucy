@@ -216,6 +216,53 @@ function restoreLists(
   }
 }
 
+/** 从所有缓存中查找指定知识库的最大 likeCount */
+function getMaxLikeCountFromCache(
+  queryClient: QueryClient,
+  id: string,
+): number {
+  let maxCount = 0;
+  // 检查单条缓存
+  const baseData = queryClient.getQueryData<KnowledgeBase>(
+    knowledgeKeys.base(id),
+  );
+  if (baseData?.likeCount !== undefined) {
+    maxCount = baseData.likeCount;
+  }
+  // 检查列表/无限滚动缓存中的所有匹配项
+  const listCaches = queryClient.getQueriesData<unknown>({
+    queryKey: knowledgeKeys.baseListAll(),
+  });
+  for (const [, data] of listCaches) {
+    const count = extractLikeCountFromListData(data, id);
+    if (count !== undefined && count > maxCount) {
+      maxCount = count;
+    }
+  }
+  return maxCount;
+}
+
+/** 从列表/无限滚动数据中提取指定知识库的 likeCount */
+function extractLikeCountFromListData(
+  data: unknown,
+  id: string,
+): number | undefined {
+  if (!data || typeof data !== 'object') return undefined;
+  const obj = data as Record<string, unknown>;
+  const list = obj.list as KnowledgeBase[] | undefined;
+  if (Array.isArray(list)) {
+    return list.find((kb) => kb.id === id)?.likeCount;
+  }
+  const pages = obj.pages as Array<Record<string, unknown>> | undefined;
+  if (Array.isArray(pages)) {
+    for (const page of pages) {
+      const count = extractLikeCountFromListData(page, id);
+      if (count !== undefined) return count;
+    }
+  }
+  return undefined;
+}
+
 /**
  * 点赞知识库。
  * 乐观更新 UI，onSuccess 用服务端返回的真实 likeCount/isLiked 覆盖缓存。
@@ -233,9 +280,10 @@ export function useLikeKnowledgeBase() {
         knowledgeKeys.base(id),
       );
       const previousLists = snapshotLists(queryClient);
+      const currentLikeCount = getMaxLikeCountFromCache(queryClient, id);
       updateLikeInCache(queryClient, id, {
         isLiked: true,
-        likeCount: (previousBase?.likeCount ?? 0) + 1,
+        likeCount: currentLikeCount + 1,
       });
       return { previousBase, previousLists };
     },
@@ -268,9 +316,10 @@ export function useUnlikeKnowledgeBase() {
         knowledgeKeys.base(id),
       );
       const previousLists = snapshotLists(queryClient);
+      const currentLikeCount = getMaxLikeCountFromCache(queryClient, id);
       updateLikeInCache(queryClient, id, {
         isLiked: false,
-        likeCount: Math.max((previousBase?.likeCount ?? 0) - 1, 0),
+        likeCount: Math.max(currentLikeCount - 1, 0),
       });
       return { previousBase, previousLists };
     },
