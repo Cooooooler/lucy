@@ -1,5 +1,6 @@
 import { HttpStatus, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DataSource } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   KnowledgeBase,
@@ -49,6 +50,18 @@ describe('KnowledgeService', () => {
     count: vi.fn(),
     createQueryBuilder: vi.fn(),
   };
+  // DataSource mock：transaction 调用回调并传入 manager
+  const dataSource = {
+    transaction: vi.fn((cb: (manager: unknown) => unknown) => {
+      const manager = {
+        getRepository: vi.fn((entity: unknown) => {
+          if (entity === KnowledgeDocument) return docRepo;
+          return fileRepo;
+        }),
+      };
+      return cb(manager);
+    }),
+  } as unknown as DataSource;
   const fileService = {
     save: vi.fn(),
     remove: vi.fn(),
@@ -79,9 +92,9 @@ describe('KnowledgeService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     service = new KnowledgeService(
+      dataSource,
       kbRepo as never,
       docRepo as never,
-      fileRepo as never,
       likeRepo as never,
       fileService as never,
       config,
@@ -285,8 +298,8 @@ describe('KnowledgeService', () => {
     ).rejects.toMatchObject({
       response: { statusCode: 422 },
     });
+    // 事务回滚后只需清理底层文件（数据库记录已自动回滚）
     expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
-    expect(fileRepo.delete).toHaveBeenCalledWith({ id: 'f1' });
   });
 
   it('addDocument 正常上传并入库', async () => {
@@ -459,9 +472,9 @@ describe('KnowledgeService', () => {
 
   it('addDocument FILE_MAX_SIZE 非数字时回退默认上限（不静默禁用）', async () => {
     const svc = new KnowledgeService(
+      dataSource,
       kbRepo as never,
       docRepo as never,
-      fileRepo as never,
       likeRepo as never,
       fileService as never,
       new ConfigService({ FILE_MAX_SIZE: '10MB' }),
@@ -496,9 +509,11 @@ describe('KnowledgeService', () => {
         originalname: 'a.pdf',
         size: 4,
       } as never),
-    ).rejects.toThrow('db fail');
+    ).rejects.toMatchObject({
+      response: { statusCode: 422 },
+    });
+    // 事务回滚后只需清理底层文件（数据库记录已自动回滚）
     expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
-    expect(fileRepo.delete).toHaveBeenCalledWith({ id: 'f1' });
   });
 
   it('addDocument docx（非 pdf）跳过魔数校验正常入库', async () => {

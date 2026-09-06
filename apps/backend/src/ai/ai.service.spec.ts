@@ -2,7 +2,7 @@ import { ErrorCode } from '@lucy/shared';
 import { ConfigService } from '@nestjs/config';
 import { lastValueFrom } from 'rxjs';
 import { toArray } from 'rxjs/operators';
-import { IsNull } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import { AiService } from './ai.service.js';
 import { Conversation } from './entities/conversation.entity.js';
 import {
@@ -25,6 +25,19 @@ describe('AiService', () => {
     findOne: vi.fn(),
     count: vi.fn(),
   };
+  // DataSource mock：transaction 调用回调并传入 manager
+  const dataSource = {
+    transaction: vi.fn((cb: (manager: unknown) => unknown) => {
+      const manager = {
+        getRepository: vi.fn((entity: unknown) => {
+          if (entity === Message) return messageRepo;
+          if (entity === Conversation) return conversationRepo;
+          return {};
+        }),
+      };
+      return cb(manager);
+    }),
+  } as unknown as DataSource;
   const ollamaFactory = { getClient: vi.fn() };
   const contextService = { buildMessages: vi.fn() };
   const config = new ConfigService({ OLLAMA_MODEL: 'default-model' });
@@ -34,6 +47,7 @@ describe('AiService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     service = new AiService(
+      dataSource,
       conversationRepo as never,
       messageRepo as never,
       ollamaFactory as never,
@@ -240,6 +254,7 @@ describe('AiService', () => {
       vi.useFakeTimers();
       try {
         service = new AiService(
+          dataSource,
           conversationRepo as never,
           messageRepo as never,
           ollamaFactory as never,
