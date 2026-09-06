@@ -1,5 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError, Repository } from 'typeorm';
 import { PasswordService } from '../password/password.service.js';
 import { User } from './user.entity.js';
@@ -68,7 +69,8 @@ export class UsersService {
   private isUniqueViolation(err: unknown): err is QueryFailedError {
     return (
       err instanceof QueryFailedError &&
-      (err.driverError as { code?: string }).code === '23505'
+      (err.driverError as { code?: string }).code ===
+        PostgresError.UNIQUE_VIOLATION
     );
   }
 

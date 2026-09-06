@@ -1,6 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError } from 'typeorm';
 import { PasswordService } from '../password/password.service.js';
 import { User } from './user.entity.js';
@@ -51,7 +52,7 @@ describe('UsersService', () => {
   it('create 并发冲突命中唯一约束时按冲突列给出具体错误', async () => {
     repo.findOneBy.mockResolvedValue(null);
     const driverError = Object.assign(new Error('duplicate key value'), {
-      code: '23505',
+      code: PostgresError.UNIQUE_VIOLATION,
       detail: 'Key (email)=(a@x.com) already exists.',
     });
     repo.save.mockRejectedValue(
@@ -71,7 +72,7 @@ describe('UsersService', () => {
   it('create 命中非 username/email 的唯一约束时向上传递原始错误', async () => {
     repo.findOneBy.mockResolvedValue(null);
     const driverError = Object.assign(new Error('duplicate key value'), {
-      code: '23505',
+      code: PostgresError.UNIQUE_VIOLATION,
       detail: 'Key (phone)=(13800000000) already exists.',
     });
     const dbError = new QueryFailedError('INSERT INTO users', [], driverError);
