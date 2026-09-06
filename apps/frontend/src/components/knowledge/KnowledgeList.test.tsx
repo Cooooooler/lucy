@@ -1,4 +1,5 @@
 import {
+  useDeleteKnowledgeBase,
   useLikeKnowledgeBase,
   useUnlikeKnowledgeBase,
   useUpdateKnowledgeBase,
@@ -13,11 +14,13 @@ vi.mock('@/hooks/use-knowledge', () => ({
   useUpdateKnowledgeBase: vi.fn(),
   useLikeKnowledgeBase: vi.fn(),
   useUnlikeKnowledgeBase: vi.fn(),
+  useDeleteKnowledgeBase: vi.fn(),
 }));
 
 const mockedUpdate = vi.mocked(useUpdateKnowledgeBase);
 const mockedLike = vi.mocked(useLikeKnowledgeBase);
 const mockedUnlike = vi.mocked(useUnlikeKnowledgeBase);
+const mockedDelete = vi.mocked(useDeleteKnowledgeBase);
 
 function noopLikeMock() {
   return { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
@@ -34,6 +37,10 @@ describe('KnowledgeList', () => {
     } as unknown as ReturnType<typeof useUpdateKnowledgeBase>);
     mockedLike.mockReturnValue(noopLikeMock());
     mockedUnlike.mockReturnValue(noopLikeMock());
+    mockedDelete.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    } as unknown as ReturnType<typeof useDeleteKnowledgeBase>);
     const items = [makeKb('kb1', '知识库 A'), makeKb('kb2', '知识库 B')];
     render(
       <AntdApp>

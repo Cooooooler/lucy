@@ -1,4 +1,5 @@
 import {
+  useDeleteKnowledgeBase,
   useLikeKnowledgeBase,
   useUnlikeKnowledgeBase,
   useUpdateKnowledgeBase,
@@ -14,11 +15,13 @@ vi.mock('@/hooks/use-knowledge', () => ({
   useUpdateKnowledgeBase: vi.fn(),
   useLikeKnowledgeBase: vi.fn(),
   useUnlikeKnowledgeBase: vi.fn(),
+  useDeleteKnowledgeBase: vi.fn(),
 }));
 
 const mockedUpdate = vi.mocked(useUpdateKnowledgeBase);
 const mockedLike = vi.mocked(useLikeKnowledgeBase);
 const mockedUnlike = vi.mocked(useUnlikeKnowledgeBase);
+const mockedDelete = vi.mocked(useDeleteKnowledgeBase);
 
 function updateMutationMock(
   overrides: Partial<ReturnType<typeof useUpdateKnowledgeBase>> = {},
@@ -51,6 +54,14 @@ function noopMutationMock() {
     ReturnType<typeof useUnlikeKnowledgeBase>;
 }
 
+function deleteMutationMock() {
+  return {
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+  } as unknown as ReturnType<typeof useDeleteKnowledgeBase>;
+}
+
 function renderCard(
   kb = baseKb,
   likeMock: ReturnType<typeof noopMutationMock> | null = null,
@@ -58,6 +69,7 @@ function renderCard(
 ) {
   mockedLike.mockReturnValue(likeMock ?? noopMutationMock());
   mockedUnlike.mockReturnValue(unlikeMock ?? noopMutationMock());
+  mockedDelete.mockReturnValue(deleteMutationMock());
   return render(
     <AntdApp>
       <KnowledgeCard kb={kb} />
