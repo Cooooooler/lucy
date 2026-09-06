@@ -1,3 +1,4 @@
+import { ApiError } from '@/api/client';
 import {
   useDeleteKnowledgeBase,
   useLikeKnowledgeBase,
@@ -66,10 +67,11 @@ function renderCard(
   kb = baseKb,
   likeMock: ReturnType<typeof noopMutationMock> | null = null,
   unlikeMock: ReturnType<typeof noopMutationMock> | null = null,
+  deleteMock: ReturnType<typeof deleteMutationMock> | null = null,
 ) {
   mockedLike.mockReturnValue(likeMock ?? noopMutationMock());
   mockedUnlike.mockReturnValue(unlikeMock ?? noopMutationMock());
-  mockedDelete.mockReturnValue(deleteMutationMock());
+  mockedDelete.mockReturnValue(deleteMock ?? deleteMutationMock());
   return render(
     <AntdApp>
       <KnowledgeCard kb={kb} />
@@ -222,5 +224,111 @@ describe('KnowledgeCard', () => {
     });
 
     expect(screen.getByText('42')).toBeInTheDocument();
+  });
+
+  it('私有知识库点击切换按钮设为公开', async () => {
+    const mutateAsync = vi.fn(async () => ({
+      id: 'kb1',
+      ownerId: 'u1',
+      visibility: 'public' as const,
+      name: '产品文档',
+      description: '这是一段描述',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+    }));
+    mockedUpdate.mockReturnValue(updateMutationMock({ mutateAsync }));
+    renderCard(baseKb);
+
+    await userEvent.click(screen.getByRole('button', { name: '设为公开' }));
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledWith({
+        id: 'kb1',
+        input: { visibility: 'public' },
+      });
+    });
+  });
+
+  it('公开知识库点击切换按钮设为私有', async () => {
+    const mutateAsync = vi.fn(async () => ({
+      id: 'kb1',
+      ownerId: 'u1',
+      visibility: 'private' as const,
+      name: '产品文档',
+      description: '这是一段描述',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+    }));
+    mockedUpdate.mockReturnValue(updateMutationMock({ mutateAsync }));
+    renderCard({ ...baseKb, visibility: 'public' });
+
+    await userEvent.click(screen.getByRole('button', { name: '设为私有' }));
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledWith({
+        id: 'kb1',
+        input: { visibility: 'private' },
+      });
+    });
+  });
+
+  it('切换可见性失败时提示错误', async () => {
+    const error = new ApiError('更新失败', 500);
+    const mutateAsync = vi.fn().mockRejectedValue(error);
+    mockedUpdate.mockReturnValue(updateMutationMock({ mutateAsync }));
+    renderCard(baseKb);
+
+    await userEvent.click(screen.getByRole('button', { name: '设为公开' }));
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalled();
+    });
+  });
+
+  it('点击删除按钮弹出确认对话框', async () => {
+    mockedUpdate.mockReturnValue(updateMutationMock());
+    renderCard();
+
+    await userEvent.click(screen.getByRole('button', { name: '删除知识库' }));
+
+    expect(
+      screen.getByText('确定要删除知识库「产品文档」吗？此操作不可恢复。'),
+    ).toBeInTheDocument();
+  });
+
+  it('确认删除时调用删除接口', async () => {
+    const deleteMutateAsync = vi.fn().mockResolvedValue(undefined);
+    const deleteMock = {
+      ...deleteMutationMock(),
+      mutateAsync: deleteMutateAsync,
+    };
+    mockedUpdate.mockReturnValue(updateMutationMock());
+    renderCard(baseKb, null, null, deleteMock);
+
+    await userEvent.click(screen.getByRole('button', { name: '删除知识库' }));
+
+    const confirmButton = screen.getByRole('button', { name: '确认删除' });
+    await userEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(deleteMutateAsync).toHaveBeenCalledWith('kb1');
+    });
+  });
+
+  it('取消删除不调用接口', async () => {
+    const deleteMutateAsync = vi.fn().mockResolvedValue(undefined);
+    mockedDelete.mockReturnValue({
+      ...deleteMutationMock(),
+      mutateAsync: deleteMutateAsync,
+    });
+    mockedUpdate.mockReturnValue(updateMutationMock());
+    renderCard();
+
+    await userEvent.click(screen.getByRole('button', { name: '删除知识库' }));
+
+    const cancelButton = screen.getByRole('button', { name: /取\s*消/ });
+    await userEvent.click(cancelButton);
+
+    expect(deleteMutateAsync).not.toHaveBeenCalled();
   });
 });
