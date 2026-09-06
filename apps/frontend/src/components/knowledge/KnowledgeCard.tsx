@@ -9,7 +9,8 @@ import {
   EditOutlined,
   HeartFilled,
   HeartOutlined,
-  ShareAltOutlined,
+  LockOutlined,
+  UnlockOutlined,
 } from '@ant-design/icons';
 import {
   App,
@@ -20,7 +21,6 @@ import {
   Form,
   Input,
   Segmented,
-  Tag,
   Tooltip,
   Typography,
 } from 'antd';
@@ -105,11 +105,20 @@ export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
             ) : null}
           </Button>
         </Tooltip>,
-        <Tooltip key="share" title="分享">
+        <Tooltip
+          key="share"
+          title={kb.visibility === 'public' ? '公开' : '私有'}
+        >
           <Button
             type="text"
             aria-label="分享知识库"
-            icon={<ShareAltOutlined style={{ color: '#4ecdc4' }} />}
+            icon={
+              kb.visibility === 'public' ? (
+                <UnlockOutlined style={{ color: '#4ecdc4' }} />
+              ) : (
+                <LockOutlined style={{ color: '#4ecdc4' }} />
+              )
+            }
           />
         </Tooltip>,
         <Tooltip key="edit" title="编辑">
@@ -122,11 +131,6 @@ export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
         </Tooltip>,
       ]}
       title={kb.name}
-      extra={
-        <Tag color={kb.visibility === 'public' ? 'green' : 'default'}>
-          {kb.visibility === 'public' ? '公开' : '私有'}
-        </Tag>
-      }
       variant="borderless"
     >
       <Meta
