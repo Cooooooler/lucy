@@ -228,6 +228,8 @@ describe('useCreateKnowledgeBase', () => {
 });
 
 describe('useUpdateKnowledgeBase', () => {
+  beforeEach(() => vi.clearAllMocks());
+
   it('更新后调用 updateKnowledgeBaseApi', async () => {
     const updated = makeBase({ name: '新标题' });
     api.updateKnowledgeBaseApi.mockResolvedValue(updated);
@@ -246,9 +248,95 @@ describe('useUpdateKnowledgeBase', () => {
     });
     await waitFor(() => expect(mutation.result.current.data).toEqual(updated));
   });
+
+  it('乐观更新列表缓存，不触发 refetch', async () => {
+    const updated = makeBase({ name: '新标题', visibility: 'public' });
+    api.updateKnowledgeBaseApi.mockResolvedValue(updated);
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(
+      ['knowledge', 'bases', 'list'],
+      makeListCache([makeBase({ id: 'kb1', visibility: 'private' })]),
+    );
+    const mutation = renderHook(() => useUpdateKnowledgeBase(), {
+      wrapper: createWrapperWithClient(queryClient),
+    });
+    await act(async () => {
+      await mutation.result.current.mutateAsync({
+        id: 'kb1',
+        input: { name: '新标题', visibility: 'public' },
+      });
+    });
+    // 缓存应立即更新
+    const cached = queryClient.getQueryData<{ list: KnowledgeBase[] }>([
+      'knowledge',
+      'bases',
+      'list',
+    ]);
+    expect(cached?.list[0].name).toBe('新标题');
+    expect(cached?.list[0].visibility).toBe('public');
+    // 列表长度不变（位置不变）
+    expect(cached?.list).toHaveLength(1);
+  });
+
+  it('乐观更新无限滚动缓存', async () => {
+    const updated = makeBase({ visibility: 'public' });
+    api.updateKnowledgeBaseApi.mockResolvedValue(updated);
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(
+      ['knowledge', 'bases', 'list', 'infinite', {}],
+      makeInfiniteCache([
+        { list: [makeBase({ id: 'kb1', visibility: 'private' })], total: 1 },
+      ]),
+    );
+    const mutation = renderHook(() => useUpdateKnowledgeBase(), {
+      wrapper: createWrapperWithClient(queryClient),
+    });
+    await act(async () => {
+      await mutation.result.current.mutateAsync({
+        id: 'kb1',
+        input: { visibility: 'public' },
+      });
+    });
+    const cached = queryClient.getQueryData<{
+      pages: Array<{ list: KnowledgeBase[] }>;
+    }>(['knowledge', 'bases', 'list', 'infinite', {}]);
+    expect(cached?.pages[0].list[0].visibility).toBe('public');
+  });
+
+  it('失败时回滚列表缓存', async () => {
+    api.updateKnowledgeBaseApi.mockRejectedValue(new Error('network error'));
+    const queryClient = createTestQueryClient();
+    const originalList = makeListCache([
+      makeBase({ id: 'kb1', name: '产品文档', visibility: 'private' }),
+    ]);
+    queryClient.setQueryData(['knowledge', 'bases', 'list'], originalList);
+    const mutation = renderHook(() => useUpdateKnowledgeBase(), {
+      wrapper: createWrapperWithClient(queryClient),
+    });
+    await act(async () => {
+      try {
+        await mutation.result.current.mutateAsync({
+          id: 'kb1',
+          input: { name: '新标题', visibility: 'public' },
+        });
+      } catch {
+        // 预期失败
+      }
+    });
+    const cached = queryClient.getQueryData<{ list: KnowledgeBase[] }>([
+      'knowledge',
+      'bases',
+      'list',
+    ]);
+    // 回滚到原始值
+    expect(cached?.list[0].name).toBe('产品文档');
+    expect(cached?.list[0].visibility).toBe('private');
+  });
 });
 
 describe('useDeleteKnowledgeBase', () => {
+  beforeEach(() => vi.clearAllMocks());
+
   it('删除后调用 deleteKnowledgeBaseApi', async () => {
     api.deleteKnowledgeBaseApi.mockResolvedValue(null);
     const mutation = renderHook(() => useDeleteKnowledgeBase(), {
@@ -259,6 +347,86 @@ describe('useDeleteKnowledgeBase', () => {
     });
     expect(api.deleteKnowledgeBaseApi).toHaveBeenCalledWith('kb1');
     await waitFor(() => expect(mutation.result.current.data).toBeNull());
+  });
+
+  it('乐观从列表缓存移除知识库，不触发 refetch', async () => {
+    api.deleteKnowledgeBaseApi.mockResolvedValue(null);
+    const queryClient = createTestQueryClient();
+    const listData = makeListCache([
+      makeBase({ id: 'kb1' }),
+      makeBase({ id: 'kb2', name: '其他' }),
+    ]);
+    queryClient.setQueryData(['knowledge', 'bases', 'list'], listData);
+    const mutation = renderHook(() => useDeleteKnowledgeBase(), {
+      wrapper: createWrapperWithClient(queryClient),
+    });
+    await act(async () => {
+      await mutation.result.current.mutateAsync('kb1');
+    });
+    const cached = queryClient.getQueryData<typeof listData>([
+      'knowledge',
+      'bases',
+      'list',
+    ]);
+    // kb1 被移除，kb2 保留
+    expect(cached?.list).toHaveLength(1);
+    expect(cached?.list[0].id).toBe('kb2');
+    // total 减 1
+    expect(cached?.total).toBe(1);
+  });
+
+  it('乐观从无限滚动缓存移除知识库', async () => {
+    api.deleteKnowledgeBaseApi.mockResolvedValue(null);
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(
+      ['knowledge', 'bases', 'list', 'infinite', {}],
+      makeInfiniteCache([
+        {
+          list: [
+            makeBase({ id: 'kb1' }),
+            makeBase({ id: 'kb2', name: '其他' }),
+          ],
+          total: 2,
+        },
+      ]),
+    );
+    const mutation = renderHook(() => useDeleteKnowledgeBase(), {
+      wrapper: createWrapperWithClient(queryClient),
+    });
+    await act(async () => {
+      await mutation.result.current.mutateAsync('kb1');
+    });
+    const cached = queryClient.getQueryData<{
+      pages: Array<{ list: KnowledgeBase[]; total: number }>;
+    }>(['knowledge', 'bases', 'list', 'infinite', {}]);
+    expect(cached?.pages[0].list).toHaveLength(1);
+    expect(cached?.pages[0].list[0].id).toBe('kb2');
+    expect(cached?.pages[0].total).toBe(1);
+  });
+
+  it('移除 base 单条缓存及其文档缓存', async () => {
+    api.deleteKnowledgeBaseApi.mockResolvedValue(null);
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(
+      ['knowledge', 'bases', 'kb1'],
+      makeBase({ id: 'kb1' }),
+    );
+    queryClient.setQueryData(
+      ['knowledge', 'bases', 'kb1', 'documents'],
+      ['doc1', 'doc2'],
+    );
+    const mutation = renderHook(() => useDeleteKnowledgeBase(), {
+      wrapper: createWrapperWithClient(queryClient),
+    });
+    await act(async () => {
+      await mutation.result.current.mutateAsync('kb1');
+    });
+    expect(
+      queryClient.getQueryData(['knowledge', 'bases', 'kb1']),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData(['knowledge', 'bases', 'kb1', 'documents']),
+    ).toBeUndefined();
   });
 });
 

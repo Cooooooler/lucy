@@ -120,6 +120,47 @@ export function useCreateKnowledgeBase() {
   });
 }
 
+/** 更新缓存中指定知识库的任意字段（乐观更新，不触发 refetch） */
+function updateKnowledgeBaseInCache(
+  queryClient: QueryClient,
+  id: string,
+  patch: Partial<KnowledgeBase>,
+) {
+  queryClient.setQueryData<KnowledgeBase>(knowledgeKeys.base(id), (old) =>
+    old ? { ...old, ...patch } : old,
+  );
+  queryClient.setQueriesData({ queryKey: knowledgeKeys.baseListAll() }, (old) =>
+    updateListFields(old, id, patch),
+  );
+}
+
+/** 递归处理可能的列表数据形态，更新指定知识库的任意字段 */
+function updateListFields(
+  old: unknown,
+  id: string,
+  patch: Partial<KnowledgeBase>,
+): unknown {
+  if (!old || typeof old !== 'object') return old;
+  const obj = old as Record<string, unknown>;
+  if (Array.isArray(obj.list)) {
+    return {
+      ...obj,
+      list: (obj.list as KnowledgeBase[]).map((kb) =>
+        kb.id === id ? { ...kb, ...patch } : kb,
+      ),
+    };
+  }
+  if (Array.isArray(obj.pages)) {
+    return {
+      ...obj,
+      pages: (obj.pages as Array<Record<string, unknown>>).map((page) =>
+        updateListFields(page, id, patch),
+      ),
+    };
+  }
+  return old;
+}
+
 export function useUpdateKnowledgeBase() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -127,25 +168,71 @@ export function useUpdateKnowledgeBase() {
       id: string;
       input: UpdateKnowledgeBaseRequest;
     }) => updateKnowledgeBaseApi(variables.id, variables.input),
-    onSuccess: async (_updated, { id }) => {
-      await queryClient.invalidateQueries({
-        queryKey: knowledgeKeys.baseListAll(),
-      });
-      await queryClient.invalidateQueries({ queryKey: knowledgeKeys.base(id) });
+    onMutate: async ({ id, input }) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: knowledgeKeys.baseListAll() }),
+        queryClient.cancelQueries({ queryKey: knowledgeKeys.base(id) }),
+      ]);
+      const previousBase = queryClient.getQueryData<KnowledgeBase>(
+        knowledgeKeys.base(id),
+      );
+      const previousLists = snapshotLists(queryClient);
+      updateKnowledgeBaseInCache(queryClient, id, input);
+      return { previousBase, previousLists };
+    },
+    onSuccess: (updated, { id }) => {
+      // 用服务端返回的真实值覆盖（如 updatedAt），保持缓存一致
+      updateKnowledgeBaseInCache(queryClient, id, updated);
+    },
+    onError: (_err, { id }, context) => {
+      if (context?.previousBase) {
+        queryClient.setQueryData(knowledgeKeys.base(id), context.previousBase);
+      }
+      restoreLists(queryClient, context?.previousLists ?? []);
     },
   });
+}
+
+/** 从缓存中移除指定知识库（乐观删除，不触发 refetch） */
+function removeKnowledgeBaseFromCache(queryClient: QueryClient, id: string) {
+  // 移除单条缓存及其下文档缓存
+  queryClient.removeQueries({ queryKey: knowledgeKeys.base(id) });
+  // 从所有列表/无限滚动缓存中移除该知识库，并修正 total
+  queryClient.setQueriesData({ queryKey: knowledgeKeys.baseListAll() }, (old) =>
+    removeFromListData(old, id),
+  );
+}
+
+/** 递归处理可能的列表数据形态，移除指定知识库并修正 total */
+function removeFromListData(old: unknown, id: string): unknown {
+  if (!old || typeof old !== 'object') return old;
+  const obj = old as Record<string, unknown>;
+  if (Array.isArray(obj.list)) {
+    const newList = (obj.list as KnowledgeBase[]).filter((kb) => kb.id !== id);
+    return {
+      ...obj,
+      list: newList,
+      total: Math.max(0, ((obj.total as number) ?? 0) - 1),
+    };
+  }
+  if (Array.isArray(obj.pages)) {
+    return {
+      ...obj,
+      pages: (obj.pages as Array<Record<string, unknown>>).map((page) =>
+        removeFromListData(page, id),
+      ),
+    };
+  }
+  return old;
 }
 
 export function useDeleteKnowledgeBase() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteKnowledgeBaseApi(id),
-    onSuccess: async (_data, id) => {
-      // 仅失效知识库列表缓存；该知识库单条/其下文档的缓存一并移除（base(id) 是 documents(id) 的前缀，命中即一并清掉）
-      await queryClient.invalidateQueries({
-        queryKey: knowledgeKeys.baseListAll(),
-      });
-      queryClient.removeQueries({ queryKey: knowledgeKeys.base(id) });
+    onMutate: (id) => {
+      // 乐观从缓存移除，不触发 refetch
+      removeKnowledgeBaseFromCache(queryClient, id);
     },
   });
 }
