@@ -155,4 +155,18 @@ describe('KnowledgeToolbar', () => {
       });
     });
   });
+
+  it('创建失败时显示通用错误消息', async () => {
+    const mutateAsync = vi.fn().mockRejectedValue(new Error('network error'));
+    mockedCreate.mockReturnValue(createMutationMock({ mutateAsync }));
+    renderToolbar();
+
+    await userEvent.click(screen.getByText('新增知识库'));
+    await userEvent.type(screen.getByLabelText('名称'), '测试');
+    await userEvent.click(screen.getByRole('button', { name: /创\s*建/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText('创建失败，请稍后重试')).toBeInTheDocument();
+    });
+  });
 });

@@ -63,7 +63,9 @@ export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
       cancelText: '取消',
       onOk: () =>
         deleteMutation.mutateAsync(kb.id).then(
-          () => message.success('知识库已删除'),
+          () => {
+            message.success('知识库已删除');
+          },
           (e) => {
             if (e instanceof ApiError) {
               message.error(e.message);
