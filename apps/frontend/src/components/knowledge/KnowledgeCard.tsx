@@ -144,7 +144,7 @@ export const KnowledgeCard: FC<{ kb: KnowledgeBase }> = ({ kb }) => {
               )
             }
           >
-            {kb.likeCount ? (
+            {(kb.likeCount ?? 0) > 0 ? (
               <span className="text-xs">{kb.likeCount}</span>
             ) : null}
           </Button>
