@@ -16,6 +16,20 @@ export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
+  optimizeDeps: {
+    include: [
+      'lucide-react',
+      '@ant-design/icons',
+      '@ant-design/pro-components',
+    ],
+  },
+  build: {
+    rolldownOptions: {
+      output: {
+        // rolldown 自动处理代码分割，无需手动配置 manualChunks
+      },
+    },
+  },
   server: {
     proxy: {
       '/api': {
