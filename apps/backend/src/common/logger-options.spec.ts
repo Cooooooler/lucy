@@ -1,5 +1,13 @@
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { genReqId, loggerModuleOptions } from './logger-options.js';
+import {
+  genReqId,
+  loggerModuleOptions,
+  pruneOldLogs,
+  resolveLogDir,
+} from './logger-options.js';
 
 const ORIGINAL_ENV = process.env;
 
@@ -121,9 +129,34 @@ describe('loggerModuleOptions', () => {
         paths: expect.arrayContaining([
           'req.headers.authorization',
           'req.headers.cookie',
+          '*.accessToken',
+          '*.token',
         ]) as string[],
       },
     });
     expect(opts.renameContext).toBe('context');
+  });
+
+  it('resolveLogDir 默认指向 apps/backend/logs，可用 LOG_DIR 覆盖', () => {
+    setEnv({ LOG_DIR: undefined });
+    expect(resolveLogDir()).toMatch(
+      /apps.backend.logs|apps[/\\]backend[/\\]logs/,
+    );
+    setEnv({ LOG_DIR: '/tmp/custom-logs' });
+    expect(resolveLogDir()).toBe('/tmp/custom-logs');
+  });
+
+  it('pruneOldLogs 只删除超期日志文件，保留近期与非日志文件', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'logs-'));
+    const oldDay = new Date(Date.now() - 10 * 86400_000);
+    const oldName = `backend-${oldDay.getFullYear()}-${String(oldDay.getMonth() + 1).padStart(2, '0')}-${String(oldDay.getDate()).padStart(2, '0')}.log`;
+    const recentName = `backend-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}.log`;
+    writeFileSync(join(dir, oldName), 'old');
+    writeFileSync(join(dir, recentName), 'recent');
+    writeFileSync(join(dir, 'other.txt'), 'keep');
+    pruneOldLogs(dir, 7);
+    expect(existsSync(join(dir, oldName))).toBe(false);
+    expect(existsSync(join(dir, recentName))).toBe(true);
+    expect(existsSync(join(dir, 'other.txt'))).toBe(true);
   });
 });

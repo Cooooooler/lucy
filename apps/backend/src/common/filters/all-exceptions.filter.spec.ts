@@ -6,8 +6,9 @@ describe('AllExceptionsFilter', () => {
   let filter: AllExceptionsFilter;
   const json = vi.fn();
   const res = { status: vi.fn().mockReturnValue({ json }) };
+  const req = { method: 'GET', url: '/x', id: 'req-1' };
   const host = {
-    switchToHttp: () => ({ getResponse: () => res }),
+    switchToHttp: () => ({ getResponse: () => res, getRequest: () => req }),
   } as unknown as ArgumentsHost;
 
   beforeEach(() => {

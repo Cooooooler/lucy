@@ -1,6 +1,6 @@
 import { RedisService } from '@coool/redis-nest';
 import type { components } from '@lucy/shared';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { ChainableCommander } from 'ioredis';
@@ -15,6 +15,7 @@ type SharedUser = components['schemas']['User'];
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   constructor(
     private readonly usersService: UsersService,
     private readonly passwordService: PasswordService,
@@ -96,6 +97,7 @@ export class AuthService {
     nickname?: string;
   }): Promise<SharedUser> {
     const user = await this.usersService.create(input);
+    this.logger.log(`register user=${user.id} username=${input.username}`);
     return this.toSharedUser(user);
   }
 
@@ -114,12 +116,15 @@ export class AuthService {
         dto.password,
         'scrypt:16384:8:1:AAAAAAAAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==',
       );
+      this.logger.warn(`login failed: account not found`);
       throw new UnauthorizedException('用户名或密码错误');
     }
     if (!(await this.passwordService.verify(dto.password, user.passwordHash))) {
+      this.logger.warn(`login failed: bad password user=${user.id}`);
       throw new UnauthorizedException('用户名或密码错误');
     }
     if (user.status !== 1) {
+      this.logger.warn(`login rejected: disabled user=${user.id}`);
       throw new UnauthorizedException('账号已禁用');
     }
     const family = randomUUID();
@@ -129,6 +134,7 @@ export class AuthService {
       jti: randomUUID(),
     });
     const refreshToken = await this.issueRefreshToken(user.id, family);
+    this.logger.log(`login user=${user.id}`);
     return { user: this.toSharedUser(user), accessToken, refreshToken };
   }
 
@@ -225,7 +231,12 @@ export class AuthService {
     const parsed = this.parseActive(reused);
     const theft = await this.detectTheft(refreshToken, parsed);
     if (theft && parsed) {
+      this.logger.warn(
+        `refresh reuse detected: possible theft user=${parsed.userId}`,
+      );
       await this.revokeFamily(parsed.family);
+    } else if (!theft && parsed) {
+      this.logger.log(`refresh reuse within grace user=${parsed.userId}`);
     }
     return new UnauthorizedException(
       theft ? '刷新令牌无效（检测到令牌复用）' : '刷新令牌无效',
@@ -290,6 +301,7 @@ export class AuthService {
       const active = await this.redis.get(this.refreshKey(refreshToken));
       const parsed = this.parseActive(active);
       if (parsed) {
+        this.logger.log(`logout user=${parsed.userId}: revoke family`);
         await this.revokeFamily(parsed.family);
       } else {
         // active 缺失：可能是已轮换 token，其 family 在 reuse key 中，
@@ -297,6 +309,9 @@ export class AuthService {
         const reused = await this.redis.get(this.reuseKey(refreshToken));
         const reusedParsed = this.parseActive(reused);
         if (reusedParsed) {
+          this.logger.log(
+            `logout user=${reusedParsed.userId}: revoke family via reuse key`,
+          );
           await this.revokeFamily(reusedParsed.family);
         } else {
           await this.redis.del(

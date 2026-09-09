@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   PayloadTooLargeException,
   UnprocessableEntityException,
@@ -31,6 +32,7 @@ import { detectFileType } from './magic-bytes.js';
 
 @Injectable()
 export class KnowledgeService {
+  private readonly logger = new Logger(KnowledgeService.name);
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(KnowledgeBase)
@@ -50,6 +52,7 @@ export class KnowledgeService {
    * @returns 持久化后的知识库
    */
   create(userId: string, dto: CreateKnowledgeBaseDto): Promise<KnowledgeBase> {
+    this.logger.log(`kb create user=${userId} name=${dto.name}`);
     return this.kbRepo.save({
       ownerId: userId,
       name: dto.name,
@@ -224,7 +227,9 @@ export class KnowledgeService {
     if (dto.name !== undefined) kb.name = dto.name;
     if (dto.description !== undefined) kb.description = dto.description;
     if (dto.visibility !== undefined) kb.visibility = dto.visibility;
-    return this.kbRepo.save(kb);
+    const saved = await this.kbRepo.save(kb);
+    this.logger.log(`kb update user=${userId} kb=${id}`);
+    return saved;
   }
 
   /**
@@ -251,6 +256,7 @@ export class KnowledgeService {
       }
       await kbRepo.delete({ id });
     });
+    this.logger.log(`kb remove user=${userId} kb=${id}`);
     return null;
   }
 
@@ -295,8 +301,9 @@ export class KnowledgeService {
     });
 
     // 事务：保存文件记录 + 文档记录，任一步失败自动回滚
+    let doc: KnowledgeDocument;
     try {
-      return await this.dataSource.transaction(async (manager) => {
+      doc = await this.dataSource.transaction(async (manager) => {
         const fileRepo = manager.getRepository(BackendFileEntity);
         const docRepo = manager.getRepository(KnowledgeDocument);
 
@@ -324,11 +331,16 @@ export class KnowledgeService {
     } catch (err) {
       // 事务回滚后清理已上传的底层文件
       await this.fileService.remove(stored.key);
+      this.logger.warn(
+        `doc upload failed user=${userId} kb=${kbId} file=${file.originalname}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       if (err instanceof Error) {
         throw new UnprocessableEntityException('文档解析失败');
       }
       throw err;
     }
+    this.logger.log(`doc upload user=${userId} kb=${kbId} doc=${doc.id}`);
+    return doc;
   }
 
   /**
@@ -412,6 +424,7 @@ export class KnowledgeService {
       if (file) await this.fileService.remove(file.key);
       await fileRepo.delete({ id: doc.fileId });
     });
+    this.logger.log(`doc remove user=${userId} kb=${kbId} doc=${id}`);
     return null;
   }
 
