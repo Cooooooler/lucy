@@ -310,9 +310,49 @@ export interface paths {
         };
         /**
          * 健康检查
-         * @description 返回 DB 与 Redis 存活状态
+         * @description 返回 DB 与 Redis 存活状态（停机期间返回 503）
          */
         get: operations["HealthController_check"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 存活探针
+         * @description k8s liveness：进程是否存活
+         */
+        get: operations["HealthController_liveness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 就绪探针
+         * @description k8s readiness：能否承接流量
+         */
+        get: operations["HealthController_readiness"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1176,6 +1216,46 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description 健康状态 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResultDto"];
+                };
+            };
+        };
+    };
+    HealthController_liveness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 存活 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResultDto"];
+                };
+            };
+        };
+    };
+    HealthController_readiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 就绪 */
             200: {
                 headers: {
                     [name: string]: unknown;

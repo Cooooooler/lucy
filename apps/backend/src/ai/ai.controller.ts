@@ -31,7 +31,7 @@ import { Conversation } from './entities/conversation.entity.js';
 
 @ApiTags('ai')
 @ApiBearerAuth()
-@Controller('ai')
+@Controller({ path: 'ai', version: '1' })
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 

@@ -1,4 +1,8 @@
-import { Logger as NestLogger } from '@nestjs/common';
+import {
+  Logger as NestLogger,
+  VERSION_NEUTRAL,
+  VersioningType,
+} from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
@@ -21,6 +25,11 @@ async function bootstrap() {
   });
   app.use(cookieParser());
 
+  app.enableVersioning({
+    type: VersioningType.URI,
+    defaultVersion: [VERSION_NEUTRAL, '1'],
+  });
+
   // Scalar 文档页需从 jsDelivr 加载脚本并执行内联脚本，helmet 默认 CSP 会拦截；
   // 仅对 /docs（及其子路径）覆盖为宽松 CSP，避免全局放宽。docs 仅非生产环境挂载。
   app.use('/docs', (_req: Request, res: Response, next: NextFunction) => {
@@ -33,12 +42,17 @@ async function bootstrap() {
 
   DocsModule.setup(app);
   // 优雅停机：SIGTERM/SIGINT 到达时结束 in-flight 请求并释放 DB/Redis 连接
+  //（ShutdownService.onApplicationShutdown 先标记停机使健康检查返回 503）
   app.enableShutdownHooks();
   process.on('unhandledRejection', (reason) => {
     new NestLogger('Bootstrap').error(
       'Unhandled rejection',
       reason instanceof Error ? reason.stack : String(reason),
     );
+  });
+  process.on('uncaughtException', (error) => {
+    new NestLogger('Bootstrap').error('Uncaught exception', error.stack);
+    process.exit(1);
   });
   await app.listen(process.env.PORT ?? 3000);
 }

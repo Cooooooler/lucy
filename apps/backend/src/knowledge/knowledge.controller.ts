@@ -35,7 +35,7 @@ import { KnowledgeService } from './knowledge.service.js';
 
 @ApiTags('knowledge')
 @ApiBearerAuth()
-@Controller('knowledge')
+@Controller({ path: 'knowledge', version: '1' })
 export class KnowledgeController {
   constructor(private readonly knowledgeService: KnowledgeService) {}
 

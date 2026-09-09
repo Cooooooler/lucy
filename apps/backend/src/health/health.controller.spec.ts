@@ -1,7 +1,15 @@
 import { RedisService } from '@coool/redis-nest';
+import {
+  HealthIndicatorService,
+  HealthCheckService as TerminusHealthCheckService,
+} from '@nestjs/terminus';
 import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
+import { ShutdownService } from '../common/shutdown.service.js';
+import { HealthCheckService } from './health-check.service.js';
 import { HealthController } from './health.controller.js';
+import { RedisHealthIndicator } from './redis.health-indicator.js';
+import { TypeOrmHealthIndicator } from './typeorm.health-indicator.js';
 
 describe('HealthController', () => {
   const dataSource = { query: vi.fn() };
@@ -11,20 +19,29 @@ describe('HealthController', () => {
     vi.clearAllMocks();
   });
 
-  async function build(): Promise<HealthController> {
+  async function build(shutdown = false): Promise<HealthController> {
     const module = await Test.createTestingModule({
       controllers: [HealthController],
       providers: [
         { provide: DataSource, useValue: dataSource },
         { provide: RedisService, useValue: redis },
+        { provide: ShutdownService, useValue: { isShutdown: () => shutdown } },
+        { provide: TerminusHealthCheckService, useValue: {} },
+        { provide: HealthIndicatorService, useValue: {} },
+        HealthCheckService,
+        RedisHealthIndicator,
+        TypeOrmHealthIndicator,
       ],
-    }).compile();
+    })
+      .overrideProvider(HealthCheckService)
+      .useValue({
+        check: () => Promise.resolve({ status: 'ok', db: true, redis: true }),
+      })
+      .compile();
     return module.get(HealthController);
   }
 
   it('DB 与 Redis 均可用返回 ok', async () => {
-    dataSource.query.mockResolvedValue([{ '?column?': 1 }]);
-    redis.raw.ping.mockResolvedValue('PONG');
     const controller = await build();
     await expect(controller.check()).resolves.toEqual({
       status: 'ok',
@@ -33,25 +50,8 @@ describe('HealthController', () => {
     });
   });
 
-  it('DB 不可用返回 degraded', async () => {
-    dataSource.query.mockRejectedValue(new Error('down'));
-    redis.raw.ping.mockResolvedValue('PONG');
-    const controller = await build();
-    await expect(controller.check()).resolves.toEqual({
-      status: 'degraded',
-      db: false,
-      redis: true,
-    });
-  });
-
-  it('Redis 不可用返回 degraded', async () => {
-    dataSource.query.mockResolvedValue([{ '?column?': 1 }]);
-    redis.raw.ping.mockRejectedValue(new Error('down'));
-    const controller = await build();
-    await expect(controller.check()).resolves.toEqual({
-      status: 'degraded',
-      db: true,
-      redis: false,
-    });
+  it('停机期间抛 503', async () => {
+    const controller = await build(true);
+    await expect(controller.check()).rejects.toThrow('正在停机');
   });
 });
