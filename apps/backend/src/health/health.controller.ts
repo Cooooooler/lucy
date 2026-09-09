@@ -1,6 +1,7 @@
 import { RedisService } from '@coool/redis-nest';
 import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { InjectDataSource } from '@nestjs/typeorm';
 import type { DataSource } from 'typeorm';
 import { Public } from '../common/decorators/public.decorator.js';
@@ -15,6 +16,7 @@ export class HealthController {
   ) {}
 
   @Public()
+  @SkipThrottle()
   @Get()
   @ApiOperation({
     summary: '健康检查',

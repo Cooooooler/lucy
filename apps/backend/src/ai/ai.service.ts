@@ -1,6 +1,6 @@
 import { HumanMessage } from '@langchain/core/messages';
 import { AiStreamEvent, ErrorCode, type ErrorCodeValue } from '@lucy/shared';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
@@ -32,6 +32,8 @@ type Subscriber = {
 
 @Injectable()
 export class AiService {
+  private readonly logger = new Logger(AiService.name);
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(Conversation)
@@ -287,7 +289,14 @@ export class AiService {
     // 首条消息：先同步生成标题再开始回答，保证回答流结束时标题已就绪（前端拉列表时不再缺失）
     const count = await this.messageRepo.count({ where: { conversationId } });
     if (count === 1) {
-      await this.generateTitle(conversation).catch(() => {});
+      try {
+        await this.generateTitle(conversation);
+      } catch (err) {
+        // 标题生成失败不影响正文问答，仅记录日志
+        this.logger.warn(
+          `标题生成失败 conversation=${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
 
     const model =

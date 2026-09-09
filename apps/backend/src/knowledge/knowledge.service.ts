@@ -239,6 +239,7 @@ export class KnowledgeService {
     await this.dataSource.transaction(async (manager) => {
       const docRepo = manager.getRepository(KnowledgeDocument);
       const fileRepo = manager.getRepository(BackendFileEntity);
+      const kbRepo = manager.getRepository(KnowledgeBase);
 
       const docs = await docRepo.find({ where: { knowledgeBaseId: id } });
       for (const d of docs) {
@@ -248,7 +249,7 @@ export class KnowledgeService {
           await fileRepo.delete({ id: file.id });
         }
       }
-      await this.kbRepo.delete({ id });
+      await kbRepo.delete({ id });
     });
     return null;
   }
@@ -403,9 +404,10 @@ export class KnowledgeService {
     if (!doc) throw new NotFoundException('文档不存在');
     // 事务：删除文档 + 关联文件记录，保证原子性
     await this.dataSource.transaction(async (manager) => {
+      const docRepoTx = manager.getRepository(KnowledgeDocument);
       const fileRepo = manager.getRepository(BackendFileEntity);
 
-      await this.docRepo.delete({ id, knowledgeBaseId: kbId });
+      await docRepoTx.delete({ id, knowledgeBaseId: kbId });
       const file = await fileRepo.findOneBy({ id: doc.fileId });
       if (file) await this.fileService.remove(file.key);
       await fileRepo.delete({ id: doc.fileId });

@@ -1,3 +1,4 @@
+import { Logger as NestLogger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
@@ -31,6 +32,14 @@ async function bootstrap() {
   });
 
   DocsModule.setup(app);
+  // 优雅停机：SIGTERM/SIGINT 到达时结束 in-flight 请求并释放 DB/Redis 连接
+  app.enableShutdownHooks();
+  process.on('unhandledRejection', (reason) => {
+    new NestLogger('Bootstrap').error(
+      'Unhandled rejection',
+      reason instanceof Error ? reason.stack : String(reason),
+    );
+  });
   await app.listen(process.env.PORT ?? 3000);
 }
 await bootstrap();

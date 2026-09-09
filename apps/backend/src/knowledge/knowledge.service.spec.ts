@@ -55,6 +55,7 @@ describe('KnowledgeService', () => {
     transaction: vi.fn((cb: (manager: unknown) => unknown) => {
       const manager = {
         getRepository: vi.fn((entity: unknown) => {
+          if (entity === KnowledgeBase) return kbRepo;
           if (entity === KnowledgeDocument) return docRepo;
           return fileRepo;
         }),

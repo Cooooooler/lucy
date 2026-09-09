@@ -61,6 +61,7 @@ export class AuthController {
 
   @Public()
   @Post('refresh')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
     summary: '刷新令牌',
     description: '读取 HttpOnly cookie 换发短效 access token，并轮换长效 token',
