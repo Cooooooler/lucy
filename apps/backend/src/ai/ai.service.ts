@@ -1,11 +1,12 @@
 import { HumanMessage } from '@langchain/core/messages';
 import { AiStreamEvent, ErrorCode, type ErrorCodeValue } from '@lucy/shared';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
 import { DataSource, IsNull, Repository } from 'typeorm';
+import { AppLogger } from '../common/app-logger.service.js';
 import { ContextService } from './context.service.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
@@ -32,9 +33,8 @@ type Subscriber = {
 
 @Injectable()
 export class AiService {
-  private readonly logger = new Logger(AiService.name);
-
   constructor(
+    private readonly logger: AppLogger,
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(Conversation)
     private readonly conversationRepo: Repository<Conversation>,
@@ -295,6 +295,7 @@ export class AiService {
         // 标题生成失败不影响正文问答，仅记录日志
         this.logger.warn(
           `标题生成失败 conversation=${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
+          AiService.name,
         );
       }
     }

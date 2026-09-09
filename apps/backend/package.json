@@ -50,6 +50,7 @@
     "ioredis": "catalog:",
     "joi": "^18.2.8",
     "mammoth": "^1.12.1",
+    "nestjs-cls": "^6.3.0",
     "nestjs-pino": "^4.6.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",

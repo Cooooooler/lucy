@@ -1,5 +1,6 @@
 import { ErrorCode } from '@lucy/shared';
 import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
+import { ClsService } from 'nestjs-cls';
 import { AllExceptionsFilter } from './all-exceptions.filter.js';
 
 describe('AllExceptionsFilter', () => {
@@ -13,7 +14,11 @@ describe('AllExceptionsFilter', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    filter = new AllExceptionsFilter();
+    const cls = {
+      isActive: () => false,
+      get: vi.fn(),
+    } as unknown as ClsService;
+    filter = new AllExceptionsFilter(cls);
   });
 
   it('普通 HttpException 返回 status + {code,message,data:null}', () => {

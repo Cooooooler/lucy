@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { lastValueFrom } from 'rxjs';
 import { toArray } from 'rxjs/operators';
 import { DataSource, IsNull } from 'typeorm';
+import type { AppLogger } from '../common/app-logger.service.js';
 import { AiService } from './ai.service.js';
 import { Conversation } from './entities/conversation.entity.js';
 import {
@@ -41,12 +42,14 @@ describe('AiService', () => {
   const ollamaFactory = { getClient: vi.fn() };
   const contextService = { buildMessages: vi.fn() };
   const config = new ConfigService({ OLLAMA_MODEL: 'default-model' });
+  const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
 
   let service: AiService;
 
   beforeEach(() => {
     vi.clearAllMocks();
     service = new AiService(
+      logger,
       dataSource,
       conversationRepo as never,
       messageRepo as never,
@@ -254,6 +257,7 @@ describe('AiService', () => {
       vi.useFakeTimers();
       try {
         service = new AiService(
+          logger,
           dataSource,
           conversationRepo as never,
           messageRepo as never,

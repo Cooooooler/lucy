@@ -3,7 +3,6 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
   PayloadTooLargeException,
   UnprocessableEntityException,
@@ -13,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { basename, extname } from 'node:path';
 import { DataSource, Repository } from 'typeorm';
+import { AppLogger } from '../common/app-logger.service.js';
 import {
   extractContent,
   SUPPORTED_DOCUMENT_EXTS,
@@ -32,8 +32,8 @@ import { detectFileType } from './magic-bytes.js';
 
 @Injectable()
 export class KnowledgeService {
-  private readonly logger = new Logger(KnowledgeService.name);
   constructor(
+    private readonly logger: AppLogger,
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(KnowledgeBase)
     private readonly kbRepo: Repository<KnowledgeBase>,
@@ -52,7 +52,7 @@ export class KnowledgeService {
    * @returns 持久化后的知识库
    */
   create(userId: string, dto: CreateKnowledgeBaseDto): Promise<KnowledgeBase> {
-    this.logger.log(`kb create user=${userId} name=${dto.name}`);
+    this.logger.log(`kb create name=${dto.name}`, KnowledgeService.name);
     return this.kbRepo.save({
       ownerId: userId,
       name: dto.name,
@@ -228,7 +228,7 @@ export class KnowledgeService {
     if (dto.description !== undefined) kb.description = dto.description;
     if (dto.visibility !== undefined) kb.visibility = dto.visibility;
     const saved = await this.kbRepo.save(kb);
-    this.logger.log(`kb update user=${userId} kb=${id}`);
+    this.logger.log(`kb update kb=${id}`, KnowledgeService.name);
     return saved;
   }
 
@@ -256,7 +256,7 @@ export class KnowledgeService {
       }
       await kbRepo.delete({ id });
     });
-    this.logger.log(`kb remove user=${userId} kb=${id}`);
+    this.logger.log(`kb remove kb=${id}`, KnowledgeService.name);
     return null;
   }
 
@@ -332,14 +332,18 @@ export class KnowledgeService {
       // 事务回滚后清理已上传的底层文件
       await this.fileService.remove(stored.key);
       this.logger.warn(
-        `doc upload failed user=${userId} kb=${kbId} file=${file.originalname}: ${err instanceof Error ? err.message : String(err)}`,
+        `doc upload failed kb=${kbId} file=${file.originalname}: ${err instanceof Error ? err.message : String(err)}`,
+        KnowledgeService.name,
       );
       if (err instanceof Error) {
         throw new UnprocessableEntityException('文档解析失败');
       }
       throw err;
     }
-    this.logger.log(`doc upload user=${userId} kb=${kbId} doc=${doc.id}`);
+    this.logger.log(
+      `doc upload kb=${kbId} doc=${doc.id}`,
+      KnowledgeService.name,
+    );
     return doc;
   }
 
@@ -424,7 +428,7 @@ export class KnowledgeService {
       if (file) await this.fileService.remove(file.key);
       await fileRepo.delete({ id: doc.fileId });
     });
-    this.logger.log(`doc remove user=${userId} kb=${kbId} doc=${id}`);
+    this.logger.log(`doc remove kb=${kbId} doc=${id}`, KnowledgeService.name);
     return null;
   }
 

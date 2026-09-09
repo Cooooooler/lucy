@@ -2,6 +2,7 @@ import { HttpStatus, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AppLogger } from '../common/app-logger.service.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
@@ -68,6 +69,7 @@ describe('KnowledgeService', () => {
     remove: vi.fn(),
   };
   const config = new ConfigService({ FILE_MAX_SIZE: 1024 });
+  const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
 
   let service: KnowledgeService;
 
@@ -93,6 +95,7 @@ describe('KnowledgeService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     service = new KnowledgeService(
+      logger,
       dataSource,
       kbRepo as never,
       docRepo as never,
@@ -473,6 +476,7 @@ describe('KnowledgeService', () => {
 
   it('addDocument FILE_MAX_SIZE 非数字时回退默认上限（不静默禁用）', async () => {
     const svc = new KnowledgeService(
+      logger,
       dataSource,
       kbRepo as never,
       docRepo as never,

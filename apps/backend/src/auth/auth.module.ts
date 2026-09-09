@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { CommonModule } from '../common/common.module.js';
 import { DenylistModule } from '../redis/denylist.module.js';
 import { UsersModule } from '../users/users.module.js';
 import { AuthController } from './auth.controller.js';
@@ -12,6 +13,7 @@ import { JwtStrategy } from './jwt.strategy.js';
 
 @Module({
   imports: [
+    CommonModule,
     UsersModule,
     PassportModule,
     DenylistModule,

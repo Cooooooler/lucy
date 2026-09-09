@@ -8,10 +8,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { ClsService } from 'nestjs-cls';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
+
+  constructor(private readonly cls: ClsService) {}
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -54,14 +57,23 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 
   // 结构化错误上下文：请求方法/路径/用户/traceId，便于按链路检索。
-  // 注意绝不记录请求体（可能含密码/token），只记定位所需的最小字段。
+  // userId 优先取 CLS（守卫写入），req.user 兜底；绝不记录请求体（可能含密码/token）。
   private logContext(req: {
     method?: string;
     url?: string;
     user?: { userId?: string };
     id?: string;
   }): string {
-    const userId = req.user?.userId ?? '-';
+    const userId = this.clsUserId() ?? req.user?.userId ?? '-';
     return `${req.method ?? '-'} ${req.url ?? '-'} user=${userId} reqId=${req.id ?? '-'}`;
+  }
+
+  private clsUserId(): string | null {
+    try {
+      if (!this.cls.isActive()) return null;
+      return this.cls.get<string | null>('userId') ?? null;
+    } catch {
+      return null;
+    }
   }
 }
