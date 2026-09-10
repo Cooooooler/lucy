@@ -21,6 +21,7 @@ export default defineConfig({
         'src/db/migrations/**',
         'src/db/data-source.ts',
         'src/main.ts',
+        'src/test/**',
         'src/**/dto/**',
         '**/*.d.ts',
       ],
