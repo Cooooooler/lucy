@@ -28,7 +28,7 @@ function logRetentionDays(): number {
  */
 export function pruneOldLogs(dir: string, keepDays: number): void {
   try {
-    const cutoff = Date.now() - keepDays * 86400_000;
+    const cutoff = Date.now() - keepDays * 86_400_000;
     for (const name of readdirSync(dir)) {
       const m = /^backend-(\d{4})-(\d{2})-(\d{2})\.log$/.exec(name);
       if (!m) continue;

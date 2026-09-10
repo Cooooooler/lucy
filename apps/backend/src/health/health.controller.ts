@@ -29,13 +29,8 @@ export class HealthController {
   })
   @ApiOkResponse({ description: '健康状态', type: HealthResultDto })
   async check(): Promise<HealthResultDto> {
-    if (this.shutdown.isShutdown()) {
-      return Promise.reject(new ServiceUnavailableException('正在停机'));
-    }
-    return this.health.check([
-      () => this.db.isHealthy('database'),
-      () => this.redis.isHealthy('redis'),
-    ]);
+    this.ensureRunning();
+    return this.probeDependencies();
   }
 
   @Public()
@@ -47,10 +42,9 @@ export class HealthController {
     description: 'k8s liveness：进程是否存活',
   })
   @ApiOkResponse({ description: '存活', type: HealthResultDto })
-  liveness(): Promise<HealthResultDto> {
-    if (this.shutdown.isShutdown()) {
-      return Promise.reject(new ServiceUnavailableException('正在停机'));
-    }
+  async liveness(): Promise<HealthResultDto> {
+    // 存活探针刻意不探测依赖：依赖抖动不应触发 k8s 重启 Pod
+    this.ensureRunning();
     return this.health.check([]);
   }
 
@@ -63,10 +57,20 @@ export class HealthController {
     description: 'k8s readiness：能否承接流量',
   })
   @ApiOkResponse({ description: '就绪', type: HealthResultDto })
+  // 就绪与完整健康检查探测同一组依赖，复用 check 以免两处实现漂移
   readiness(): Promise<HealthResultDto> {
+    return this.check();
+  }
+
+  /** 停机中拒绝服务：抛 503，让探活方与网关及时摘除流量 */
+  private ensureRunning(): void {
     if (this.shutdown.isShutdown()) {
-      return Promise.reject(new ServiceUnavailableException('正在停机'));
+      throw new ServiceUnavailableException('正在停机');
     }
+  }
+
+  /** 探测 DB 与 Redis：任一不可用返回 degraded 而非抛 500，便于区分整体宕机与部分降级 */
+  private probeDependencies(): Promise<HealthResultDto> {
     return this.health.check([
       () => this.db.isHealthy('database'),
       () => this.redis.isHealthy('redis'),

@@ -26,9 +26,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (await this.denylist.isDenied(payload.jti)) {
       throw new UnauthorizedException('令牌已失效');
     }
-    // verify 用户仍存在且可用：注销/禁用后签发的 token 立即失效
+    // verify 用户仍存在且可用：注销/禁用后签发的 token 立即失效。
+    // 代价是每个已认证请求多一次主键查询——这是为「立即失效」有意付出的成本，
+    // 换取比 JWT 无状态语义更强的保证；若将来成为瓶颈，可改为主键查 status 或加短 TTL 缓存。
     const user = await this.usersService.findById(payload.sub);
-    if (!user || user.status !== 1) {
+    if (user?.status !== 1) {
       throw new UnauthorizedException('账号不可用');
     }
     return { userId: payload.sub, jti: payload.jti };
