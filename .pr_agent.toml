@@ -26,8 +26,12 @@ ai_timeout = 300
 # 命中即剔除该文件，因此这里的 pattern 写的是「要忽略什么」。
 [ignore]
 regex = [
-  # 1) 白名单：只保留 js / jsx / ts / tsx，其余类型（md/json/yaml/toml/lock/图片等）一律不分析
-  '(?!.*\.(?:js|jsx|ts|tsx)$).*',
+  # 1) 白名单：只保留 js / jsx / ts / tsx（含 package.json，见下方说明），
+  #    其余类型（md/yaml/toml/lock/图片等）一律不分析。
+  #    package.json 单独放行：它是依赖变更的唯一可见来源。若排除它，模型看到新
+  #    import 却看不到对应依赖声明，会误报「依赖缺失」（PR #35 实测踩过）。它体积小，
+  #    纳入后既能消除误报，也让「新增/升级依赖」这类真实变更可被评审。
+  '(?!.*\.(?:js|jsx|ts|tsx)$)(?!.*/package\.json$)(?!^package\.json$).*',
   # 2) 单元测试：foo.spec.ts / foo.test.tsx
   '.*\.(?:spec|test)\.(?:js|jsx|ts|tsx)$',
   # 3) e2e 测试：foo.e2e-spec.ts
