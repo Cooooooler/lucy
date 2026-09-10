@@ -1,3 +1,4 @@
+import { API_VERSION } from '@lucy/shared';
 import {
   Body,
   Controller,
@@ -18,7 +19,6 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
-import { API_VERSION } from '../common/api-version.js';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js';

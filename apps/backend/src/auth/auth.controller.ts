@@ -1,4 +1,4 @@
-import type { components } from '@lucy/shared';
+import { API_VERSION, type components } from '@lucy/shared';
 import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -8,7 +8,6 @@ import {
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
-import { API_VERSION } from '../common/api-version.js';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';

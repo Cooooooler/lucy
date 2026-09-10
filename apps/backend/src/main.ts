@@ -1,3 +1,4 @@
+import { API_VERSION } from '@lucy/shared';
 import {
   Logger as NestLogger,
   VERSION_NEUTRAL,
@@ -9,7 +10,6 @@ import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module.js';
-import { API_VERSION } from './common/api-version.js';
 import { resolveCorsOrigin } from './common/cors.js';
 import { DocsModule } from './docs/docs.module.js';
 

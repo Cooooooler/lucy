@@ -1,4 +1,8 @@
-import { ErrorCode, type ApiResponse } from '@lucy/shared';
+import {
+  API_VERSION as API_VERSION_CODE,
+  ErrorCode,
+  type ApiResponse,
+} from '@lucy/shared';
 import type { BodyType, HookFetchPlugin, RequestConfig } from 'hook-fetch';
 import hookFetch, { ResponseError } from 'hook-fetch';
 import { sseTextDecoderPlugin } from 'hook-fetch/plugins';
@@ -28,8 +32,9 @@ type RequestExtra = {
   __authRetry?: number;
 };
 
-// API 版本：与后端 VersioningType.URI 默认版本保持一致；升级时改此环境变量即可
-const API_VERSION = import.meta.env.VITE_API_VERSION ?? 'v1';
+// API 版本前缀：默认由后端共享的主版本号派生（v1），保证前后端不会各写一份而漂移；
+// 特殊环境可用 VITE_API_VERSION 整体覆盖（如灰度期间指向 v2）。
+const API_VERSION = import.meta.env.VITE_API_VERSION ?? `v${API_VERSION_CODE}`;
 
 // 基础配置：baseURL、Content-Type（hook-fetch 直接拼接 baseURL+url，baseURL 需以 / 结尾）
 // withCredentials: hook-fetch 默认 credentials:'omit' 不携带 cookie；长效 token 走 HttpOnly

@@ -1,3 +1,4 @@
+import { API_VERSION } from '@lucy/shared';
 import {
   BadRequestException,
   Body,
@@ -20,7 +21,6 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { API_VERSION } from '../common/api-version.js';
 import {
   CurrentUser,
   type CurrentUserPayload,

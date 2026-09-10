@@ -7,6 +7,16 @@ export interface ApiResponse<T = unknown> {
   data: T;
 }
 
+/**
+ * 后端 API 主版本号：Nest URI Versioning 的版本段，路由形如 `/v1/...`。
+ *
+ * 前后端共用同一来源，避免两边各写一份导致升级时漏改——后端升到 v2 而前端默认值
+ * 仍是 v1，会让生产环境所有请求打到已下线的路由（404）。
+ * 前端默认前缀由本常量派生（`v${API_VERSION}`），通常无需改代码即可跟随升级；
+ * 特殊环境可用 VITE_API_VERSION 整体覆盖。
+ */
+export const API_VERSION = '1';
+
 export const ErrorCode = {
   /** 成功响应码（ApiResponse 信封约定）：后端 ApiResponseInterceptor 统一包裹为 { code: 0, message: 'ok', data }，前端据此判定成功；非 0 视为业务错误。 */
   OK: 0,
