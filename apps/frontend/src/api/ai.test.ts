@@ -88,7 +88,7 @@ describe('api/ai', () => {
       fetchMock.mockResolvedValueOnce(okEnvelope(conv));
       const result = await createConversationApi({ model: 'qwen' });
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/ai/conversations',
+        '/api/v1/ai/conversations',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ model: 'qwen' }),
@@ -107,7 +107,7 @@ describe('api/ai', () => {
       fetchMock.mockResolvedValueOnce(okEnvelope(data));
       const result = await listConversationsApi(2, 10);
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/ai/conversations?page=2&pageSize=10',
+        '/api/v1/ai/conversations?page=2&pageSize=10',
         expect.objectContaining({ method: 'GET' }),
       );
       expect(result).toEqual(data);
@@ -118,7 +118,7 @@ describe('api/ai', () => {
       fetchMock.mockResolvedValueOnce(okEnvelope(conv));
       await expect(getConversationApi('c1')).resolves.toEqual(conv);
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/ai/conversations/c1',
+        '/api/v1/ai/conversations/c1',
         expect.objectContaining({ method: 'GET' }),
       );
     });
@@ -128,7 +128,7 @@ describe('api/ai', () => {
       fetchMock.mockResolvedValueOnce(okEnvelope(conv));
       const result = await renameConversationApi('c1', { title: '新标题' });
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/ai/conversations/c1',
+        '/api/v1/ai/conversations/c1',
         expect.objectContaining({
           method: 'PATCH',
           body: JSON.stringify({ title: '新标题' }),
@@ -141,7 +141,7 @@ describe('api/ai', () => {
       fetchMock.mockResolvedValueOnce(okEnvelope(null));
       await expect(deleteConversationApi('c1')).resolves.toBeNull();
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/ai/conversations/c1',
+        '/api/v1/ai/conversations/c1',
         expect.objectContaining({ method: 'DELETE' }),
       );
     });
@@ -196,7 +196,7 @@ describe('api/ai', () => {
         streamSendMessageApi('c1', { content: 'hi', model: 'qwen' }),
       );
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe('/api/ai/conversations/c1/messages');
+      expect(url).toBe('/api/v1/ai/conversations/c1/messages');
       expect(init.method).toBe('POST');
       expect(new Headers(init.headers).get('Authorization')).toBe(
         'Bearer test-token',
@@ -249,7 +249,7 @@ describe('api/ai', () => {
       // hook-fetch 在请求创建后异步发起 fetch，需先消费流（fetch 必然已发出）再断言请求详情
       const events = await collect(req.stream());
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe('/api/ai/conversations/c1/messages');
+      expect(url).toBe('/api/v1/ai/conversations/c1/messages');
       expect(init.method).toBe('POST');
       expect(init.body).toBe(JSON.stringify({ content: 'hi' }));
       expect(events[events.length - 1]?.type).toBe('done');

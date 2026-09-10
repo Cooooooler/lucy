@@ -9,6 +9,7 @@ import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module.js';
+import { API_VERSION } from './common/api-version.js';
 import { resolveCorsOrigin } from './common/cors.js';
 import { DocsModule } from './docs/docs.module.js';
 
@@ -27,7 +28,7 @@ async function bootstrap() {
 
   app.enableVersioning({
     type: VersioningType.URI,
-    defaultVersion: [VERSION_NEUTRAL, '1'],
+    defaultVersion: [VERSION_NEUTRAL, API_VERSION],
   });
 
   // Scalar 文档页需从 jsDelivr 加载脚本并执行内联脚本，helmet 默认 CSP 会拦截；

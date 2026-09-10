@@ -20,6 +20,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { API_VERSION } from '../common/api-version.js';
 import {
   CurrentUser,
   type CurrentUserPayload,
@@ -35,7 +36,7 @@ import { KnowledgeService } from './knowledge.service.js';
 
 @ApiTags('knowledge')
 @ApiBearerAuth()
-@Controller({ path: 'knowledge', version: '1' })
+@Controller({ path: 'knowledge', version: API_VERSION })
 export class KnowledgeController {
   constructor(private readonly knowledgeService: KnowledgeService) {}
 

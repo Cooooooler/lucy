@@ -76,7 +76,7 @@ describe('api/knowledge', () => {
     });
     expect(result).toEqual(kb);
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/knowledge',
+      '/api/v1/knowledge',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ name: '产品文档', visibility: 'public' }),
@@ -100,7 +100,7 @@ describe('api/knowledge', () => {
     });
     expect(result).toEqual(data);
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/knowledge?page=1&pageSize=10&visibility=public&name=%E4%BA%A7%E5%93%81',
+      '/api/v1/knowledge?page=1&pageSize=10&visibility=public&name=%E4%BA%A7%E5%93%81',
       expect.objectContaining({ method: 'GET' }),
     );
   });
@@ -110,7 +110,7 @@ describe('api/knowledge', () => {
     fetchMock.mockResolvedValueOnce(okEnvelope(kb));
     await expect(getKnowledgeBaseApi('kb1')).resolves.toEqual(kb);
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/knowledge/kb1',
+      '/api/v1/knowledge/kb1',
       expect.objectContaining({ method: 'GET' }),
     );
   });
@@ -124,7 +124,7 @@ describe('api/knowledge', () => {
     });
     expect(result).toEqual(kb);
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/knowledge/kb1',
+      '/api/v1/knowledge/kb1',
       expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify({ name: '新标题', visibility: 'private' }),
@@ -136,7 +136,7 @@ describe('api/knowledge', () => {
     fetchMock.mockResolvedValueOnce(okEnvelope(null));
     await expect(deleteKnowledgeBaseApi('kb1')).resolves.toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/knowledge/kb1',
+      '/api/v1/knowledge/kb1',
       expect.objectContaining({ method: 'DELETE' }),
     );
   });
@@ -148,7 +148,7 @@ describe('api/knowledge', () => {
     const result = await addDocumentApi('kb1', file);
     expect(result).toEqual(doc);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('/api/knowledge/kb1/documents');
+    expect(url).toBe('/api/v1/knowledge/kb1/documents');
     expect(init.method).toBe('POST');
     expect(init.body).toBeInstanceOf(FormData);
     expect((init.body as FormData).get('file')).toEqual(file);
@@ -165,7 +165,7 @@ describe('api/knowledge', () => {
     });
     expect(result).toEqual(data);
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/knowledge/kb1/documents?page=1&pageSize=20&keyword=hello',
+      '/api/v1/knowledge/kb1/documents?page=1&pageSize=20&keyword=hello',
       expect.objectContaining({ method: 'GET' }),
     );
   });
@@ -175,7 +175,7 @@ describe('api/knowledge', () => {
     fetchMock.mockResolvedValueOnce(okEnvelope(doc));
     await expect(getDocumentApi('kb1', 'd1')).resolves.toEqual(doc);
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/knowledge/kb1/documents/d1',
+      '/api/v1/knowledge/kb1/documents/d1',
       expect.objectContaining({ method: 'GET' }),
     );
   });
@@ -184,7 +184,7 @@ describe('api/knowledge', () => {
     fetchMock.mockResolvedValueOnce(okEnvelope(null));
     await expect(deleteDocumentApi('kb1', 'd1')).resolves.toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/knowledge/kb1/documents/d1',
+      '/api/v1/knowledge/kb1/documents/d1',
       expect.objectContaining({ method: 'DELETE' }),
     );
   });

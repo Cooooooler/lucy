@@ -18,6 +18,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
+import { API_VERSION } from '../common/api-version.js';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js';
@@ -31,7 +32,7 @@ import { Conversation } from './entities/conversation.entity.js';
 
 @ApiTags('ai')
 @ApiBearerAuth()
-@Controller({ path: 'ai', version: '1' })
+@Controller({ path: 'ai', version: API_VERSION })
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
+import { API_VERSION } from '../common/api-version.js';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
@@ -24,7 +25,7 @@ const REFRESH_COOKIE = 'refreshToken';
 type User = components['schemas']['User'];
 
 @ApiTags('auth')
-@Controller({ path: 'auth', version: '1' })
+@Controller({ path: 'auth', version: API_VERSION })
 // 认证契约：长效 refresh token 经 HttpOnly cookie 下发/读取（安全、防 XSS），
 // 短效 access token 放响应体由前端持有；refresh 失败时清除失效 cookie
 export class AuthController {
