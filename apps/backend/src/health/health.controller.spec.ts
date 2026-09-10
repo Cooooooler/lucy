@@ -54,4 +54,36 @@ describe('HealthController', () => {
     const controller = await build(true);
     await expect(controller.check()).rejects.toThrow('正在停机');
   });
+
+  describe('liveness 存活探针', () => {
+    it('进程存活时返回 ok', async () => {
+      const controller = await build();
+      await expect(controller.liveness()).resolves.toEqual({
+        status: 'ok',
+        db: true,
+        redis: true,
+      });
+    });
+
+    it('停机期间抛 503', async () => {
+      const controller = await build(true);
+      await expect(controller.liveness()).rejects.toThrow('正在停机');
+    });
+  });
+
+  describe('readiness 就绪探针', () => {
+    it('DB 与 Redis 均可用返回 ok', async () => {
+      const controller = await build();
+      await expect(controller.readiness()).resolves.toEqual({
+        status: 'ok',
+        db: true,
+        redis: true,
+      });
+    });
+
+    it('停机期间抛 503', async () => {
+      const controller = await build(true);
+      await expect(controller.readiness()).rejects.toThrow('正在停机');
+    });
+  });
 });
