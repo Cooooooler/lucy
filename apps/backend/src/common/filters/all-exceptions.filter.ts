@@ -58,6 +58,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   // 结构化错误上下文：请求方法/路径/用户/traceId，便于按链路检索。
   // userId 优先取 CLS（守卫写入），req.user 兜底；绝不记录请求体（可能含密码/token）。
+  // 路径只取 pathname：req.url 携带 query string，若接口把凭证放 query（如 EventSource
+  // 无法自定义 header 时的 ?token=），整串落盘会泄露，故丢弃 ? 之后的部分。
   private logContext(req: {
     method?: string;
     url?: string;
@@ -65,7 +67,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     id?: string;
   }): string {
     const userId = this.clsUserId() ?? req.user?.userId ?? '-';
-    return `${req.method ?? '-'} ${req.url ?? '-'} user=${userId} reqId=${req.id ?? '-'}`;
+    const pathname = (req.url ?? '-').split('?')[0];
+    return `${req.method ?? '-'} ${pathname} user=${userId} reqId=${req.id ?? '-'}`;
   }
 
   private clsUserId(): string | null {
