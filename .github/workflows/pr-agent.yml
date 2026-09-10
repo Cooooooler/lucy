@@ -1,0 +1,45 @@
+name: PR Agent
+
+# 仅在 PR 上通过评论命令手动触发，例如：
+#   /review            代码评审
+#   /describe          生成 PR 描述
+#   /improve           改进建议
+#   /ask "这个改动安全吗？"   自由问答
+#   /help              查看全部可用命令
+#
+# 重要：GitHub 只在「默认分支（master）」存在该工作流时才会响应 issue_comment 事件，
+# 因此本文件必须合并进 master 后才会真正生效。
+on:
+  issue_comment:
+    types: [created]
+
+# 按 PR 号串行，避免同一 PR 上并发跑多个工具互相覆盖评论
+concurrency:
+  group: pr-agent-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+# 发布评论需要 issues/pull-requests 写权限；contents 只读即可（本配置不会回推代码）
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  pr_agent:
+    name: Run PR Agent
+    # 三重过滤：必须是 PR（非普通 issue）、非 bot 触发、评论以 `/` 开头
+    if: >-
+      github.event.issue.pull_request && github.event.sender.type != 'Bot' && startsWith(github.event.comment.body, '/')
+    runs-on: tenki-standard-small-2c-4g
+    timeout-minutes: 15
+    steps:
+      - name: Run PR Agent
+        # 如需锁定版本（供应链安全 + 避免上游破坏性变更），改用：
+        #   uses: docker://pragent/pr-agent:0.45.0-github_action
+        # 或按 digest 固定：docker://pragent/pr-agent@sha256:<digest>
+        uses: the-pr-agent/pr-agent@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # DeepSeek API Key，需在仓库 Settings > Secrets and variables > Actions 中添加，
+          # 名称固定为 DEEPSEEK_KEY。模型与语言等配置见根目录 .pr_agent.toml。
+          DEEPSEEK__KEY: ${{ secrets.DEEPSEEK_KEY }}

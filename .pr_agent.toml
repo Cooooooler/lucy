@@ -1,0 +1,66 @@
+# PR-Agent 项目级配置：只写需要偏离默认值的项。
+# 完整可配置项见官方 configuration.toml：
+# https://github.com/the-pr-agent/pr-agent/blob/main/pr_agent/settings/configuration.toml
+#
+# 注意：本文件从仓库「默认分支」读取，需先合并到 master 才会生效。
+
+[config]
+# 模型：DeepSeek（API Key 通过 workflow 的 DEEPSEEK__KEY 环境变量注入，不写在此文件）
+model = "deepseek/deepseek-flash"
+fallback_models = ["deepseek/deepseek-v4-pro"]
+# 评审结论输出中文
+response_language = "zh-CN"
+# deepseek-flash 不在 pr-agent 内置的模型上下文表中，需显式声明其窗口大小，
+# 否则按未知模型处理；实际可用上下文仍受 max_model_tokens（默认 32000）约束以控成本。
+custom_model_max_tokens = 128000
+# deepseek-flash 是推理模型，reasoning 会占用输出预算；不设上限时
+# 容易在长评审中被截断成空内容，这里留足头寸。
+max_output_tokens = 8192
+
+# 文件过滤：两道规则叠加，未命中任一保留规则的改动都不会进入分析。
+# 语义提示：pr-agent 用 re.match（从字符串开头匹配）逐条过滤，
+# 命中即剔除该文件，因此这里的 pattern 写的是「要忽略什么」。
+[ignore]
+regex = [
+  # 1) 白名单：只保留 js / jsx / ts / tsx，其余类型（md/json/yaml/toml/lock/图片等）一律不分析
+  '(?!.*\.(?:js|jsx|ts|tsx)$).*',
+  # 2) 单元测试：foo.spec.ts / foo.test.tsx
+  '.*\.(?:spec|test)\.(?:js|jsx|ts|tsx)$',
+  # 3) e2e 测试：foo.e2e-spec.ts
+  '.*e2e-spec\.(?:js|jsx|ts|tsx)$',
+  # 4) 测试目录：test/ 、tests/ 、__tests__/ 、__mocks__/
+  '(?:^|.*/)(?:tests?|__tests__|__mocks__)/.*\.(?:js|jsx|ts|tsx)$',
+  # 5) 测试配置：vitest.config.ts / vitest.e2e.config.ts 等
+  '(?:^|.*/)vitest[^/]*\.(?:js|jsx|ts|tsx)$',
+  # 6) 测试夹具与工具：knowledge-test-fixture.ts 、test-utils.ts 等（连字符命名）
+  '.*[-._](?:test|spec)[-._](?:fixture|fixtures|helper|helpers|util|utils|mock|mocks)s?.*\.(?:js|jsx|ts|tsx)$',
+  '.*[-._](?:fixture|fixtures)s?\.(?:js|jsx|ts|tsx)$',
+  # 7) 生成产物：本仓库 AGENTS.md 明确禁止手改，评审它们纯属浪费 token
+  'apps/frontend/src/routeTree\.gen\.ts$',
+  'packages/shared/src/generated/.*\.ts$',
+]
+
+[pr_reviewer]
+require_tests_review = true
+require_security_review = true
+require_estimate_effort_to_review = true
+num_max_findings = 5
+# 同一 PR 重复 /review 时复用同一条评论，避免刷屏
+persistent_comment = true
+extra_instructions = """
+本项目是 pnpm + Turborepo monorepo（NestJS 后端 + Vite/React 前端），全仓 ESM。评审时请重点关注：
+- ESM 约束：后端相对导入必须带 .js 后缀；后端不可使用 __dirname/__filename（改用 import.meta.url）
+- 不要建议修改生成文件：apps/frontend/src/routeTree.gen.ts、packages/shared/src/generated/openapi.ts
+- 覆盖率门槛：后端 80%、前端 60%；新增代码应同步补充测试（本工具不评审测试文件本身）
+- 前端所有 API 调用统一走 apps/frontend/src/api/client.ts 的 http 实例，不要绕过它直接 fetch
+- 提交信息需遵循 Conventional Commits
+"""
+
+[pr_code_suggestions]
+num_code_suggestions_per_chunk = 4
+# 过滤低价值建议，降低噪音
+suggestions_score_threshold = 6
+persistent_comment = true
+
+[pr_description]
+enable_pr_diagram = true
