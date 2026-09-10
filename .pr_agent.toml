@@ -13,9 +13,13 @@ response_language = "zh-CN"
 # deepseek-flash 不在 pr-agent 内置的模型上下文表中，需显式声明其窗口大小，
 # 否则按未知模型处理；实际可用上下文仍受 max_model_tokens（默认 32000）约束以控成本。
 custom_model_max_tokens = 128000
-# deepseek-flash 是推理模型，reasoning 会占用输出预算；不设上限时
-# 容易在长评审中被截断成空内容，这里留足头寸。
-max_output_tokens = 8192
+# deepseek-flash 是推理模型：先产 reasoning 再产正文，两者共用输出预算。
+# 实测（PR #35，输入 25089 token）8192 会被 reasoning 吃光，正文为空导致
+# "Failed to review PR"；提到 32768 后正常输出（同为 32768 时 38K 输入仍可正常返回正文）。
+max_output_tokens = 32768
+# 推理模型长思考 + 重试会超过默认 120s。实测失败运行恰好卡在 120s×3 次重试 ≈ 5m48s，
+# 提高到 300s 给单次调用留足时间，避免误判超时。
+ai_timeout = 300
 
 # 文件过滤：两道规则叠加，未命中任一保留规则的改动都不会进入分析。
 # 语义提示：pr-agent 用 re.match（从字符串开头匹配）逐条过滤，
