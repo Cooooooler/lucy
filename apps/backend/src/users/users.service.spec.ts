@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError } from 'typeorm';
@@ -150,7 +154,7 @@ describe('UsersService', () => {
   it('updateStatus 变更时保存并失效缓存', async () => {
     usersRepo.findById.mockResolvedValue({ ...user });
     usersRepo.save.mockImplementation((u: User) => Promise.resolve(u));
-    const result = await service.updateStatus('u1', 0);
+    const result = await service.updateStatus('admin1', 'u1', 0);
     expect(usersRepo.save).toHaveBeenCalled();
     expect(userAccess.invalidate).toHaveBeenCalledWith('u1');
     expect(result.status).toBe(0);
@@ -159,7 +163,7 @@ describe('UsersService', () => {
 
   it('updateStatus 状态相同时不保存、不失效缓存', async () => {
     usersRepo.findById.mockResolvedValue({ ...user });
-    const result = await service.updateStatus('u1', 1);
+    const result = await service.updateStatus('admin1', 'u1', 1);
     expect(usersRepo.save).not.toHaveBeenCalled();
     expect(userAccess.invalidate).not.toHaveBeenCalled();
     expect(result.status).toBe(1);
@@ -167,21 +171,57 @@ describe('UsersService', () => {
 
   it('updateStatus 用户不存在抛 404', async () => {
     usersRepo.findById.mockResolvedValue(null);
-    await expect(service.updateStatus('x', 0)).rejects.toThrow(
+    await expect(service.updateStatus('admin1', 'x', 0)).rejects.toThrow(
       NotFoundException,
     );
   });
 
+  it('updateStatus 操作自己抛 403 且不触达仓储', async () => {
+    await expect(service.updateStatus('u1', 'u1', 0)).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(usersRepo.findById).not.toHaveBeenCalled();
+    expect(usersRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('updateStatus 目标是其他管理员时抛 403 且不保存', async () => {
+    usersRepo.findById.mockResolvedValue({ ...user, role: UserRole.Admin });
+    await expect(service.updateStatus('admin1', 'u1', 0)).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(usersRepo.save).not.toHaveBeenCalled();
+    expect(userAccess.invalidate).not.toHaveBeenCalled();
+  });
+
   it('remove 删除用户并失效缓存', async () => {
     usersRepo.findById.mockResolvedValue(user);
-    await expect(service.remove('u1')).resolves.toBeNull();
+    await expect(service.remove('admin1', 'u1')).resolves.toBeNull();
     expect(usersRepo.delete).toHaveBeenCalledWith('u1');
     expect(userAccess.invalidate).toHaveBeenCalledWith('u1');
   });
 
   it('remove 用户不存在抛 404 且不删除', async () => {
     usersRepo.findById.mockResolvedValue(null);
-    await expect(service.remove('x')).rejects.toThrow(NotFoundException);
+    await expect(service.remove('admin1', 'x')).rejects.toThrow(
+      NotFoundException,
+    );
     expect(usersRepo.delete).not.toHaveBeenCalled();
+  });
+
+  it('remove 删除自己抛 403 且不触达仓储', async () => {
+    await expect(service.remove('u1', 'u1')).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(usersRepo.findById).not.toHaveBeenCalled();
+    expect(usersRepo.delete).not.toHaveBeenCalled();
+  });
+
+  it('remove 目标是其他管理员时抛 403 且不删除', async () => {
+    usersRepo.findById.mockResolvedValue({ ...user, role: UserRole.Admin });
+    await expect(service.remove('admin1', 'u1')).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(usersRepo.delete).not.toHaveBeenCalled();
+    expect(userAccess.invalidate).not.toHaveBeenCalled();
   });
 });

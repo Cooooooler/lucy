@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
 
@@ -9,6 +10,12 @@ describe('UsersController', () => {
     getDetail: vi.fn(),
     updateStatus: vi.fn(),
     remove: vi.fn(),
+  };
+
+  const user: CurrentUserPayload = {
+    userId: 'admin1',
+    jti: 'j',
+    role: 'admin',
   };
 
   beforeEach(async () => {
@@ -31,13 +38,13 @@ describe('UsersController', () => {
     expect(service.getDetail).toHaveBeenCalledWith('u1');
   });
 
-  it('updateStatus 转发 id 与 status', async () => {
-    await controller.updateStatus('u1', { status: 0 });
-    expect(service.updateStatus).toHaveBeenCalledWith('u1', 0);
+  it('updateStatus 转发操作者 id、目标 id 与 status', async () => {
+    await controller.updateStatus(user, 'u1', { status: 0 });
+    expect(service.updateStatus).toHaveBeenCalledWith('admin1', 'u1', 0);
   });
 
-  it('remove 转发 id', async () => {
-    await controller.remove('u1');
-    expect(service.remove).toHaveBeenCalledWith('u1');
+  it('remove 转发操作者 id 与目标 id', async () => {
+    await controller.remove(user, 'u1');
+    expect(service.remove).toHaveBeenCalledWith('admin1', 'u1');
   });
 });

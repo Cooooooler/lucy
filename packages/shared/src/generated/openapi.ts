@@ -58,7 +58,7 @@ export interface paths {
         post?: never;
         /**
          * 删除用户
-         * @description 级联清理该用户关联数据，其令牌立即不可用
+         * @description 级联清理该用户关联数据，其令牌立即不可用；仅可删除普通用户，不能删除自己或其他管理员
          */
         delete: operations["UsersController_remove"];
         options?: never;
@@ -81,7 +81,7 @@ export interface paths {
         head?: never;
         /**
          * 启用/禁用用户
-         * @description 禁用后该用户已签发的令牌立即不可用
+         * @description 禁用后该用户已签发的令牌立即不可用；仅可操作普通用户，不能操作自己或其他管理员
          */
         patch: operations["UsersController_updateStatus"];
         trace?: never;
@@ -809,6 +809,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description 不能删除自己或管理员账号 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description 用户不存在 */
             404: {
                 headers: {
@@ -840,6 +847,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["User"];
                 };
+            };
+            /** @description 不能操作自己或管理员账号 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description 用户不存在 */
             404: {

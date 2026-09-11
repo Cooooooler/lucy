@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,7 +9,7 @@ import { QueryFailedError } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { PasswordService } from '../password/password.service.js';
 import { UserAccessService } from './user-access.service.js';
-import { User } from './user.entity.js';
+import { User, UserRole } from './user.entity.js';
 import { toSharedUser, type SharedUser } from './user.mapper.js';
 import { UsersRepository } from './users.repository.js';
 
@@ -93,10 +94,24 @@ export class UsersService {
     return toSharedUser(user);
   }
 
-  /** 启用/禁用用户（用户管理，仅 admin）；禁用后失效缓存，使其令牌立即不可用。 */
-  async updateStatus(id: string, status: number): Promise<SharedUser> {
+  /**
+   * 启用/禁用用户（用户管理，仅 admin）；禁用后失效缓存，使其令牌立即不可用。
+   * 只允许操作普通用户：既不能改自己的状态，也不能操作其他管理员。由此本接口无法
+   * 改动管理员集合，管理员互相禁用或操作者把自己关掉导致的自锁都不可能发生。
+   */
+  async updateStatus(
+    actorId: string,
+    id: string,
+    status: number,
+  ): Promise<SharedUser> {
+    if (actorId === id) {
+      throw new ForbiddenException('不能修改自己的账号状态');
+    }
     const user = await this.usersRepo.findById(id);
     if (!user) throw new NotFoundException('用户不存在');
+    if (user.role === UserRole.Admin) {
+      throw new ForbiddenException('不能操作管理员账号');
+    }
     if (user.status === status) return toSharedUser(user);
     user.status = status;
     const saved = await this.usersRepo.save(user);
@@ -108,10 +123,19 @@ export class UsersService {
     return toSharedUser(saved);
   }
 
-  /** 删除用户（用户管理，仅 admin）；关联数据由外键级联清理，并失效缓存。 */
-  async remove(id: string): Promise<null> {
+  /**
+   * 删除用户（用户管理，仅 admin）；关联数据由外键级联清理，并失效缓存。
+   * 与启用/禁用同一限制：不能删除自己，也不能删除其他管理员。
+   */
+  async remove(actorId: string, id: string): Promise<null> {
+    if (actorId === id) {
+      throw new ForbiddenException('不能删除自己的账号');
+    }
     const user = await this.usersRepo.findById(id);
     if (!user) throw new NotFoundException('用户不存在');
+    if (user.role === UserRole.Admin) {
+      throw new ForbiddenException('不能删除管理员账号');
+    }
     await this.usersRepo.delete(id);
     await this.userAccess.invalidate(id);
     this.logger.log(`user remove userId=${id}`, UsersService.name);
