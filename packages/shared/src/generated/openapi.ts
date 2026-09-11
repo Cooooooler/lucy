@@ -58,7 +58,7 @@ export interface paths {
         post?: never;
         /**
          * 删除用户
-         * @description 级联清理该用户关联数据，其令牌立即不可用；仅可删除普通用户，不能删除自己或其他管理员
+         * @description 级联清理该用户关联数据，其令牌立即不可用；仅可删除级别低于自己的账号（admin 只能删除普通用户，superadmin 可删除管理员），不能删除自己
          */
         delete: operations["UsersController_remove"];
         options?: never;
@@ -81,7 +81,7 @@ export interface paths {
         head?: never;
         /**
          * 启用/禁用用户
-         * @description 禁用后该用户已签发的令牌立即不可用；仅可操作普通用户，不能操作自己或其他管理员
+         * @description 禁用后该用户已签发的令牌立即不可用；仅可操作级别低于自己的账号（admin 只能操作普通用户，superadmin 可操作管理员），不能操作自己
          */
         patch: operations["UsersController_updateStatus"];
         trace?: never;
@@ -450,11 +450,11 @@ export interface components {
              */
             status: number;
             /**
-             * @description 角色：user 普通用户，admin 管理员
+             * @description 角色：user 普通用户，admin 管理员，superadmin 超级管理员
              * @default user
              * @enum {string}
              */
-            role: "user" | "admin";
+            role: "user" | "admin" | "superadmin";
             /**
              * Format: date-time
              * @description 创建时间
@@ -809,7 +809,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description 不能删除自己或管理员账号 */
+            /** @description 不能删除自己或同级/更高级别的账号 */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -848,7 +848,7 @@ export interface operations {
                     "application/json": components["schemas"]["User"];
                 };
             };
-            /** @description 不能操作自己或管理员账号 */
+            /** @description 不能操作自己或同级/更高级别的账号 */
             403: {
                 headers: {
                     [name: string]: unknown;

@@ -38,13 +38,20 @@ describe('UsersController', () => {
     expect(service.getDetail).toHaveBeenCalledWith('u1');
   });
 
-  it('updateStatus 转发操作者 id、目标 id 与 status', async () => {
+  it('updateStatus 转发操作者身份、目标 id 与 status', async () => {
     await controller.updateStatus(user, 'u1', { status: 0 });
-    expect(service.updateStatus).toHaveBeenCalledWith('admin1', 'u1', 0);
+    expect(service.updateStatus).toHaveBeenCalledWith(
+      { userId: 'admin1', role: 'admin' },
+      'u1',
+      0,
+    );
   });
 
-  it('remove 转发操作者 id 与目标 id', async () => {
+  it('remove 转发操作者身份与目标 id', async () => {
     await controller.remove(user, 'u1');
-    expect(service.remove).toHaveBeenCalledWith('admin1', 'u1');
+    expect(service.remove).toHaveBeenCalledWith(
+      { userId: 'admin1', role: 'admin' },
+      'u1',
+    );
   });
 });

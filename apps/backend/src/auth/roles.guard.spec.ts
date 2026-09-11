@@ -15,33 +15,58 @@ describe('RolesGuard', () => {
       getClass: () => ({}),
     }) as unknown as ExecutionContext;
 
+  const required = (roles: string[]): void => {
+    reflectorMock.getAllAndOverride.mockReturnValue(roles);
+  };
+
   beforeEach(() => vi.clearAllMocks());
 
   it('未标注 @Roles 的路由直接放行', () => {
-    reflectorMock.getAllAndOverride.mockReturnValue(undefined);
+    required(undefined as never);
     expect(guard.canActivate(context(undefined))).toBe(true);
   });
 
   it('@Roles 为空数组时放行', () => {
-    reflectorMock.getAllAndOverride.mockReturnValue([]);
+    required([]);
     expect(guard.canActivate(context(undefined))).toBe(true);
   });
 
-  it('角色匹配时放行', () => {
-    reflectorMock.getAllAndOverride.mockReturnValue([UserRole.Admin]);
+  it('角色精确匹配时放行', () => {
+    required([UserRole.Admin]);
     expect(guard.canActivate(context({ role: UserRole.Admin }))).toBe(true);
   });
 
-  it('角色不匹配时抛 ForbiddenException', () => {
-    reflectorMock.getAllAndOverride.mockReturnValue([UserRole.Admin]);
+  it('级别更高的角色满足较低要求（superadmin 通过 @Roles(Admin)）', () => {
+    required([UserRole.Admin]);
+    expect(guard.canActivate(context({ role: UserRole.SuperAdmin }))).toBe(
+      true,
+    );
+  });
+
+  it('级别不足的角色被拒绝（admin 不满足 @Roles(SuperAdmin)）', () => {
+    required([UserRole.SuperAdmin]);
+    expect(() => guard.canActivate(context({ role: UserRole.Admin }))).toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('普通用户不满足 @Roles(Admin)', () => {
+    required([UserRole.Admin]);
     expect(() => guard.canActivate(context({ role: UserRole.User }))).toThrow(
       ForbiddenException,
     );
   });
 
   it('request.user 缺失时 fail-closed 抛 ForbiddenException', () => {
-    reflectorMock.getAllAndOverride.mockReturnValue([UserRole.Admin]);
+    required([UserRole.Admin]);
     expect(() => guard.canActivate(context(undefined))).toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('未知角色 fail-closed 抛 ForbiddenException', () => {
+    required([UserRole.User]);
+    expect(() => guard.canActivate(context({ role: 'ghost' }))).toThrow(
       ForbiddenException,
     );
   });
