@@ -29,16 +29,21 @@ export class RolesGuard implements CanActivate {
     ]);
     if (!required || required.length === 0) return true;
 
-    const requiredRanks = required.map((role) => roleRank(role));
-    if (requiredRanks.some((rank) => rank === null)) {
-      throw new ForbiddenException('无权限访问');
+    // 就地校验并收集层级：无法识别的角色直接拒绝，不做「未知即最低级别」的退化处理
+    const requiredRanks: number[] = [];
+    for (const role of required) {
+      const rank = roleRank(role);
+      if (rank === null) {
+        throw new ForbiddenException('无权限访问');
+      }
+      requiredRanks.push(rank);
     }
 
     const request = context
       .switchToHttp()
       .getRequest<{ user?: { role?: string } }>();
     const actorRank = roleRank(request.user?.role ?? '');
-    const threshold = Math.min(...(requiredRanks as number[]));
+    const threshold = Math.min(...requiredRanks);
     if (actorRank === null || actorRank < threshold) {
       throw new ForbiddenException('无权限访问');
     }
