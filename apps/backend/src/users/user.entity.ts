@@ -7,6 +7,7 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
+import { UserRole } from '../common/roles.js';
 
 /** 用户账号：username/email 全局唯一，status=1 为正常；passwordHash 经 @ApiHideProperty 不对外暴露 */
 @Entity('users')
@@ -42,6 +43,14 @@ export class User {
   @ApiProperty({ description: '状态：1 正常', example: 1 })
   @Column({ type: 'smallint', default: 1 })
   status: number;
+
+  @ApiProperty({
+    description: '角色：user 普通用户，admin 管理员，superadmin 超级管理员',
+    enum: UserRole,
+    default: UserRole.User,
+  })
+  @Column({ type: 'varchar', length: 20, default: UserRole.User })
+  role: UserRole;
 
   @ApiProperty({ description: '创建时间', example: '2026-08-08T00:00:00.000Z' })
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

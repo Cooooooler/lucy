@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { UserRole } from '../common/roles.js';
 import { User } from './user.entity.js';
 
 @Injectable()
@@ -13,13 +14,44 @@ export class UsersRepository {
     return this.repo.findOneBy({ id });
   }
 
-  /** 仅查询 status 列，供每请求认证校验的用户可用性检查使用（避免拉取整行）。 */
-  async findStatusById(id: string): Promise<number | null> {
+  /** 仅查询认证所需列（status/role），供每请求鉴权使用（避免拉取整行）。 */
+  async findAccessById(
+    id: string,
+  ): Promise<{ status: number; role: UserRole } | null> {
     const user = await this.repo.findOne({
       where: { id },
-      select: { status: true },
+      select: { status: true, role: true },
     });
-    return user?.status ?? null;
+    return user ? { status: user.status, role: user.role } : null;
+  }
+
+  /** 分页查询用户，按创建时间倒序；status/keyword 为可选过滤条件。 */
+  findPage(params: {
+    page: number;
+    pageSize: number;
+    status?: number;
+    keyword?: string;
+  }): Promise<[User[], number]> {
+    const qb = this.repo
+      .createQueryBuilder('u')
+      .orderBy('u.createdAt', 'DESC')
+      .addOrderBy('u.id', 'DESC');
+    if (params.status !== undefined) {
+      qb.andWhere('u.status = :status', { status: params.status });
+    }
+    if (params.keyword) {
+      qb.andWhere(
+        '(u.username ILIKE :kw OR u.email ILIKE :kw OR u.nickname ILIKE :kw)',
+        { kw: `%${params.keyword}%` },
+      );
+    }
+    qb.skip((params.page - 1) * params.pageSize).take(params.pageSize);
+    return qb.getManyAndCount();
+  }
+
+  /** 按主键删除用户；关联数据由数据库外键 ON DELETE CASCADE 清理。 */
+  async delete(id: string): Promise<void> {
+    await this.repo.delete({ id });
   }
 
   findByUsername(username: string): Promise<User | null> {
@@ -36,6 +68,7 @@ export class UsersRepository {
     passwordHash: string;
     nickname?: string | null;
     status: number;
+    role?: UserRole;
   }): User {
     return this.repo.create({
       username: input.username,
@@ -43,6 +76,7 @@ export class UsersRepository {
       passwordHash: input.passwordHash,
       nickname: input.nickname ?? null,
       status: input.status,
+      role: input.role ?? UserRole.User,
     });
   }
 

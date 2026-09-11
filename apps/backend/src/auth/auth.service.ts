@@ -1,5 +1,4 @@
 import { RedisService } from '@coool/redis-nest';
-import type { components } from '@lucy/shared';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -8,11 +7,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { AppLogger } from '../common/app-logger.service.js';
 import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
-import { User } from '../users/user.entity.js';
+import { toSharedUser, type SharedUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
-
-// API 契约类型由 Swagger 生成的 components.schemas 派生，与前端共享同一事实源
-type SharedUser = components['schemas']['User'];
 
 @Injectable()
 export class AuthService {
@@ -76,20 +72,6 @@ export class AuthService {
     return `auth:refresh:reuse-at:${token}`;
   }
 
-  private toSharedUser(user: User): SharedUser {
-    const { id, username, email, nickname, status, createdAt, updatedAt } =
-      user;
-    return {
-      id,
-      username,
-      email,
-      nickname,
-      status,
-      createdAt: createdAt.toISOString(),
-      updatedAt: updatedAt.toISOString(),
-    };
-  }
-
   /** 认证服务：注册。 */
   async register(input: {
     username: string;
@@ -99,7 +81,7 @@ export class AuthService {
   }): Promise<SharedUser> {
     const user = await this.usersService.create(input);
     this.logger.log(`register username=${input.username}`, AuthService.name);
-    return this.toSharedUser(user);
+    return toSharedUser(user);
   }
 
   /** 认证服务：登录（支持用户名或邮箱）。 */
@@ -136,7 +118,7 @@ export class AuthService {
     });
     const refreshToken = await this.issueRefreshToken(user.id, family);
     this.logger.log(`login userId=${user.id}`, AuthService.name);
-    return { user: this.toSharedUser(user), accessToken, refreshToken };
+    return { user: toSharedUser(user), accessToken, refreshToken };
   }
 
   private async issueRefreshToken(
@@ -335,7 +317,7 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('用户不存在');
     }
-    return this.toSharedUser(user);
+    return toSharedUser(user);
   }
 
   /** 抛「缺少刷新令牌」401。 */

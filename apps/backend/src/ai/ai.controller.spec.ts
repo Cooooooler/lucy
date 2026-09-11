@@ -18,7 +18,7 @@ describe('AiController', () => {
     controller = new AiController(aiService as never);
   });
 
-  const user = { userId: '1', jti: 'j' };
+  const user = { userId: '1', jti: 'j', role: 'user' };
 
   function mockRes() {
     const headers: Record<string, string> = {};

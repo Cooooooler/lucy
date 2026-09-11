@@ -25,6 +25,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 用户列表
+         * @description 分页查询用户，支持状态与关键字过滤
+         */
+        get: operations["UsersController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 用户详情 */
+        get: operations["UsersController_get"];
+        put?: never;
+        post?: never;
+        /**
+         * 删除用户
+         * @description 级联清理该用户关联数据，其令牌立即不可用；仅可删除级别低于自己的账号（admin 只能删除普通用户，superadmin 可删除管理员），不能删除自己
+         */
+        delete: operations["UsersController_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 启用/禁用用户
+         * @description 禁用后该用户已签发的令牌立即不可用；仅可操作级别低于自己的账号（admin 只能操作普通用户，superadmin 可操作管理员），不能操作自己
+         */
+        patch: operations["UsersController_updateStatus"];
+        trace?: never;
+    };
     "/auth/register": {
         parameters: {
             query?: never;
@@ -365,28 +426,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        RegisterDto: {
-            /**
-             * @description 用户名，仅支持字母数字下划线连字符
-             * @example lucy
-             */
-            username: string;
-            /**
-             * @description 邮箱
-             * @example lucy@example.com
-             */
-            email: string;
-            /**
-             * @description 密码（8-72 位，需含大小写字母、数字与特殊字符）
-             * @example Password1!
-             */
-            password: string;
-            /**
-             * @description 昵称
-             * @example Lucy
-             */
-            nickname?: string;
-        };
         User: {
             /** @description 用户 ID */
             id: string;
@@ -411,6 +450,12 @@ export interface components {
              */
             status: number;
             /**
+             * @description 角色：user 普通用户，admin 管理员，superadmin 超级管理员
+             * @default user
+             * @enum {string}
+             */
+            role: "user" | "admin" | "superadmin";
+            /**
              * Format: date-time
              * @description 创建时间
              * @example 2026-08-08T00:00:00.000Z
@@ -422,6 +467,36 @@ export interface components {
              * @example 2026-08-08T00:00:00.000Z
              */
             updatedAt: string;
+        };
+        UpdateUserStatusDto: {
+            /**
+             * @description 状态：1 正常，0 禁用
+             * @example 1
+             * @enum {number}
+             */
+            status: 1 | 0;
+        };
+        RegisterDto: {
+            /**
+             * @description 用户名，仅支持字母数字下划线连字符
+             * @example lucy
+             */
+            username: string;
+            /**
+             * @description 邮箱
+             * @example lucy@example.com
+             */
+            email: string;
+            /**
+             * @description 密码（8-72 位，需含大小写字母、数字与特殊字符）
+             * @example Password1!
+             */
+            password: string;
+            /**
+             * @description 昵称
+             * @example Lucy
+             */
+            nickname?: string;
         };
         LoginDto: {
             /**
@@ -666,6 +741,126 @@ export interface operations {
                 content: {
                     "application/json": string;
                 };
+            };
+        };
+    };
+    UsersController_list: {
+        parameters: {
+            query?: {
+                /** @description 页码 */
+                page?: number;
+                /** @description 每页条数 */
+                pageSize?: number;
+                /** @description 按状态过滤：1 正常，0 禁用 */
+                status?: 1 | 0;
+                /** @description 匹配用户名/邮箱/昵称的关键字 */
+                keyword?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UsersController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description 用户不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UsersController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 不能删除自己或同级/更高级别的账号 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 用户不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UsersController_updateStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserStatusDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description 不能操作自己或同级/更高级别的账号 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 用户不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

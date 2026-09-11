@@ -1,15 +1,32 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError } from 'typeorm';
+import { AppLogger } from '../common/app-logger.service.js';
+import { roleRank } from '../common/roles.js';
 import { PasswordService } from '../password/password.service.js';
+import { UserAccessService } from './user-access.service.js';
 import { User } from './user.entity.js';
+import { toSharedUser, type SharedUser } from './user.mapper.js';
 import { UsersRepository } from './users.repository.js';
+
+/** 执行管理操作的操作者身份（来自 JWT 载荷，role 由 UserAccessService 缓存提供） */
+export interface ActorContext {
+  userId: string;
+  role: string;
+}
 
 @Injectable()
 export class UsersService {
   constructor(
     private readonly usersRepo: UsersRepository,
     private readonly passwordService: PasswordService,
+    private readonly userAccess: UserAccessService,
+    private readonly logger: AppLogger,
   ) {}
 
   /** 按用户名查询用户。 */
@@ -51,6 +68,91 @@ export class UsersService {
         throw this.toUniqueConflict(err);
       }
       throw err;
+    }
+  }
+
+  /** 分页查询用户（用户管理，仅 admin）。 */
+  async list(query: {
+    page?: number;
+    pageSize?: number;
+    status?: number;
+    keyword?: string;
+  }): Promise<{
+    list: SharedUser[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 20;
+    const [rows, total] = await this.usersRepo.findPage({
+      page,
+      pageSize,
+      status: query.status,
+      keyword: query.keyword,
+    });
+    return { list: rows.map(toSharedUser), total, page, pageSize };
+  }
+
+  /** 查询用户详情（用户管理，仅 admin）。 */
+  async getDetail(id: string): Promise<SharedUser> {
+    const user = await this.usersRepo.findById(id);
+    if (!user) throw new NotFoundException('用户不存在');
+    return toSharedUser(user);
+  }
+
+  /**
+   * 启用/禁用用户（用户管理）；禁用后失效缓存，使其令牌立即不可用。
+   * 仅可操作级别严格低于自己的账号（user < admin < superadmin）：
+   * admin 只能动普通用户，superadmin 可动管理员；同级与上级一律拒绝，因此操作者
+   * 关不掉自己，管理员集合也不会被同级互相清空，自锁在结构上不可能发生。
+   */
+  async updateStatus(
+    actor: ActorContext,
+    id: string,
+    status: number,
+  ): Promise<SharedUser> {
+    if (actor.userId === id) {
+      throw new ForbiddenException('不能修改自己的账号状态');
+    }
+    const user = await this.usersRepo.findById(id);
+    if (!user) throw new NotFoundException('用户不存在');
+    this.assertOperable(actor.role, user);
+    if (user.status === status) return toSharedUser(user);
+    user.status = status;
+    const saved = await this.usersRepo.save(user);
+    await this.userAccess.invalidate(id);
+    this.logger.log(
+      `user status update userId=${id} status=${status}`,
+      UsersService.name,
+    );
+    return toSharedUser(saved);
+  }
+
+  /**
+   * 删除用户（用户管理）；关联数据由外键级联清理，并失效缓存。
+   * 与启用/禁用同一层级限制：仅可删除级别严格低于自己的账号。
+   */
+  async remove(actor: ActorContext, id: string): Promise<null> {
+    if (actor.userId === id) {
+      throw new ForbiddenException('不能删除自己的账号');
+    }
+    const user = await this.usersRepo.findById(id);
+    if (!user) throw new NotFoundException('用户不存在');
+    this.assertOperable(actor.role, user);
+    await this.usersRepo.delete(id);
+    await this.userAccess.invalidate(id);
+    this.logger.log(`user remove userId=${id}`, UsersService.name);
+    return null;
+  }
+
+  // 层级判定：仅允许操作严格下级，任何一侧角色未知（null）都按拒绝处理（fail-closed）；
+  // 自身同级必然不满足，但上面已给出更明确的自我操作报错
+  private assertOperable(actorRole: string, target: User): void {
+    const actorRank = roleRank(actorRole);
+    const targetRank = roleRank(target.role);
+    if (actorRank === null || targetRank === null || actorRank <= targetRank) {
+      throw new ForbiddenException('不能操作同级或更高级别的账号');
     }
   }
 

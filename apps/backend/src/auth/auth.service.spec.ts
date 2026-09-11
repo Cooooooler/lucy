@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import { AppLogger } from '../common/app-logger.service.js';
+import { UserRole } from '../common/roles.js';
 import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
 import { User } from '../users/user.entity.js';
@@ -48,6 +49,7 @@ describe('AuthService', () => {
     passwordHash: 'hash',
     nickname: null,
     status: 1,
+    role: UserRole.User,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
