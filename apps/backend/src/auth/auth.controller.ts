@@ -1,4 +1,4 @@
-import type { components } from '@lucy/shared';
+import { API_VERSION, type components } from '@lucy/shared';
 import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -24,7 +24,7 @@ const REFRESH_COOKIE = 'refreshToken';
 type User = components['schemas']['User'];
 
 @ApiTags('auth')
-@Controller('auth')
+@Controller({ path: 'auth', version: API_VERSION })
 // 认证契约：长效 refresh token 经 HttpOnly cookie 下发/读取（安全、防 XSS），
 // 短效 access token 放响应体由前端持有；refresh 失败时清除失效 cookie
 export class AuthController {
@@ -61,6 +61,7 @@ export class AuthController {
 
   @Public()
   @Post('refresh')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
     summary: '刷新令牌',
     description: '读取 HttpOnly cookie 换发短效 access token，并轮换长效 token',

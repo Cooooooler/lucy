@@ -1,3 +1,4 @@
+import { API_VERSION } from '@lucy/shared';
 import {
   Body,
   Controller,
@@ -31,7 +32,7 @@ import { Conversation } from './entities/conversation.entity.js';
 
 @ApiTags('ai')
 @ApiBearerAuth()
-@Controller('ai')
+@Controller({ path: 'ai', version: API_VERSION })
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 

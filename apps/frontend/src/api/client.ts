@@ -1,4 +1,8 @@
-import { ErrorCode, type ApiResponse } from '@lucy/shared';
+import {
+  API_VERSION as API_VERSION_CODE,
+  ErrorCode,
+  type ApiResponse,
+} from '@lucy/shared';
 import type { BodyType, HookFetchPlugin, RequestConfig } from 'hook-fetch';
 import hookFetch, { ResponseError } from 'hook-fetch';
 import { sseTextDecoderPlugin } from 'hook-fetch/plugins';
@@ -28,18 +32,22 @@ type RequestExtra = {
   __authRetry?: number;
 };
 
+// API 版本前缀：默认由后端共享的主版本号派生（v1），保证前后端不会各写一份而漂移；
+// 特殊环境可用 VITE_API_VERSION 整体覆盖（如灰度期间指向 v2）。
+const API_VERSION = import.meta.env.VITE_API_VERSION ?? `v${API_VERSION_CODE}`;
+
 // 基础配置：baseURL、Content-Type（hook-fetch 直接拼接 baseURL+url，baseURL 需以 / 结尾）
 // withCredentials: hook-fetch 默认 credentials:'omit' 不携带 cookie；长效 token 走 HttpOnly
 // cookie，必须显式带上，否则 /auth/refresh 收不到刷新令牌。
 // baseURL 解析顺序：
 // 1. globalThis.__lucyApiBaseUrl（测试 setupFiles 注入，覆盖 dev/prod 默认）
 // 2. VITE_API_BASE_URL 构建期注入（CI/CD 不同环境部署用）
-// 3. dev 默认 '/api/'（vite proxy 转发），prod 同源 '/'
+// 3. dev 默认 '/api/{version}/'（vite proxy 转发），prod 同源 '{version}/'
 const baseOptions = {
   baseURL:
     (globalThis as { __lucyApiBaseUrl?: string }).__lucyApiBaseUrl ??
     import.meta.env.VITE_API_BASE_URL ??
-    (import.meta.env.DEV ? '/api/' : '/'),
+    (import.meta.env.DEV ? `/api/${API_VERSION}/` : `/${API_VERSION}/`),
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
 };

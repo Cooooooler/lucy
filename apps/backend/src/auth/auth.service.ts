@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { ChainableCommander } from 'ioredis';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { AppLogger } from '../common/app-logger.service.js';
 import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
 import { User } from '../users/user.entity.js';
@@ -16,6 +17,7 @@ type SharedUser = components['schemas']['User'];
 @Injectable()
 export class AuthService {
   constructor(
+    private readonly logger: AppLogger,
     private readonly usersService: UsersService,
     private readonly passwordService: PasswordService,
     private readonly jwtService: JwtService,
@@ -96,6 +98,7 @@ export class AuthService {
     nickname?: string;
   }): Promise<SharedUser> {
     const user = await this.usersService.create(input);
+    this.logger.log(`register username=${input.username}`, AuthService.name);
     return this.toSharedUser(user);
   }
 
@@ -114,12 +117,15 @@ export class AuthService {
         dto.password,
         'scrypt:16384:8:1:AAAAAAAAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==',
       );
+      this.logger.warn(`login failed: account not found`, AuthService.name);
       throw new UnauthorizedException('用户名或密码错误');
     }
     if (!(await this.passwordService.verify(dto.password, user.passwordHash))) {
+      this.logger.warn(`login failed: bad password`, AuthService.name);
       throw new UnauthorizedException('用户名或密码错误');
     }
     if (user.status !== 1) {
+      this.logger.warn(`login rejected: disabled`, AuthService.name);
       throw new UnauthorizedException('账号已禁用');
     }
     const family = randomUUID();
@@ -129,6 +135,7 @@ export class AuthService {
       jti: randomUUID(),
     });
     const refreshToken = await this.issueRefreshToken(user.id, family);
+    this.logger.log(`login userId=${user.id}`, AuthService.name);
     return { user: this.toSharedUser(user), accessToken, refreshToken };
   }
 
@@ -225,7 +232,13 @@ export class AuthService {
     const parsed = this.parseActive(reused);
     const theft = await this.detectTheft(refreshToken, parsed);
     if (theft && parsed) {
+      this.logger.warn(
+        `refresh reuse detected: possible theft`,
+        AuthService.name,
+      );
       await this.revokeFamily(parsed.family);
+    } else if (!theft && parsed) {
+      this.logger.log(`refresh reuse within grace`, AuthService.name);
     }
     return new UnauthorizedException(
       theft ? '刷新令牌无效（检测到令牌复用）' : '刷新令牌无效',
@@ -290,6 +303,7 @@ export class AuthService {
       const active = await this.redis.get(this.refreshKey(refreshToken));
       const parsed = this.parseActive(active);
       if (parsed) {
+        this.logger.log(`logout: revoke family`, AuthService.name);
         await this.revokeFamily(parsed.family);
       } else {
         // active 缺失：可能是已轮换 token，其 family 在 reuse key 中，
@@ -297,6 +311,10 @@ export class AuthService {
         const reused = await this.redis.get(this.reuseKey(refreshToken));
         const reusedParsed = this.parseActive(reused);
         if (reusedParsed) {
+          this.logger.log(
+            `logout: revoke family via reuse key`,
+            AuthService.name,
+          );
           await this.revokeFamily(reusedParsed.family);
         } else {
           await this.redis.del(

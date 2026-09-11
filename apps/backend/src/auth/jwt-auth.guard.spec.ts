@@ -1,5 +1,6 @@
 import { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { ClsService } from 'nestjs-cls';
 import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 
@@ -21,7 +22,11 @@ describe('JwtAuthGuard', () => {
   function makeGuard(isPublic: boolean | undefined) {
     const getAllAndOverride = vi.fn().mockReturnValue(isPublic);
     const reflector = { getAllAndOverride } as unknown as Reflector;
-    return { guard: new JwtAuthGuard(reflector), getAllAndOverride };
+    const cls = {
+      isActive: () => false,
+      set: vi.fn(),
+    } as unknown as ClsService;
+    return { guard: new JwtAuthGuard(reflector, cls), getAllAndOverride };
   }
 
   it('isPublic 为 true 时直接放行且不委托 super', () => {
@@ -53,5 +58,28 @@ describe('JwtAuthGuard', () => {
     const superSpy = vi.spyOn(superProto, 'canActivate').mockReturnValue(true);
     expect(guard.canActivate(context)).toBe(true);
     expect(superSpy).toHaveBeenCalledWith(context);
+  });
+
+  it('handleRequest 把 userId 写入 CLS（CLS 激活时）', () => {
+    const set = vi.fn();
+    const cls = { isActive: () => true, set } as unknown as ClsService;
+    const guard = new JwtAuthGuard(
+      { getAllAndOverride: vi.fn() } as unknown as Reflector,
+      cls,
+    );
+    // handleRequest 内部调 super.handleRequest（passport 父类）：mock 父原型而非自身
+    const superProto = Object.getPrototypeOf(JwtAuthGuard.prototype) as Record<
+      string,
+      (...args: unknown[]) => unknown
+    >;
+    const orig = superProto['handleRequest'];
+    superProto['handleRequest'] = () => ({ userId: 'u1', jti: 'j1' });
+    try {
+      const result = guard.handleRequest(null, { userId: 'u1' }, null, context);
+      expect(result).toEqual({ userId: 'u1', jti: 'j1' });
+      expect(set).toHaveBeenCalledWith('userId', 'u1');
+    } finally {
+      superProto['handleRequest'] = orig;
+    }
   });
 });

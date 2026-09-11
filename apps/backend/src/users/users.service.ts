@@ -1,30 +1,30 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
 import { PostgresError } from 'pg-error-enum';
-import { QueryFailedError, Repository } from 'typeorm';
+import { QueryFailedError } from 'typeorm';
 import { PasswordService } from '../password/password.service.js';
 import { User } from './user.entity.js';
+import { UsersRepository } from './users.repository.js';
 
 @Injectable()
 export class UsersService {
   constructor(
-    @InjectRepository(User) private readonly repo: Repository<User>,
+    private readonly usersRepo: UsersRepository,
     private readonly passwordService: PasswordService,
   ) {}
 
   /** 按用户名查询用户。 */
   findByUsername(username: string): Promise<User | null> {
-    return this.repo.findOneBy({ username });
+    return this.usersRepo.findByUsername(username);
   }
 
   /** 按邮箱查询用户。 */
   findByEmail(email: string): Promise<User | null> {
-    return this.repo.findOneBy({ email });
+    return this.usersRepo.findByEmail(email);
   }
 
   /** 按主键查询用户。 */
   findById(id: string): Promise<User | null> {
-    return this.repo.findOneBy({ id });
+    return this.usersRepo.findById(id);
   }
 
   /** 创建用户（带唯一性校验与竞态兜底）。 */
@@ -37,7 +37,7 @@ export class UsersService {
     await this.assertUsernameAvailable(input.username);
     await this.assertEmailAvailable(input.email);
     const passwordHash = await this.passwordService.hash(input.password);
-    const user = this.repo.create({
+    const user = this.usersRepo.create({
       username: input.username,
       email: input.email,
       passwordHash,
@@ -45,7 +45,7 @@ export class UsersService {
       status: 1,
     });
     try {
-      return await this.repo.save(user);
+      return await this.usersRepo.save(user);
     } catch (err) {
       if (this.isUniqueViolation(err)) {
         throw this.toUniqueConflict(err);

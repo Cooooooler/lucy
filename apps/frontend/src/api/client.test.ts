@@ -262,4 +262,29 @@ describe('api/client', () => {
       expect(err.status).toBe(500);
     });
   });
+
+  describe('baseURL 版本前缀', () => {
+    const originalBaseUrl = (globalThis as { __lucyApiBaseUrl?: string })
+      .__lucyApiBaseUrl;
+
+    afterEach(() => {
+      // 恢复测试 setup 注入的值，避免污染其它测试
+      (globalThis as { __lucyApiBaseUrl?: string }).__lucyApiBaseUrl =
+        originalBaseUrl;
+    });
+
+    it('无自定义 baseURL 时使用带版本前缀的默认值', async () => {
+      // 移除测试 setup 注入的值，触发 fallback 逻辑
+      delete (globalThis as { __lucyApiBaseUrl?: string }).__lucyApiBaseUrl;
+
+      // 动态导入以重新计算 baseURL（模块顶层代码在 import 时执行）
+      const { http: freshHttp } = await import('./client');
+
+      fetchMock.mockResolvedValueOnce(okEnvelope({ ok: true }));
+      await freshHttp.post<{ ok: boolean }>('auth/login').json();
+
+      const url = fetchMock.mock.calls[0][0] as string;
+      expect(url).toMatch(/^\/api\/v1\//);
+    });
+  });
 });

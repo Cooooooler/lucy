@@ -6,6 +6,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
 import { DataSource, IsNull, Repository } from 'typeorm';
+import { AppLogger } from '../common/app-logger.service.js';
 import { ContextService } from './context.service.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
@@ -33,6 +34,7 @@ type Subscriber = {
 @Injectable()
 export class AiService {
   constructor(
+    private readonly logger: AppLogger,
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(Conversation)
     private readonly conversationRepo: Repository<Conversation>,
@@ -287,7 +289,15 @@ export class AiService {
     // 首条消息：先同步生成标题再开始回答，保证回答流结束时标题已就绪（前端拉列表时不再缺失）
     const count = await this.messageRepo.count({ where: { conversationId } });
     if (count === 1) {
-      await this.generateTitle(conversation).catch(() => {});
+      try {
+        await this.generateTitle(conversation);
+      } catch (err) {
+        // 标题生成失败不影响正文问答，仅记录日志
+        this.logger.warn(
+          `标题生成失败 conversation=${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
+          AiService.name,
+        );
+      }
     }
 
     const model =

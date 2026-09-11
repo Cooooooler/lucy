@@ -8,6 +8,7 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     include: ['src/**/*.spec.ts'],
+    setupFiles: ['./src/test/setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'lcov'],
@@ -20,6 +21,7 @@ export default defineConfig({
         'src/db/migrations/**',
         'src/db/data-source.ts',
         'src/main.ts',
+        'src/test/**',
         'src/**/dto/**',
         '**/*.d.ts',
       ],

@@ -1,3 +1,4 @@
+import { API_VERSION } from '@lucy/shared';
 import {
   BadRequestException,
   Body,
@@ -35,7 +36,7 @@ import { KnowledgeService } from './knowledge.service.js';
 
 @ApiTags('knowledge')
 @ApiBearerAuth()
-@Controller('knowledge')
+@Controller({ path: 'knowledge', version: API_VERSION })
 export class KnowledgeController {
   constructor(private readonly knowledgeService: KnowledgeService) {}
 

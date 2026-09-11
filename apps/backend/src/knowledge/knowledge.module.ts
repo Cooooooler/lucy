@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CommonModule } from '../common/common.module.js';
 import { BackendFileEntity } from './entities/backend-file.entity.js';
 import { KnowledgeBase } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
@@ -9,6 +10,7 @@ import { KnowledgeService } from './knowledge.service.js';
 
 @Module({
   imports: [
+    CommonModule,
     TypeOrmModule.forFeature([
       KnowledgeBase,
       KnowledgeDocument,

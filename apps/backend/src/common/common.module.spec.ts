@@ -1,8 +1,11 @@
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ClsModule } from 'nestjs-cls';
+import { AppLogger } from './app-logger.service.js';
 import { CommonModule } from './common.module.js';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
 import { ApiResponseInterceptor } from './interceptors/api-response.interceptor.js';
+import { ShutdownService } from './shutdown.service.js';
 
 describe('CommonModule', () => {
   it('注册全局限流 ThrottlerModule 与 ThrottlerGuard（APP_GUARD）', () => {
@@ -24,6 +27,8 @@ describe('CommonModule', () => {
   it('注册全局信封拦截器与统一异常过滤器', () => {
     const providers = (Reflect.getMetadata('providers', CommonModule) ??
       []) as unknown[];
+    expect(providers).toContain(AppLogger);
+    expect(providers).toContain(ShutdownService);
     expect(providers).toContainEqual({
       provide: APP_INTERCEPTOR,
       useClass: ApiResponseInterceptor,
@@ -32,5 +37,11 @@ describe('CommonModule', () => {
       provide: APP_FILTER,
       useClass: AllExceptionsFilter,
     });
+  });
+
+  it('导入 ClsModule（请求上下文）', () => {
+    const imports = (Reflect.getMetadata('imports', CommonModule) ??
+      []) as Array<{ module?: unknown }>;
+    expect(imports.some((m) => m?.module === ClsModule)).toBe(true);
   });
 });

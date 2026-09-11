@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { basename, extname } from 'node:path';
 import { DataSource, Repository } from 'typeorm';
+import { AppLogger } from '../common/app-logger.service.js';
 import {
   extractContent,
   SUPPORTED_DOCUMENT_EXTS,
@@ -32,6 +33,7 @@ import { detectFileType } from './magic-bytes.js';
 @Injectable()
 export class KnowledgeService {
   constructor(
+    private readonly logger: AppLogger,
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(KnowledgeBase)
     private readonly kbRepo: Repository<KnowledgeBase>,
@@ -50,6 +52,7 @@ export class KnowledgeService {
    * @returns 持久化后的知识库
    */
   create(userId: string, dto: CreateKnowledgeBaseDto): Promise<KnowledgeBase> {
+    this.logger.log(`kb create name=${dto.name}`, KnowledgeService.name);
     return this.kbRepo.save({
       ownerId: userId,
       name: dto.name,
@@ -224,7 +227,9 @@ export class KnowledgeService {
     if (dto.name !== undefined) kb.name = dto.name;
     if (dto.description !== undefined) kb.description = dto.description;
     if (dto.visibility !== undefined) kb.visibility = dto.visibility;
-    return this.kbRepo.save(kb);
+    const saved = await this.kbRepo.save(kb);
+    this.logger.log(`kb update kb=${id}`, KnowledgeService.name);
+    return saved;
   }
 
   /**
@@ -239,6 +244,7 @@ export class KnowledgeService {
     await this.dataSource.transaction(async (manager) => {
       const docRepo = manager.getRepository(KnowledgeDocument);
       const fileRepo = manager.getRepository(BackendFileEntity);
+      const kbRepo = manager.getRepository(KnowledgeBase);
 
       const docs = await docRepo.find({ where: { knowledgeBaseId: id } });
       for (const d of docs) {
@@ -248,8 +254,9 @@ export class KnowledgeService {
           await fileRepo.delete({ id: file.id });
         }
       }
-      await this.kbRepo.delete({ id });
+      await kbRepo.delete({ id });
     });
+    this.logger.log(`kb remove kb=${id}`, KnowledgeService.name);
     return null;
   }
 
@@ -294,8 +301,9 @@ export class KnowledgeService {
     });
 
     // 事务：保存文件记录 + 文档记录，任一步失败自动回滚
+    let doc: KnowledgeDocument;
     try {
-      return await this.dataSource.transaction(async (manager) => {
+      doc = await this.dataSource.transaction(async (manager) => {
         const fileRepo = manager.getRepository(BackendFileEntity);
         const docRepo = manager.getRepository(KnowledgeDocument);
 
@@ -323,11 +331,20 @@ export class KnowledgeService {
     } catch (err) {
       // 事务回滚后清理已上传的底层文件
       await this.fileService.remove(stored.key);
+      this.logger.warn(
+        `doc upload failed kb=${kbId} file=${file.originalname}: ${err instanceof Error ? err.message : String(err)}`,
+        KnowledgeService.name,
+      );
       if (err instanceof Error) {
         throw new UnprocessableEntityException('文档解析失败');
       }
       throw err;
     }
+    this.logger.log(
+      `doc upload kb=${kbId} doc=${doc.id}`,
+      KnowledgeService.name,
+    );
+    return doc;
   }
 
   /**
@@ -403,13 +420,15 @@ export class KnowledgeService {
     if (!doc) throw new NotFoundException('文档不存在');
     // 事务：删除文档 + 关联文件记录，保证原子性
     await this.dataSource.transaction(async (manager) => {
+      const docRepoTx = manager.getRepository(KnowledgeDocument);
       const fileRepo = manager.getRepository(BackendFileEntity);
 
-      await this.docRepo.delete({ id, knowledgeBaseId: kbId });
+      await docRepoTx.delete({ id, knowledgeBaseId: kbId });
       const file = await fileRepo.findOneBy({ id: doc.fileId });
       if (file) await this.fileService.remove(file.key);
       await fileRepo.delete({ id: doc.fileId });
     });
+    this.logger.log(`doc remove kb=${kbId} doc=${id}`, KnowledgeService.name);
     return null;
   }
 

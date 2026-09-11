@@ -1,18 +1,24 @@
 import { ErrorCode } from '@lucy/shared';
 import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
+import { ClsService } from 'nestjs-cls';
 import { AllExceptionsFilter } from './all-exceptions.filter.js';
 
 describe('AllExceptionsFilter', () => {
   let filter: AllExceptionsFilter;
   const json = vi.fn();
   const res = { status: vi.fn().mockReturnValue({ json }) };
+  const req = { method: 'GET', url: '/x', id: 'req-1' };
   const host = {
-    switchToHttp: () => ({ getResponse: () => res }),
+    switchToHttp: () => ({ getResponse: () => res, getRequest: () => req }),
   } as unknown as ArgumentsHost;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    filter = new AllExceptionsFilter();
+    const cls = {
+      isActive: () => false,
+      get: vi.fn(),
+    } as unknown as ClsService;
+    filter = new AllExceptionsFilter(cls);
   });
 
   it('普通 HttpException 返回 status + {code,message,data:null}', () => {

@@ -9,6 +9,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CommonModule } from './common/common.module.js';
+import { envValidationSchema } from './common/env-validation.schema.js';
 import { loggerModuleOptions } from './common/logger-options.js';
 import { HealthModule } from './health/health.module.js';
 import { KnowledgeModule } from './knowledge/knowledge.module.js';
@@ -33,7 +34,10 @@ export function fileModuleOptions(config: ConfigService) {
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validationSchema: envValidationSchema,
+    }),
     LoggerModule.forRoot(loggerModuleOptions()),
     CommonModule,
     TypeOrmModule.forRootAsync({
