@@ -1,57 +1,45 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DenylistService } from '../redis/denylist.service.js';
-import { UsersService } from '../users/users.service.js';
+import { UserStatusService } from '../users/user-status.service.js';
 import { JwtStrategy } from './jwt.strategy.js';
 
 describe('JwtStrategy', () => {
-  const usersService = {
-    findById: vi.fn().mockResolvedValue({ id: '1', status: 1 }),
-  } as unknown as UsersService;
+  const userStatusMock = { isActive: vi.fn() };
+  const userStatus = userStatusMock as unknown as UserStatusService;
 
-  it('黑名单中的 jti 抛 UnauthorizedException', async () => {
-    const denylist = {
-      isDenied: vi.fn().mockResolvedValue(true),
-    } as unknown as DenylistService;
-    const strategy = new JwtStrategy(
+  const build = (isDenied: boolean) =>
+    new JwtStrategy(
       new ConfigService({ JWT_SECRET: 'secret' }),
-      denylist,
-      usersService,
+      {
+        isDenied: vi.fn().mockResolvedValue(isDenied),
+      } as unknown as DenylistService,
+      userStatus,
     );
-    await expect(strategy.validate({ sub: '1', jti: 'bad' })).rejects.toThrow(
-      UnauthorizedException,
-    );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    userStatusMock.isActive.mockResolvedValue(true);
+  });
+
+  it('黑名单中的 jti 抛 UnauthorizedException，且不查用户状态', async () => {
+    await expect(
+      build(true).validate({ sub: '1', jti: 'bad' }),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(userStatusMock.isActive).not.toHaveBeenCalled();
   });
 
   it('正常 jti 返回 userId 与 jti', async () => {
-    const denylist = {
-      isDenied: vi.fn().mockResolvedValue(false),
-    } as unknown as DenylistService;
-    const strategy = new JwtStrategy(
-      new ConfigService({ JWT_SECRET: 'secret' }),
-      denylist,
-      usersService,
-    );
-    await expect(strategy.validate({ sub: '1', jti: 'ok' })).resolves.toEqual({
-      userId: '1',
-      jti: 'ok',
-    });
+    await expect(
+      build(false).validate({ sub: '1', jti: 'ok' }),
+    ).resolves.toEqual({ userId: '1', jti: 'ok' });
+    expect(userStatusMock.isActive).toHaveBeenCalledWith('1');
   });
 
   it('用户不存在或已禁用抛 UnauthorizedException', async () => {
-    const denylist = {
-      isDenied: vi.fn().mockResolvedValue(false),
-    } as unknown as DenylistService;
-    const gone = {
-      findById: vi.fn().mockResolvedValue(null),
-    } as unknown as UsersService;
-    const strategy = new JwtStrategy(
-      new ConfigService({ JWT_SECRET: 'secret' }),
-      denylist,
-      gone,
-    );
-    await expect(strategy.validate({ sub: '1', jti: 'ok' })).rejects.toThrow(
-      UnauthorizedException,
-    );
+    userStatusMock.isActive.mockResolvedValue(false);
+    await expect(
+      build(false).validate({ sub: '1', jti: 'ok' }),
+    ).rejects.toThrow(UnauthorizedException);
   });
 });

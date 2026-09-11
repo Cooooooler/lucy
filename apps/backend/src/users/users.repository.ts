@@ -13,6 +13,15 @@ export class UsersRepository {
     return this.repo.findOneBy({ id });
   }
 
+  /** 仅查询 status 列，供每请求认证校验的用户可用性检查使用（避免拉取整行）。 */
+  async findStatusById(id: string): Promise<number | null> {
+    const user = await this.repo.findOne({
+      where: { id },
+      select: { status: true },
+    });
+    return user?.status ?? null;
+  }
+
   findByUsername(username: string): Promise<User | null> {
     return this.repo.findOneBy({ username });
   }
