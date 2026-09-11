@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
-import { User, UserRole } from './user.entity.js';
+import { UserRole } from '../common/roles.js';
+import { User } from './user.entity.js';
 import { UsersRepository } from './users.repository.js';
 
 describe('UsersRepository', () => {

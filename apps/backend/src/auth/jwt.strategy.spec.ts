@@ -1,8 +1,8 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { UserRole } from '../common/roles.js';
 import { DenylistService } from '../redis/denylist.service.js';
 import { UserAccessService } from '../users/user-access.service.js';
-import { UserRole } from '../users/user.entity.js';
 import { JwtStrategy } from './jwt.strategy.js';
 
 describe('JwtStrategy', () => {

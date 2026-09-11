@@ -2,7 +2,7 @@ import { RedisService } from '@coool/redis-nest';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppLogger } from '../common/app-logger.service.js';
-import { UserRole } from './user.entity.js';
+import { UserRole } from '../common/roles.js';
 import { UsersRepository } from './users.repository.js';
 
 /** 认证所需的用户访问快照：可用状态 + 角色 */

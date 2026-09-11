@@ -1,8 +1,8 @@
 import type { RedisService } from '@coool/redis-nest';
 import { ConfigService } from '@nestjs/config';
 import { AppLogger } from '../common/app-logger.service.js';
+import { UserRole } from '../common/roles.js';
 import { UserAccessService } from './user-access.service.js';
-import { UserRole } from './user.entity.js';
 import type { UsersRepository } from './users.repository.js';
 
 describe('UserAccessService', () => {

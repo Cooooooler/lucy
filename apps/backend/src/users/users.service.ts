@@ -7,9 +7,10 @@ import {
 import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { roleRank } from '../common/roles.js';
 import { PasswordService } from '../password/password.service.js';
 import { UserAccessService } from './user-access.service.js';
-import { roleRank, User } from './user.entity.js';
+import { User } from './user.entity.js';
 import { toSharedUser, type SharedUser } from './user.mapper.js';
 import { UsersRepository } from './users.repository.js';
 
@@ -145,9 +146,12 @@ export class UsersService {
     return null;
   }
 
-  // 层级判定：仅允许操作严格下级；自身同级必然不满足，但上面已给出更明确的自我操作报错
+  // 层级判定：仅允许操作严格下级，任何一侧角色未知（null）都按拒绝处理（fail-closed）；
+  // 自身同级必然不满足，但上面已给出更明确的自我操作报错
   private assertOperable(actorRole: string, target: User): void {
-    if (roleRank(actorRole) <= roleRank(target.role)) {
+    const actorRank = roleRank(actorRole);
+    const targetRank = roleRank(target.role);
+    if (actorRank === null || targetRank === null || actorRank <= targetRank) {
       throw new ForbiddenException('不能操作同级或更高级别的账号');
     }
   }

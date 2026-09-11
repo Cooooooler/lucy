@@ -1,7 +1,7 @@
 import type { ExecutionContext } from '@nestjs/common';
 import { ForbiddenException } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
-import { UserRole } from '../users/user.entity.js';
+import { UserRole } from '../common/roles.js';
 import { RolesGuard } from './roles.guard.js';
 
 describe('RolesGuard', () => {
@@ -64,10 +64,24 @@ describe('RolesGuard', () => {
     );
   });
 
-  it('未知角色 fail-closed 抛 ForbiddenException', () => {
+  it('操作者角色未知时 fail-closed 抛 ForbiddenException', () => {
     required([UserRole.User]);
     expect(() => guard.canActivate(context({ role: 'ghost' }))).toThrow(
       ForbiddenException,
     );
+  });
+
+  it('@Roles 出现无法识别的角色时 fail-closed，即便操作者是 superadmin', () => {
+    required(['administrator']);
+    expect(() =>
+      guard.canActivate(context({ role: UserRole.SuperAdmin })),
+    ).toThrow(ForbiddenException);
+  });
+
+  it('@Roles 同时含合法与非法角色时仍 fail-closed', () => {
+    required([UserRole.Admin, 'typo']);
+    expect(() =>
+      guard.canActivate(context({ role: UserRole.SuperAdmin })),
+    ).toThrow(ForbiddenException);
   });
 });

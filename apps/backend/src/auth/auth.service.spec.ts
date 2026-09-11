@@ -4,9 +4,10 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import { AppLogger } from '../common/app-logger.service.js';
+import { UserRole } from '../common/roles.js';
 import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
-import { User, UserRole } from '../users/user.entity.js';
+import { User } from '../users/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { AuthService } from './auth.service.js';
 

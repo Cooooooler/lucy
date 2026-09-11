@@ -7,9 +7,10 @@ import { Test } from '@nestjs/testing';
 import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { UserRole } from '../common/roles.js';
 import { PasswordService } from '../password/password.service.js';
 import { UserAccessService } from './user-access.service.js';
-import { User, UserRole } from './user.entity.js';
+import { User } from './user.entity.js';
 import { UsersRepository } from './users.repository.js';
 import { UsersService } from './users.service.js';
 
@@ -265,6 +266,19 @@ describe('UsersService', () => {
     await expect(service.remove(admin, 'u1')).rejects.toThrow(
       ForbiddenException,
     );
+    expect(usersRepo.delete).not.toHaveBeenCalled();
+  });
+
+  it('操作者角色未知时 fail-closed 抛 403 且不写入', async () => {
+    const unknown = { userId: 'ghost1', role: 'ghost' };
+    usersRepo.findById.mockResolvedValue({ ...user });
+    await expect(service.updateStatus(unknown, 'u1', 0)).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(service.remove(unknown, 'u1')).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(usersRepo.save).not.toHaveBeenCalled();
     expect(usersRepo.delete).not.toHaveBeenCalled();
   });
 });

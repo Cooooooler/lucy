@@ -7,25 +7,7 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
-
-/** 用户角色（全序）：user 普通用户 < admin 管理员 < superadmin 超级管理员 */
-export enum UserRole {
-  User = 'user',
-  Admin = 'admin',
-  SuperAdmin = 'superadmin',
-}
-
-/** 角色层级：数值越大级别越高，鉴权与操作权限均基于此比较（禁止用角色名字符串比较） */
-export const ROLE_RANK: Record<UserRole, number> = {
-  [UserRole.User]: 10,
-  [UserRole.Admin]: 20,
-  [UserRole.SuperAdmin]: 30,
-};
-
-/** 取角色层级；未知角色按 0（最低）处理，保证鉴权 fail-closed。 */
-export function roleRank(role: string): number {
-  return ROLE_RANK[role as UserRole] ?? 0;
-}
+import { UserRole } from '../common/roles.js';
 
 /** 用户账号：username/email 全局唯一，status=1 为正常；passwordHash 经 @ApiHideProperty 不对外暴露 */
 @Entity('users')

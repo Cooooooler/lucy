@@ -20,9 +20,10 @@ import {
   type CurrentUserPayload,
 } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
+import { UserRole } from '../common/roles.js';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
 import { UserListQueryDto } from './dto/user-list-query.dto.js';
-import { User, UserRole } from './user.entity.js';
+import { User } from './user.entity.js';
 import { UsersService } from './users.service.js';
 
 /**

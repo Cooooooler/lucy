@@ -2,8 +2,8 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 
 /**
  * JwtStrategy.validate 写入请求对象的用户负载：userId + JWT 的 jti（用于登出撤销）
- * + role（角色鉴权，由 RolesGuard 校验）。role 保持 string 而非 UserRole，
- * 避免 common 反向依赖 users 领域模块形成循环导入。
+ * + role（角色鉴权，由 RolesGuard 校验）。role 保持 string 而非 UserRole，因为它是
+ * 令牌/库中的原始值，需先经 roleRank 校验识别后才用于层级判断。
  */
 export interface CurrentUserPayload {
   userId: string;

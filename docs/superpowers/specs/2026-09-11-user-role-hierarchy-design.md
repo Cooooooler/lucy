@@ -58,7 +58,9 @@
 
 ## 3. 实现
 
-### 3.1 角色与层级（`users/user.entity.ts`）
+### 3.1 角色与层级（`common/roles.ts`）
+
+角色定义放在 **common** 而非 users 领域内：它同时被鉴权元数据（`@Roles`）、守卫与用户领域消费；若留在 `users/`，`common/decorators/roles.decorator.ts` 就得反向依赖领域模块（该项目此前已确立 common 不依赖领域的约定）。
 
 ```ts
 export enum UserRole {
@@ -73,13 +75,15 @@ export const ROLE_RANK: Record<UserRole, number> = {
   [UserRole.SuperAdmin]: 30,
 };
 
-/** 未知角色按 0（最低）处理，保证鉴权 fail-closed */
-export function roleRank(role: string): number {
-  return ROLE_RANK[role as UserRole] ?? 0;
+/** 未知角色返回 null，调用方必须按 fail-closed 处理，不可当作最低级别比较 */
+export function roleRank(role: string): number | null {
+  return ROLE_RANK[role as UserRole] ?? null;
 }
 ```
 
 **禁止用角色名字符串比较**（`'admin' > 'user'` 字典序无意义，且 `'user' > 'superadmin'` 会错误成立）。必须先经 `roleRank` 转数值。
+
+`roleRank` 返回 `null` 而非 `0` 是关键：若把未知角色当 0（最低级别），则 `@Roles('Admin')`（拼写错误）会让阈值退化为 0，任何已认证用户都能通过——鉴权静默失效。返回 `null` 强制调用方显式处理。
 
 ### 3.2 迁移（`AddUserRoleHierarchy`）
 
@@ -88,11 +92,18 @@ export function roleRank(role: string): number {
 
 ### 3.3 守卫（`auth/roles.guard.ts`）
 
-`required` 中任一角色的级别 ≤ 当前用户级别即放行；未标注 `@Roles` 放行；`role` 缺失或未知（rank 0）时 fail-closed。
+`required` 中任一角色的级别 ≤ 当前用户级别即放行；未标注 `@Roles` 放行。
+
+两处 **fail-closed**，不可退化为「未知即最低级别」：
+
+1. `@Roles` 中出现无法识别的角色（拼写错误/脏元数据）→ 直接拒绝。否则阈值退化为 0，路由对所有登录用户开放；
+2. 当前用户 `role` 缺失或未知 → 拒绝。
+
+编译期另有 `Roles(...roles: UserRole[])` 把参数限定为 `UserRole`，使角色名拼写错误在编译期即暴露。
 
 ### 3.4 服务（`users/users.service.ts`）
 
-新增 `assertOperable(actorRole, target)`：`roleRank(actorRole) <= roleRank(target.role)` 即抛 403「不能操作同级或更高级别的账号」。`updateStatus` / `remove` 接收 `{ userId, role }` 形式的操作者上下文（控制器从 `@CurrentUser()` 传入）。
+`assertOperable(actorRole, target)`：仅当 `roleRank(actorRole) > roleRank(target.role)` 才放行，任一侧为 `null`（角色未知）也抛 403「不能操作同级或更高级别的账号」。`updateStatus` / `remove` 接收 `{ userId, role }` 形式的操作者上下文（控制器从 `@CurrentUser()` 传入）。
 
 ## 4. 引导（bootstrap）超级管理员
 
