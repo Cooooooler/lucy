@@ -102,7 +102,7 @@ describe('AuthController', () => {
 
   it('logout 读 cookie 吊销家族、清除 cookie 并返回 null', async () => {
     authService.logout.mockResolvedValue(undefined);
-    const user = { userId: '1', jti: 'jti-1' };
+    const user = { userId: '1', jti: 'jti-1', role: 'user' };
     const req = { cookies: { refreshToken: 'r' } } as unknown as Request;
     await expect(controller.logout(user, req, res)).resolves.toBeNull();
     expect(authService.logout).toHaveBeenCalledWith('jti-1', 'r');
@@ -114,7 +114,7 @@ describe('AuthController', () => {
 
   it('me 返回当前用户信息', async () => {
     authService.me.mockResolvedValue(safeUser);
-    const user = { userId: '1', jti: 'jti-1' };
+    const user = { userId: '1', jti: 'jti-1', role: 'user' };
     await expect(controller.me(user)).resolves.toBe(safeUser);
     expect(authService.me).toHaveBeenCalledWith('1');
   });

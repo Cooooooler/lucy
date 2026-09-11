@@ -1,8 +1,15 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError } from 'typeorm';
+import { AppLogger } from '../common/app-logger.service.js';
 import { PasswordService } from '../password/password.service.js';
+import { UserAccessService } from './user-access.service.js';
 import { User } from './user.entity.js';
+import { toSharedUser, type SharedUser } from './user.mapper.js';
 import { UsersRepository } from './users.repository.js';
 
 @Injectable()
@@ -10,6 +17,8 @@ export class UsersService {
   constructor(
     private readonly usersRepo: UsersRepository,
     private readonly passwordService: PasswordService,
+    private readonly userAccess: UserAccessService,
+    private readonly logger: AppLogger,
   ) {}
 
   /** 按用户名查询用户。 */
@@ -52,6 +61,61 @@ export class UsersService {
       }
       throw err;
     }
+  }
+
+  /** 分页查询用户（用户管理，仅 admin）。 */
+  async list(query: {
+    page?: number;
+    pageSize?: number;
+    status?: number;
+    keyword?: string;
+  }): Promise<{
+    list: SharedUser[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 20;
+    const [rows, total] = await this.usersRepo.findPage({
+      page,
+      pageSize,
+      status: query.status,
+      keyword: query.keyword,
+    });
+    return { list: rows.map(toSharedUser), total, page, pageSize };
+  }
+
+  /** 查询用户详情（用户管理，仅 admin）。 */
+  async getDetail(id: string): Promise<SharedUser> {
+    const user = await this.usersRepo.findById(id);
+    if (!user) throw new NotFoundException('用户不存在');
+    return toSharedUser(user);
+  }
+
+  /** 启用/禁用用户（用户管理，仅 admin）；禁用后失效缓存，使其令牌立即不可用。 */
+  async updateStatus(id: string, status: number): Promise<SharedUser> {
+    const user = await this.usersRepo.findById(id);
+    if (!user) throw new NotFoundException('用户不存在');
+    if (user.status === status) return toSharedUser(user);
+    user.status = status;
+    const saved = await this.usersRepo.save(user);
+    await this.userAccess.invalidate(id);
+    this.logger.log(
+      `user status update userId=${id} status=${status}`,
+      UsersService.name,
+    );
+    return toSharedUser(saved);
+  }
+
+  /** 删除用户（用户管理，仅 admin）；关联数据由外键级联清理，并失效缓存。 */
+  async remove(id: string): Promise<null> {
+    const user = await this.usersRepo.findById(id);
+    if (!user) throw new NotFoundException('用户不存在');
+    await this.usersRepo.delete(id);
+    await this.userAccess.invalidate(id);
+    this.logger.log(`user remove userId=${id}`, UsersService.name);
+    return null;
   }
 
   private async assertUsernameAvailable(username: string): Promise<void> {

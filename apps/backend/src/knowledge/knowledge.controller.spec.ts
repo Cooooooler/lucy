@@ -20,7 +20,7 @@ describe('KnowledgeController', () => {
     removeDocument: vi.fn(),
   };
 
-  const user: CurrentUserPayload = { userId: 'u1', jti: 'j' };
+  const user: CurrentUserPayload = { userId: 'u1', jti: 'j', role: 'user' };
 
   beforeEach(async () => {
     vi.clearAllMocks();
