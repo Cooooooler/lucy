@@ -2,3 +2,5 @@ pnpm-lock.yaml
 package-lock.json
 yarn.lock
 packages/shared/src/generated/
+# 上游技能原样 vendor，避免 prettier 改写规则示例
+.github/skill-review/skills/
