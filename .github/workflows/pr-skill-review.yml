@@ -41,6 +41,11 @@ jobs:
     env:
       # 复用 PR-Agent 的 DeepSeek key（BYOK），无需新增 secret
       DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+      # Command Code CLI 自身的鉴权。headless 下 CLI 必须先登录，即便开了
+      # --local-only + BYOK 也一样（实测：缺失时报 "Not authenticated"）。
+      # 模型调用仍走 BYOK，不消耗 Command Code 额度。在 Studio 生成 API key：
+      # https://commandcode.ai/studio
+      COMMAND_CODE_API_KEY: ${{ secrets.COMMAND_CODE_API_KEY }}
       # BYOK 模型 id 形如 <providerId>/<modelKey>，须与 providers.json 里的 model key 一致。
       # 若首次运行报 unknown model，看上面 “Preflight” 打印的 /models 列表再改这里。
       SKILL_REVIEW_MODEL: deepseek/deepseek-flash
@@ -189,10 +194,18 @@ jobs:
         # 只在一侧或两侧真的产出内容时才发评论，避免失败时空评论刷屏
         run: |
           set -euo pipefail
-          # 某侧未改动时对应评审步骤会被跳过，文件不存在。用 `|| echo 0` 兜底，
-          # 否则 set -e + pipefail 会因 cat 失败直接终止本步骤，另一侧结果也发不出去。
-          FE=$(wc -c < .pr-skill-review/frontend.md 2>/dev/null || echo 0)
-          BE=$(wc -c < .pr-skill-review/backend.md 2>/dev/null || echo 0)
+          # 某侧未改动时对应评审步骤会被跳过，文件不存在。先判存在再统计，
+          # 否则 set -e + 输入重定向失败会终止本步骤，另一侧结果也发不出去。
+          if [ -f .pr-skill-review/frontend.md ]; then
+            FE=$(wc -c < .pr-skill-review/frontend.md)
+          else
+            FE=0
+          fi
+          if [ -f .pr-skill-review/backend.md ]; then
+            BE=$(wc -c < .pr-skill-review/backend.md)
+          else
+            BE=0
+          fi
           FE=$(echo "$FE" | tr -d ' ')
           BE=$(echo "$BE" | tr -d ' ')
           if [ "$FE" = "0" ] && [ "$BE" = "0" ]; then
