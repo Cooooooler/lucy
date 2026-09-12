@@ -46,7 +46,8 @@ export class UsersController {
   @Get()
   @ApiOperation({
     summary: '用户列表',
-    description: '分页查询用户，支持状态与关键字过滤；列表始终排除操作者自己',
+    description:
+      '分页查询用户，支持状态与关键字过滤；仅返回操作者可操作的严格低级别账号（排除自己、同级与上级）',
   })
   @ApiResponse({ status: 200, type: UserListResultDto })
   list(
@@ -65,11 +66,25 @@ export class UsersController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: '用户详情' })
+  @ApiOperation({
+    summary: '用户详情',
+    description:
+      '仅可查看级别严格低于自己的账号（与列表及变更操作同层级限制），不能查看自己、同级或更高级别的账号',
+  })
   @ApiResponse({ status: 200, type: User })
+  @ApiResponse({
+    status: 403,
+    description: '不能查看自己或同级/更高级别的账号',
+  })
   @ApiResponse({ status: 404, description: '用户不存在' })
-  get(@Param('id', ParseUUIDPipe) id: string) {
-    return this.usersService.getDetail(id);
+  get(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.usersService.getDetail(
+      { userId: user.userId, role: user.role },
+      id,
+    );
   }
 
   @Patch(':id/status')

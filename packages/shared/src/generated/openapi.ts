@@ -34,7 +34,7 @@ export interface paths {
         };
         /**
          * 用户列表
-         * @description 分页查询用户，支持状态与关键字过滤；列表始终排除操作者自己
+         * @description 分页查询用户，支持状态与关键字过滤；仅返回操作者可操作的严格低级别账号（排除自己、同级与上级）
          */
         get: operations["UsersController_list"];
         put?: never;
@@ -52,7 +52,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 用户详情 */
+        /**
+         * 用户详情
+         * @description 仅可查看级别严格低于自己的账号（与列表及变更操作同层级限制），不能查看自己、同级或更高级别的账号
+         */
         get: operations["UsersController_get"];
         put?: never;
         post?: never;
@@ -873,6 +876,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["User"];
                 };
+            };
+            /** @description 不能查看自己或同级/更高级别的账号 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description 用户不存在 */
             404: {

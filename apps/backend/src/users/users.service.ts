@@ -71,7 +71,7 @@ export class UsersService {
     }
   }
 
-  /** 分页查询用户（用户管理，仅 admin）；列表始终排除操作者自己（自己不可被管理）。 */
+  /** 分页查询用户（用户管理，仅 admin）；列表仅含操作者可操作的严格低级别账号（排除自己、同级与上级）。 */
   async list(
     actor: ActorContext,
     query: {
@@ -92,16 +92,25 @@ export class UsersService {
       page,
       pageSize,
       excludeId: actor.userId,
+      visibleRoles: this.visibleRoles(actor.role),
       status: query.status,
       keyword: query.keyword,
     });
     return { list: rows.map(toSharedUser), total, page, pageSize };
   }
 
-  /** 查询用户详情（用户管理，仅 admin）。 */
-  async getDetail(id: string): Promise<SharedUser> {
+  /**
+   * 查询用户详情（用户管理，仅 admin）；与列表及变更操作同层级限制：
+   * 仅可查看级别严格低于自己的账号，自己、同级与上级一律拒绝，
+   * 避免列表过滤被详情接口绕过。
+   */
+  async getDetail(actor: ActorContext, id: string): Promise<SharedUser> {
+    if (actor.userId === id) {
+      throw new ForbiddenException('不能查看自己的账号详情');
+    }
     const user = await this.usersRepo.findById(id);
     if (!user) throw new NotFoundException('用户不存在');
+    this.assertOperable(actor.role, user);
     return toSharedUser(user);
   }
 
@@ -192,6 +201,16 @@ export class UsersService {
     await this.userAccess.invalidate(id);
     this.logger.log(`user remove userId=${id}`, UsersService.name);
     return null;
+  }
+
+  // 列表可见级别：仅严格低于操作者的角色；操作者角色未知（null）时返回空数组，
+  // 使列表为空而非泄露全量（fail-closed，与变更操作的 assertOperable 同规则）
+  private visibleRoles(actorRole: string): UserRole[] {
+    const actorRank = roleRank(actorRole);
+    if (actorRank === null) return [];
+    return (Object.entries(ROLE_RANK) as [UserRole, number][])
+      .filter(([, rank]) => rank < actorRank)
+      .map(([role]) => role);
   }
 
   // 层级判定：仅允许操作严格下级，任何一侧角色未知（null）都按拒绝处理（fail-closed）；

@@ -133,6 +133,7 @@ describe('UsersService', () => {
       page: 1,
       pageSize: 20,
       excludeId: 'admin1',
+      visibleRoles: [UserRole.User],
       status: undefined,
       keyword: undefined,
     });
@@ -145,16 +146,76 @@ describe('UsersService', () => {
     expect(result.list[0]).not.toHaveProperty('passwordHash');
   });
 
-  it('getDetail 用户不存在抛 404', async () => {
-    usersRepo.findById.mockResolvedValue(null);
-    await expect(service.getDetail('x')).rejects.toThrow(NotFoundException);
+  it('list superadmin 仅可见 user 与 admin（排除自己、同级与上级）', async () => {
+    usersRepo.findPage.mockResolvedValue([[], 0]);
+    await service.list(superadmin, {});
+    expect(usersRepo.findPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visibleRoles: [UserRole.User, UserRole.Admin],
+      }),
+    );
   });
 
-  it('getDetail 返回契约视图', async () => {
+  it('list 操作者角色未知时传空可见角色（fail-closed，列表为空）', async () => {
+    usersRepo.findPage.mockResolvedValue([[], 0]);
+    const result = await service.list({ userId: 'ghost1', role: 'ghost' }, {});
+    expect(usersRepo.findPage).toHaveBeenCalledWith(
+      expect.objectContaining({ visibleRoles: [] }),
+    );
+    expect(result.list).toEqual([]);
+    expect(result.total).toBe(0);
+  });
+
+  it('getDetail 用户不存在抛 404', async () => {
+    usersRepo.findById.mockResolvedValue(null);
+    await expect(service.getDetail(admin, 'x')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('getDetail admin 查看普通用户返回契约视图', async () => {
     usersRepo.findById.mockResolvedValue(user);
-    await expect(service.getDetail('u1')).resolves.toEqual(
+    await expect(service.getDetail(admin, 'u1')).resolves.toEqual(
       expect.objectContaining({ id: 'u1', email: 'alice@x.com' }),
     );
+  });
+
+  it('getDetail 查看自己抛 403 且不触达仓储', async () => {
+    await expect(service.getDetail(admin, 'admin1')).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(usersRepo.findById).not.toHaveBeenCalled();
+  });
+
+  it('getDetail 目标是同级管理员时抛 403', async () => {
+    usersRepo.findById.mockResolvedValue({ ...user, role: UserRole.Admin });
+    await expect(service.getDetail(admin, 'u1')).rejects.toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('getDetail 目标是更高级别（superadmin）时抛 403', async () => {
+    usersRepo.findById.mockResolvedValue({
+      ...user,
+      role: UserRole.SuperAdmin,
+    });
+    await expect(service.getDetail(admin, 'u1')).rejects.toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('getDetail superadmin 查看管理员：允许', async () => {
+    usersRepo.findById.mockResolvedValue({ ...user, role: UserRole.Admin });
+    await expect(service.getDetail(superadmin, 'u1')).resolves.toEqual(
+      expect.objectContaining({ role: UserRole.Admin }),
+    );
+  });
+
+  it('getDetail 操作者角色未知时 fail-closed 抛 403', async () => {
+    usersRepo.findById.mockResolvedValue({ ...user });
+    await expect(
+      service.getDetail({ userId: 'ghost1', role: 'ghost' }, 'u1'),
+    ).rejects.toThrow(ForbiddenException);
   });
 
   it('updateStatus admin 操作普通用户：单列更新并失效缓存', async () => {

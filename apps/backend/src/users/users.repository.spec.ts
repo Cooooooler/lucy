@@ -64,24 +64,37 @@ describe('UsersRepository', () => {
     await expect(r.findAccessById('1')).resolves.toBeNull();
   });
 
-  it('findPage 始终排除操作者自己，无其它过滤时仅该条件', async () => {
+  it('findPage 始终排除操作者自己并按角色过滤', async () => {
     qb.getManyAndCount.mockResolvedValue([[{ id: '1' }], 1]);
     const r = await build();
     await expect(
-      r.findPage({ page: 2, pageSize: 10, excludeId: 'me' }),
+      r.findPage({
+        page: 2,
+        pageSize: 10,
+        excludeId: 'me',
+        visibleRoles: [UserRole.User],
+      }),
     ).resolves.toEqual([[{ id: '1' }], 1]);
     expect(qb.skip).toHaveBeenCalledWith(10);
     expect(qb.take).toHaveBeenCalledWith(10);
-    expect(qb.andWhere).toHaveBeenCalledTimes(1);
+    expect(qb.andWhere).toHaveBeenCalledTimes(2);
     expect(qb.andWhere).toHaveBeenCalledWith('u.id != :excludeId', {
       excludeId: 'me',
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith('u.role IN (:...visibleRoles)', {
+      visibleRoles: [UserRole.User],
     });
   });
 
   it('findPage 只投影对外契约列，不含 passwordHash', async () => {
     qb.getManyAndCount.mockResolvedValue([[], 0]);
     const r = await build();
-    await r.findPage({ page: 1, pageSize: 20, excludeId: 'me' });
+    await r.findPage({
+      page: 1,
+      pageSize: 20,
+      excludeId: 'me',
+      visibleRoles: [UserRole.User],
+    });
     expect(qb.select).toHaveBeenCalledWith([
       'u.id',
       'u.username',
@@ -101,6 +114,7 @@ describe('UsersRepository', () => {
       page: 1,
       pageSize: 20,
       excludeId: 'me',
+      visibleRoles: [UserRole.User],
       status: 0,
       keyword: 'a',
     });
@@ -113,6 +127,28 @@ describe('UsersRepository', () => {
     expect(qb.andWhere).toHaveBeenCalledWith(expect.stringContaining('ILIKE'), {
       kw: '%a%',
     });
+  });
+
+  it('findPage 传 visibleRoles 时按角色 IN 过滤', async () => {
+    qb.getManyAndCount.mockResolvedValue([[], 0]);
+    const r = await build();
+    await r.findPage({
+      page: 1,
+      pageSize: 20,
+      excludeId: 'me',
+      visibleRoles: [UserRole.User],
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith('u.role IN (:...visibleRoles)', {
+      visibleRoles: [UserRole.User],
+    });
+  });
+
+  it('findPage visibleRoles 为空数组时直接返回空结果且不查库', async () => {
+    const r = await build();
+    await expect(
+      r.findPage({ page: 1, pageSize: 20, excludeId: 'me', visibleRoles: [] }),
+    ).resolves.toEqual([[], 0]);
+    expect(repo.createQueryBuilder).not.toHaveBeenCalled();
   });
 
   it('delete 委托底层 delete', async () => {
