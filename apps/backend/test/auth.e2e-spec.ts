@@ -6,7 +6,9 @@ import cookieParser from 'cookie-parser';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import request from 'supertest';
+import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module.js';
+import { User } from '../src/users/user.entity.js';
 
 interface ApiBody<T> {
   code: number;
@@ -34,6 +36,14 @@ describe('Auth (e2e)', () => {
   });
 
   afterAll(async () => {
+    // 自清理：删掉本用例注册的账号（按 username 前缀），不断言行数
+    const dataSource = app.get(DataSource);
+    await dataSource
+      .getRepository(User)
+      .createQueryBuilder()
+      .delete()
+      .where('username LIKE :prefix', { prefix: `e2e\\_%${suffix}` })
+      .execute();
     await app.close();
   });
 

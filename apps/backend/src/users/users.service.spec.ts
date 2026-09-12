@@ -22,6 +22,8 @@ describe('UsersService', () => {
     findById: vi.fn(),
     findPage: vi.fn(),
     delete: vi.fn(),
+    updateStatus: vi.fn(),
+    updateRole: vi.fn(),
     create: vi.fn((u: unknown) => u),
     save: vi.fn(),
   };
@@ -155,27 +157,31 @@ describe('UsersService', () => {
     );
   });
 
-  it('updateStatus admin 操作普通用户：保存并失效缓存', async () => {
-    usersRepo.findById.mockResolvedValue({ ...user });
-    usersRepo.save.mockImplementation((u: User) => Promise.resolve(u));
+  it('updateStatus admin 操作普通用户：单列更新并失效缓存', async () => {
+    usersRepo.findById
+      .mockResolvedValueOnce({ ...user })
+      .mockResolvedValueOnce({ ...user, status: 0 });
     const result = await service.updateStatus(admin, 'u1', 0);
-    expect(usersRepo.save).toHaveBeenCalled();
+    expect(usersRepo.updateStatus).toHaveBeenCalledWith('u1', 0);
+    expect(usersRepo.save).not.toHaveBeenCalled();
     expect(userAccess.invalidate).toHaveBeenCalledWith('u1');
     expect(result.status).toBe(0);
     expect(logger.log).toHaveBeenCalled();
   });
 
   it('updateStatus superadmin 操作管理员：允许', async () => {
-    usersRepo.findById.mockResolvedValue({ ...user, role: UserRole.Admin });
-    usersRepo.save.mockImplementation((u: User) => Promise.resolve(u));
+    usersRepo.findById
+      .mockResolvedValueOnce({ ...user, role: UserRole.Admin })
+      .mockResolvedValueOnce({ ...user, role: UserRole.Admin, status: 0 });
     const result = await service.updateStatus(superadmin, 'u1', 0);
     expect(result.status).toBe(0);
     expect(userAccess.invalidate).toHaveBeenCalledWith('u1');
   });
 
-  it('updateStatus 状态相同时不保存、不失效缓存', async () => {
+  it('updateStatus 状态相同时不更新、不失效缓存', async () => {
     usersRepo.findById.mockResolvedValue({ ...user });
     const result = await service.updateStatus(admin, 'u1', 1);
+    expect(usersRepo.updateStatus).not.toHaveBeenCalled();
     expect(usersRepo.save).not.toHaveBeenCalled();
     expect(userAccess.invalidate).not.toHaveBeenCalled();
     expect(result.status).toBe(1);
@@ -223,27 +229,31 @@ describe('UsersService', () => {
     expect(usersRepo.findById).not.toHaveBeenCalled();
   });
 
-  it('updateRole superadmin 把普通用户提为管理员：保存并失效缓存', async () => {
-    usersRepo.findById.mockResolvedValue({ ...user });
-    usersRepo.save.mockImplementation((u: User) => Promise.resolve(u));
+  it('updateRole superadmin 把普通用户提为管理员：单列更新并失效缓存', async () => {
+    usersRepo.findById
+      .mockResolvedValueOnce({ ...user })
+      .mockResolvedValueOnce({ ...user, role: UserRole.Admin });
     const result = await service.updateRole(superadmin, 'u1', UserRole.Admin);
     expect(result.role).toBe(UserRole.Admin);
-    expect(usersRepo.save).toHaveBeenCalled();
+    expect(usersRepo.updateRole).toHaveBeenCalledWith('u1', UserRole.Admin);
+    expect(usersRepo.save).not.toHaveBeenCalled();
     expect(userAccess.invalidate).toHaveBeenCalledWith('u1');
     expect(logger.log).toHaveBeenCalled();
   });
 
   it('updateRole superadmin 把管理员降为普通用户：允许', async () => {
-    usersRepo.findById.mockResolvedValue({ ...user, role: UserRole.Admin });
-    usersRepo.save.mockImplementation((u: User) => Promise.resolve(u));
+    usersRepo.findById
+      .mockResolvedValueOnce({ ...user, role: UserRole.Admin })
+      .mockResolvedValueOnce({ ...user, role: UserRole.User });
     const result = await service.updateRole(superadmin, 'u1', UserRole.User);
     expect(result.role).toBe(UserRole.User);
     expect(userAccess.invalidate).toHaveBeenCalledWith('u1');
   });
 
-  it('updateRole 角色相同时不保存、不失效缓存', async () => {
+  it('updateRole 角色相同时不更新、不失效缓存', async () => {
     usersRepo.findById.mockResolvedValue({ ...user });
     const result = await service.updateRole(superadmin, 'u1', UserRole.User);
+    expect(usersRepo.updateRole).not.toHaveBeenCalled();
     expect(usersRepo.save).not.toHaveBeenCalled();
     expect(userAccess.invalidate).not.toHaveBeenCalled();
     expect(result.role).toBe(UserRole.User);

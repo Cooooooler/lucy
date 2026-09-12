@@ -25,7 +25,14 @@ import {
   Tag,
 } from 'antd';
 import dayjs from 'dayjs';
-import { useCallback, useMemo, useState, type FC, type ReactNode } from 'react';
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type FC,
+  type ReactNode,
+} from 'react';
 
 export const Route = createFileRoute('/_layout/users')({
   beforeLoad: async ({ context }) => {
@@ -52,11 +59,11 @@ const ROLE_LABEL: Record<User['role'], string> = {
   superadmin: '超级管理员',
 };
 
-function RoleTag({ role }: { role: User['role'] }) {
+function RoleTag({ role }: { readonly role: User['role'] }) {
   return <Tag color={ROLE_TAG_COLOR[role]}>{ROLE_LABEL[role]}</Tag>;
 }
 
-function StatusTag({ status }: { status: number }) {
+function StatusTag({ status }: { readonly status: number }) {
   return status === 1 ? (
     <Tag color="success">正常</Tag>
   ) : (
@@ -65,9 +72,9 @@ function StatusTag({ status }: { status: number }) {
 }
 
 type UserDetailModalProps = {
-  user: User | null;
-  open: boolean;
-  onClose: () => void;
+  readonly user: User | null;
+  readonly open: boolean;
+  readonly onClose: () => void;
 };
 
 const UserDetailModal: FC<UserDetailModalProps> = ({ user, open, onClose }) => {
@@ -106,9 +113,9 @@ const UserDetailModal: FC<UserDetailModalProps> = ({ user, open, onClose }) => {
 };
 
 type UserRoleModalProps = {
-  user: User | null;
-  open: boolean;
-  onClose: () => void;
+  readonly user: User | null;
+  readonly open: boolean;
+  readonly onClose: () => void;
 };
 
 const ROLE_FORM_OPTIONS = [
@@ -193,20 +200,33 @@ function UsersPage() {
   const [detailUser, setDetailUser] = useState<User | null>(null);
   const [roleUser, setRoleUser] = useState<User | null>(null);
 
-  const query = useMemo<UserListQuery>(
-    () => ({
+  const query = useMemo<UserListQuery>(() => {
+    let statusParam: 0 | 1 | undefined;
+    if (status === 'enabled') {
+      statusParam = 1;
+    } else if (status === 'disabled') {
+      statusParam = 0;
+    }
+    return {
       page,
       pageSize,
       keyword: keyword || undefined,
-      status: status === 'all' ? undefined : status === 'enabled' ? 1 : 0,
-    }),
-    [page, pageSize, keyword, status],
-  );
+      status: statusParam,
+    };
+  }, [page, pageSize, keyword, status]);
 
   const { data, isLoading } = useUserList(query);
   const rows = useMemo(() => data?.list ?? [], [data?.list]);
-  const updateStatusMutation = useUpdateUserStatus();
-  const deleteMutation = useDeleteUser();
+  // 删除确认框的 onOk 在闭包中执行：用 ref 读取最新页码与行数，
+  // 保证 handleDelete 不依赖 page/rows 而每轮重建（连带 columns memo 失效）
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  // 解构稳定的 mutateAsync（react-query v5 中引用稳定），避免 useMutation 返回对象
+  // 每轮重建导致回调与 columns memo 连带失效
+  const { mutateAsync: updateStatus } = useUpdateUserStatus();
+  const { mutateAsync: deleteUser } = useDeleteUser();
 
   // 改角色仅 superadmin 可见可点：后端路由层 @Roles(SuperAdmin) 会 403 非 superadmin
   const canChangeRole = hasMinRole(currentUser?.role, 'superadmin');
@@ -226,8 +246,7 @@ function UsersPage() {
         okText: next === 0 ? '禁用' : '启用',
         okType: next === 0 ? 'danger' : 'primary',
         onOk: () =>
-          updateStatusMutation
-            .mutateAsync({ id: record.id, input: { status: next as 0 | 1 } })
+          updateStatus({ id: record.id, input: { status: next as 0 | 1 } })
             .then(() => {
               message.success(next === 0 ? '用户已禁用' : '用户已启用');
             })
@@ -241,7 +260,7 @@ function UsersPage() {
             }),
       });
     },
-    [message, modal, updateStatusMutation],
+    [message, modal, updateStatus],
   );
 
   const handleDelete = useCallback(
@@ -251,17 +270,15 @@ function UsersPage() {
         content: '删除后其关联数据将被级联清理，且不可恢复。',
         okText: '删除',
         okType: 'danger',
-        onOk: () =>
-          deleteMutation
-            .mutateAsync(record.id)
+        onOk: () => {
+          // 末页最后一条被删时先回退页码再删：invalidate 的重拉直接命中目标页，
+          // 只有一次列表请求，避免先拉空页再翻页的闪动
+          if (rowsRef.current.length <= 1 && pageRef.current > 1) {
+            setPage(pageRef.current - 1);
+          }
+          return deleteUser(record.id)
             .then(() => {
               message.success('用户已删除');
-              const capturedPage = page;
-              if (rows.length === 1 && capturedPage > 1) {
-                setPage((current) =>
-                  current === capturedPage ? current - 1 : current,
-                );
-              }
             })
             .catch((e: unknown) => {
               if (e instanceof ApiError) {
@@ -270,10 +287,11 @@ function UsersPage() {
                 message.error('删除失败，请稍后重试');
               }
               throw e;
-            }),
+            });
+        },
       });
     },
-    [message, modal, deleteMutation, page, rows.length],
+    [message, modal, deleteUser],
   );
 
   const columns: ProColumns<User>[] = useMemo(
@@ -309,46 +327,46 @@ function UsersPage() {
           const operable = record.id !== currentUser?.id;
           const roleOperable = canChangeRole && operable;
           return [
-            <a key="detail" onClick={() => setDetailUser(record)}>
+            <Button
+              key="detail"
+              type="link"
+              size="small"
+              onClick={() => setDetailUser(record)}
+            >
               详情
-            </a>,
+            </Button>,
             ...(canChangeRole
               ? [
-                  <a
+                  <Button
                     key="role"
-                    onClick={() => roleOperable && setRoleUser(record)}
-                    className={
-                      roleOperable
-                        ? undefined
-                        : 'cursor-not-allowed text-(--ant-color-text-disabled)!'
-                    }
+                    type="link"
+                    size="small"
+                    disabled={!roleOperable}
+                    onClick={() => setRoleUser(record)}
                   >
                     改角色
-                  </a>,
+                  </Button>,
                 ]
               : []),
-            <a
+            <Button
               key="status"
-              onClick={() => operable && handleToggleStatus(record)}
-              className={
-                operable
-                  ? undefined
-                  : 'cursor-not-allowed text-(--ant-color-text-disabled)!'
-              }
+              type="link"
+              size="small"
+              disabled={!operable}
+              onClick={() => handleToggleStatus(record)}
             >
               {record.status === 1 ? '禁用' : '启用'}
-            </a>,
-            <a
+            </Button>,
+            <Button
               key="delete"
-              onClick={() => operable && handleDelete(record)}
-              className={
-                operable
-                  ? 'text-(--ant-color-error)!'
-                  : 'cursor-not-allowed text-(--ant-color-text-disabled)!'
-              }
+              type="link"
+              size="small"
+              danger
+              disabled={!operable}
+              onClick={() => handleDelete(record)}
             >
               删除
-            </a>,
+            </Button>,
           ];
         },
       },

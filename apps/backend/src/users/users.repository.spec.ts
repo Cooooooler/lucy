@@ -5,6 +5,7 @@ import { UsersRepository } from './users.repository.js';
 
 describe('UsersRepository', () => {
   const qb = {
+    select: vi.fn().mockReturnThis(),
     orderBy: vi.fn().mockReturnThis(),
     addOrderBy: vi.fn().mockReturnThis(),
     andWhere: vi.fn().mockReturnThis(),
@@ -19,6 +20,7 @@ describe('UsersRepository', () => {
     create: vi.fn(),
     save: vi.fn(),
     delete: vi.fn(),
+    update: vi.fn(),
   };
 
   async function build(): Promise<UsersRepository> {
@@ -76,6 +78,22 @@ describe('UsersRepository', () => {
     });
   });
 
+  it('findPage 只投影对外契约列，不含 passwordHash', async () => {
+    qb.getManyAndCount.mockResolvedValue([[], 0]);
+    const r = await build();
+    await r.findPage({ page: 1, pageSize: 20, excludeId: 'me' });
+    expect(qb.select).toHaveBeenCalledWith([
+      'u.id',
+      'u.username',
+      'u.email',
+      'u.nickname',
+      'u.status',
+      'u.role',
+      'u.createdAt',
+      'u.updatedAt',
+    ]);
+  });
+
   it('findPage 带 status 与 keyword 时追加过滤条件', async () => {
     qb.getManyAndCount.mockResolvedValue([[], 0]);
     const r = await build();
@@ -101,6 +119,21 @@ describe('UsersRepository', () => {
     const r = await build();
     await r.delete('1');
     expect(repo.delete).toHaveBeenCalledWith({ id: '1' });
+  });
+
+  it('updateStatus 只写 status 单列', async () => {
+    const r = await build();
+    await r.updateStatus('1', 0);
+    expect(repo.update).toHaveBeenCalledWith({ id: '1' }, { status: 0 });
+  });
+
+  it('updateRole 只写 role 单列', async () => {
+    const r = await build();
+    await r.updateRole('1', UserRole.Admin);
+    expect(repo.update).toHaveBeenCalledWith(
+      { id: '1' },
+      { role: UserRole.Admin },
+    );
   });
 
   it('findByUsername 委托 findOneBy', async () => {

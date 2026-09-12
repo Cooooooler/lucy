@@ -123,14 +123,17 @@ export class UsersService {
     if (!user) throw new NotFoundException('用户不存在');
     this.assertOperable(actor.role, user);
     if (user.status === status) return toSharedUser(user);
-    user.status = status;
-    const saved = await this.usersRepo.save(user);
+    // 单列更新：只写 status，避免与并发的 updateRole 互相覆盖对方字段
+    await this.usersRepo.updateStatus(id, status);
+    const updated = await this.usersRepo.findById(id);
+    // 更新后行必存在（刚读到且无删除路径并发删自己以外的行极罕见）：防御性兜底
+    if (!updated) throw new NotFoundException('用户不存在');
     await this.userAccess.invalidate(id);
     this.logger.log(
       `user status update userId=${id} status=${status}`,
       UsersService.name,
     );
-    return toSharedUser(saved);
+    return toSharedUser(updated);
   }
 
   /**
@@ -162,14 +165,16 @@ export class UsersService {
       throw new ForbiddenException('不能授予同级或更高级别的角色');
     }
     if (user.role === role) return toSharedUser(user);
-    user.role = role;
-    const saved = await this.usersRepo.save(user);
+    // 单列更新：只写 role，避免与并发的 updateStatus 互相覆盖对方字段
+    await this.usersRepo.updateRole(id, role);
+    const updated = await this.usersRepo.findById(id);
+    if (!updated) throw new NotFoundException('用户不存在');
     await this.userAccess.invalidate(id);
     this.logger.log(
       `user role update userId=${id} role=${role}`,
       UsersService.name,
     );
-    return toSharedUser(saved);
+    return toSharedUser(updated);
   }
 
   /**

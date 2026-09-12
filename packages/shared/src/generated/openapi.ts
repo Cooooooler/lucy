@@ -446,6 +446,61 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        UserListItemDto: {
+            /** @description 用户 ID */
+            id: string;
+            /**
+             * @description 用户名
+             * @example lucy
+             */
+            username: string;
+            /**
+             * @description 邮箱
+             * @example lucy@example.com
+             */
+            email: string;
+            /** @description 昵称 */
+            nickname: string | null;
+            /**
+             * @description 状态：1 正常，0 禁用
+             * @example 1
+             */
+            status: number;
+            /**
+             * @description 角色：user 普通用户，admin 管理员，superadmin 超级管理员
+             * @enum {string}
+             */
+            role: "user" | "admin" | "superadmin";
+            /**
+             * @description 创建时间
+             * @example 2026-08-08T00:00:00.000Z
+             */
+            createdAt: string;
+            /**
+             * @description 更新时间
+             * @example 2026-08-08T00:00:00.000Z
+             */
+            updatedAt: string;
+        };
+        UserListResultDto: {
+            /** @description 用户列表 */
+            list: components["schemas"]["UserListItemDto"][];
+            /**
+             * @description 总条数
+             * @example 0
+             */
+            total: number;
+            /**
+             * @description 当前页码
+             * @example 1
+             */
+            page: number;
+            /**
+             * @description 每页条数
+             * @example 20
+             */
+            pageSize: number;
+        };
         User: {
             /** @description 用户 ID */
             id: string;
@@ -487,25 +542,6 @@ export interface components {
              * @example 2026-08-08T00:00:00.000Z
              */
             updatedAt: string;
-        };
-        UserListResultDto: {
-            /** @description 用户列表 */
-            list: components["schemas"]["User"][];
-            /**
-             * @description 总条数
-             * @example 0
-             */
-            total: number;
-            /**
-             * @description 当前页码
-             * @example 1
-             */
-            page: number;
-            /**
-             * @description 每页条数
-             * @example 20
-             */
-            pageSize: number;
         };
         UpdateUserStatusDto: {
             /**

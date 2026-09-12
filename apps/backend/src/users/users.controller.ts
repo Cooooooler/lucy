@@ -24,7 +24,10 @@ import { UserRole } from '../common/roles.js';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto.js';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
 import { UserListQueryDto } from './dto/user-list-query.dto.js';
-import { UserListResultDto } from './dto/user-list-result.dto.js';
+import {
+  UserListItemDto,
+  UserListResultDto,
+} from './dto/user-list-result.dto.js';
 import { User } from './user.entity.js';
 import { UsersService } from './users.service.js';
 
@@ -49,7 +52,12 @@ export class UsersController {
   list(
     @CurrentUser() user: CurrentUserPayload,
     @Query() query: UserListQueryDto,
-  ) {
+  ): Promise<{
+    list: UserListItemDto[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
     return this.usersService.list(
       { userId: user.userId, role: user.role },
       query,
