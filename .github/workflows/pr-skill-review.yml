@@ -238,7 +238,7 @@ jobs:
       - name: Publish persistent comment
         if: steps.body.outputs.has_content == 'true'
         # 用 marker 找既有评论并更新，PR 反复 push 不会堆积评论
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
