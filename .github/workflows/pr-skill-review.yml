@@ -1,0 +1,252 @@
+name: PR Skill Review
+
+# 与 PR-Agent 互补的技能评审作业。
+#
+# PR-Agent 在 .pr_agent.toml 里做全仓库通用评审（它原生支持 skills，但技能是在
+# 拼 prompt 时「静态内联」的：单次模型调用没有文件读取工具，做不到按需加载，
+# 见其 agent_skills 文档 "progressive disclosure ... is not implementable on the
+# current architecture"）。本作业改用带工具循环的 Command Code CLI，真正按需加载：
+#   apps/frontend/** -> vercel-react-best-practices
+#   apps/backend/**  -> nestjs-best-practices
+# 模型先只看到技能的 name + description，判断相关后才读 SKILL.md，再按需读
+# rules/*.md —— 和本地 CLI 里手动调用技能的行为一致。
+#
+# 鉴权：官方 headless 登录是 OAuth（不适合 CI）。这里走文档化的 CI 路线
+# BYOK + --local-only，复用 PR-Agent 已有的 DEEPSEEK_KEY，不新增 secret。
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'apps/frontend/**'
+      - 'apps/backend/**'
+
+# 同一 PR 只保留一个 run：反复 push 时取消旧 run，避免评论相互覆盖
+concurrency:
+  group: pr-skill-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# 读代码 + 发评论；本作业不会回推代码
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  skill-review:
+    name: Skill-based review
+    # fork PR：secrets 不可用、GITHUB_TOKEN 只读，既不能调模型也不能评论，直接跳过
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: tenki-standard-small-2c-4g
+    timeout-minutes: 30
+    env:
+      # 复用 PR-Agent 的 DeepSeek key（BYOK），无需新增 secret
+      DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+      # BYOK 模型 id 形如 <providerId>/<modelKey>，须与 providers.json 里的 model key 一致。
+      # 若首次运行报 unknown model，看上面 “Preflight” 打印的 /models 列表再改这里。
+      SKILL_REVIEW_MODEL: deepseek/deepseek-flash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install Command Code CLI
+        run: npm install -g command-code
+
+      - name: Configure BYOK provider (DeepSeek, local-only)
+        # apiKey 写成 "$DEEPSEEK_KEY" 字面量（heredoc 用引号禁止展开），
+        # 由 CLI 在运行时读环境变量，密钥不落盘。
+        run: |
+          mkdir -p "$HOME/.commandcode"
+          cat > "$HOME/.commandcode/providers.json" <<'JSON'
+          {
+            "provider": {
+              "deepseek": {
+                "name": "DeepSeek",
+                "baseURL": "https://api.deepseek.com/v1",
+                "apiKey": "$DEEPSEEK_KEY",
+                "models": {
+                  "deepseek-flash": {
+                    "contextWindow": 128000,
+                    "maxOutput": 32768,
+                    "reasoning": true,
+                    "reasoningEfforts": ["low", "medium", "high"]
+                  }
+                }
+              }
+            }
+          }
+          JSON
+
+      - name: Preflight - list DeepSeek models
+        # 凭据/模型 id 出问题时，这里能直接看到可用模型；失败不阻断后续
+        continue-on-error: true
+        run: |
+          curl -fsS https://api.deepseek.com/v1/models \
+            -H "Authorization: Bearer $DEEPSEEK_KEY" | head -c 4000
+          echo
+
+      - name: Prepare path-scoped diffs
+        id: diff
+        # 生成按目录切分的补丁，让每次评审只看到自己那半边的改动
+        run: |
+          set -euo pipefail
+          BASE="origin/${{ github.base_ref }}"
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          mkdir -p .pr-skill-review
+          # routeTree.gen.ts 是 TanStack Router 生成产物（AGENTS.md 明确禁止手改），排除
+          git diff --unified=5 "$BASE"...HEAD -- apps/frontend \
+            ':(exclude)apps/frontend/src/routeTree.gen.ts' \
+            > .pr-skill-review/frontend.patch
+          git diff --unified=5 "$BASE"...HEAD -- apps/backend \
+            > .pr-skill-review/backend.patch
+          FE=$(wc -c < .pr-skill-review/frontend.patch | tr -d ' ')
+          BE=$(wc -c < .pr-skill-review/backend.patch | tr -d ' ')
+          echo "fe_bytes=$FE" >> "$GITHUB_OUTPUT"
+          echo "be_bytes=$BE" >> "$GITHUB_OUTPUT"
+          echo "frontend patch: ${FE} bytes, backend patch: ${BE} bytes"
+
+      - name: Frontend review (vercel-react-best-practices)
+        if: steps.diff.outputs.fe_bytes != '0'
+        # 评审失败也应保留已有结果并照常发评论，故不断阻断
+        continue-on-error: true
+        run: |
+          cat > .pr-skill-review/frontend-prompt.txt <<'PROMPT'
+          /skill:vercel-react-best-practices
+
+          你是资深 React 前端工程师。请用上面加载的 vercel-react-best-practices 技能，评审本 PR 中 apps/frontend/** 的改动。
+
+          步骤：
+          1. 先读该技能的 SKILL.md，了解规则分类与适用场景。
+          2. 读改动补丁 .pr-skill-review/frontend.patch（用 read_file）。
+          3. 只针对补丁涉及的代码，按需读取技能里相关规则文件（rules/*.md）后再判断；必要时用 read_file/grep/glob 读取仓库相关源码作上下文。
+          4. 只报高置信度、真实可改的问题，不要复述补丁，不要泛泛而谈。
+
+          输出要求（简体中文 Markdown）：
+          - 每条格式：`文件:行` — 命中规则名（如 async-parallel）— 问题 — 修复建议
+          - 按影响从高到低排序，最多 8 条
+          - 没有问题就只输出一行：前端未发现需要修改的问题
+          - 不要输出思考过程，不要修改任何文件
+          PROMPT
+
+          command-code -p "$(cat .pr-skill-review/frontend-prompt.txt)" \
+            --local-only \
+            --no-skills \
+            --skill .github/skill-review/skills/vercel-react-best-practices \
+            --model "$SKILL_REVIEW_MODEL" \
+            --trust \
+            --skip-onboarding \
+            --no-auto-update \
+            --no-session \
+            --max-turns 60 \
+            > .pr-skill-review/frontend.md 2> .pr-skill-review/frontend.err \
+            || echo "cmd exited $?" >> .pr-skill-review/frontend.err
+          echo "frontend.md bytes: $(wc -c < .pr-skill-review/frontend.md)"
+          tail -c 2000 .pr-skill-review/frontend.err || true
+
+      - name: Backend review (nestjs-best-practices)
+        if: steps.diff.outputs.be_bytes != '0'
+        continue-on-error: true
+        run: |
+          cat > .pr-skill-review/backend-prompt.txt <<'PROMPT'
+          /skill:nestjs-best-practices
+
+          你是资深 NestJS 后端工程师。请用上面加载的 nestjs-best-practices 技能，评审本 PR 中 apps/backend/** 的改动。
+
+          步骤：
+          1. 先读该技能的 SKILL.md，了解规则分类与适用场景。
+          2. 读改动补丁 .pr-skill-review/backend.patch（用 read_file）。
+          3. 只针对补丁涉及的代码，按需读取技能里相关规则文件（rules/*.md）后再判断；必要时用 read_file/grep/glob 读取仓库相关源码作上下文。
+          4. 只报高置信度、真实可改的问题，不要复述补丁，不要泛泛而谈。
+
+          输出要求（简体中文 Markdown）：
+          - 每条格式：`文件:行` — 命中规则名（如 arch-feature-modules）— 问题 — 修复建议
+          - 按影响从高到低排序，最多 8 条
+          - 没有问题就只输出一行：后端未发现需要修改的问题
+          - 不要输出思考过程，不要修改任何文件
+          PROMPT
+
+          command-code -p "$(cat .pr-skill-review/backend-prompt.txt)" \
+            --local-only \
+            --no-skills \
+            --skill .github/skill-review/skills/nestjs-best-practices \
+            --model "$SKILL_REVIEW_MODEL" \
+            --trust \
+            --skip-onboarding \
+            --no-auto-update \
+            --no-session \
+            --max-turns 60 \
+            > .pr-skill-review/backend.md 2> .pr-skill-review/backend.err \
+            || echo "cmd exited $?" >> .pr-skill-review/backend.err
+          echo "backend.md bytes: $(wc -c < .pr-skill-review/backend.md)"
+          tail -c 2000 .pr-skill-review/backend.err || true
+
+      - name: Assemble comment body
+        id: body
+        # 只在一侧或两侧真的产出内容时才发评论，避免失败时空评论刷屏
+        run: |
+          set -euo pipefail
+          # 某侧未改动时对应评审步骤会被跳过，文件不存在。用 `|| echo 0` 兜底，
+          # 否则 set -e + pipefail 会因 cat 失败直接终止本步骤，另一侧结果也发不出去。
+          FE=$(wc -c < .pr-skill-review/frontend.md 2>/dev/null || echo 0)
+          BE=$(wc -c < .pr-skill-review/backend.md 2>/dev/null || echo 0)
+          FE=$(echo "$FE" | tr -d ' ')
+          BE=$(echo "$BE" | tr -d ' ')
+          if [ "$FE" = "0" ] && [ "$BE" = "0" ]; then
+            echo "has_content=false" >> "$GITHUB_OUTPUT"
+            echo "no review output produced; skipping comment"
+            exit 0
+          fi
+          {
+            echo '<!-- pr-skill-review -->'
+            echo '## 技能评审（Command Code · 完整技能按需加载）'
+            echo
+            if [ "$FE" != "0" ]; then
+              echo '### 前端 · vercel-react-best-practices'
+              echo
+              cat .pr-skill-review/frontend.md
+              echo
+            fi
+            if [ "$BE" != "0" ]; then
+              echo '### 后端 · nestjs-best-practices'
+              echo
+              cat .pr-skill-review/backend.md
+              echo
+            fi
+            echo '---'
+            echo '<sub>由 Command Code CLI 按路径加载完整技能生成；通用评审见 PR-Agent 的 `/review`。</sub>'
+          } > .pr-skill-review/comment.md
+          echo "has_content=true" >> "$GITHUB_OUTPUT"
+          echo "comment body bytes: $(wc -c < .pr-skill-review/comment.md)"
+
+      - name: Publish persistent comment
+        if: steps.body.outputs.has_content == 'true'
+        # 用 marker 找既有评论并更新，PR 反复 push 不会堆积评论
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- pr-skill-review -->';
+            const body = fs.readFileSync('.pr-skill-review/comment.md', 'utf8');
+            const issue_number = context.payload.pull_request.number;
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 },
+            );
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+              core.info(`updated comment ${existing.id}`);
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+              core.info('created comment');
+            }
