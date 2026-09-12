@@ -75,8 +75,6 @@ jobs:
                 "apiKey": "$DEEPSEEK_KEY",
                 "models": {
                   "deepseek-flash": {
-                    "contextWindow": 128000,
-                    "maxOutput": 32768,
                     "reasoning": true,
                     "reasoningEfforts": ["low", "medium", "high"]
                   }
@@ -118,6 +116,10 @@ jobs:
         if: steps.diff.outputs.fe_bytes != '0'
         # 评审失败也应保留已有结果并照常发评论，故不断阻断
         continue-on-error: true
+        env:
+          REVIEW_SIDE: frontend
+          REVIEW_SKILL: vercel-react-best-practices
+          REVIEW_ANCHOR: 前端
         run: |
           cat > .pr-skill-review/frontend-prompt.txt <<'PROMPT'
           /skill:vercel-react-best-practices
@@ -137,24 +139,15 @@ jobs:
           - 不要输出思考过程，不要修改任何文件
           PROMPT
 
-          command-code -p "$(cat .pr-skill-review/frontend-prompt.txt)" \
-            --local-only \
-            --no-skills \
-            --skill .github/skill-review/skills/vercel-react-best-practices \
-            --model "$SKILL_REVIEW_MODEL" \
-            --trust \
-            --skip-onboarding \
-            --no-auto-update \
-            --no-session \
-            --max-turns 60 \
-            > .pr-skill-review/frontend.md 2> .pr-skill-review/frontend.err \
-            || echo "cmd exited $?" >> .pr-skill-review/frontend.err
-          echo "frontend.md bytes: $(wc -c < .pr-skill-review/frontend.md)"
-          tail -c 2000 .pr-skill-review/frontend.err || true
+          bash .github/skill-review/scripts/review-with-retry.sh
 
       - name: Backend review (nestjs-best-practices)
         if: steps.diff.outputs.be_bytes != '0'
         continue-on-error: true
+        env:
+          REVIEW_SIDE: backend
+          REVIEW_SKILL: nestjs-best-practices
+          REVIEW_ANCHOR: 后端
         run: |
           cat > .pr-skill-review/backend-prompt.txt <<'PROMPT'
           /skill:nestjs-best-practices
@@ -174,20 +167,7 @@ jobs:
           - 不要输出思考过程，不要修改任何文件
           PROMPT
 
-          command-code -p "$(cat .pr-skill-review/backend-prompt.txt)" \
-            --local-only \
-            --no-skills \
-            --skill .github/skill-review/skills/nestjs-best-practices \
-            --model "$SKILL_REVIEW_MODEL" \
-            --trust \
-            --skip-onboarding \
-            --no-auto-update \
-            --no-session \
-            --max-turns 60 \
-            > .pr-skill-review/backend.md 2> .pr-skill-review/backend.err \
-            || echo "cmd exited $?" >> .pr-skill-review/backend.err
-          echo "backend.md bytes: $(wc -c < .pr-skill-review/backend.md)"
-          tail -c 2000 .pr-skill-review/backend.err || true
+          bash .github/skill-review/scripts/review-with-retry.sh
 
       - name: Assemble comment body
         id: body
