@@ -52,7 +52,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 用户详情 */
+        /**
+         * 用户详情
+         * @description 仅可查看级别严格低于自己的账号（与列表及变更操作同层级限制），不能查看自己、同级或更高级别的账号
+         */
         get: operations["UsersController_get"];
         put?: never;
         post?: never;
@@ -873,6 +876,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["User"];
                 };
+            };
+            /** @description 不能查看自己或同级/更高级别的账号 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description 用户不存在 */
             404: {

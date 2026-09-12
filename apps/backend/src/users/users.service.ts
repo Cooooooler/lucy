@@ -99,10 +99,18 @@ export class UsersService {
     return { list: rows.map(toSharedUser), total, page, pageSize };
   }
 
-  /** 查询用户详情（用户管理，仅 admin）。 */
-  async getDetail(id: string): Promise<SharedUser> {
+  /**
+   * 查询用户详情（用户管理，仅 admin）；与列表及变更操作同层级限制：
+   * 仅可查看级别严格低于自己的账号，自己、同级与上级一律拒绝，
+   * 避免列表过滤被详情接口绕过。
+   */
+  async getDetail(actor: ActorContext, id: string): Promise<SharedUser> {
+    if (actor.userId === id) {
+      throw new ForbiddenException('不能查看自己的账号详情');
+    }
     const user = await this.usersRepo.findById(id);
     if (!user) throw new NotFoundException('用户不存在');
+    this.assertOperable(actor.role, user);
     return toSharedUser(user);
   }
 

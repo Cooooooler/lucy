@@ -38,9 +38,12 @@ describe('UsersController', () => {
     );
   });
 
-  it('get 转发 id', async () => {
-    await controller.get('u1');
-    expect(service.getDetail).toHaveBeenCalledWith('u1');
+  it('get 转发操作者身份与 id', async () => {
+    await controller.get(user, 'u1');
+    expect(service.getDetail).toHaveBeenCalledWith(
+      { userId: 'admin1', role: 'admin' },
+      'u1',
+    );
   });
 
   it('updateStatus 转发操作者身份、目标 id 与 status', async () => {
