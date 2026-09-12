@@ -133,6 +133,7 @@ describe('UsersService', () => {
       page: 1,
       pageSize: 20,
       excludeId: 'admin1',
+      visibleRoles: [UserRole.User],
       status: undefined,
       keyword: undefined,
     });
@@ -143,6 +144,26 @@ describe('UsersService', () => {
       expect.objectContaining({ id: 'u1', role: UserRole.User }),
     );
     expect(result.list[0]).not.toHaveProperty('passwordHash');
+  });
+
+  it('list superadmin 仅可见 user 与 admin（排除自己、同级与上级）', async () => {
+    usersRepo.findPage.mockResolvedValue([[], 0]);
+    await service.list(superadmin, {});
+    expect(usersRepo.findPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visibleRoles: [UserRole.User, UserRole.Admin],
+      }),
+    );
+  });
+
+  it('list 操作者角色未知时传空可见角色（fail-closed，列表为空）', async () => {
+    usersRepo.findPage.mockResolvedValue([[], 0]);
+    const result = await service.list({ userId: 'ghost1', role: 'ghost' }, {});
+    expect(usersRepo.findPage).toHaveBeenCalledWith(
+      expect.objectContaining({ visibleRoles: [] }),
+    );
+    expect(result.list).toEqual([]);
+    expect(result.total).toBe(0);
   });
 
   it('getDetail 用户不存在抛 404', async () => {

@@ -27,15 +27,21 @@ export class UsersRepository {
 
   /**
    * 分页查询用户，按创建时间倒序；status/keyword 为可选过滤条件，始终排除操作者自己。
+   * visibleRoles 为空数组时直接返回空结果（无可见级别）；非空时以 IN 过滤，
+   * 使列表仅含操作者可操作的严格低级别账号。
    * 只投影对外契约所需的 8 列：passwordHash 等敏感列不进应用内存。
    */
   findPage(params: {
     page: number;
     pageSize: number;
     excludeId: string;
+    visibleRoles?: UserRole[];
     status?: number;
     keyword?: string;
   }): Promise<[User[], number]> {
+    if (params.visibleRoles && params.visibleRoles.length === 0) {
+      return Promise.resolve([[], 0]);
+    }
     const qb = this.repo
       .createQueryBuilder('u')
       .select([
@@ -51,6 +57,11 @@ export class UsersRepository {
       .orderBy('u.createdAt', 'DESC')
       .addOrderBy('u.id', 'DESC')
       .andWhere('u.id != :excludeId', { excludeId: params.excludeId });
+    if (params.visibleRoles) {
+      qb.andWhere('u.role IN (:...visibleRoles)', {
+        visibleRoles: params.visibleRoles,
+      });
+    }
     if (params.status !== undefined) {
       qb.andWhere('u.status = :status', { status: params.status });
     }

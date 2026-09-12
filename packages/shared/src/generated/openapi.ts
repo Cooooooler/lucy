@@ -34,7 +34,7 @@ export interface paths {
         };
         /**
          * 用户列表
-         * @description 分页查询用户，支持状态与关键字过滤；列表始终排除操作者自己
+         * @description 分页查询用户，支持状态与关键字过滤；仅返回操作者可操作的严格低级别账号（排除自己、同级与上级）
          */
         get: operations["UsersController_list"];
         put?: never;

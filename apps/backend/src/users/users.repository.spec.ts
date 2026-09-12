@@ -115,6 +115,28 @@ describe('UsersRepository', () => {
     });
   });
 
+  it('findPage 传 visibleRoles 时按角色 IN 过滤', async () => {
+    qb.getManyAndCount.mockResolvedValue([[], 0]);
+    const r = await build();
+    await r.findPage({
+      page: 1,
+      pageSize: 20,
+      excludeId: 'me',
+      visibleRoles: [UserRole.User],
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith('u.role IN (:...visibleRoles)', {
+      visibleRoles: [UserRole.User],
+    });
+  });
+
+  it('findPage visibleRoles 为空数组时直接返回空结果且不查库', async () => {
+    const r = await build();
+    await expect(
+      r.findPage({ page: 1, pageSize: 20, excludeId: 'me', visibleRoles: [] }),
+    ).resolves.toEqual([[], 0]);
+    expect(repo.createQueryBuilder).not.toHaveBeenCalled();
+  });
+
   it('delete 委托底层 delete', async () => {
     const r = await build();
     await r.delete('1');
