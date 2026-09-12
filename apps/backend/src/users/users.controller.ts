@@ -21,8 +21,13 @@ import {
 } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { UserRole } from '../common/roles.js';
+import { UpdateUserRoleDto } from './dto/update-user-role.dto.js';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
 import { UserListQueryDto } from './dto/user-list-query.dto.js';
+import {
+  UserListItemDto,
+  UserListResultDto,
+} from './dto/user-list-result.dto.js';
 import { User } from './user.entity.js';
 import { UsersService } from './users.service.js';
 
@@ -41,10 +46,22 @@ export class UsersController {
   @Get()
   @ApiOperation({
     summary: '用户列表',
-    description: '分页查询用户，支持状态与关键字过滤',
+    description: '分页查询用户，支持状态与关键字过滤；列表始终排除操作者自己',
   })
-  list(@Query() query: UserListQueryDto) {
-    return this.usersService.list(query);
+  @ApiResponse({ status: 200, type: UserListResultDto })
+  list(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query() query: UserListQueryDto,
+  ): Promise<{
+    list: UserListItemDto[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
+    return this.usersService.list(
+      { userId: user.userId, role: user.role },
+      query,
+    );
   }
 
   @Get(':id')
@@ -76,6 +93,32 @@ export class UsersController {
       { userId: user.userId, role: user.role },
       id,
       dto.status,
+    );
+  }
+
+  @Patch(':id/role')
+  @Roles(UserRole.SuperAdmin)
+  @ApiOperation({
+    summary: '修改用户角色',
+    description:
+      '仅 superadmin 可调用，在 user / admin 之间调整；superadmin 不经接口授予，不能修改自己',
+  })
+  @ApiResponse({ status: 200, type: User })
+  @ApiResponse({
+    status: 403,
+    description:
+      '仅 superadmin 可调用；不能修改自己、同级/更高级别账号，或授予同级/更高级别角色',
+  })
+  @ApiResponse({ status: 404, description: '用户不存在' })
+  updateRole(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateUserRoleDto,
+  ) {
+    return this.usersService.updateRole(
+      { userId: user.userId, role: user.role },
+      id,
+      dto.role,
     );
   }
 

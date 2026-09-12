@@ -25,17 +25,32 @@ export class UsersRepository {
     return user ? { status: user.status, role: user.role } : null;
   }
 
-  /** 分页查询用户，按创建时间倒序；status/keyword 为可选过滤条件。 */
+  /**
+   * 分页查询用户，按创建时间倒序；status/keyword 为可选过滤条件，始终排除操作者自己。
+   * 只投影对外契约所需的 8 列：passwordHash 等敏感列不进应用内存。
+   */
   findPage(params: {
     page: number;
     pageSize: number;
+    excludeId: string;
     status?: number;
     keyword?: string;
   }): Promise<[User[], number]> {
     const qb = this.repo
       .createQueryBuilder('u')
+      .select([
+        'u.id',
+        'u.username',
+        'u.email',
+        'u.nickname',
+        'u.status',
+        'u.role',
+        'u.createdAt',
+        'u.updatedAt',
+      ])
       .orderBy('u.createdAt', 'DESC')
-      .addOrderBy('u.id', 'DESC');
+      .addOrderBy('u.id', 'DESC')
+      .andWhere('u.id != :excludeId', { excludeId: params.excludeId });
     if (params.status !== undefined) {
       qb.andWhere('u.status = :status', { status: params.status });
     }
@@ -52,6 +67,19 @@ export class UsersRepository {
   /** 按主键删除用户；关联数据由数据库外键 ON DELETE CASCADE 清理。 */
   async delete(id: string): Promise<void> {
     await this.repo.delete({ id });
+  }
+
+  /**
+   * 单列更新状态：只写 status 列，避免“读整行改一列再 save”与并发的
+   * updateRole 互相覆盖对方字段（如禁用与改角色并发时静默撤销禁用）。
+   */
+  async updateStatus(id: string, status: number): Promise<void> {
+    await this.repo.update({ id }, { status });
+  }
+
+  /** 单列更新角色：只写 role 列，同 updateStatus 的并发覆盖考量。 */
+  async updateRole(id: string, role: UserRole): Promise<void> {
+    await this.repo.update({ id }, { role });
   }
 
   findByUsername(username: string): Promise<User | null> {

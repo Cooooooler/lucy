@@ -34,7 +34,7 @@ export interface paths {
         };
         /**
          * 用户列表
-         * @description 分页查询用户，支持状态与关键字过滤
+         * @description 分页查询用户，支持状态与关键字过滤；列表始终排除操作者自己
          */
         get: operations["UsersController_list"];
         put?: never;
@@ -84,6 +84,26 @@ export interface paths {
          * @description 禁用后该用户已签发的令牌立即不可用；仅可操作级别低于自己的账号（admin 只能操作普通用户，superadmin 可操作管理员），不能操作自己
          */
         patch: operations["UsersController_updateStatus"];
+        trace?: never;
+    };
+    "/users/{id}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 修改用户角色
+         * @description 仅 superadmin 可调用，在 user / admin 之间调整；superadmin 不经接口授予，不能修改自己
+         */
+        patch: operations["UsersController_updateRole"];
         trace?: never;
     };
     "/auth/register": {
@@ -426,6 +446,61 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        UserListItemDto: {
+            /** @description 用户 ID */
+            id: string;
+            /**
+             * @description 用户名
+             * @example lucy
+             */
+            username: string;
+            /**
+             * @description 邮箱
+             * @example lucy@example.com
+             */
+            email: string;
+            /** @description 昵称 */
+            nickname: string | null;
+            /**
+             * @description 状态：1 正常，0 禁用
+             * @example 1
+             */
+            status: number;
+            /**
+             * @description 角色：user 普通用户，admin 管理员，superadmin 超级管理员
+             * @enum {string}
+             */
+            role: "user" | "admin" | "superadmin";
+            /**
+             * @description 创建时间
+             * @example 2026-08-08T00:00:00.000Z
+             */
+            createdAt: string;
+            /**
+             * @description 更新时间
+             * @example 2026-08-08T00:00:00.000Z
+             */
+            updatedAt: string;
+        };
+        UserListResultDto: {
+            /** @description 用户列表 */
+            list: components["schemas"]["UserListItemDto"][];
+            /**
+             * @description 总条数
+             * @example 0
+             */
+            total: number;
+            /**
+             * @description 当前页码
+             * @example 1
+             */
+            page: number;
+            /**
+             * @description 每页条数
+             * @example 20
+             */
+            pageSize: number;
+        };
         User: {
             /** @description 用户 ID */
             id: string;
@@ -475,6 +550,14 @@ export interface components {
              * @enum {number}
              */
             status: 1 | 0;
+        };
+        UpdateUserRoleDto: {
+            /**
+             * @description 目标角色：仅允许 user / admin；superadmin 只能经数据库直接提升，不经接口授予
+             * @example admin
+             * @enum {string}
+             */
+            role: "user" | "admin";
         };
         RegisterDto: {
             /**
@@ -766,7 +849,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["UserListResultDto"];
+                };
             };
         };
     };
@@ -849,6 +934,45 @@ export interface operations {
                 };
             };
             /** @description 不能操作自己或同级/更高级别的账号 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 用户不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UsersController_updateRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserRoleDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description 仅 superadmin 可调用；不能修改自己、同级/更高级别账号，或授予同级/更高级别角色 */
             403: {
                 headers: {
                     [name: string]: unknown;

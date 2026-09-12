@@ -5,6 +5,7 @@ import { UsersRepository } from './users.repository.js';
 
 describe('UsersRepository', () => {
   const qb = {
+    select: vi.fn().mockReturnThis(),
     orderBy: vi.fn().mockReturnThis(),
     addOrderBy: vi.fn().mockReturnThis(),
     andWhere: vi.fn().mockReturnThis(),
@@ -19,6 +20,7 @@ describe('UsersRepository', () => {
     create: vi.fn(),
     save: vi.fn(),
     delete: vi.fn(),
+    update: vi.fn(),
   };
 
   async function build(): Promise<UsersRepository> {
@@ -62,22 +64,49 @@ describe('UsersRepository', () => {
     await expect(r.findAccessById('1')).resolves.toBeNull();
   });
 
-  it('findPage 分页且无过滤时不追加 where', async () => {
+  it('findPage 始终排除操作者自己，无其它过滤时仅该条件', async () => {
     qb.getManyAndCount.mockResolvedValue([[{ id: '1' }], 1]);
     const r = await build();
-    await expect(r.findPage({ page: 2, pageSize: 10 })).resolves.toEqual([
-      [{ id: '1' }],
-      1,
-    ]);
+    await expect(
+      r.findPage({ page: 2, pageSize: 10, excludeId: 'me' }),
+    ).resolves.toEqual([[{ id: '1' }], 1]);
     expect(qb.skip).toHaveBeenCalledWith(10);
     expect(qb.take).toHaveBeenCalledWith(10);
-    expect(qb.andWhere).not.toHaveBeenCalled();
+    expect(qb.andWhere).toHaveBeenCalledTimes(1);
+    expect(qb.andWhere).toHaveBeenCalledWith('u.id != :excludeId', {
+      excludeId: 'me',
+    });
+  });
+
+  it('findPage 只投影对外契约列，不含 passwordHash', async () => {
+    qb.getManyAndCount.mockResolvedValue([[], 0]);
+    const r = await build();
+    await r.findPage({ page: 1, pageSize: 20, excludeId: 'me' });
+    expect(qb.select).toHaveBeenCalledWith([
+      'u.id',
+      'u.username',
+      'u.email',
+      'u.nickname',
+      'u.status',
+      'u.role',
+      'u.createdAt',
+      'u.updatedAt',
+    ]);
   });
 
   it('findPage 带 status 与 keyword 时追加过滤条件', async () => {
     qb.getManyAndCount.mockResolvedValue([[], 0]);
     const r = await build();
-    await r.findPage({ page: 1, pageSize: 20, status: 0, keyword: 'a' });
+    await r.findPage({
+      page: 1,
+      pageSize: 20,
+      excludeId: 'me',
+      status: 0,
+      keyword: 'a',
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith('u.id != :excludeId', {
+      excludeId: 'me',
+    });
     expect(qb.andWhere).toHaveBeenCalledWith('u.status = :status', {
       status: 0,
     });
@@ -90,6 +119,21 @@ describe('UsersRepository', () => {
     const r = await build();
     await r.delete('1');
     expect(repo.delete).toHaveBeenCalledWith({ id: '1' });
+  });
+
+  it('updateStatus 只写 status 单列', async () => {
+    const r = await build();
+    await r.updateStatus('1', 0);
+    expect(repo.update).toHaveBeenCalledWith({ id: '1' }, { status: 0 });
+  });
+
+  it('updateRole 只写 role 单列', async () => {
+    const r = await build();
+    await r.updateRole('1', UserRole.Admin);
+    expect(repo.update).toHaveBeenCalledWith(
+      { id: '1' },
+      { role: UserRole.Admin },
+    );
   });
 
   it('findByUsername 委托 findOneBy', async () => {

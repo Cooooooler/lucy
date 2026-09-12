@@ -17,6 +17,7 @@ import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutAboutRouteImport } from './routes/_layout/about'
 import { Route as LayoutChatRouteImport } from './routes/_layout/chat'
 import { Route as LayoutKnowledgeRouteImport } from './routes/_layout/knowledge'
+import { Route as LayoutUsersRouteImport } from './routes/_layout/users'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/_auth',
@@ -56,6 +57,11 @@ const LayoutKnowledgeRoute = LayoutKnowledgeRouteImport.update({
   path: '/knowledge',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutUsersRoute = LayoutUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => LayoutRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof LayoutIndexRoute
@@ -64,6 +70,7 @@ export interface FileRoutesByFullPath {
   '/about': typeof LayoutAboutRoute
   '/chat': typeof LayoutChatRoute
   '/knowledge': typeof LayoutKnowledgeRoute
+  '/users': typeof LayoutUsersRoute
 }
 export interface FileRoutesByTo {
   '/': typeof LayoutIndexRoute
@@ -72,6 +79,7 @@ export interface FileRoutesByTo {
   '/about': typeof LayoutAboutRoute
   '/chat': typeof LayoutChatRoute
   '/knowledge': typeof LayoutKnowledgeRoute
+  '/users': typeof LayoutUsersRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -82,13 +90,16 @@ export interface FileRoutesById {
   '/_layout/about': typeof LayoutAboutRoute
   '/_layout/chat': typeof LayoutChatRoute
   '/_layout/knowledge': typeof LayoutKnowledgeRoute
+  '/_layout/users': typeof LayoutUsersRoute
   '/_layout/': typeof LayoutIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/register' | '/about' | '/chat' | '/knowledge'
+  fullPaths:
+    '/' | '/login' | '/register' | '/about' | '/chat' | '/knowledge' | '/users'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/register' | '/about' | '/chat' | '/knowledge'
+  to:
+    '/' | '/login' | '/register' | '/about' | '/chat' | '/knowledge' | '/users'
   id:
     | '__root__'
     | '/_auth'
@@ -98,6 +109,7 @@ export interface FileRouteTypes {
     | '/_layout/about'
     | '/_layout/chat'
     | '/_layout/knowledge'
+    | '/_layout/users'
     | '/_layout/'
   fileRoutesById: FileRoutesById
 }
@@ -164,6 +176,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutKnowledgeRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/users': {
+      id: '/_layout/users'
+      path: '/users'
+      fullPath: '/users'
+      preLoaderRoute: typeof LayoutUsersRouteImport
+      parentRoute: typeof LayoutRoute
+    }
   }
 }
 
@@ -183,6 +202,7 @@ interface LayoutRouteChildren {
   LayoutAboutRoute: typeof LayoutAboutRoute
   LayoutChatRoute: typeof LayoutChatRoute
   LayoutKnowledgeRoute: typeof LayoutKnowledgeRoute
+  LayoutUsersRoute: typeof LayoutUsersRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
 }
 
@@ -190,6 +210,7 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAboutRoute: LayoutAboutRoute,
   LayoutChatRoute: LayoutChatRoute,
   LayoutKnowledgeRoute: LayoutKnowledgeRoute,
+  LayoutUsersRoute: LayoutUsersRoute,
   LayoutIndexRoute: LayoutIndexRoute,
 }
 
