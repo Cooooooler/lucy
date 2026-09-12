@@ -54,10 +54,13 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 ## PR 评审流水线
 
-两条互补的评审链，密钥共用 `DEEPSEEK_KEY`（仓库 Settings > Secrets）：
+两条互补的评审链。仓库 Settings > Secrets 需配置：
 
-- **PR-Agent**（`.github/workflows/pr-agent.yml` + `.pr_agent.toml`）：评论触发（`/review`、`/describe`、`/improve`、`/ask`），配置从默认分支读取。`.pr_agent.toml` 里配置了 `[skills]`，但 PR-Agent 是单次模型调用、没有文件读取工具，技能只能在拼 prompt 时**静态内联**，靠 `max_skills_tokens` 卡总量。
-- **Skill Review**（`.github/workflows/pr-skill-review.yml`）：PR 改动命中 `apps/frontend/**` 或 `apps/backend/**` 时自动触发（仅同仓库分支，fork PR 跳过）。用 Command Code CLI headless（BYOK + `--local-only`）**按路径加载完整技能**，模型先看 `name + description`，再按需读 `SKILL.md` 与 `rules/*.md`：前端用 `vercel-react-best-practices`，后端用 `nestjs-best-practices`。结果发一条持久评论（marker `<!-- pr-skill-review -->`）。
+- `DEEPSEEK_KEY` —— 两条链共用的模型 key（BYOK，DeepSeek）。
+- `COMMAND_CODE_API_KEY` —— 仅 Skill Review 用，Command Code CLI 自身鉴权；headless 下必须先登录（`--local-only` + BYOK 也不例外），模型调用仍走上面的 BYOK key，不消耗 Command Code 额度。在 Studio 生成。
+
+- **PR-Agent**（`.github/workflows/pr-agent.yml` + `.pr_agent.toml`）：评论触发（`/review`、`/describe`、`/improve`、`/ask`），配置从默认分支读取。它原生支持 `[skills]`，但为单次模型调用、没有文件读取工具，技能只能静态内联、受 `max_skills_tokens` 限制，因此**未启用**。
+- **Skill Review**（`.github/workflows/pr-skill-review.yml`）：PR 改动命中 `apps/frontend/**` 或 `apps/backend/**` 时自动触发（仅同仓库分支，fork PR 跳过）。用 Command Code CLI headless（`COMMAND_CODE_API_KEY` 鉴权 + BYOK + `--local-only`）**按路径加载完整技能**，模型先看 `name + description`，再按需读 `SKILL.md` 与 `rules/*.md`：前端 `vercel-react-best-practices`，后端 `nestjs-best-practices`。结果发一条持久评论（marker `<!-- pr-skill-review -->`）。
 
 技能放在 `.github/skill-review/skills/`（入库；`.commandcode/` 与 `.claude/` 已被 gitignore，CI 用不了）。该目录已加入 `.prettierignore`，上游规则文件保持原样。更新技能直接替换目录内容即可。
 
