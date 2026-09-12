@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
+import { UserRole } from '../common/roles.js';
 import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
 
@@ -9,6 +10,7 @@ describe('UsersController', () => {
     list: vi.fn(),
     getDetail: vi.fn(),
     updateStatus: vi.fn(),
+    updateRole: vi.fn(),
     remove: vi.fn(),
   };
 
@@ -27,10 +29,13 @@ describe('UsersController', () => {
     controller = moduleRef.get(UsersController);
   });
 
-  it('list 转发 query', async () => {
+  it('list 转发操作者身份与 query', async () => {
     const query = { page: 2, pageSize: 10, status: 0, keyword: 'a' };
-    await controller.list(query);
-    expect(service.list).toHaveBeenCalledWith(query);
+    await controller.list(user, query);
+    expect(service.list).toHaveBeenCalledWith(
+      { userId: 'admin1', role: 'admin' },
+      query,
+    );
   });
 
   it('get 转发 id', async () => {
@@ -44,6 +49,15 @@ describe('UsersController', () => {
       { userId: 'admin1', role: 'admin' },
       'u1',
       0,
+    );
+  });
+
+  it('updateRole 转发操作者身份、目标 id 与 role', async () => {
+    await controller.updateRole(user, 'u1', { role: UserRole.Admin });
+    expect(service.updateRole).toHaveBeenCalledWith(
+      { userId: 'admin1', role: 'admin' },
+      'u1',
+      UserRole.Admin,
     );
   });
 

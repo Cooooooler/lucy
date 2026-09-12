@@ -25,17 +25,19 @@ export class UsersRepository {
     return user ? { status: user.status, role: user.role } : null;
   }
 
-  /** 分页查询用户，按创建时间倒序；status/keyword 为可选过滤条件。 */
+  /** 分页查询用户，按创建时间倒序；status/keyword 为可选过滤条件，始终排除操作者自己。 */
   findPage(params: {
     page: number;
     pageSize: number;
+    excludeId: string;
     status?: number;
     keyword?: string;
   }): Promise<[User[], number]> {
     const qb = this.repo
       .createQueryBuilder('u')
       .orderBy('u.createdAt', 'DESC')
-      .addOrderBy('u.id', 'DESC');
+      .addOrderBy('u.id', 'DESC')
+      .andWhere('u.id != :excludeId', { excludeId: params.excludeId });
     if (params.status !== undefined) {
       qb.andWhere('u.status = :status', { status: params.status });
     }

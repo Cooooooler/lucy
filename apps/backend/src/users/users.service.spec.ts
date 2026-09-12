@@ -124,12 +124,13 @@ describe('UsersService', () => {
     expect(usersRepo.findByUsername).toHaveBeenCalledWith('a');
   });
 
-  it('list 应用默认分页并返回剔除敏感字段的契约视图', async () => {
+  it('list 应用默认分页、排除操作者自己并返回剔除敏感字段的契约视图', async () => {
     usersRepo.findPage.mockResolvedValue([[user], 1]);
-    const result = await service.list({});
+    const result = await service.list(admin, {});
     expect(usersRepo.findPage).toHaveBeenCalledWith({
       page: 1,
       pageSize: 20,
+      excludeId: 'admin1',
       status: undefined,
       keyword: undefined,
     });
@@ -220,6 +221,68 @@ describe('UsersService', () => {
       ForbiddenException,
     );
     expect(usersRepo.findById).not.toHaveBeenCalled();
+  });
+
+  it('updateRole superadmin 把普通用户提为管理员：保存并失效缓存', async () => {
+    usersRepo.findById.mockResolvedValue({ ...user });
+    usersRepo.save.mockImplementation((u: User) => Promise.resolve(u));
+    const result = await service.updateRole(superadmin, 'u1', UserRole.Admin);
+    expect(result.role).toBe(UserRole.Admin);
+    expect(usersRepo.save).toHaveBeenCalled();
+    expect(userAccess.invalidate).toHaveBeenCalledWith('u1');
+    expect(logger.log).toHaveBeenCalled();
+  });
+
+  it('updateRole superadmin 把管理员降为普通用户：允许', async () => {
+    usersRepo.findById.mockResolvedValue({ ...user, role: UserRole.Admin });
+    usersRepo.save.mockImplementation((u: User) => Promise.resolve(u));
+    const result = await service.updateRole(superadmin, 'u1', UserRole.User);
+    expect(result.role).toBe(UserRole.User);
+    expect(userAccess.invalidate).toHaveBeenCalledWith('u1');
+  });
+
+  it('updateRole 角色相同时不保存、不失效缓存', async () => {
+    usersRepo.findById.mockResolvedValue({ ...user });
+    const result = await service.updateRole(superadmin, 'u1', UserRole.User);
+    expect(usersRepo.save).not.toHaveBeenCalled();
+    expect(userAccess.invalidate).not.toHaveBeenCalled();
+    expect(result.role).toBe(UserRole.User);
+  });
+
+  it('updateRole 用户不存在抛 404', async () => {
+    usersRepo.findById.mockResolvedValue(null);
+    await expect(
+      service.updateRole(superadmin, 'x', UserRole.Admin),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('updateRole 修改自己抛 403 且不触达仓储', async () => {
+    await expect(
+      service.updateRole(admin, 'admin1', UserRole.User),
+    ).rejects.toThrow(ForbiddenException);
+    expect(usersRepo.findById).not.toHaveBeenCalled();
+    expect(usersRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('updateRole 非 superadmin 调用一律抛 403 且不保存（纵深防御）', async () => {
+    usersRepo.findById.mockResolvedValue({ ...user });
+    await expect(
+      service.updateRole(admin, 'u1', UserRole.User),
+    ).rejects.toThrow(ForbiddenException);
+    expect(usersRepo.save).not.toHaveBeenCalled();
+    expect(userAccess.invalidate).not.toHaveBeenCalled();
+  });
+
+  it('updateRole 目标是 superadmin 时抛 403 且不保存', async () => {
+    usersRepo.findById.mockResolvedValue({
+      ...user,
+      role: UserRole.SuperAdmin,
+    });
+    await expect(
+      service.updateRole(superadmin, 'u1', UserRole.User),
+    ).rejects.toThrow(ForbiddenException);
+    expect(usersRepo.save).not.toHaveBeenCalled();
+    expect(userAccess.invalidate).not.toHaveBeenCalled();
   });
 
   it('remove admin 删除普通用户：删除并失效缓存', async () => {

@@ -7,7 +7,7 @@ import {
 import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
-import { roleRank } from '../common/roles.js';
+import { ROLE_RANK, roleRank, UserRole } from '../common/roles.js';
 import { PasswordService } from '../password/password.service.js';
 import { UserAccessService } from './user-access.service.js';
 import { User } from './user.entity.js';
@@ -71,13 +71,16 @@ export class UsersService {
     }
   }
 
-  /** 分页查询用户（用户管理，仅 admin）。 */
-  async list(query: {
-    page?: number;
-    pageSize?: number;
-    status?: number;
-    keyword?: string;
-  }): Promise<{
+  /** 分页查询用户（用户管理，仅 admin）；列表始终排除操作者自己（自己不可被管理）。 */
+  async list(
+    actor: ActorContext,
+    query: {
+      page?: number;
+      pageSize?: number;
+      status?: number;
+      keyword?: string;
+    },
+  ): Promise<{
     list: SharedUser[];
     total: number;
     page: number;
@@ -88,6 +91,7 @@ export class UsersService {
     const [rows, total] = await this.usersRepo.findPage({
       page,
       pageSize,
+      excludeId: actor.userId,
       status: query.status,
       keyword: query.keyword,
     });
@@ -124,6 +128,45 @@ export class UsersService {
     await this.userAccess.invalidate(id);
     this.logger.log(
       `user status update userId=${id} status=${status}`,
+      UsersService.name,
+    );
+    return toSharedUser(saved);
+  }
+
+  /**
+   * 修改用户角色（用户管理，仅 superadmin 可调用，由路由层 @Roles 保证）；
+   * 变更后失效缓存，使旧角色权限立即不可用。
+   * 目标须严格低于操作者且新角色也须严格低于操作者：
+   * superadmin 可在 user / admin 之间调整；superadmin 不经接口授予（DTO 白名单已拦）。
+   */
+  async updateRole(
+    actor: ActorContext,
+    id: string,
+    role: UserRole,
+  ): Promise<SharedUser> {
+    if (actor.userId === id) {
+      throw new ForbiddenException('不能修改自己的角色');
+    }
+    const user = await this.usersRepo.findById(id);
+    if (!user) throw new NotFoundException('用户不存在');
+    // 仅 superadmin 可改角色（路由层 @Roles 已拦一道，这里纵深防御直接调用 service 的场景）；
+    // 经 roleRank 比较而非字符串直比：ActorContext.role 为 string，直比触发枚举比较 lint 规则，
+    // 且未知角色经 rank 为 null 同样被拒绝（fail-closed）
+    if (roleRank(actor.role) !== ROLE_RANK[UserRole.SuperAdmin]) {
+      throw new ForbiddenException('仅 superadmin 可修改用户角色');
+    }
+    this.assertOperable(actor.role, user);
+    const actorRank = roleRank(actor.role);
+    const nextRank = roleRank(role);
+    if (actorRank === null || nextRank === null || nextRank >= actorRank) {
+      throw new ForbiddenException('不能授予同级或更高级别的角色');
+    }
+    if (user.role === role) return toSharedUser(user);
+    user.role = role;
+    const saved = await this.usersRepo.save(user);
+    await this.userAccess.invalidate(id);
+    this.logger.log(
+      `user role update userId=${id} role=${role}`,
       UsersService.name,
     );
     return toSharedUser(saved);

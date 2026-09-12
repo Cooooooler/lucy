@@ -62,22 +62,33 @@ describe('UsersRepository', () => {
     await expect(r.findAccessById('1')).resolves.toBeNull();
   });
 
-  it('findPage 分页且无过滤时不追加 where', async () => {
+  it('findPage 始终排除操作者自己，无其它过滤时仅该条件', async () => {
     qb.getManyAndCount.mockResolvedValue([[{ id: '1' }], 1]);
     const r = await build();
-    await expect(r.findPage({ page: 2, pageSize: 10 })).resolves.toEqual([
-      [{ id: '1' }],
-      1,
-    ]);
+    await expect(
+      r.findPage({ page: 2, pageSize: 10, excludeId: 'me' }),
+    ).resolves.toEqual([[{ id: '1' }], 1]);
     expect(qb.skip).toHaveBeenCalledWith(10);
     expect(qb.take).toHaveBeenCalledWith(10);
-    expect(qb.andWhere).not.toHaveBeenCalled();
+    expect(qb.andWhere).toHaveBeenCalledTimes(1);
+    expect(qb.andWhere).toHaveBeenCalledWith('u.id != :excludeId', {
+      excludeId: 'me',
+    });
   });
 
   it('findPage 带 status 与 keyword 时追加过滤条件', async () => {
     qb.getManyAndCount.mockResolvedValue([[], 0]);
     const r = await build();
-    await r.findPage({ page: 1, pageSize: 20, status: 0, keyword: 'a' });
+    await r.findPage({
+      page: 1,
+      pageSize: 20,
+      excludeId: 'me',
+      status: 0,
+      keyword: 'a',
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith('u.id != :excludeId', {
+      excludeId: 'me',
+    });
     expect(qb.andWhere).toHaveBeenCalledWith('u.status = :status', {
       status: 0,
     });
