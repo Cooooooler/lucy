@@ -1,4 +1,5 @@
 import { logoutApi } from '@/api/auth.ts';
+import { hasMinRole } from '@/auth/roles.ts';
 import { authStore, logout } from '@/stores/auth.ts';
 import { ThemeSwitcher } from '@/theme';
 import {
@@ -6,6 +7,7 @@ import {
   HomeOutlined,
   InfoCircleOutlined,
   OllamaFilled,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { PageContainer, ProLayout } from '@ant-design/pro-components';
 import {
@@ -41,6 +43,7 @@ const menuData = {
     { path: '/about', name: '关于', icon: <InfoCircleOutlined /> },
     { path: '/knowledge', name: '知识库', icon: <DatabaseOutlined /> },
     { path: '/chat', name: '聊天机器人', icon: <OllamaFilled /> },
+    { path: '/users', name: '用户管理', icon: <TeamOutlined /> },
   ],
 };
 
@@ -70,6 +73,11 @@ function LayoutComponent() {
     logout();
     await navigate({ to: '/login' });
   };
+
+  // 用户管理菜单仅 admin 及以上可见（真正的权限由后端 RolesGuard 与路由守卫执行）
+  const routes = menuData.routes.filter(
+    (r) => r.path !== '/users' || hasMinRole(user?.role, 'admin'),
+  );
 
   const userPanel = (
     <div className="flex w-60 flex-col gap-3 rounded-xl bg-(--ant-color-bg-elevated) p-4">
@@ -120,7 +128,7 @@ function LayoutComponent() {
       fixedHeader
       menu={{ locale: false }}
       location={{ pathname }}
-      route={menuData}
+      route={{ ...menuData, routes }}
       menuItemRender={renderMenuItem}
       actionsRender={() => [
         <ThemeSwitcher key="theme" className="mx-1!" />,
