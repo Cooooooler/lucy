@@ -2,6 +2,7 @@ import { API_VERSION } from '@lucy/shared';
 import {
   BadRequestException,
   Body,
+  ClassSerializerInterceptor,
   Controller,
   Delete,
   Get,
@@ -28,6 +29,10 @@ import {
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { DocumentListQueryDto } from './dto/document-list-query.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
+import {
+  DocumentListResultDto,
+  KnowledgeListResultDto,
+} from './dto/knowledge-list-result.dto.js';
 import { LikeResultDto } from './dto/like-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
 import { KnowledgeBase } from './entities/knowledge-base.entity.js';
@@ -36,6 +41,11 @@ import { KnowledgeService } from './knowledge.service.js';
 
 @ApiTags('knowledge')
 @ApiBearerAuth()
+// 序列化白名单（作用域限定在本控制器）：实体即对外契约，但实体上的内部字段
+// （关系对象如 owner/knowledgeBase/file）带 `@Exclude()`，由 ClassSerializerInterceptor
+// 在出站时剔除。这样「实体新增内部字段」不会自动泄进响应；代价是新增内部字段时
+// 必须同步加 `@Exclude()`（见各实体与 knowledge-list-result.dto.ts 的说明）。
+@UseInterceptors(ClassSerializerInterceptor)
 @Controller({ path: 'knowledge', version: API_VERSION })
 export class KnowledgeController {
   constructor(private readonly knowledgeService: KnowledgeService) {}
@@ -51,11 +61,15 @@ export class KnowledgeController {
   }
 
   @Get()
-  @ApiOperation({ summary: '知识库列表', description: '返回自己的 + 公开的' })
+  @ApiOperation({
+    summary: '知识库列表（游标分页）',
+    description: '返回自己的 + 公开的；用响应中的 nextCursor 翻页',
+  })
+  @ApiResponse({ status: 200, type: KnowledgeListResultDto })
   list(
     @CurrentUser() user: CurrentUserPayload,
     @Query() query: KnowledgeListQueryDto,
-  ) {
+  ): Promise<KnowledgeListResultDto> {
     return this.knowledgeService.list(user.userId, query);
   }
 
@@ -130,12 +144,13 @@ export class KnowledgeController {
   }
 
   @Get(':kbId/documents')
-  @ApiOperation({ summary: '某知识库文档列表' })
+  @ApiOperation({ summary: '某知识库文档列表（游标分页）' })
+  @ApiResponse({ status: 200, type: DocumentListResultDto })
   listDocuments(
     @CurrentUser() user: CurrentUserPayload,
     @Param('kbId', ParseUUIDPipe) kbId: string,
     @Query() query: DocumentListQueryDto,
-  ) {
+  ): Promise<DocumentListResultDto> {
     return this.knowledgeService.listDocuments(user.userId, kbId, query);
   }
 

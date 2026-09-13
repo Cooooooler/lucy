@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
+import { decodeCursor, encodeCursor } from './cursor.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
@@ -23,6 +24,12 @@ vi.mock('./content-extractor.js', () => ({
 
 import { extractContent } from './content-extractor.js';
 import { detectFileType } from './magic-bytes.js';
+
+/** 实体主键是 uuid 列：游标里的 id 必须是合法 UUID，否则解码即 400 */
+const KB_ID = '0f8fad5b-d9cb-469f-a165-70867728950e';
+const DOC_ID = '1b6f4a2c-3d5e-4f70-8a91-b2c3d4e5f607';
+/** 第二页游标里用的另一个合法 UUID */
+const OTHER_ID = '2c7a5b3d-4e6f-4081-9ba2-c3d4e5f60718';
 
 describe('KnowledgeService', () => {
   const kbRepo = {
@@ -120,24 +127,28 @@ describe('KnowledgeService', () => {
 
   const kb = (over = {}) =>
     Object.assign(new KnowledgeBase(), {
-      id: 'kb1',
+      id: KB_ID,
       ownerId: 'u1',
       visibility: KnowledgeBaseVisibility.Private,
       name: '产品文档',
       description: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
       ...over,
     });
   const doc = (over = {}) =>
     Object.assign(new KnowledgeDocument(), {
-      id: 'd1',
+      id: DOC_ID,
       knowledgeBaseId: 'kb1',
       fileId: 'f1',
       title: 'a',
       content: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
       ...over,
     });
 
-  // 可链式 QueryBuilder mock：记录 where/orWhere/andWhere 等调用参数，供 list 用
+  // 可链式 QueryBuilder mock：记录 where/andWhere 等调用参数，供 list 用
   const makeKbQb = () => {
     const qb = {
       where: vi.fn(),
@@ -145,18 +156,16 @@ describe('KnowledgeService', () => {
       andWhere: vi.fn(),
       orderBy: vi.fn(),
       addOrderBy: vi.fn(),
-      skip: vi.fn(),
       take: vi.fn(),
-      getManyAndCount: vi.fn(),
+      getMany: vi.fn(),
     };
     qb.where.mockReturnValue(qb);
     qb.orWhere.mockReturnValue(qb);
     qb.andWhere.mockReturnValue(qb);
     qb.orderBy.mockReturnValue(qb);
     qb.addOrderBy.mockReturnValue(qb);
-    qb.skip.mockReturnValue(qb);
     qb.take.mockReturnValue(qb);
-    qb.getManyAndCount.mockResolvedValue([[kb()], 1]);
+    qb.getMany.mockResolvedValue([kb()]);
     return qb;
   };
 
@@ -167,19 +176,29 @@ describe('KnowledgeService', () => {
       andWhere: vi.fn(),
       orderBy: vi.fn(),
       addOrderBy: vi.fn(),
-      skip: vi.fn(),
       take: vi.fn(),
-      getManyAndCount: vi.fn(),
+      getMany: vi.fn(),
     };
     qb.where.mockReturnValue(qb);
     qb.andWhere.mockReturnValue(qb);
     qb.orderBy.mockReturnValue(qb);
     qb.addOrderBy.mockReturnValue(qb);
-    qb.skip.mockReturnValue(qb);
     qb.take.mockReturnValue(qb);
-    qb.getManyAndCount.mockResolvedValue([[doc()], 1]);
+    qb.getMany.mockResolvedValue([doc()]);
     return qb;
   };
+
+  /** 拼接 query builder 上记录到的 SQL 片段，用于断言整体性质（如「不再含 date_trunc」） */
+  const sqlOf = (...fns: { mock: { calls: unknown[][] } }[]) =>
+    fns
+      .flatMap((fn) => fn.mock.calls)
+      .flat()
+      .filter((arg): arg is string => typeof arg === 'string')
+      .join(' ');
+
+  /** 生成第 i 个合法 UUID（仅供断言使用，不要求真实版本位） */
+  const uuid = (i: number) =>
+    `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
 
   it('create 保存知识库（默认 private）', async () => {
     kbRepo.save.mockResolvedValue(kb());
@@ -351,9 +370,9 @@ describe('KnowledgeService', () => {
     expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
   });
 
-  it('list 默认可见性：属主或公开库（括号包裹 OR），返回 list/total/page/pageSize，附带 likeCount/isLiked', async () => {
+  it('list 默认可见性：属主或公开库（括号包裹 OR），返回 list/nextCursor，附带 likeCount/isLiked', async () => {
     const qb = makeKbQb();
-    qb.getManyAndCount.mockResolvedValue([[kb()], 1]);
+    qb.getMany.mockResolvedValue([kb()]);
     kbRepo.createQueryBuilder.mockReturnValue(qb);
     const likeQb = makeLikeQb();
     likeRepo.createQueryBuilder.mockReturnValue(likeQb);
@@ -363,17 +382,70 @@ describe('KnowledgeService', () => {
       { uid: 'u1', pub: KnowledgeBaseVisibility.Public },
     );
     expect(qb.orWhere).not.toHaveBeenCalled();
-    expect(qb.getManyAndCount).toHaveBeenCalled();
+    expect(qb.getMany).toHaveBeenCalled();
+    // 多取一条判断是否有下一页
+    expect(qb.take).toHaveBeenCalledWith(21);
     expect(result).toEqual({
       list: [expect.any(KnowledgeBase)],
-      total: 1,
-      page: 1,
-      pageSize: 20,
+      nextCursor: null,
     });
     // 验证 like 回写
     expect(likeRepo.createQueryBuilder).toHaveBeenCalledTimes(2);
     expect(result.list[0].likeCount).toBe(0);
     expect(result.list[0].isLiked).toBe(false);
+  });
+
+  it('list 排序键为不可变的 created_at 且直接用原始列（不再毫秒截断）', async () => {
+    const qb = makeKbQb();
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
+    await service.list('u1', { cursor: encodeCursor(new Date(), uuid(9)) });
+    expect(qb.orderBy).toHaveBeenCalledWith('kb.created_at', 'DESC');
+    expect(qb.addOrderBy).toHaveBeenCalledWith('kb.id', 'DESC');
+    // 毫秒截断会包裹排序列与过滤列，使索引失效；现在两处都用原始列
+    expect(
+      sqlOf(qb.where, qb.andWhere, qb.orderBy, qb.addOrderBy),
+    ).not.toContain('date_trunc');
+  });
+
+  it('list 结果多于 limit 时裁到 limit 并返回下一页游标', async () => {
+    const qb = makeKbQb();
+    const rows = Array.from({ length: 3 }, (_, i) =>
+      kb({ id: uuid(i), createdAt: new Date(2026, 0, 1, 0, 0, i) }),
+    );
+    qb.getMany.mockResolvedValue(rows);
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
+    const result = await service.list('u1', { limit: 2 });
+    expect(qb.take).toHaveBeenCalledWith(3);
+    expect(result.list).toHaveLength(2);
+    expect(result.nextCursor).not.toBeNull();
+    // 游标指向本页最后一条（第 2 条），且编码的是 createdAt（不可变排序键）
+    const decoded = decodeCursor(result.nextCursor!);
+    expect(decoded.id).toBe(uuid(1));
+    expect(decoded.timestamp.toISOString()).toBe(
+      rows[1].createdAt.toISOString(),
+    );
+  });
+
+  it('list 带 cursor：解码为行比较 keyset 条件，非法游标抛 400', async () => {
+    const qb = makeKbQb();
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
+    const cursor = encodeCursor(new Date('2026-01-01T00:00:00.000Z'), OTHER_ID);
+    await service.list('u1', { cursor });
+    // 行比较（tuple comparison）让 Postgres 能把它优化为一次索引扫描
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      '(kb.created_at, kb.id) < (:cursorTs, :cursorId)',
+      {
+        cursorTs: new Date('2026-01-01T00:00:00.000Z'),
+        cursorId: OTHER_ID,
+      },
+    );
+
+    await expect(
+      service.list('u1', { cursor: 'not-a-cursor' }),
+    ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
   });
 
   it('list visibility=private：属主私有库', async () => {
@@ -550,12 +622,50 @@ describe('KnowledgeService', () => {
     expect(qb.where).toHaveBeenCalledWith('d.knowledgeBaseId = :kbId', {
       kbId: 'kb1',
     });
+    expect(qb.take).toHaveBeenCalledWith(21);
     expect(result).toEqual({
       list: [expect.any(KnowledgeDocument)],
-      total: 1,
-      page: 1,
-      pageSize: 20,
+      nextCursor: null,
     });
+  });
+
+  it('listDocuments 带 cursor：解码为行比较 keyset 条件（排序键为 created_at）', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    const qb = makeDocQb();
+    docRepo.createQueryBuilder.mockReturnValue(qb);
+    const cursor = encodeCursor(new Date('2026-01-01T00:00:00.000Z'), OTHER_ID);
+    await service.listDocuments('u1', 'kb1', { cursor, limit: 5 });
+    expect(qb.take).toHaveBeenCalledWith(6);
+    expect(qb.orderBy).toHaveBeenCalledWith('d.created_at', 'DESC');
+    expect(qb.addOrderBy).toHaveBeenCalledWith('d.id', 'DESC');
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      '(d.created_at, d.id) < (:cursorTs, :cursorId)',
+      {
+        cursorTs: new Date('2026-01-01T00:00:00.000Z'),
+        cursorId: OTHER_ID,
+      },
+    );
+    // 毫秒截断会包裹排序列与过滤列，使索引失效
+    expect(
+      sqlOf(qb.where, qb.andWhere, qb.orderBy, qb.addOrderBy),
+    ).not.toContain('date_trunc');
+  });
+
+  it('listDocuments 结果多于 limit 时游标编码基于 createdAt', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    const qb = makeDocQb();
+    const rows = Array.from({ length: 3 }, (_, i) =>
+      doc({ id: uuid(i), createdAt: new Date(2026, 0, 1, 0, 0, i) }),
+    );
+    qb.getMany.mockResolvedValue(rows);
+    docRepo.createQueryBuilder.mockReturnValue(qb);
+    const result = await service.listDocuments('u1', 'kb1', { limit: 2 });
+    expect(result.list).toHaveLength(2);
+    const decoded = decodeCursor(result.nextCursor!);
+    expect(decoded.id).toBe(uuid(1));
+    expect(decoded.timestamp.toISOString()).toBe(
+      rows[1].createdAt.toISOString(),
+    );
   });
 
   it('listDocuments 带 keyword 追加 ILIKE 过滤', async () => {

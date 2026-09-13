@@ -146,4 +146,8 @@ Each rule file contains:
 
 ## Full Compiled Document
 
-For the complete guide with all rules expanded: `AGENTS.md`
+For the complete guide with all rules expanded: `FULL-GUIDE.md`
+
+（注：该文件在上游原名 `AGENTS.md`。本项目把它改名为 `FULL-GUIDE.md` —— 因为
+Command Code 会把子目录里的 `AGENTS.md` 当作项目 memory 在每次请求时自动加载，
+放在技能目录里会被无条件灌进上下文（112KB），既浪费窗口又偏离「按需读 rules」的设计。）

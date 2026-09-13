@@ -1,7 +1,7 @@
 import type {
+  CursorPageResult,
   DocumentListQuery,
   KnowledgeListQuery,
-  PageResult,
   components,
 } from '@lucy/shared';
 import { http } from './client.js';
@@ -15,7 +15,7 @@ import type {
 type LikeResultDto = components['schemas']['LikeResultDto'];
 
 // 知识库/文档 REST 客户端：全部经 http 实例（自动附加 Bearer + 401 单飞刷新 + 信封解包）。
-// 分页响应结构复用共享 PageResult<T>；列表接口经 `http.get` 以 query 参数发送。
+// 列表为游标分页，响应结构复用共享 CursorPageResult<T>（nextCursor 为空表示已到末页）；
 // 查询参数类型（KnowledgeListQuery/DocumentListQuery）由共享包从生成的 operations 派生导出。
 
 export function createKnowledgeBaseApi(input: CreateKnowledgeBaseRequest) {
@@ -23,7 +23,7 @@ export function createKnowledgeBaseApi(input: CreateKnowledgeBaseRequest) {
 }
 
 export function listKnowledgeBasesApi(query: KnowledgeListQuery = {}) {
-  return http.get<PageResult<KnowledgeBase>>('knowledge', query).json();
+  return http.get<CursorPageResult<KnowledgeBase>>('knowledge', query).json();
 }
 
 export function getKnowledgeBaseApi(id: string) {
@@ -61,7 +61,10 @@ export function addDocumentApi(kbId: string, file: File) {
 
 export function listDocumentsApi(kbId: string, query: DocumentListQuery = {}) {
   return http
-    .get<PageResult<KnowledgeDocument>>(`knowledge/${kbId}/documents`, query)
+    .get<CursorPageResult<KnowledgeDocument>>(
+      `knowledge/${kbId}/documents`,
+      query,
+    )
     .json();
 }
 

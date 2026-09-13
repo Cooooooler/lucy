@@ -296,8 +296,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 知识库列表
-         * @description 返回自己的 + 公开的
+         * 知识库列表（游标分页）
+         * @description 返回自己的 + 公开的；用响应中的 nextCursor 翻页
          */
         get: operations["KnowledgeController_list"];
         put?: never;
@@ -353,7 +353,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 某知识库文档列表 */
+        /** 某知识库文档列表（游标分页） */
         get: operations["KnowledgeController_listDocuments"];
         put?: never;
         /**
@@ -744,6 +744,12 @@ export interface components {
             /** @description 当前用户是否已点赞 */
             isLiked?: boolean;
         };
+        KnowledgeListResultDto: {
+            /** @description 知识库列表 */
+            list: components["schemas"]["KnowledgeBase"][];
+            /** @description 下一页游标；null 表示已到末页 */
+            nextCursor: string | null;
+        };
         UpdateKnowledgeBaseDto: {
             /** @description 名称 */
             name?: string;
@@ -783,6 +789,12 @@ export interface components {
              * @description 更新时间
              */
             updatedAt: string;
+        };
+        DocumentListResultDto: {
+            /** @description 文档列表 */
+            list: components["schemas"]["KnowledgeDocument"][];
+            /** @description 下一页游标；null 表示已到末页 */
+            nextCursor: string | null;
         };
         HealthResultDto: {
             /**
@@ -1296,10 +1308,10 @@ export interface operations {
     KnowledgeController_list: {
         parameters: {
             query?: {
-                /** @description 页码 */
-                page?: number;
+                /** @description 分页游标（上一页返回的 nextCursor），省略表示第一页 */
+                cursor?: string;
                 /** @description 每页条数 */
-                pageSize?: number;
+                limit?: number;
                 /** @description 按可见性过滤 */
                 visibility?: "private" | "public";
                 /** @description 名称关键字 */
@@ -1315,7 +1327,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["KnowledgeListResultDto"];
+                };
             };
         };
     };
@@ -1449,10 +1463,10 @@ export interface operations {
     KnowledgeController_listDocuments: {
         parameters: {
             query?: {
-                /** @description 页码 */
-                page?: number;
+                /** @description 分页游标（上一页返回的 nextCursor），省略表示第一页 */
+                cursor?: string;
                 /** @description 每页条数 */
-                pageSize?: number;
+                limit?: number;
                 /** @description 匹配标题/内容的关键字 */
                 keyword?: string;
             };
@@ -1468,7 +1482,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["DocumentListResultDto"];
+                };
             };
         };
     };

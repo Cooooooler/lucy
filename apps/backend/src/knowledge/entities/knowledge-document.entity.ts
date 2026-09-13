@@ -1,4 +1,5 @@
 import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
+import { Exclude } from 'class-transformer';
 import {
   Column,
   CreateDateColumn,
@@ -12,8 +13,21 @@ import {
 import { BackendFileEntity } from './backend-file.entity.js';
 import { KnowledgeBase } from './knowledge-base.entity.js';
 
+/**
+ * 索引与迁移对齐（`src/db/migrations/*AlignKnowledgeTimestamps*`）：
+ * `IDX_knowledge_documents_kb_created`（缺 id 决胜列）已由
+ * `IDX_knowledge_documents_kb_created_id` 取代。
+ *
+ * 注意：迁移 DDL 建的排序方向是 `created_at DESC, id DESC`（keyset 排序所需），
+ * 而 `@Index` 装饰器只能表达 ASC —— `migration:generate` 可能据此提出一个 ASC
+ * 版本的索引变更，**人工审查时必须拒绝**，不要让它覆盖迁移里的 DDL。
+ */
 @Entity('knowledge_documents')
-@Index('IDX_knowledge_documents_kb_created', ['knowledgeBaseId', 'createdAt'])
+@Index('IDX_knowledge_documents_kb_created_id', [
+  'knowledgeBaseId',
+  'createdAt',
+  'id',
+])
 export class KnowledgeDocument {
   @ApiProperty({ description: '文档 ID' })
   @PrimaryGeneratedColumn('uuid')
@@ -30,6 +44,9 @@ export class KnowledgeDocument {
   fileId: string;
 
   @ApiHideProperty()
+  // 内部关系对象，不对外暴露：Controller 上的 ClassSerializerInterceptor 据 @Exclude 剔除。
+  // 实体的其它字段即对外契约——新增内部/敏感字段时务必同步加 @Exclude()，否则会进入真实响应与 Swagger 契约。
+  @Exclude()
   @ManyToOne(() => KnowledgeBase, { onDelete: 'CASCADE' })
   @JoinColumn({
     name: 'knowledge_base_id',
@@ -38,6 +55,8 @@ export class KnowledgeDocument {
   knowledgeBase?: KnowledgeBase;
 
   @ApiHideProperty()
+  // 同上：文件实体（含存储 key/hash 等）不对外暴露。
+  @Exclude()
   @ManyToOne(() => BackendFileEntity, { onDelete: 'CASCADE' })
   @JoinColumn({
     name: 'file_id',
@@ -58,10 +77,23 @@ export class KnowledgeDocument {
   content: string | null;
 
   @ApiProperty({ description: '创建时间' })
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  // default 必须与迁移 AlignKnowledgeTimestamps 的 DDL 逐字一致（毫秒对齐）：
+  // 省略它时 TypeORM 元数据默认是 now()，migration:generate 会提出
+  // `SET DEFAULT now()`，把微秒精度放回 created_at，进而让毫秒精度游标的
+  // keyset 谓词 `(created_at, id) < (:cursorTs, :cursorId)` 整批跳行。
+  @CreateDateColumn({
+    name: 'created_at',
+    type: 'timestamptz',
+    default: () => "date_trunc('milliseconds', now())",
+  })
   createdAt: Date;
 
   @ApiProperty({ description: '更新时间' })
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  // 同上：default 与迁移 DDL 保持一致，避免 migration:generate 回退成 now()。
+  @UpdateDateColumn({
+    name: 'updated_at',
+    type: 'timestamptz',
+    default: () => "date_trunc('milliseconds', now())",
+  })
   updatedAt: Date;
 }

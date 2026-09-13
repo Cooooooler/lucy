@@ -52,6 +52,16 @@ export interface PageResult<T> {
   pageSize: number;
 }
 
+/**
+ * 游标分页响应结构。
+ * `nextCursor` 由服务端基于当前页最后一条记录编码，作为不透明定位点传入下一页；
+ * 为 null 表示已到末页。相比 offset 分页，翻页不会因数据变动产生重复/漏项。
+ */
+export interface CursorPageResult<T> {
+  list: T[];
+  nextCursor: string | null;
+}
+
 // 知识库/文档查询参数：从生成的 operations 派生。openapi 不为 @Query() DTO 产出组件 schema，
 // 其形状只落在 operations[...].parameters.query，故在此收敛为共享类型（前后端同源、免手写漂移）。
 export type KnowledgeListQuery =
