@@ -2,6 +2,7 @@ import { API_VERSION } from '@lucy/shared';
 import {
   BadRequestException,
   Body,
+  ClassSerializerInterceptor,
   Controller,
   Delete,
   Get,
@@ -40,6 +41,11 @@ import { KnowledgeService } from './knowledge.service.js';
 
 @ApiTags('knowledge')
 @ApiBearerAuth()
+// 序列化白名单（作用域限定在本控制器）：实体即对外契约，但实体上的内部字段
+// （关系对象如 owner/knowledgeBase/file）带 `@Exclude()`，由 ClassSerializerInterceptor
+// 在出站时剔除。这样「实体新增内部字段」不会自动泄进响应；代价是新增内部字段时
+// 必须同步加 `@Exclude()`（见各实体与 knowledge-list-result.dto.ts 的说明）。
+@UseInterceptors(ClassSerializerInterceptor)
 @Controller({ path: 'knowledge', version: API_VERSION })
 export class KnowledgeController {
   constructor(private readonly knowledgeService: KnowledgeService) {}

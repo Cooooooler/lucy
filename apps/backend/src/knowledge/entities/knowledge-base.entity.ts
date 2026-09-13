@@ -1,4 +1,5 @@
 import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
+import { Exclude } from 'class-transformer';
 import {
   Column,
   CreateDateColumn,
@@ -43,6 +44,9 @@ export class KnowledgeBase {
   ownerId: string;
 
   @ApiHideProperty()
+  // 内部关系对象，不对外暴露：Controller 上的 ClassSerializerInterceptor 据 @Exclude 剔除。
+  // 实体的其它字段即对外契约——新增内部/敏感字段时务必同步加 @Exclude()，否则会进入真实响应与 Swagger 契约。
+  @Exclude()
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({
     name: 'owner_id',
