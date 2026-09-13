@@ -17,6 +17,7 @@ import {
   extractContent,
   SUPPORTED_DOCUMENT_EXTS,
 } from './content-extractor.js';
+import { decodeCursor, encodeCursor } from './cursor.js';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { DocumentListQueryDto } from './dto/document-list-query.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
@@ -29,6 +30,20 @@ import {
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
 import { detectFileType } from './magic-bytes.js';
+
+/** 游标分页默认每页条数 */
+const DEFAULT_PAGE_SIZE = 20;
+
+/**
+ * 游标排序键表达式：把时间列截断到毫秒，与游标编码精度（JS Date 只有毫秒）对齐。
+ *
+ * 必须同时用于 ORDER BY 与 keyset 过滤。若只过滤不排序、或直接用原始微秒值比较：
+ * 同一毫秒内、微秒不同的行（批量 seed 的数据大量如此）其真实值 > 游标值，`<` 判定为
+ * false、`=` 也判定为 false，会被整批跳过——表现为列表提前“已加载全部”且丢数据。
+ * 截断后同一毫秒内的行退化为按 id 排序，与游标 (毫秒时间戳, id) 的定位完全一致。
+ */
+const cursorTsExpr = (alias: string, column: string) =>
+  `date_trunc('milliseconds', ${alias}.${column})`;
 
 @Injectable()
 export class KnowledgeService {
@@ -62,27 +77,24 @@ export class KnowledgeService {
   }
 
   /**
-   * 分页查询知识库列表。
+   * 游标分页查询知识库列表。
    * 默认返回当前用户拥有的 + 公开的知识库；可按 `visibility` / 名称关键字过滤。
+   * 按 (updatedAt, id) 降序做 keyset 分页：游标是不可变定位点，翻页不随窗口滑动产生重复/漏项。
    * 附加每个知识库的 likeCount 与当前用户的 isLiked（查询后批量回写，避免 JOIN 破坏分页）。
    * @param userId 当前用户 ID
-   * @param query 分页与过滤参数
-   * @returns 分页结果（list 含 likeCount/isLiked/total/page/pageSize）
+   * @param query 游标与过滤参数
+   * @returns list 与下一页游标（null 表示已到底，list 含 likeCount/isLiked）
    */
   async list(
     userId: string,
     query: KnowledgeListQueryDto,
-  ): Promise<{
-    list: KnowledgeBase[];
-    total: number;
-    page: number;
-    pageSize: number;
-  }> {
-    const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? 20;
+  ): Promise<{ list: KnowledgeBase[]; nextCursor: string | null }> {
+    const limit = query.limit ?? DEFAULT_PAGE_SIZE;
+    // ORDER BY 与游标过滤必须用同一毫秒截断表达式，保证排序键与游标定位可严格对应
+    const ts = cursorTsExpr('kb', 'updated_at');
     const qb = this.kbRepo
       .createQueryBuilder('kb')
-      .orderBy('kb.updatedAt', 'DESC')
+      .orderBy(ts, 'DESC')
       .addOrderBy('kb.id', 'DESC');
     if (query.visibility) {
       if (query.visibility === KnowledgeBaseVisibility.Private) {
@@ -104,11 +116,20 @@ export class KnowledgeService {
     if (query.name) {
       qb.andWhere('kb.name ILIKE :name', { name: `%${query.name}%` });
     }
-    qb.skip((page - 1) * pageSize).take(pageSize);
-    const [list, total] = await qb.getManyAndCount();
+    if (query.cursor) {
+      const { timestamp, id } = decodeCursor(query.cursor);
+      qb.andWhere(
+        `(${ts} < :cursorTs OR (${ts} = :cursorTs AND kb.id < :cursorId))`,
+        { cursorTs: timestamp, cursorId: id },
+      );
+    }
+    const rows = await qb.take(limit + 1).getMany();
+    const page = this.toCursorPage(rows, limit, (kb) =>
+      encodeCursor(kb.updatedAt, kb.id),
+    );
     // 批量回写 likeCount / isLiked，单次聚合查询，避免 N+1
-    await this.fillLikeInfo(userId, list);
-    return { list, total, page, pageSize };
+    await this.fillLikeInfo(userId, page.list);
+    return page;
   }
 
   /**
@@ -348,39 +369,43 @@ export class KnowledgeService {
   }
 
   /**
-   * 分页查询某知识库下的文档。
-   * 可按 `keyword` 模糊匹配标题或解析出的纯文本。
+   * 游标分页查询某知识库下的文档。
+   * 按 (createdAt, id) 降序做 keyset 分页；可按 `keyword` 模糊匹配标题或解析出的纯文本。
    * @throws NotFoundException / ForbiddenException
    */
   async listDocuments(
     userId: string,
     kbId: string,
     query: DocumentListQueryDto,
-  ): Promise<{
-    list: KnowledgeDocument[];
-    total: number;
-    page: number;
-    pageSize: number;
-  }> {
+  ): Promise<{ list: KnowledgeDocument[]; nextCursor: string | null }> {
     const kb = await this.kbRepo.findOne({ where: { id: kbId } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertReadable(kb, userId);
 
-    const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? 20;
+    const limit = query.limit ?? DEFAULT_PAGE_SIZE;
+    // 同 list()：ORDER BY 与游标过滤共用毫秒截断表达式
+    const ts = cursorTsExpr('d', 'created_at');
     const qb = this.docRepo
       .createQueryBuilder('d')
       .where('d.knowledgeBaseId = :kbId', { kbId })
-      .orderBy('d.createdAt', 'DESC')
+      .orderBy(ts, 'DESC')
       .addOrderBy('d.id', 'DESC');
     if (query.keyword) {
       qb.andWhere('(d.title ILIKE :kw OR d.content ILIKE :kw)', {
         kw: `%${query.keyword}%`,
       });
     }
-    qb.skip((page - 1) * pageSize).take(pageSize);
-    const [list, total] = await qb.getManyAndCount();
-    return { list, total, page, pageSize };
+    if (query.cursor) {
+      const { timestamp, id } = decodeCursor(query.cursor);
+      qb.andWhere(
+        `(${ts} < :cursorTs OR (${ts} = :cursorTs AND d.id < :cursorId))`,
+        { cursorTs: timestamp, cursorId: id },
+      );
+    }
+    const rows = await qb.take(limit + 1).getMany();
+    return this.toCursorPage(rows, limit, (doc) =>
+      encodeCursor(doc.createdAt, doc.id),
+    );
   }
 
   /**
@@ -430,6 +455,22 @@ export class KnowledgeService {
     });
     this.logger.log(`doc remove kb=${kbId} doc=${id}`, KnowledgeService.name);
     return null;
+  }
+
+  /**
+   * 把「多取一条」的查询结果裁成首页大小，并生成下一页游标。
+   * 多取一条用于判断是否还有下一页，避免额外的 COUNT 查询。
+   */
+  private toCursorPage<T>(
+    rows: T[],
+    limit: number,
+    toCursor: (row: T) => string,
+  ): { list: T[]; nextCursor: string | null } {
+    const hasNext = rows.length > limit;
+    const list = hasNext ? rows.slice(0, limit) : rows;
+    const nextCursor =
+      hasNext && list.length > 0 ? toCursor(list[list.length - 1]) : null;
+    return { list, nextCursor };
   }
 
   private assertOwner(kb: KnowledgeBase, userId: string): void {

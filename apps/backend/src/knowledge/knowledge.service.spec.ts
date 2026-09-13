@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
+import { decodeCursor, encodeCursor } from './cursor.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
@@ -125,6 +126,8 @@ describe('KnowledgeService', () => {
       visibility: KnowledgeBaseVisibility.Private,
       name: '产品文档',
       description: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
       ...over,
     });
   const doc = (over = {}) =>
@@ -134,10 +137,12 @@ describe('KnowledgeService', () => {
       fileId: 'f1',
       title: 'a',
       content: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
       ...over,
     });
 
-  // 可链式 QueryBuilder mock：记录 where/orWhere/andWhere 等调用参数，供 list 用
+  // 可链式 QueryBuilder mock：记录 where/andWhere 等调用参数，供 list 用
   const makeKbQb = () => {
     const qb = {
       where: vi.fn(),
@@ -145,18 +150,16 @@ describe('KnowledgeService', () => {
       andWhere: vi.fn(),
       orderBy: vi.fn(),
       addOrderBy: vi.fn(),
-      skip: vi.fn(),
       take: vi.fn(),
-      getManyAndCount: vi.fn(),
+      getMany: vi.fn(),
     };
     qb.where.mockReturnValue(qb);
     qb.orWhere.mockReturnValue(qb);
     qb.andWhere.mockReturnValue(qb);
     qb.orderBy.mockReturnValue(qb);
     qb.addOrderBy.mockReturnValue(qb);
-    qb.skip.mockReturnValue(qb);
     qb.take.mockReturnValue(qb);
-    qb.getManyAndCount.mockResolvedValue([[kb()], 1]);
+    qb.getMany.mockResolvedValue([kb()]);
     return qb;
   };
 
@@ -167,17 +170,15 @@ describe('KnowledgeService', () => {
       andWhere: vi.fn(),
       orderBy: vi.fn(),
       addOrderBy: vi.fn(),
-      skip: vi.fn(),
       take: vi.fn(),
-      getManyAndCount: vi.fn(),
+      getMany: vi.fn(),
     };
     qb.where.mockReturnValue(qb);
     qb.andWhere.mockReturnValue(qb);
     qb.orderBy.mockReturnValue(qb);
     qb.addOrderBy.mockReturnValue(qb);
-    qb.skip.mockReturnValue(qb);
     qb.take.mockReturnValue(qb);
-    qb.getManyAndCount.mockResolvedValue([[doc()], 1]);
+    qb.getMany.mockResolvedValue([doc()]);
     return qb;
   };
 
@@ -351,9 +352,9 @@ describe('KnowledgeService', () => {
     expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
   });
 
-  it('list 默认可见性：属主或公开库（括号包裹 OR），返回 list/total/page/pageSize，附带 likeCount/isLiked', async () => {
+  it('list 默认可见性：属主或公开库（括号包裹 OR），返回 list/nextCursor，附带 likeCount/isLiked', async () => {
     const qb = makeKbQb();
-    qb.getManyAndCount.mockResolvedValue([[kb()], 1]);
+    qb.getMany.mockResolvedValue([kb()]);
     kbRepo.createQueryBuilder.mockReturnValue(qb);
     const likeQb = makeLikeQb();
     likeRepo.createQueryBuilder.mockReturnValue(likeQb);
@@ -363,17 +364,56 @@ describe('KnowledgeService', () => {
       { uid: 'u1', pub: KnowledgeBaseVisibility.Public },
     );
     expect(qb.orWhere).not.toHaveBeenCalled();
-    expect(qb.getManyAndCount).toHaveBeenCalled();
+    expect(qb.getMany).toHaveBeenCalled();
+    // 多取一条判断是否有下一页
+    expect(qb.take).toHaveBeenCalledWith(21);
     expect(result).toEqual({
       list: [expect.any(KnowledgeBase)],
-      total: 1,
-      page: 1,
-      pageSize: 20,
+      nextCursor: null,
     });
     // 验证 like 回写
     expect(likeRepo.createQueryBuilder).toHaveBeenCalledTimes(2);
     expect(result.list[0].likeCount).toBe(0);
     expect(result.list[0].isLiked).toBe(false);
+  });
+
+  it('list 结果多于 limit 时裁到 limit 并返回下一页游标', async () => {
+    const qb = makeKbQb();
+    const rows = Array.from({ length: 3 }, (_, i) =>
+      kb({ id: `kb-${i}`, updatedAt: new Date(2026, 0, 1, 0, 0, i) }),
+    );
+    qb.getMany.mockResolvedValue(rows);
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
+    const result = await service.list('u1', { limit: 2 });
+    expect(qb.take).toHaveBeenCalledWith(3);
+    expect(result.list).toHaveLength(2);
+    expect(result.nextCursor).not.toBeNull();
+    // 游标指向本页最后一条（第 2 条）
+    const decoded = decodeCursor(result.nextCursor!);
+    expect(decoded.id).toBe('kb-1');
+    expect(decoded.timestamp.toISOString()).toBe(
+      rows[1].updatedAt.toISOString(),
+    );
+  });
+
+  it('list 带 cursor：解码为 keyset 条件，非法游标抛 400', async () => {
+    const qb = makeKbQb();
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
+    const cursor = encodeCursor(new Date('2026-01-01T00:00:00.000Z'), 'kb-9');
+    await service.list('u1', { cursor });
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      "(date_trunc('milliseconds', kb.updated_at) < :cursorTs OR (date_trunc('milliseconds', kb.updated_at) = :cursorTs AND kb.id < :cursorId))",
+      {
+        cursorTs: new Date('2026-01-01T00:00:00.000Z'),
+        cursorId: 'kb-9',
+      },
+    );
+
+    await expect(
+      service.list('u1', { cursor: 'not-a-cursor' }),
+    ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
   });
 
   it('list visibility=private：属主私有库', async () => {
@@ -550,12 +590,27 @@ describe('KnowledgeService', () => {
     expect(qb.where).toHaveBeenCalledWith('d.knowledgeBaseId = :kbId', {
       kbId: 'kb1',
     });
+    expect(qb.take).toHaveBeenCalledWith(21);
     expect(result).toEqual({
       list: [expect.any(KnowledgeDocument)],
-      total: 1,
-      page: 1,
-      pageSize: 20,
+      nextCursor: null,
     });
+  });
+
+  it('listDocuments 带 cursor：解码为 keyset 条件', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    const qb = makeDocQb();
+    docRepo.createQueryBuilder.mockReturnValue(qb);
+    const cursor = encodeCursor(new Date('2026-01-01T00:00:00.000Z'), 'd-9');
+    await service.listDocuments('u1', 'kb1', { cursor, limit: 5 });
+    expect(qb.take).toHaveBeenCalledWith(6);
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      "(date_trunc('milliseconds', d.created_at) < :cursorTs OR (date_trunc('milliseconds', d.created_at) = :cursorTs AND d.id < :cursorId))",
+      {
+        cursorTs: new Date('2026-01-01T00:00:00.000Z'),
+        cursorId: 'd-9',
+      },
+    );
   });
 
   it('listDocuments 带 keyword 追加 ILIKE 过滤', async () => {

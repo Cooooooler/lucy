@@ -38,7 +38,7 @@ describe('KnowledgeController', () => {
   });
 
   it('list 转发 userId 与 query', async () => {
-    const query = { page: 2, pageSize: 10, name: 'x' };
+    const query = { cursor: 'abc', limit: 10, name: 'x' };
     await controller.list(user, query);
     expect(service.list).toHaveBeenCalledWith('u1', query);
   });

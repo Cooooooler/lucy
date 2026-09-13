@@ -4,12 +4,12 @@ import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { KnowledgeBaseVisibility } from '../entities/knowledge-base.entity.js';
 
 export class KnowledgeListQueryDto {
-  @ApiPropertyOptional({ description: '页码', default: 1 })
+  @ApiPropertyOptional({
+    description: '分页游标（上一页返回的 nextCursor），省略表示第一页',
+  })
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number;
+  @IsString()
+  cursor?: string;
 
   @ApiPropertyOptional({ description: '每页条数', default: 20 })
   @IsOptional()
@@ -17,7 +17,7 @@ export class KnowledgeListQueryDto {
   @IsInt()
   @Min(1)
   @Max(100)
-  pageSize?: number;
+  limit?: number;
 
   @ApiPropertyOptional({
     description: '按可见性过滤',

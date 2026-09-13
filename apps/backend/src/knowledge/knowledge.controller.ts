@@ -51,7 +51,10 @@ export class KnowledgeController {
   }
 
   @Get()
-  @ApiOperation({ summary: '知识库列表', description: '返回自己的 + 公开的' })
+  @ApiOperation({
+    summary: '知识库列表（游标分页）',
+    description: '返回自己的 + 公开的；用响应中的 nextCursor 翻页',
+  })
   list(
     @CurrentUser() user: CurrentUserPayload,
     @Query() query: KnowledgeListQueryDto,
@@ -130,7 +133,7 @@ export class KnowledgeController {
   }
 
   @Get(':kbId/documents')
-  @ApiOperation({ summary: '某知识库文档列表' })
+  @ApiOperation({ summary: '某知识库文档列表（游标分页）' })
   listDocuments(
     @CurrentUser() user: CurrentUserPayload,
     @Param('kbId', ParseUUIDPipe) kbId: string,
