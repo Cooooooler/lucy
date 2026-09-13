@@ -1,6 +1,15 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { KnowledgeBaseVisibility } from '../entities/knowledge-base.entity.js';
 
 export class KnowledgeListQueryDto {
@@ -9,6 +18,9 @@ export class KnowledgeListQueryDto {
   })
   @IsOptional()
   @IsString()
+  @MaxLength(512)
+  // base64url 字符集：不符者直接 400，避免把任意长/带特殊字符的输入带进解码与 SQL
+  @Matches(/^[A-Za-z0-9_-]+$/, { message: '无效的分页游标' })
   cursor?: string;
 
   @ApiPropertyOptional({ description: '每页条数', default: 20 })

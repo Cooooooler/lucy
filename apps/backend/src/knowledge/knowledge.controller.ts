@@ -28,6 +28,10 @@ import {
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { DocumentListQueryDto } from './dto/document-list-query.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
+import {
+  DocumentListResultDto,
+  KnowledgeListResultDto,
+} from './dto/knowledge-list-result.dto.js';
 import { LikeResultDto } from './dto/like-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
 import { KnowledgeBase } from './entities/knowledge-base.entity.js';
@@ -55,10 +59,11 @@ export class KnowledgeController {
     summary: '知识库列表（游标分页）',
     description: '返回自己的 + 公开的；用响应中的 nextCursor 翻页',
   })
+  @ApiResponse({ status: 200, type: KnowledgeListResultDto })
   list(
     @CurrentUser() user: CurrentUserPayload,
     @Query() query: KnowledgeListQueryDto,
-  ) {
+  ): Promise<KnowledgeListResultDto> {
     return this.knowledgeService.list(user.userId, query);
   }
 
@@ -134,11 +139,12 @@ export class KnowledgeController {
 
   @Get(':kbId/documents')
   @ApiOperation({ summary: '某知识库文档列表（游标分页）' })
+  @ApiResponse({ status: 200, type: DocumentListResultDto })
   listDocuments(
     @CurrentUser() user: CurrentUserPayload,
     @Param('kbId', ParseUUIDPipe) kbId: string,
     @Query() query: DocumentListQueryDto,
-  ) {
+  ): Promise<DocumentListResultDto> {
     return this.knowledgeService.listDocuments(user.userId, kbId, query);
   }
 

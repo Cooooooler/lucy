@@ -12,8 +12,18 @@ import {
 import { BackendFileEntity } from './backend-file.entity.js';
 import { KnowledgeBase } from './knowledge-base.entity.js';
 
+/**
+ * 索引与迁移对齐（`src/db/migrations/*AlignKnowledgeTimestamps*`）：
+ * `IDX_knowledge_documents_kb_created`（缺 id 决胜列）已由
+ * `IDX_knowledge_documents_kb_created_id` 取代；`@Index` 装饰器无法表达列的
+ * DESC 方向，实际排序方向以迁移里的 DDL 为准。
+ */
 @Entity('knowledge_documents')
-@Index('IDX_knowledge_documents_kb_created', ['knowledgeBaseId', 'createdAt'])
+@Index('IDX_knowledge_documents_kb_created_id', [
+  'knowledgeBaseId',
+  'createdAt',
+  'id',
+])
 export class KnowledgeDocument {
   @ApiProperty({ description: '文档 ID' })
   @PrimaryGeneratedColumn('uuid')

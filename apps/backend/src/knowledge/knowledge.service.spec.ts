@@ -25,6 +25,12 @@ vi.mock('./content-extractor.js', () => ({
 import { extractContent } from './content-extractor.js';
 import { detectFileType } from './magic-bytes.js';
 
+/** 实体主键是 uuid 列：游标里的 id 必须是合法 UUID，否则解码即 400 */
+const KB_ID = '0f8fad5b-d9cb-469f-a165-70867728950e';
+const DOC_ID = '1b6f4a2c-3d5e-4f70-8a91-b2c3d4e5f607';
+/** 第二页游标里用的另一个合法 UUID */
+const OTHER_ID = '2c7a5b3d-4e6f-4081-9ba2-c3d4e5f60718';
+
 describe('KnowledgeService', () => {
   const kbRepo = {
     findOne: vi.fn(),
@@ -121,7 +127,7 @@ describe('KnowledgeService', () => {
 
   const kb = (over = {}) =>
     Object.assign(new KnowledgeBase(), {
-      id: 'kb1',
+      id: KB_ID,
       ownerId: 'u1',
       visibility: KnowledgeBaseVisibility.Private,
       name: '产品文档',
@@ -132,7 +138,7 @@ describe('KnowledgeService', () => {
     });
   const doc = (over = {}) =>
     Object.assign(new KnowledgeDocument(), {
-      id: 'd1',
+      id: DOC_ID,
       knowledgeBaseId: 'kb1',
       fileId: 'f1',
       title: 'a',
@@ -181,6 +187,18 @@ describe('KnowledgeService', () => {
     qb.getMany.mockResolvedValue([doc()]);
     return qb;
   };
+
+  /** 拼接 query builder 上记录到的 SQL 片段，用于断言整体性质（如「不再含 date_trunc」） */
+  const sqlOf = (...fns: { mock: { calls: unknown[][] } }[]) =>
+    fns
+      .flatMap((fn) => fn.mock.calls)
+      .flat()
+      .filter((arg): arg is string => typeof arg === 'string')
+      .join(' ');
+
+  /** 生成第 i 个合法 UUID（仅供断言使用，不要求真实版本位） */
+  const uuid = (i: number) =>
+    `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
 
   it('create 保存知识库（默认 private）', async () => {
     kbRepo.save.mockResolvedValue(kb());
@@ -377,10 +395,23 @@ describe('KnowledgeService', () => {
     expect(result.list[0].isLiked).toBe(false);
   });
 
+  it('list 排序键为不可变的 created_at 且直接用原始列（不再毫秒截断）', async () => {
+    const qb = makeKbQb();
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
+    await service.list('u1', { cursor: encodeCursor(new Date(), uuid(9)) });
+    expect(qb.orderBy).toHaveBeenCalledWith('kb.created_at', 'DESC');
+    expect(qb.addOrderBy).toHaveBeenCalledWith('kb.id', 'DESC');
+    // 毫秒截断会包裹排序列与过滤列，使索引失效；现在两处都用原始列
+    expect(
+      sqlOf(qb.where, qb.andWhere, qb.orderBy, qb.addOrderBy),
+    ).not.toContain('date_trunc');
+  });
+
   it('list 结果多于 limit 时裁到 limit 并返回下一页游标', async () => {
     const qb = makeKbQb();
     const rows = Array.from({ length: 3 }, (_, i) =>
-      kb({ id: `kb-${i}`, updatedAt: new Date(2026, 0, 1, 0, 0, i) }),
+      kb({ id: uuid(i), createdAt: new Date(2026, 0, 1, 0, 0, i) }),
     );
     qb.getMany.mockResolvedValue(rows);
     kbRepo.createQueryBuilder.mockReturnValue(qb);
@@ -389,25 +420,26 @@ describe('KnowledgeService', () => {
     expect(qb.take).toHaveBeenCalledWith(3);
     expect(result.list).toHaveLength(2);
     expect(result.nextCursor).not.toBeNull();
-    // 游标指向本页最后一条（第 2 条）
+    // 游标指向本页最后一条（第 2 条），且编码的是 createdAt（不可变排序键）
     const decoded = decodeCursor(result.nextCursor!);
-    expect(decoded.id).toBe('kb-1');
+    expect(decoded.id).toBe(uuid(1));
     expect(decoded.timestamp.toISOString()).toBe(
-      rows[1].updatedAt.toISOString(),
+      rows[1].createdAt.toISOString(),
     );
   });
 
-  it('list 带 cursor：解码为 keyset 条件，非法游标抛 400', async () => {
+  it('list 带 cursor：解码为行比较 keyset 条件，非法游标抛 400', async () => {
     const qb = makeKbQb();
     kbRepo.createQueryBuilder.mockReturnValue(qb);
     likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
-    const cursor = encodeCursor(new Date('2026-01-01T00:00:00.000Z'), 'kb-9');
+    const cursor = encodeCursor(new Date('2026-01-01T00:00:00.000Z'), OTHER_ID);
     await service.list('u1', { cursor });
+    // 行比较（tuple comparison）让 Postgres 能把它优化为一次索引扫描
     expect(qb.andWhere).toHaveBeenCalledWith(
-      "(date_trunc('milliseconds', kb.updated_at) < :cursorTs OR (date_trunc('milliseconds', kb.updated_at) = :cursorTs AND kb.id < :cursorId))",
+      '(kb.created_at, kb.id) < (:cursorTs, :cursorId)',
       {
         cursorTs: new Date('2026-01-01T00:00:00.000Z'),
-        cursorId: 'kb-9',
+        cursorId: OTHER_ID,
       },
     );
 
@@ -597,19 +629,42 @@ describe('KnowledgeService', () => {
     });
   });
 
-  it('listDocuments 带 cursor：解码为 keyset 条件', async () => {
+  it('listDocuments 带 cursor：解码为行比较 keyset 条件（排序键为 created_at）', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
     const qb = makeDocQb();
     docRepo.createQueryBuilder.mockReturnValue(qb);
-    const cursor = encodeCursor(new Date('2026-01-01T00:00:00.000Z'), 'd-9');
+    const cursor = encodeCursor(new Date('2026-01-01T00:00:00.000Z'), OTHER_ID);
     await service.listDocuments('u1', 'kb1', { cursor, limit: 5 });
     expect(qb.take).toHaveBeenCalledWith(6);
+    expect(qb.orderBy).toHaveBeenCalledWith('d.created_at', 'DESC');
+    expect(qb.addOrderBy).toHaveBeenCalledWith('d.id', 'DESC');
     expect(qb.andWhere).toHaveBeenCalledWith(
-      "(date_trunc('milliseconds', d.created_at) < :cursorTs OR (date_trunc('milliseconds', d.created_at) = :cursorTs AND d.id < :cursorId))",
+      '(d.created_at, d.id) < (:cursorTs, :cursorId)',
       {
         cursorTs: new Date('2026-01-01T00:00:00.000Z'),
-        cursorId: 'd-9',
+        cursorId: OTHER_ID,
       },
+    );
+    // 毫秒截断会包裹排序列与过滤列，使索引失效
+    expect(
+      sqlOf(qb.where, qb.andWhere, qb.orderBy, qb.addOrderBy),
+    ).not.toContain('date_trunc');
+  });
+
+  it('listDocuments 结果多于 limit 时游标编码基于 createdAt', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    const qb = makeDocQb();
+    const rows = Array.from({ length: 3 }, (_, i) =>
+      doc({ id: uuid(i), createdAt: new Date(2026, 0, 1, 0, 0, i) }),
+    );
+    qb.getMany.mockResolvedValue(rows);
+    docRepo.createQueryBuilder.mockReturnValue(qb);
+    const result = await service.listDocuments('u1', 'kb1', { limit: 2 });
+    expect(result.list).toHaveLength(2);
+    const decoded = decodeCursor(result.nextCursor!);
+    expect(decoded.id).toBe(uuid(1));
+    expect(decoded.timestamp.toISOString()).toBe(
+      rows[1].createdAt.toISOString(),
     );
   });
 

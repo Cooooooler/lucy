@@ -34,17 +34,6 @@ import { detectFileType } from './magic-bytes.js';
 /** 游标分页默认每页条数 */
 const DEFAULT_PAGE_SIZE = 20;
 
-/**
- * 游标排序键表达式：把时间列截断到毫秒，与游标编码精度（JS Date 只有毫秒）对齐。
- *
- * 必须同时用于 ORDER BY 与 keyset 过滤。若只过滤不排序、或直接用原始微秒值比较：
- * 同一毫秒内、微秒不同的行（批量 seed 的数据大量如此）其真实值 > 游标值，`<` 判定为
- * false、`=` 也判定为 false，会被整批跳过——表现为列表提前“已加载全部”且丢数据。
- * 截断后同一毫秒内的行退化为按 id 排序，与游标 (毫秒时间戳, id) 的定位完全一致。
- */
-const cursorTsExpr = (alias: string, column: string) =>
-  `date_trunc('milliseconds', ${alias}.${column})`;
-
 @Injectable()
 export class KnowledgeService {
   constructor(
@@ -79,7 +68,11 @@ export class KnowledgeService {
   /**
    * 游标分页查询知识库列表。
    * 默认返回当前用户拥有的 + 公开的知识库；可按 `visibility` / 名称关键字过滤。
-   * 按 (updatedAt, id) 降序做 keyset 分页：游标是不可变定位点，翻页不随窗口滑动产生重复/漏项。
+   * 按**不可变**的 (created_at, id) 降序做 keyset 分页。刻意不用 updated_at：
+   * 它是可变排序键，上页取出之后被更新的行会越过游标，从而在后续页被永久漏掉。
+   * 并列（同一毫秒内插入、或同一事务批量插入）由 id 决胜，排序仍是全序。
+   * 排序与过滤均直接使用原始列（迁移保证时间列毫秒对齐），谓词写成行比较
+   * `(created_at, id) < (:cursorTs, :cursorId)`，Postgres 可将其优化为一次索引扫描。
    * 附加每个知识库的 likeCount 与当前用户的 isLiked（查询后批量回写，避免 JOIN 破坏分页）。
    * @param userId 当前用户 ID
    * @param query 游标与过滤参数
@@ -90,11 +83,9 @@ export class KnowledgeService {
     query: KnowledgeListQueryDto,
   ): Promise<{ list: KnowledgeBase[]; nextCursor: string | null }> {
     const limit = query.limit ?? DEFAULT_PAGE_SIZE;
-    // ORDER BY 与游标过滤必须用同一毫秒截断表达式，保证排序键与游标定位可严格对应
-    const ts = cursorTsExpr('kb', 'updated_at');
     const qb = this.kbRepo
       .createQueryBuilder('kb')
-      .orderBy(ts, 'DESC')
+      .orderBy('kb.created_at', 'DESC')
       .addOrderBy('kb.id', 'DESC');
     if (query.visibility) {
       if (query.visibility === KnowledgeBaseVisibility.Private) {
@@ -118,14 +109,14 @@ export class KnowledgeService {
     }
     if (query.cursor) {
       const { timestamp, id } = decodeCursor(query.cursor);
-      qb.andWhere(
-        `(${ts} < :cursorTs OR (${ts} = :cursorTs AND kb.id < :cursorId))`,
-        { cursorTs: timestamp, cursorId: id },
-      );
+      qb.andWhere('(kb.created_at, kb.id) < (:cursorTs, :cursorId)', {
+        cursorTs: timestamp,
+        cursorId: id,
+      });
     }
     const rows = await qb.take(limit + 1).getMany();
     const page = this.toCursorPage(rows, limit, (kb) =>
-      encodeCursor(kb.updatedAt, kb.id),
+      encodeCursor(kb.createdAt, kb.id),
     );
     // 批量回写 likeCount / isLiked，单次聚合查询，避免 N+1
     await this.fillLikeInfo(userId, page.list);
@@ -370,7 +361,9 @@ export class KnowledgeService {
 
   /**
    * 游标分页查询某知识库下的文档。
-   * 按 (createdAt, id) 降序做 keyset 分页；可按 `keyword` 模糊匹配标题或解析出的纯文本。
+   * 按**不可变**的 (created_at, id) 降序做 keyset 分页（同 list()，不使用可变的 updated_at）；
+   * 可按 `keyword` 模糊匹配标题或解析出的纯文本。
+   * 排序与过滤均直接使用原始列，谓词为行比较，可走索引。
    * @throws NotFoundException / ForbiddenException
    */
   async listDocuments(
@@ -383,12 +376,10 @@ export class KnowledgeService {
     this.assertReadable(kb, userId);
 
     const limit = query.limit ?? DEFAULT_PAGE_SIZE;
-    // 同 list()：ORDER BY 与游标过滤共用毫秒截断表达式
-    const ts = cursorTsExpr('d', 'created_at');
     const qb = this.docRepo
       .createQueryBuilder('d')
       .where('d.knowledgeBaseId = :kbId', { kbId })
-      .orderBy(ts, 'DESC')
+      .orderBy('d.created_at', 'DESC')
       .addOrderBy('d.id', 'DESC');
     if (query.keyword) {
       qb.andWhere('(d.title ILIKE :kw OR d.content ILIKE :kw)', {
@@ -397,10 +388,10 @@ export class KnowledgeService {
     }
     if (query.cursor) {
       const { timestamp, id } = decodeCursor(query.cursor);
-      qb.andWhere(
-        `(${ts} < :cursorTs OR (${ts} = :cursorTs AND d.id < :cursorId))`,
-        { cursorTs: timestamp, cursorId: id },
-      );
+      qb.andWhere('(d.created_at, d.id) < (:cursorTs, :cursorId)', {
+        cursorTs: timestamp,
+        cursorId: id,
+      });
     }
     const rows = await qb.take(limit + 1).getMany();
     return this.toCursorPage(rows, limit, (doc) =>

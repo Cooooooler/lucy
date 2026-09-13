@@ -744,6 +744,12 @@ export interface components {
             /** @description 当前用户是否已点赞 */
             isLiked?: boolean;
         };
+        KnowledgeListResultDto: {
+            /** @description 知识库列表 */
+            list: components["schemas"]["KnowledgeBase"][];
+            /** @description 下一页游标；null 表示已到末页 */
+            nextCursor: string | null;
+        };
         UpdateKnowledgeBaseDto: {
             /** @description 名称 */
             name?: string;
@@ -783,6 +789,12 @@ export interface components {
              * @description 更新时间
              */
             updatedAt: string;
+        };
+        DocumentListResultDto: {
+            /** @description 文档列表 */
+            list: components["schemas"]["KnowledgeDocument"][];
+            /** @description 下一页游标；null 表示已到末页 */
+            nextCursor: string | null;
         };
         HealthResultDto: {
             /**
@@ -1315,7 +1327,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["KnowledgeListResultDto"];
+                };
             };
         };
     };
@@ -1468,7 +1482,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["DocumentListResultDto"];
+                };
             };
         };
     };

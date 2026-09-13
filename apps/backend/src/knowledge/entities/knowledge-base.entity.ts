@@ -16,8 +16,20 @@ export enum KnowledgeBaseVisibility {
   Public = 'public',
 }
 
+/**
+ * 索引与迁移对齐（`src/db/migrations/*AlignKnowledgeTimestamps*`）：
+ * 后两条服务于 keyset 分页 `(owner_id = :uid OR visibility = 'public')`
+ * 且 `ORDER BY created_at DESC, id DESC` 的两种分支；`@Index` 装饰器无法表达
+ * 列的 DESC 方向，实际排序方向以迁移里的 DDL 为准。
+ */
 @Entity('knowledge_bases')
 @Index('IDX_knowledge_bases_owner_visibility', ['ownerId', 'visibility'])
+@Index('IDX_knowledge_bases_owner_created_id', ['ownerId', 'createdAt', 'id'])
+@Index('IDX_knowledge_bases_visibility_created_id', [
+  'visibility',
+  'createdAt',
+  'id',
+])
 export class KnowledgeBase {
   @ApiProperty({ description: '知识库 ID' })
   @PrimaryGeneratedColumn('uuid')
