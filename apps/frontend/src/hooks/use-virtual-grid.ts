@@ -28,6 +28,11 @@ type UseVirtualGridOptions = {
   onFirstVisibleItemChange?: (index: number) => void;
 };
 
+// 固定行高是纯常量函数（忽略入参），提到模块级：useVirtualizer 每次渲染都用新 options
+// 调 setOptions，内联闭包会造成无谓的引用抖动。getScrollElement 闭包了 scrollElement，
+// 不能提升，保持内联。
+const estimateSize = () => CARD_ESTIMATED_HEIGHT + GRID_GAP;
+
 /**
  * 虚拟化网格：按容器宽度动态决定列数（lanes），并用虚拟窗口触发触底加载。
  * 触底加载交给虚拟化的可视区间而非 IntersectionObserver——虚拟列表里 DOM 不存在
@@ -82,7 +87,7 @@ export function useVirtualGrid({
     // 固定行高：卡片等高（标题单行省略 + 描述 h-11），故无需 measureElement 回填真实高度。
     // 交给虚拟化器测量会引入「测量 → 通知 → 再整窗渲染一次」的第二趟渲染（实测该帧阻塞 600ms+），
     // 卡片等高后这趟渲染纯属浪费；行高与真实高度的一致性由 CARD_ESTIMATED_HEIGHT 的注释约束。
-    estimateSize: () => CARD_ESTIMATED_HEIGHT + GRID_GAP,
+    estimateSize,
     lanes: layout.columns,
     // overscan 的单位是「条目」而非行：从 3 降到 1 只少挂 4 张卡片（实测），并非少挂 3 行。
     // 取 1（库默认值）保留一行左右的缓冲，兼顾滚动流畅与首屏渲染量。

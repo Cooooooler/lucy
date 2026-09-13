@@ -11,7 +11,7 @@ import {
   useInfiniteKnowledgeBaseList,
 } from '@/hooks/use-knowledge.ts';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/_layout/knowledge')({
   component: KnowledgeComponent,
@@ -52,16 +52,6 @@ function KnowledgeComponent() {
     [query.data],
   );
 
-  const filterKey = `${committedName}|${visibility}`;
-  const prevFilterKeyRef = useRef(filterKey);
-
-  // 只在筛选真正变化时回顶部。挂载时不动：挂载归零会与首可见项恢复互相打架
-  useEffect(() => {
-    if (prevFilterKeyRef.current === filterKey) return;
-    prevFilterKeyRef.current = filterKey;
-    scrollElement?.scrollTo({ top: 0 });
-  }, [filterKey, scrollElement]);
-
   // 稳定引用：传给虚拟化网格/工具栏的回调必须用 useCallback 包裹，
   // 否则每次渲染都是新函数，会让 KnowledgeCard 的 React.memo 永久失效（第二趟渲染无法 bail out）。
   const handleEdit = useCallback(
@@ -70,15 +60,27 @@ function KnowledgeComponent() {
   );
   const handleCreate = useCallback(() => setFormTarget({ mode: 'create' }), []);
 
-  const handleSearch = (value: string) => {
-    setCommittedName(value);
-    saveFilter({ name: value || undefined });
-  };
+  // 改筛选后回到列表顶部：直接写进改变筛选的两个用户事件里，不再用 filterKey 派生值 + effect。
+  // 筛选只可能由这两个事件改变，用 effect 比对「上一次 key」是对同一动作的重复建模，
+  // 还多一趟 effect 与一个纯记账 ref。放进事件处理器天然满足「挂载时不归零」
+  // （挂载不触发这两个处理器），因此不会与首可见项恢复互相打架。
+  const handleSearch = useCallback(
+    (value: string) => {
+      setCommittedName(value);
+      saveFilter({ name: value || undefined });
+      scrollElement?.scrollTo({ top: 0 });
+    },
+    [saveFilter, scrollElement],
+  );
 
-  const handleVisibilityChange = (value: VisibilityFilter) => {
-    setVisibility(value);
-    saveFilter({ visibility: value === 'all' ? undefined : value });
-  };
+  const handleVisibilityChange = useCallback(
+    (value: VisibilityFilter) => {
+      setVisibility(value);
+      saveFilter({ visibility: value === 'all' ? undefined : value });
+      scrollElement?.scrollTo({ top: 0 });
+    },
+    [saveFilter, scrollElement],
+  );
 
   return (
     <div className="flex h-full flex-col">
