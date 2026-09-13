@@ -15,8 +15,11 @@ import { KnowledgeBase } from './knowledge-base.entity.js';
 /**
  * 索引与迁移对齐（`src/db/migrations/*AlignKnowledgeTimestamps*`）：
  * `IDX_knowledge_documents_kb_created`（缺 id 决胜列）已由
- * `IDX_knowledge_documents_kb_created_id` 取代；`@Index` 装饰器无法表达列的
- * DESC 方向，实际排序方向以迁移里的 DDL 为准。
+ * `IDX_knowledge_documents_kb_created_id` 取代。
+ *
+ * 注意：迁移 DDL 建的排序方向是 `created_at DESC, id DESC`（keyset 排序所需），
+ * 而 `@Index` 装饰器只能表达 ASC —— `migration:generate` 可能据此提出一个 ASC
+ * 版本的索引变更，**人工审查时必须拒绝**，不要让它覆盖迁移里的 DDL。
  */
 @Entity('knowledge_documents')
 @Index('IDX_knowledge_documents_kb_created_id', [
@@ -68,10 +71,23 @@ export class KnowledgeDocument {
   content: string | null;
 
   @ApiProperty({ description: '创建时间' })
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  // default 必须与迁移 AlignKnowledgeTimestamps 的 DDL 逐字一致（毫秒对齐）：
+  // 省略它时 TypeORM 元数据默认是 now()，migration:generate 会提出
+  // `SET DEFAULT now()`，把微秒精度放回 created_at，进而让毫秒精度游标的
+  // keyset 谓词 `(created_at, id) < (:cursorTs, :cursorId)` 整批跳行。
+  @CreateDateColumn({
+    name: 'created_at',
+    type: 'timestamptz',
+    default: () => "date_trunc('milliseconds', now())",
+  })
   createdAt: Date;
 
   @ApiProperty({ description: '更新时间' })
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  // 同上：default 与迁移 DDL 保持一致，避免 migration:generate 回退成 now()。
+  @UpdateDateColumn({
+    name: 'updated_at',
+    type: 'timestamptz',
+    default: () => "date_trunc('milliseconds', now())",
+  })
   updatedAt: Date;
 }

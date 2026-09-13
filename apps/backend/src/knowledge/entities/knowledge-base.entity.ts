@@ -19,8 +19,11 @@ export enum KnowledgeBaseVisibility {
 /**
  * 索引与迁移对齐（`src/db/migrations/*AlignKnowledgeTimestamps*`）：
  * 后两条服务于 keyset 分页 `(owner_id = :uid OR visibility = 'public')`
- * 且 `ORDER BY created_at DESC, id DESC` 的两种分支；`@Index` 装饰器无法表达
- * 列的 DESC 方向，实际排序方向以迁移里的 DDL 为准。
+ * 且 `ORDER BY created_at DESC, id DESC` 的两种分支。
+ *
+ * 注意：迁移 DDL 建的排序方向是 `created_at DESC, id DESC`（keyset 排序所需），
+ * 而 `@Index` 装饰器只能表达 ASC —— `migration:generate` 可能据此提出一个 ASC
+ * 版本的索引变更，**人工审查时必须拒绝**，不要让它覆盖迁移里的 DDL。
  */
 @Entity('knowledge_bases')
 @Index('IDX_knowledge_bases_owner_visibility', ['ownerId', 'visibility'])
@@ -68,11 +71,24 @@ export class KnowledgeBase {
   description: string | null;
 
   @ApiProperty({ description: '创建时间' })
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  // default 必须与迁移 AlignKnowledgeTimestamps 的 DDL 逐字一致（毫秒对齐）：
+  // 省略它时 TypeORM 元数据默认是 now()，migration:generate 会提出
+  // `SET DEFAULT now()`，把微秒精度放回 created_at，进而让毫秒精度游标的
+  // keyset 谓词 `(created_at, id) < (:cursorTs, :cursorId)` 整批跳行。
+  @CreateDateColumn({
+    name: 'created_at',
+    type: 'timestamptz',
+    default: () => "date_trunc('milliseconds', now())",
+  })
   createdAt: Date;
 
   @ApiProperty({ description: '更新时间' })
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  // 同上：default 与迁移 DDL 保持一致，避免 migration:generate 回退成 now()。
+  @UpdateDateColumn({
+    name: 'updated_at',
+    type: 'timestamptz',
+    default: () => "date_trunc('milliseconds', now())",
+  })
   updatedAt: Date;
 
   @ApiProperty({ description: '点赞数', required: false })
