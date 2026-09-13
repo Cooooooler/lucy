@@ -84,23 +84,21 @@ describe('api/knowledge', () => {
     );
   });
 
-  it('listKnowledgeBasesApi 携带分页/过滤参数', async () => {
+  it('listKnowledgeBasesApi 携带游标/每页条数/过滤参数', async () => {
     const data = {
       list: [makeKnowledgeBase()],
-      total: 1,
-      page: 1,
-      pageSize: 10,
+      nextCursor: 'next-cursor',
     };
     fetchMock.mockResolvedValueOnce(okEnvelope(data));
     const result = await listKnowledgeBasesApi({
-      page: 1,
-      pageSize: 10,
+      limit: 10,
+      cursor: 'abc',
       visibility: 'public',
       name: '产品',
     });
     expect(result).toEqual(data);
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/v1/knowledge?page=1&pageSize=10&visibility=public&name=%E4%BA%A7%E5%93%81',
+      '/api/v1/knowledge?limit=10&cursor=abc&visibility=public&name=%E4%BA%A7%E5%93%81',
       expect.objectContaining({ method: 'GET' }),
     );
   });
@@ -155,17 +153,17 @@ describe('api/knowledge', () => {
     expect(new Headers(init.headers).get('Content-Type')).toBeNull();
   });
 
-  it('listDocumentsApi 携带分页/关键字参数', async () => {
-    const data = { list: [makeDocument()], total: 1, page: 1, pageSize: 20 };
+  it('listDocumentsApi 携带游标/每页条数/关键字参数', async () => {
+    const data = { list: [makeDocument()], nextCursor: null };
     fetchMock.mockResolvedValueOnce(okEnvelope(data));
     const result = await listDocumentsApi('kb1', {
-      page: 1,
-      pageSize: 20,
+      limit: 20,
+      cursor: 'xyz',
       keyword: 'hello',
     });
     expect(result).toEqual(data);
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/v1/knowledge/kb1/documents?page=1&pageSize=20&keyword=hello',
+      '/api/v1/knowledge/kb1/documents?limit=20&cursor=xyz&keyword=hello',
       expect.objectContaining({ method: 'GET' }),
     );
   });
