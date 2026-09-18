@@ -20,6 +20,8 @@ type KnowledgeGridProps = {
   onEdit?: (kb: KnowledgeBase) => void;
   /** 挂载时一次性恢复到的首可见项索引（来自会话内视图状态） */
   initialRestoreIndex?: number;
+  /** 本次挂载的恢复动作结束（调用方据此清掉锚点，避免重挂时回放） */
+  onRestoreDone?: () => void;
   /** 首可见项索引变化回调（滚动中持续上报） */
   onFirstVisibleItemChange?: (index: number) => void;
 };
@@ -90,6 +92,7 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
   fetchNextPage,
   onEdit,
   initialRestoreIndex,
+  onRestoreDone,
   onFirstVisibleItemChange,
 }) => {
   const { layout, virtualItems, totalSize, restorePending } = useVirtualGrid({
@@ -99,6 +102,7 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
     isFetchingNextPage,
     fetchNextPage,
     initialRestoreIndex,
+    onRestoreDone,
     onFirstVisibleItemChange,
   });
 
@@ -130,7 +134,7 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
                     paddingBottom: layout.gap,
                   }}
                 >
-                  {/* 原样透传 onEdit（不包箭头函数），保证引用稳定让卡片 memo 生效；
+                  {/* 原样透传 onEdit（不包箭头函数），不额外引入每次渲染都变化的引用；
                   可空处理留在卡片内部（onEdit?.()） */}
                   <KnowledgeCard kb={kb} onEdit={onEdit} />
                 </div>

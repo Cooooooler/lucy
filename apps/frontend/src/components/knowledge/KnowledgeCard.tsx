@@ -15,7 +15,6 @@ import {
   useUpdateKnowledgeBase,
 } from '@/hooks/use-knowledge';
 import { App } from 'antd';
-import { memo } from 'react';
 
 type KnowledgeCardProps = {
   kb: KnowledgeBase;
@@ -31,16 +30,13 @@ type KnowledgeCardProps = {
  * （LoAF 实测，dev/StrictMode 下），而同等外观的轻量标记把总阻塞从 ~450ms 降到 ~90ms。
  * 主题仍沿用 antd 的 CSS 变量（`--ant-color-*`），与 `KnowledgeToolbar` 的做法一致。
  *
- * 用 `memo` 包裹：虚拟化网格挂载后会因自身稳定化触发额外渲染，传入的是同一批卡片、
- * 同样的 props，`memo` 可让整批卡片直接 bail out。前提是 `onEdit` 为稳定引用（路由用 `useCallback` 提供）。
+ * 不额外包 `memo`：本项目已在 vite.config.ts 启用 React Compiler，组件级重渲染由它
+ * 细粒度接管，手写 `memo` 属重复优化，且会把「回调必须引用稳定」变成一条并不存在的正确性前提。
  *
  * ⚠️ 高度硬约束：整卡固定 `h-[210px]`，与 `grid-layout.ts` 的 `CARD_ESTIMATED_HEIGHT`（210）
  * 一一对应。改动高度必须同步改常量，否则虚拟化行高与真实高度不一致会导致滚动位置整体偏移。
  */
-export const KnowledgeCard = memo(function KnowledgeCard({
-  kb,
-  onEdit,
-}: KnowledgeCardProps) {
+export function KnowledgeCard({ kb, onEdit }: KnowledgeCardProps) {
   const { message, modal } = App.useApp();
   const updateMutation = useUpdateKnowledgeBase();
   const likeMutation = useLikeKnowledgeBase();
@@ -175,4 +171,4 @@ export const KnowledgeCard = memo(function KnowledgeCard({
       </div>
     </div>
   );
-});
+}

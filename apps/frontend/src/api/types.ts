@@ -33,3 +33,8 @@ export type UpdateKnowledgeBaseRequest =
 // KnowledgeDocument：由后端文档接口 @ApiResponse({ type: KnowledgeDocument })
 // 生成（Swagger 已将字段推给该 schema），勿手写。
 export type KnowledgeDocument = components['schemas']['KnowledgeDocument'];
+
+// KnowledgeDocumentListItem：文档**列表项**契约（KnowledgeDocumentListItemDto），
+// 刻意不含解析全文 content——列表接口做列投影，content 只由详情接口返回
+export type KnowledgeDocumentListItem =
+  components['schemas']['KnowledgeDocumentListItemDto'];

@@ -184,7 +184,21 @@ describe('routes/_layout/knowledge', () => {
     }
   });
 
-  it('onEdit 引用稳定（useCallback）：重渲染后仍是同一引用，保证卡片 React.memo 生效', async () => {
+  it('恢复完成后消费掉锚点：改筛选（网格卸载重挂）不再回放旧位置', async () => {
+    mockViewState({}, 7);
+    renderRoute();
+    expect(lastGridProps().initialRestoreIndex).toBe(7);
+
+    const onRestoreDone = lastGridProps().onRestoreDone as () => void;
+    act(() => onRestoreDone());
+    await waitFor(() => expect(lastGridProps().initialRestoreIndex).toBe(0));
+
+    // 改筛选 → 新 queryKey → 网格进加载态卸载、拿到数据后重挂；锚点已是 0，不会覆盖回顶
+    await userEvent.click(screen.getByText('公开'));
+    expect(lastGridProps().initialRestoreIndex).toBe(0);
+  });
+
+  it('onEdit 引用稳定（useCallback）：重渲染后仍是同一引用', async () => {
     mockViewState();
     renderRoute();
     const before = lastGridProps().onEdit;

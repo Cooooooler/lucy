@@ -81,12 +81,6 @@ function renderCard(
 }
 
 describe('KnowledgeCard', () => {
-  it('用 React.memo 包裹（虚拟化挂载后的第二趟渲染可整体 bail out）', () => {
-    expect((KnowledgeCard as unknown as { $$typeof: symbol }).$$typeof).toBe(
-      Symbol.for('react.memo'),
-    );
-  });
-
   it('渲染知识库名称', () => {
     mockedUpdate.mockReturnValue(updateMutationMock());
     renderCard();

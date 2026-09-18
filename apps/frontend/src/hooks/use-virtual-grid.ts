@@ -26,6 +26,12 @@ type UseVirtualGridOptions = {
   initialRestoreIndex?: number;
   /** 首可见项索引变化回调（滚动中持续上报，不触发渲染） */
   onFirstVisibleItemChange?: (index: number) => void;
+  /**
+   * 本次挂载的恢复动作已结束（无论是否需要滚动）时回调一次。
+   * 调用方据此清掉恢复锚点：网格会随筛选切换卸载重挂（加载态 → 有数据），
+   * 锚点若留在调用方，重挂时会再次回放恢复，把改筛选后的「回到顶部」覆盖掉。
+   */
+  onRestoreDone?: () => void;
 };
 
 // 固定行高是纯常量函数（忽略入参），提到模块级：useVirtualizer 每次渲染都用新 options
@@ -46,6 +52,7 @@ export function useVirtualGrid({
   fetchNextPage,
   initialRestoreIndex = 0,
   onFirstVisibleItemChange,
+  onRestoreDone,
 }: UseVirtualGridOptions) {
   // 回调经 ref 持有：避免每次渲染传入新的函数引用导致虚拟化器 options 抖动；
   // 该 ref 由下方的被动 effect 更新，因此回调变更会在下一次被动 effect 之后才生效
@@ -54,6 +61,12 @@ export function useVirtualGrid({
   useEffect(() => {
     onFirstVisibleItemChangeRef.current = onFirstVisibleItemChange;
   }, [onFirstVisibleItemChange]);
+
+  // 同理由：恢复完成的回调只在 layout effect 里用一次，不该让 options/依赖抖动
+  const onRestoreDoneRef = useRef(onRestoreDone);
+  useEffect(() => {
+    onRestoreDoneRef.current = onRestoreDone;
+  }, [onRestoreDone]);
 
   // 容器宽度是「外部可变值」：用 useSyncExternalStore 在渲染期读 DOM。
   // 不能用 useState + effect：那样的首次渲染宽度未知，会先绘制一帧 width=0 的
@@ -94,13 +107,21 @@ export function useVirtualGrid({
     overscan: 1,
     // 首可见项索引是「返回恢复」的锚点：索引与 DOM 高度解耦，落点不受重新测量影响。
     // 不能用 getVirtualItems()[0]——默认 rangeExtractor 会把 overscan 项也算进来，
-    // 上报值会比真实首可见项小 overscan，往返会累积向上漂移
+    // 上报值会比真实首可见项小 overscan，往返会累积向上漂移。
+    // 取「起点不晚于视口顶部的最后一项」：视口顶部落在某行内部时，该行仍部分可见，
+    // 才是真正的首可见项；取首个 start >= offset 会跳过它，恢复时整卡下移一行。
     onChange: (instance) => {
       const offset = instance.scrollOffset ?? 0;
-      const first = instance
-        .getVirtualItems()
-        .find((item) => item.start >= offset);
-      if (first) onFirstVisibleItemChangeRef.current?.(first.index);
+      const items = instance.getVirtualItems();
+      let first: { index: number; start: number } | undefined;
+      for (const item of items) {
+        if (item.start > offset) continue;
+        if (!first || item.start > first.start) first = item;
+      }
+      // 兜底：渲染区间尚未覆盖视口顶部时（如测量前的首帧）沿用最早渲染的一项，
+      // 否则会漏掉这次上报，锚点停在上一个位置
+      const anchor = first ?? items[0];
+      if (anchor) onFirstVisibleItemChangeRef.current?.(anchor.index);
     },
   });
 
@@ -141,6 +162,8 @@ export function useVirtualGrid({
     // 而「effect 里多渲染一趟」正是用来换掉「先挂顶部窗口再跳到恢复位置」的那一整窗白挂（见 restorePending）。
     // eslint-disable-next-line react-x/set-state-in-effect
     setRestored(true);
+    // 通知调用方消费掉恢复锚点（见 onRestoreDone 的说明）
+    onRestoreDoneRef.current?.();
   }, [scrollElement, count, initialRestoreIndex, virtualizer]);
 
   useEffect(() => {

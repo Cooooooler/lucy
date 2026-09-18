@@ -25,6 +25,13 @@ function KnowledgeComponent() {
     saveFirstVisibleIndex,
   } = useKnowledgeViewState();
 
+  // 恢复锚点只在路由本次挂载后消费一次：恢复完成后置 0。
+  // 必须由路由持有而非网格自己记账——改筛选会切到新 queryKey（isLoading）导致
+  // KnowledgeGridVirtual 卸载重挂，网格内的「已恢复」标记会随实例归零，
+  // 于是旧锚点被再次回放，把事件处理器里的 scrollTo({ top: 0 }) 覆盖掉。
+  const [restoreIndex, setRestoreIndex] = useState(initialRestoreIndex);
+  const handleRestoreDone = useCallback(() => setRestoreIndex(0), []);
+
   // 初值来自会话 store：SPA 返回时自动还原上次筛选
   const [committedName, setCommittedName] = useState(initialFilter.name ?? '');
   const [visibility, setVisibility] = useState<VisibilityFilter>(
@@ -52,8 +59,9 @@ function KnowledgeComponent() {
     [query.data],
   );
 
-  // 稳定引用：传给虚拟化网格/工具栏的回调必须用 useCallback 包裹，
-  // 否则每次渲染都是新函数，会让 KnowledgeCard 的 React.memo 永久失效（第二趟渲染无法 bail out）。
+  // 回调用 useCallback 包裹只是让引用在「未经 React Compiler 的路径」（vitest、
+  // 未启用 compiler 的 dev 配置）下也保持稳定；构建产物里 Compiler 已做细粒度 memo。
+  // 不是正确性前提——卡片不再依赖 memo 包裹，回调换成新引用也不会导致重放或错渲染。
   const handleEdit = useCallback(
     (kb: KnowledgeBase) => setFormTarget({ mode: 'edit', kb }),
     [],
@@ -104,7 +112,8 @@ function KnowledgeComponent() {
           refetch={query.refetch}
           hasFilter={Boolean(filter.name || filter.visibility)}
           onEdit={handleEdit}
-          initialRestoreIndex={initialRestoreIndex}
+          initialRestoreIndex={restoreIndex}
+          onRestoreDone={handleRestoreDone}
           onFirstVisibleItemChange={saveFirstVisibleIndex}
         />
       </div>

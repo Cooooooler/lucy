@@ -9,6 +9,7 @@ import type {
   CreateKnowledgeBaseRequest,
   KnowledgeBase,
   KnowledgeDocument,
+  KnowledgeDocumentListItem,
   UpdateKnowledgeBaseRequest,
 } from './types.js';
 
@@ -59,9 +60,10 @@ export function addDocumentApi(kbId: string, file: File) {
     .json();
 }
 
+// 列表返回的是列表项（不含解析全文 content），详情接口才返回 KnowledgeDocument
 export function listDocumentsApi(kbId: string, query: DocumentListQuery = {}) {
   return http
-    .get<CursorPageResult<KnowledgeDocument>>(
+    .get<CursorPageResult<KnowledgeDocumentListItem>>(
       `knowledge/${kbId}/documents`,
       query,
     )

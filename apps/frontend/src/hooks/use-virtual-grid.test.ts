@@ -176,7 +176,7 @@ describe('useVirtualGrid', () => {
     expect(onFirstVisibleItemChange).toHaveBeenCalledWith(4);
   });
 
-  it('上报首个 start >= scrollOffset 的项，剔除 overscan', () => {
+  it('上报视口顶部所在的行，剔除 overscan 提前渲染的、已滚过的行', () => {
     const onFirstVisibleItemChange = vi.fn();
     renderHook(() =>
       useVirtualGrid({
@@ -195,9 +195,8 @@ describe('useVirtualGrid', () => {
       }) => void;
     };
     // 虚拟项 start 依次为 200 / 400 / 600（前两项是被 overscan 提前渲染的、已滚过的行）。
-    // 视口起点 500 → 首个未被滚过的行是 index 3；若沿用 getVirtualItems()[0] 会上报 1。
-    // （注：简报示例写的 offset 400 与 makeVirtualItem(i)=i*200 不自洽——start=400 的是
-    //  index 2，正确落点为 2；这里取 500 以与简报给出的期望值 3 一致。）
+    // 视口起点 500 → 顶部落在 start=400 的那一行内部，落点为 index 2；
+    // 若沿用 getVirtualItems()[0] 会上报 1。
     options.onChange({
       scrollOffset: 500,
       getVirtualItems: () => [
@@ -207,7 +206,34 @@ describe('useVirtualGrid', () => {
       ],
     });
     expect(onFirstVisibleItemChange).toHaveBeenCalledTimes(1);
-    expect(onFirstVisibleItemChange).toHaveBeenCalledWith(3);
+    expect(onFirstVisibleItemChange).toHaveBeenCalledWith(2);
+  });
+
+  it('视口顶部落在行内部时上报该行，而不是下一行（恢复不会整卡下移）', () => {
+    const onFirstVisibleItemChange = vi.fn();
+    renderHook(() =>
+      useVirtualGrid({
+        scrollElement: null,
+        count: 8,
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        fetchNextPage: vi.fn(),
+        onFirstVisibleItemChange,
+      }),
+    );
+    const options = useVirtualizerMock.mock.calls[0][0] as {
+      onChange: (instance: {
+        scrollOffset: number | null;
+        getVirtualItems: () => VirtualItemStub[];
+      }) => void;
+    };
+    // 行高 220px、scrollTop=100：第 0 行（start=0）仍部分可见，才是首可见项；
+    // 「首个 start >= offset」会跳过它返回第 1 行，返回恢复时把该卡滚出视口。
+    options.onChange({
+      scrollOffset: 100,
+      getVirtualItems: () => [makeVirtualItem(0), makeVirtualItem(1)],
+    });
+    expect(onFirstVisibleItemChange).toHaveBeenCalledWith(0);
   });
 
   it('没有可见项时不调用上报回调', () => {
@@ -439,6 +465,44 @@ describe('useVirtualGrid', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('恢复结束时回调一次 onRestoreDone（调用方据此消费锚点）', () => {
+    const scrollElement = makeScrollElement();
+    const onRestoreDone = vi.fn();
+    const { rerender } = renderHook(
+      ({ count }: { count: number }) =>
+        useVirtualGrid({
+          scrollElement,
+          count,
+          hasNextPage: false,
+          isFetchingNextPage: false,
+          fetchNextPage: vi.fn(),
+          initialRestoreIndex: 7,
+          onRestoreDone,
+        }),
+      { initialProps: { count: 20 } },
+    );
+    expect(onRestoreDone).toHaveBeenCalledTimes(1);
+
+    rerender({ count: 40 });
+    expect(onRestoreDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('容器未就绪时不回调 onRestoreDone（等真正恢复的那次提交）', () => {
+    const onRestoreDone = vi.fn();
+    renderHook(() =>
+      useVirtualGrid({
+        scrollElement: null,
+        count: 20,
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        fetchNextPage: vi.fn(),
+        initialRestoreIndex: 7,
+        onRestoreDone,
+      }),
+    );
+    expect(onRestoreDone).not.toHaveBeenCalled();
   });
 
   it('只恢复一次，重渲染不重复滚动', () => {

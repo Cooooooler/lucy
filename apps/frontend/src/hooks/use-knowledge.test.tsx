@@ -1,4 +1,8 @@
-import type { KnowledgeBase, KnowledgeDocument } from '@/api/types';
+import type {
+  KnowledgeBase,
+  KnowledgeDocument,
+  KnowledgeDocumentListItem,
+} from '@/api/types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -49,7 +53,7 @@ function makeBase(overrides: Partial<KnowledgeBase> = {}): KnowledgeBase {
   };
 }
 
-/** 文档数据工厂 */
+/** 文档数据工厂（详情/上传返回，含解析全文） */
 function makeDoc(
   overrides: Partial<KnowledgeDocument> = {},
 ): KnowledgeDocument {
@@ -59,6 +63,21 @@ function makeDoc(
     fileId: 'f1',
     title: 'intro',
     content: null,
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2024-01-01T00:00:00Z',
+    ...overrides,
+  };
+}
+
+/** 文档**列表项**工厂：列表契约不含 content（服务端做列投影） */
+function makeDocListItem(
+  overrides: Partial<KnowledgeDocumentListItem> = {},
+): KnowledgeDocumentListItem {
+  return {
+    id: 'd1',
+    knowledgeBaseId: 'kb1',
+    fileId: 'f1',
+    title: 'intro',
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
     ...overrides,
@@ -515,8 +534,8 @@ describe('useInfiniteDocumentList', () => {
       (_kbId: string, query: { cursor?: string } = {}) =>
         Promise.resolve(
           query.cursor
-            ? cursorPage([makeDoc({ id: 'd2' })], null)
-            : cursorPage([makeDoc({ id: 'd1' })], 'dc1'),
+            ? cursorPage([makeDocListItem({ id: 'd2' })], null)
+            : cursorPage([makeDocListItem({ id: 'd1' })], 'dc1'),
         ),
     );
     const { result } = renderHook(() => useInfiniteDocumentList('kb1'), {
