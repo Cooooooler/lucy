@@ -1,3 +1,4 @@
+import { ClassSerializerInterceptor } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ClsModule } from 'nestjs-cls';
@@ -37,6 +38,20 @@ describe('CommonModule', () => {
       provide: APP_FILTER,
       useClass: AllExceptionsFilter,
     });
+  });
+
+  it('全局注册 ClassSerializerInterceptor，且排在信封拦截器之后（先序列化再包信封）', () => {
+    const providers = (Reflect.getMetadata('providers', CommonModule) ??
+      []) as Array<{ provide?: unknown; useClass?: unknown }>;
+    const interceptorClasses = providers
+      .filter((p) => p.provide === APP_INTERCEPTOR)
+      .map((p) => p.useClass);
+    // 顺序即拦截器链顺序：后注册者的响应 map 先执行，
+    // 因此序列化必须排在 ApiResponseInterceptor 之后，否则它看到的已是 {code,message,data} 信封
+    expect(interceptorClasses).toEqual([
+      ApiResponseInterceptor,
+      ClassSerializerInterceptor,
+    ]);
   });
 
   it('导入 ClsModule（请求上下文）', () => {

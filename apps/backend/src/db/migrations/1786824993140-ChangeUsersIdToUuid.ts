@@ -1,6 +1,9 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class ChangeUsersIdToUuid1786824993140 implements MigrationInterface {
+  /** 显式原子化：数据回迁 + 换列必须整体成功或整体回滚（约定见 data-source.ts）。 */
+  transaction = true;
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     // users.id 从 BIGSERIAL 自增改为 uuid，数据保持（回填 gen_random_uuid 再换列）
     await queryRunner.query(

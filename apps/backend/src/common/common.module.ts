@@ -1,4 +1,5 @@
 import {
+  ClassSerializerInterceptor,
   MiddlewareConsumer,
   Module,
   NestModule,
@@ -34,6 +35,12 @@ import { ShutdownService } from './shutdown.service.js';
     AppLogger,
     ShutdownService,
     { provide: APP_INTERCEPTOR, useClass: ApiResponseInterceptor },
+    // 序列化白名单全局生效（与 ApiResponseInterceptor 一致），而非按控制器逐个挂：
+    // 实体上的 `@Exclude()` 只有经过它才生效，挂在单个控制器上时，同一实体从别的
+    // 控制器返回就会把内部字段（关系对象、存储 key 等）一并泄出。
+    // 注册顺序在 ApiResponseInterceptor 之后：响应阶段后注册者的 map 先跑，
+    // 于是先按 @Exclude 序列化原始返回值，再被信封包裹。
+    { provide: APP_INTERCEPTOR, useClass: ClassSerializerInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     // 全局限流守卫先于业务守卫执行（CommonModule 先于 AuthModule 导入）
     { provide: APP_GUARD, useClass: ThrottlerGuard },

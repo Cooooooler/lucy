@@ -21,6 +21,7 @@ import { decodeCursor, encodeCursor } from './cursor.js';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { DocumentListQueryDto } from './dto/document-list-query.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
+import type { KnowledgeDocumentListItemDto } from './dto/knowledge-list-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
 import { BackendFileEntity } from './entities/backend-file.entity.js';
 import {
@@ -29,6 +30,7 @@ import {
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
+import { toDocumentListItem } from './knowledge.mapper.js';
 import { detectFileType } from './magic-bytes.js';
 
 /** 游标分页默认每页条数 */
@@ -364,13 +366,19 @@ export class KnowledgeService {
    * 按**不可变**的 (created_at, id) 降序做 keyset 分页（同 list()，不使用可变的 updated_at）；
    * 可按 `keyword` 模糊匹配标题或解析出的纯文本。
    * 排序与过滤均直接使用原始列，谓词为行比较，可走索引。
+   *
+   * 列表**不返回 `content`**（解析出的全文，可达 MB 级）：查询做显式列投影，
+   * 返回前经 `toDocumentListItem` 收敛成列表项契约，`content` 只由详情接口给出。
    * @throws NotFoundException / ForbiddenException
    */
   async listDocuments(
     userId: string,
     kbId: string,
     query: DocumentListQueryDto,
-  ): Promise<{ list: KnowledgeDocument[]; nextCursor: string | null }> {
+  ): Promise<{
+    list: KnowledgeDocumentListItemDto[];
+    nextCursor: string | null;
+  }> {
     const kb = await this.kbRepo.findOne({ where: { id: kbId } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertReadable(kb, userId);
@@ -378,6 +386,16 @@ export class KnowledgeService {
     const limit = query.limit ?? DEFAULT_PAGE_SIZE;
     const qb = this.docRepo
       .createQueryBuilder('d')
+      // 显式列投影：直接把 content 挡在 SELECT 之外（keyword 对 content 的 ILIKE 仍在 WHERE 里，
+      // 那是过滤、不读取整列回传），避免每页把 20 篇全文一次拉回
+      .select([
+        'd.id',
+        'd.knowledgeBaseId',
+        'd.fileId',
+        'd.title',
+        'd.createdAt',
+        'd.updatedAt',
+      ])
       .where('d.knowledgeBaseId = :kbId', { kbId })
       .orderBy('d.created_at', 'DESC')
       .addOrderBy('d.id', 'DESC');
@@ -394,9 +412,13 @@ export class KnowledgeService {
       });
     }
     const rows = await qb.take(limit + 1).getMany();
-    return this.toCursorPage(rows, limit, (doc) =>
+    const page = this.toCursorPage(rows, limit, (doc) =>
       encodeCursor(doc.createdAt, doc.id),
     );
+    return {
+      list: page.list.map(toDocumentListItem),
+      nextCursor: page.nextCursor,
+    };
   }
 
   /**

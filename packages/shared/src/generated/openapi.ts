@@ -790,9 +790,29 @@ export interface components {
              */
             updatedAt: string;
         };
+        KnowledgeDocumentListItemDto: {
+            /** @description 文档 ID */
+            id: string;
+            /** @description 所属知识库 ID */
+            knowledgeBaseId: string;
+            /** @description 源文件 ID */
+            fileId: string;
+            /** @description 标题 */
+            title: string;
+            /**
+             * Format: date-time
+             * @description 创建时间
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description 更新时间
+             */
+            updatedAt: string;
+        };
         DocumentListResultDto: {
-            /** @description 文档列表 */
-            list: components["schemas"]["KnowledgeDocument"][];
+            /** @description 文档列表（不含解析全文 content） */
+            list: components["schemas"]["KnowledgeDocumentListItemDto"][];
             /** @description 下一页游标；null 表示已到末页 */
             nextCursor: string | null;
         };
@@ -1314,7 +1334,7 @@ export interface operations {
                 limit?: number;
                 /** @description 按可见性过滤 */
                 visibility?: "private" | "public";
-                /** @description 名称关键字 */
+                /** @description 名称关键字（最多 100 字符） */
                 name?: string;
             };
             header?: never;
@@ -1467,7 +1487,7 @@ export interface operations {
                 cursor?: string;
                 /** @description 每页条数 */
                 limit?: number;
-                /** @description 匹配标题/内容的关键字 */
+                /** @description 匹配标题/内容的关键字（最多 100 字符） */
                 keyword?: string;
             };
             header?: never;

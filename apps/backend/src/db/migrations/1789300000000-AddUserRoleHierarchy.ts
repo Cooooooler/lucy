@@ -10,6 +10,9 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class AddUserRoleHierarchy1789300000000 implements MigrationInterface {
   name = 'AddUserRoleHierarchy1789300000000';
 
+  /** 显式原子化：加约束 + 提升账号必须整体生效（约定见 data-source.ts）。 */
+  transaction = true;
+
   private static readonly BOOTSTRAP_SUPERADMIN_ID =
     '69c2ec06-0552-4bdc-af29-d867f0f239f0';
 

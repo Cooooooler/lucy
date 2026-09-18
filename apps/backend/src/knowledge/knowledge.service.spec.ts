@@ -172,6 +172,7 @@ describe('KnowledgeService', () => {
   // 可链式 QueryBuilder mock：供 listDocuments 用（docRepo）
   const makeDocQb = () => {
     const qb = {
+      select: vi.fn(),
       where: vi.fn(),
       andWhere: vi.fn(),
       orderBy: vi.fn(),
@@ -179,6 +180,7 @@ describe('KnowledgeService', () => {
       take: vi.fn(),
       getMany: vi.fn(),
     };
+    qb.select.mockReturnValue(qb);
     qb.where.mockReturnValue(qb);
     qb.andWhere.mockReturnValue(qb);
     qb.orderBy.mockReturnValue(qb);
@@ -623,10 +625,40 @@ describe('KnowledgeService', () => {
       kbId: 'kb1',
     });
     expect(qb.take).toHaveBeenCalledWith(21);
-    expect(result).toEqual({
-      list: [expect.any(KnowledgeDocument)],
-      nextCursor: null,
-    });
+    expect(result.list).toEqual([
+      expect.objectContaining({ id: DOC_ID, title: 'a' }),
+    ]);
+    expect(result.nextCursor).toBeNull();
+  });
+
+  it('listDocuments 做列投影并剔除 content：列表不返回解析全文', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    const qb = makeDocQb();
+    docRepo.createQueryBuilder.mockReturnValue(qb);
+
+    const result = await service.listDocuments('u1', 'kb1', {});
+
+    // 显式列投影：content（text，可达 MB 级）不进 SELECT
+    const selected = qb.select.mock.calls[0][0] as string[];
+    expect(selected).toEqual([
+      'd.id',
+      'd.knowledgeBaseId',
+      'd.fileId',
+      'd.title',
+      'd.createdAt',
+      'd.updatedAt',
+    ]);
+    expect(selected).not.toContain('d.content');
+    // 响应同样不含 content，只剩列表页需要的字段
+    expect(result.list[0]).not.toHaveProperty('content');
+    expect(Object.keys(result.list[0]).sort()).toEqual([
+      'createdAt',
+      'fileId',
+      'id',
+      'knowledgeBaseId',
+      'title',
+      'updatedAt',
+    ]);
   });
 
   it('listDocuments 带 cursor：解码为行比较 keyset 条件（排序键为 created_at）', async () => {

@@ -34,7 +34,8 @@ export class KnowledgeDocument {
   id: string;
 
   @ApiProperty({ description: '所属知识库 ID' })
-  @Index('IDX_knowledge_documents_kb')
+  // 不再单独建 (knowledge_base_id) 索引：已被下面的复合索引前导列完全覆盖（含 FK 级联删除），
+  // 单列索引属冗余，白付写放大。迁移 AddKnowledgeKeysetIndexes 已 DROP 掉它。
   @Column({ name: 'knowledge_base_id', type: 'uuid' })
   knowledgeBaseId: string;
 
@@ -44,7 +45,7 @@ export class KnowledgeDocument {
   fileId: string;
 
   @ApiHideProperty()
-  // 内部关系对象，不对外暴露：Controller 上的 ClassSerializerInterceptor 据 @Exclude 剔除。
+  // 内部关系对象，不对外暴露：全局 ClassSerializerInterceptor（CommonModule）据 @Exclude 剔除。
   // 实体的其它字段即对外契约——新增内部/敏感字段时务必同步加 @Exclude()，否则会进入真实响应与 Swagger 契约。
   @Exclude()
   @ManyToOne(() => KnowledgeBase, { onDelete: 'CASCADE' })
@@ -55,7 +56,7 @@ export class KnowledgeDocument {
   knowledgeBase?: KnowledgeBase;
 
   @ApiHideProperty()
-  // 同上：文件实体（含存储 key/hash 等）不对外暴露。
+  // 同上：文件实体（含存储 key/hash 等）不对外暴露，由全局序列化拦截器据 @Exclude 剔除。
   @Exclude()
   @ManyToOne(() => BackendFileEntity, { onDelete: 'CASCADE' })
   @JoinColumn({

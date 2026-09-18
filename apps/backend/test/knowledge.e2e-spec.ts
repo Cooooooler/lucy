@@ -85,6 +85,10 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
   const tieIds: string[] = [];
   const tieIdSet = new Set<string>();
 
+  /** 文档列表契约用：承载文档的那个知识库与文档 id（在 beforeAll 里落库） */
+  let docsKbId: string;
+  let docRowId: string;
+
   const kbListKeys = [
     'id',
     'ownerId',
@@ -187,6 +191,21 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
         tieIdSet.add(id);
       }
     }
+
+    // 文档列表契约：给其中一个知识库造一条带解析全文的文档（files → knowledge_documents）
+    docsKbId = tieIds[0];
+    docRowId = randomUUID();
+    const fileRowId = randomUUID();
+    await dataSource.query(
+      `INSERT INTO files (id, owner_id, original_name, ext, mime, size, key, hash, storage, created_at, updated_at)
+       VALUES ($1, $2, 'a.txt', '.txt', 'text/plain', 12, $3, $4, 'local', $5, $5)`,
+      [fileRowId, userId, `kb-e2e/${fileRowId}.txt`, 'a'.repeat(64), tieTs],
+    );
+    await dataSource.query(
+      `INSERT INTO knowledge_documents (id, knowledge_base_id, file_id, title, content, created_at, updated_at)
+       VALUES ($1, $2, $3, '文档标题', '正文内容', $4, $4)`,
+      [docRowId, docsKbId, fileRowId, tieTs],
+    );
   });
 
   afterAll(async () => {
@@ -275,6 +294,36 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
     expect(item.name).toBe(`${scopeToken}-created`);
   });
 
+  it('文档列表做列投影：不含解析全文 content，详情才返回 content', async () => {
+    const auth = `Bearer ${token}`;
+
+    const list = await request(server)
+      .get(`/knowledge/${docsKbId}/documents`)
+      .set('Authorization', auth)
+      .expect(200);
+    const item = (list.body as ApiBody<{ list: Record<string, unknown>[] }>)
+      .data.list[0];
+    expect(item.title).toBe('文档标题');
+    expect(item).not.toHaveProperty('content');
+    expect(Object.keys(item).sort()).toEqual(
+      [
+        'id',
+        'knowledgeBaseId',
+        'fileId',
+        'title',
+        'createdAt',
+        'updatedAt',
+      ].sort(),
+    );
+
+    const detail = await request(server)
+      .get(`/knowledge/${docsKbId}/documents/${docRowId}`)
+      .set('Authorization', auth)
+      .expect(200);
+    const detailItem = (detail.body as ApiBody<Record<string, unknown>>).data;
+    expect(detailItem.content).toBe('正文内容');
+  });
+
   it('GET /knowledge/:id 与列表项均不含 owner，其余字段与改造前一致', async () => {
     const auth = `Bearer ${token}`;
     const created = await request(server)
@@ -355,12 +404,30 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
     file: { id: fileId, key: 'SENTINEL_STORAGE_KEY', hash: 'SENTINEL_HASH' },
   });
 
+  /**
+   * 列表项桩：真实服务对列表做列投影 + 映射，本就不带 content，
+   * 这里仍挂上内部关系，用来验证「列表路径也受 @Exclude 保护」。
+   */
+  const docListItemWithRelations = Object.assign(new KnowledgeDocument(), {
+    id: docId,
+    knowledgeBaseId: kbId,
+    fileId,
+    title: 'doc',
+    createdAt: stamp,
+    updatedAt: stamp,
+    knowledgeBase: kbWithRelations,
+    file: { id: fileId, key: 'SENTINEL_STORAGE_KEY', hash: 'SENTINEL_HASH' },
+  });
+
   // 直接返回（非 async）：避免 @typescript-eslint/require-await；Nest 接受裸值返回
   const stub = {
     create: () => kbWithRelations,
     list: () => ({ list: [kbWithRelations], nextCursor: null }),
     get: () => kbWithRelations,
-    listDocuments: () => ({ list: [docWithRelations], nextCursor: null }),
+    listDocuments: () => ({
+      list: [docListItemWithRelations],
+      nextCursor: null,
+    }),
     getDocument: () => docWithRelations,
   };
 
@@ -441,13 +508,14 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
       .data.list[0];
     expect(docItem).not.toHaveProperty('knowledgeBase');
     expect(docItem).not.toHaveProperty('file');
+    // 列表项不含解析全文：content 只由详情接口返回
+    expect(docItem).not.toHaveProperty('content');
     expect(Object.keys(docItem).sort()).toEqual(
       [
         'id',
         'knowledgeBaseId',
         'fileId',
         'title',
-        'content',
         'createdAt',
         'updatedAt',
       ].sort(),
@@ -461,5 +529,7 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
     const detailItem = (detail.body as ApiBody<Record<string, unknown>>).data;
     expect(detailItem).not.toHaveProperty('knowledgeBase');
     expect(detailItem).not.toHaveProperty('file');
+    // 详情仍返回解析全文
+    expect(detailItem.content).toBe('body');
   });
 });

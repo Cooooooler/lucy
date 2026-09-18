@@ -26,6 +26,9 @@ export default new DataSource({
    *   “cannot run inside a transaction block”/“无法在事务块中运行”。
    * - `transaction = true`：需要原子性的迁移请显式声明，TypeORM 会为其单独开事务。
    *
+   * 因为 `none` 下「不声明」就等于「非原子」，约定**每个迁移都必须显式声明**
+   * （由 src/db/migrations/migrations.spec.ts 强制），避免原子性被静默降级。
+   *
    * 注意必须用 `none`（而非 `each`）：TypeORM 的 `migration:revert` **只**看全局模式，
    * 会无视单个迁移的 `transaction = false`，强行包一层事务——那样 `down()` 里的
    * `DROP INDEX CONCURRENTLY` 必失败。`up` 路径下全局默认本就等价于 `false`。

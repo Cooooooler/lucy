@@ -3,6 +3,9 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class CreateAiTables1786259911570 implements MigrationInterface {
   name = 'CreateAiTables1786259911570';
 
+  /** 显式原子化：多语句迁移中途失败可整体回滚（约定见 data-source.ts）。 */
+  transaction = true;
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `CREATE TYPE "public"."ai_messages_role_enum" AS ENUM('user', 'ai', 'system')`,

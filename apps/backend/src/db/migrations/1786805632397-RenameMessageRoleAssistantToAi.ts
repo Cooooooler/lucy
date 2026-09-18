@@ -1,6 +1,9 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class RenameMessageRoleAssistantToAi1786805632397 implements MigrationInterface {
+  /** 显式原子化：迁移中途失败可整体回滚（约定见 data-source.ts）。 */
+  transaction = true;
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     // 幂等处理：仅当枚举当前仍含 'assistant'（历史库）时才重命名。
     // 新库的 CreateAiTables 已直接建为 'ai'，此处静默跳过，避免 RENAME VALUE 报错。

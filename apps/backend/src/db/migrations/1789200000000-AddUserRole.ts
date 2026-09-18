@@ -4,6 +4,9 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class AddUserRole1789200000000 implements MigrationInterface {
   name = 'AddUserRole1789200000000';
 
+  /** 显式原子化：迁移中途失败可整体回滚（约定见 data-source.ts）。 */
+  transaction = true;
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `ALTER TABLE "users" ADD "role" character varying(20) NOT NULL DEFAULT 'user'`,

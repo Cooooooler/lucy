@@ -64,35 +64,42 @@ export class AlignKnowledgeTimestampsBackfill1789500000000 implements MigrationI
   }
 
   /**
-   * 循环分批把两列取整到毫秒，直到某一批更新 0 行。
-   * 子查询在 UPDATE 的快照中选出尚未对齐的行（两列任一未对齐即入选），
-   * `LIMIT` 约束每批规模；已对齐的行不会再被选中，故必然收敛（幂等）。
+   * 按主键游标分批把两列取整到毫秒，直到某批取不到行。
    *
-   * 注意：TypeORM 的 `query()` 对 UPDATE 返回的是 `[rows, rowCount]`（长度恒为 2），
-   * 不能用返回值长度判断是否还有行；必须用 `useStructuredResult = true`
-   * 读取 `QueryResult.affected`（= pg 的 rowCount）。
+   * 用 `"id" > lastId ORDER BY "id" LIMIT n` 推进游标：每批只从上次位置之后取行，
+   * 已处理过的行不再被回看，整体 O(n)。若只写「两列任一未对齐」+ `LIMIT`，
+   * 每轮都要顺序扫过越来越多「已对齐」的行才能凑够一批，总体约 O(n²/批大小)，
+   * 收敛判定那一轮更是一次全表扫描。
+   *
+   * 更新仍按两列一起做（保持 created_at/updated_at 一致）；对齐后不再满足条件，
+   * 因此重复执行匹配 0 行、直接空转（幂等）。
    */
   private async backfillTable(
     queryRunner: QueryRunner,
     table: string,
   ): Promise<void> {
     const batchSize = AlignKnowledgeTimestampsBackfill1789500000000.BATCH_SIZE;
+    let lastId: string | null = null;
     for (;;) {
-      const result = (await queryRunner.query(
+      const batch = (await queryRunner.query(
+        `SELECT "id" FROM "${table}"
+          WHERE ("created_at" <> date_trunc('milliseconds', "created_at")
+              OR "updated_at" <> date_trunc('milliseconds', "updated_at"))
+            AND ($1::uuid IS NULL OR "id" > $1::uuid)
+          ORDER BY "id"
+          LIMIT ${batchSize}`,
+        [lastId],
+      )) as { id: string }[];
+      if (batch.length === 0) return;
+
+      await queryRunner.query(
         `UPDATE "${table}" SET
            "created_at" = date_trunc('milliseconds', "created_at"),
            "updated_at" = date_trunc('milliseconds', "updated_at")
-         WHERE "id" IN (
-           SELECT "id" FROM "${table}"
-           WHERE "created_at" <> date_trunc('milliseconds', "created_at")
-              OR "updated_at" <> date_trunc('milliseconds', "updated_at")
-           LIMIT ${batchSize}
-         )
-         RETURNING "id"`,
-        undefined,
-        true,
-      )) as { affected?: number | null };
-      if (!result.affected) break;
+         WHERE "id" = ANY($1::uuid[])`,
+        [batch.map((row) => row.id)],
+      );
+      lastId = batch[batch.length - 1].id;
     }
   }
 }
