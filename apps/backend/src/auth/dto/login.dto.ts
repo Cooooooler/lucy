@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 export class LoginDto {
@@ -16,13 +17,19 @@ export class LoginDto {
   // account 接受用户名或邮箱二选一，由 AuthService 依是否含 '@' 分流查询
   account: string;
 
-  // 与注册侧的 bcrypt 上限（72）对齐：更长的密码在注册时就进不来，登录侧再挡一道
+  // 上界与注册侧 RegisterDto 的 @Length(8, 72) 同范围：登录只挡明显越界输入，
+  // 真正的强度判定在注册侧（哈希是 node:crypto scrypt，没有 bcrypt 的 72 字节截断一说）
   @ApiProperty({
     description: '密码',
     example: 'Password1!',
     minLength: 1,
     maxLength: 72,
   })
+  // 与注册侧一致地 trim：注册时入库的是 trim 后的值，登录不 trim 会让
+  // 「粘贴密码时带了个尾随空格」直接 401
+  @Transform(({ value }): unknown =>
+    typeof value === 'string' ? value.trim() : (value as unknown),
+  )
   @IsString()
   @IsNotEmpty()
   @MaxLength(72)

@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsOptional,
@@ -31,6 +32,8 @@ export class RegisterDto {
   @IsEmail()
   email: string;
 
+  // 密码常从密码管理器/剪贴板粘贴，首尾空白不可见且客户端往往自行 trim；
+  // 不先 trim 再入库，就会造出「用户自认的密码登不进去」的账号（登录侧同样 trim，两侧一致）
   @ApiProperty({
     description: '密码（8-72 位，需含大小写字母、数字与特殊字符）',
     example: 'Password1!',
@@ -38,6 +41,9 @@ export class RegisterDto {
     maxLength: 72,
     pattern: PASSWORD_PATTERN.source,
   })
+  @Transform(({ value }): unknown =>
+    typeof value === 'string' ? value.trim() : (value as unknown),
+  )
   @IsString()
   @Length(8, 72)
   @Matches(PASSWORD_PATTERN, {

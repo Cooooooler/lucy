@@ -218,7 +218,7 @@ describe('gen-openapi', () => {
       minLength: 1,
       maxLength: 50,
     });
-    // LoginDto：account 进等值查询、password 与注册侧 bcrypt 上限对齐
+    // LoginDto：account 进等值查询、password 与注册侧 @Length(8, 72) 同范围
     expect(propOf('LoginDto', 'account')).toMatchObject({
       minLength: 1,
       maxLength: 255,

@@ -1,3 +1,4 @@
+import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import 'reflect-metadata';
 import { RegisterDto } from './register.dto.js';
@@ -8,11 +9,14 @@ const validBase = {
   nickname: 'Alice',
 };
 
-const buildDto = (overrides: Partial<RegisterDto> = {}) => {
-  const dto = new RegisterDto();
-  Object.assign(dto, validBase, { password: 'ValidPass1!' }, overrides);
-  return dto;
-};
+// 走 plainToInstance 而不是 new + Object.assign：@Transform（密码 trim）只在
+// class-transformer 的转换阶段执行，直接赋值会绕过它，测不到真实管线
+const buildDto = (overrides: Partial<RegisterDto> = {}) =>
+  plainToInstance(RegisterDto, {
+    ...validBase,
+    password: 'ValidPass1!',
+    ...overrides,
+  });
 
 describe('RegisterDto 密码强度校验', () => {
   it('符合全部强度要求的密码通过校验', async () => {
@@ -33,8 +37,8 @@ describe('RegisterDto 密码强度校验', () => {
     expect(passwordErrors.length).toBeGreaterThan(0);
   });
 
-  // 「特殊字符」按非字母数字判定（[^a-zA-Z0-9]），不是符号白名单：
-  // 此前白名单漏了 _/-/~/空格 等，Str0ng-Pass 会被 400 且报错误导用户
+  // 「特殊字符」按非字母数字**且非空白**判定（[^a-zA-Z0-9\s]），不是符号白名单：
+  // 白名单此前漏了 _/-/~ 等常用符号，Str0ng-Pass 会被 400 且报错误导用户
   it.each([
     ['连字符', 'Str0ng-Pass'],
     ['下划线', 'Str0ng_Pass'],
@@ -42,5 +46,23 @@ describe('RegisterDto 密码强度校验', () => {
   ])('含 %s 的密码视为包含特殊字符，通过校验', async (_label, password) => {
     const errors = await validate(buildDto({ password }));
     expect(errors).toHaveLength(0);
+  });
+
+  // 空白不能充当「特殊字符」：这类密码在界面上不可见、客户端又常自行 trim，
+  // 会造出「密码明明对却登不进去」且无法复现的账号
+  it.each([
+    ['空格', 'Str0ng Pass'],
+    ['制表符', 'Str0ng\tPass'],
+    ['换行', 'Str0ng\nPass'],
+  ])('仅靠 %s 充当特殊字符的密码被拒绝', async (_label, password) => {
+    const errors = await validate(buildDto({ password }));
+    const passwordErrors = errors.filter((e) => e.property === 'password');
+    expect(passwordErrors.length).toBeGreaterThan(0);
+  });
+
+  it('密码首尾空白被 trim 后再校验（粘贴带入的不可见空白不落库）', async () => {
+    const dto = buildDto({ password: '  ValidPass1!  ' });
+    await validate(dto);
+    expect(dto.password).toBe('ValidPass1!');
   });
 });
