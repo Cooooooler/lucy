@@ -15,8 +15,9 @@ import type {
 // AI 会话/消息 REST 客户端：全部经 http 实例（自动附加 Bearer + 401 单飞刷新 + 信封解包）。
 // 流式发送标记 skipAuthRefresh：SSE 流中途不应触发 401 重放，否则会破坏流协议。
 
+// 创建/改名返回列表项同一份允许式契约（服务端不 populate messages，自然也不该出现在契约里）
 export function createConversationApi(input: CreateConversationRequest = {}) {
-  return http.post<Conversation>('ai/conversations', input).json();
+  return http.post<ConversationItem>('ai/conversations', input).json();
 }
 
 // 会话列表为游标分页（按最近活跃倒序），列表项是允许式白名单 ConversationItem；
@@ -35,7 +36,7 @@ export function renameConversationApi(
   id: string,
   input: RenameConversationRequest,
 ) {
-  return http.patch<Conversation>(`ai/conversations/${id}`, input).json();
+  return http.patch<ConversationItem>(`ai/conversations/${id}`, input).json();
 }
 
 export function deleteConversationApi(id: string) {
