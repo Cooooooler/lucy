@@ -89,15 +89,12 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 | `JWT_EXPIRES_IN` / `REFRESH_TTL_SECONDS` | `15m` / `604800` | access / refresh 有效期 |
 | `BLOOM_ERROR_RATE` / `BLOOM_CAPACITY` / `BLOOM_ROTATION_SECONDS` | `0.01` / `1000000` / `900` | 布隆过滤器参数 |
 
-- `TypeOrmModule.forRootAsync` 读取上述变量，`synchronize: false`（schema 变更只走迁移），`autoLoadEntities: true`。
-- 迁移：`src/db/data-source.ts` 是 CLI 专用 DataSource（内置 `dotenv/config`），迁移文件放 `src/db/migrations/`。
-- **e2e 跑在独立测试库上**：库名唯一定义在 `test/e2e-db-config.ts`（`E2E_DB_NAME`，缺省 `lucy_test`；非 `*_test` 后缀直接抛错，因此绕过 `pnpm test:e2e` 直接跑 vitest 也拦得住）。`test:e2e` 会先执行 `test/prepare-e2e-db.ts`：重建测试库 → 跑迁移 → **验一次 `migrate → revert → migrate` 往返**。库名不能写在各 spec 顶部——ESM 提升会让赋值晚于 `ConfigModule` 读取 `.env` 并快照的时刻（实测会打到开发库）。
-- **迁移历史已压缩成单文件**：`src/db/migrations/` 下**只有** `1789700000000-InitSchema.ts`，它描述当前完整结构，全新库一次建好。库一律重建、不做存量库收敛，所以它也没有「schema 已存在就跳过」的探测：要重建直接删库。结构变更请直接改它，不要新增「给旧库补结构」的收敛迁移。
-- 每个迁移**必须显式声明 `transaction`**：`migrationsTransactionMode: 'none'` 下「未声明」等于「非原子」，只能在评审时人工把关（没有自动化护栏）。
-- 新增迁移（脚本未内置，Windows cmd 下 `$npm_config_name` 无法展开）：
-  - 手写骨架：`pnpm --filter @lucy/backend exec tsx ./node_modules/typeorm/cli.js migration:create src/db/migrations/Name`
-  - 基于实体 diff 生成：`pnpm --filter @lucy/backend exec tsx ./node_modules/typeorm/cli.js migration:generate src/db/migrations/Name -d src/db/data-source.ts`
-- 生成迁移后必须人工审查 `up`/`down` 再执行；生产环境禁止 `synchronize`。
+- `TypeOrmModule.forRootAsync` 读取上述变量，`synchronize: false`（schema 只由迁移改），`autoLoadEntities: true`；`uuidExtension: 'pgcrypto'` + `installExtensions: false` 让 uuid 主键默认值是内置的 `gen_random_uuid()` 而不是依赖 uuid-ossp 扩展的 `uuid_generate_v4()`。**这两项必须与 `src/db/data-source.ts` 保持一致**，否则 `migration:generate` 产出的 DDL 会和运行时实体对不上。
+- **迁移一律由 `migration:generate` 从实体生成，不手写 DDL**：实体是 schema 的唯一来源，改实体 → 生成迁移 → 审查 `up`/`down` → `db:migrate`。事务模式用 TypeORM 默认的 `all`，生成的文件不需要手工补声明。
+  - 基于实体 diff 生成（对**已迁移**的库跑，产出增量）：`pnpm --filter @lucy/backend exec tsx ./node_modules/typeorm/cli.js migration:generate src/db/migrations/Name -d src/db/data-source.ts`
+  - 想要「一份描述当前完整结构的初始化迁移」时：删库重建一个空库，把 `DB_NAME` 指向它再按上面的命令生成（`DB_NAME=xxx` 会覆盖 `.env`，因为 dotenv 不覆盖已存在的环境变量）。
+  - `migration:generate` 只比对**实体声明得到的信息**：索引方向只能是 ASC（keyset 的降序排序由 Postgres 反向索引扫描满足，不需要 DESC 索引）、列默认值取自实体上的 `default`（如时间列的 `date_trunc('milliseconds', now())` 必须写在实体里）。
+- **e2e 跑在独立测试库上**：库名唯一定义在 `test/e2e-db-config.ts`（`E2E_DB_NAME`，缺省 `lucy_test`；非 `*_test` 后缀直接抛错，因此绕过 `pnpm test:e2e` 直接跑 vitest 也拦得住）。`test:e2e` 会先执行 `test/prepare-e2e-db.ts`：重建测试库 → `runMigrations()` → **验一次 `migrate → revert → migrate` 往返**。库名不能写在各 spec 顶部——ESM 提升会让赋值晚于 `ConfigModule` 读取 `.env` 并快照的时刻（实测会打到开发库）。
 
 #### Redis（Docker + RedisBloom）
 

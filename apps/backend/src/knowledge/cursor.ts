@@ -2,8 +2,8 @@ import { BadRequestException } from '@nestjs/common';
 
 /**
  * 游标分页载荷：以 (排序时间戳, 主键) 作为 keyset 定位点。
- * 时间戳为 ISO 字符串（毫秒精度，JS Date 的固有精度）；数据库侧的时间列由迁移保证
- * 毫秒对齐（默认值亦为 date_trunc('milliseconds', now())），因此可直接与原始列比较，
+ * 时间戳为 ISO 字符串（毫秒精度，JS Date 的固有精度）；数据库侧的时间列由实体的
+ * 列默认值保证毫秒对齐（`date_trunc('milliseconds', now())`），因此可直接与原始列比较，
  * 无需在 SQL 里再做截断。
  */
 interface CursorPayload {

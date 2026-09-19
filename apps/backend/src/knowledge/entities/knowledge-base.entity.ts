@@ -18,19 +18,19 @@ export enum KnowledgeBaseVisibility {
 }
 
 /**
- * 索引与迁移对齐（`src/db/migrations/1789700000000-InitSchema.ts`）：
+ * 索引由下面的 `@Index` 声明——**实体是 schema 的唯一来源**，迁移由 `migration:generate`
+ * 从实体产出（改这里 → 生成迁移 → `db:migrate`），不手写 DDL。
+ *
  * 后两条服务的是**过滤后**的两种查询——`visibility = 'public'` 走
  * `IDX_knowledge_bases_visibility_created_id`，属主维度（`owner_id = :uid`）走
  * `IDX_knowledge_bases_owner_created_id`，两者都能拿到 `(created_at DESC, id DESC)` 的有序扫描。
+ * `@Index` 只能表达 ASC，但 keyset 的降序排序由 Postgres 的**反向索引扫描**满足
+ * （实测两条查询都是 `Index Only Scan Backward`），无需把索引建成 DESC。
  *
  * ⚠️ 默认分支 `(owner_id = :uid OR visibility = 'public')` **不属于**这两种情况：两个 OR 分支的
  * 前导列不同，任何单个 btree 都无法同时提供该排序，规划器只能 BitmapOr/顺序扫描后再排序
  * （`LIMIT` 之前要把匹配集排完）。公开库规模变大后这条最常用路径会退化，届时应拆成
  * `UNION ALL` 的两个分支各自 `LIMIT` 再按 `(created_at, id)` 归并，而不是指望现有索引。
- *
- * 注意：迁移 DDL 建的排序方向是 `created_at DESC, id DESC`（keyset 排序所需），
- * 而 `@Index` 装饰器只能表达 ASC —— `migration:generate` 可能据此提出一个 ASC
- * 版本的索引变更，**人工审查时必须拒绝**，不要让它覆盖迁移里的 DDL。
  */
 @Entity('knowledge_bases')
 @Index('IDX_knowledge_bases_owner_visibility', ['ownerId', 'visibility'])
@@ -81,10 +81,8 @@ export class KnowledgeBase {
   description: string | null;
 
   @ApiProperty({ description: '创建时间' })
-  // default 必须与迁移 1789700000000-InitSchema 的 DDL 逐字一致（毫秒对齐）：
-  // 省略它时 TypeORM 元数据默认是 now()，migration:generate 会提出
-  // `SET DEFAULT now()`，把微秒精度放回 created_at，进而让毫秒精度游标的
-  // keyset 谓词 `(created_at, id) < (:cursorTs, :cursorId)` 整批跳行。
+  // 毫秒对齐：keyset 游标是毫秒精度（JS Date 的固有精度），列默认值若落到微秒，
+  // `(created_at, id) < (:cursorTs, :cursorId)` 会在同一毫秒内整批跳行。
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',
@@ -93,7 +91,7 @@ export class KnowledgeBase {
   createdAt: Date;
 
   @ApiProperty({ description: '更新时间' })
-  // 同上：default 与迁移 DDL 保持一致，避免 migration:generate 回退成 now()。
+  // 同上，必须与 created_at 的精度保持一致
   @UpdateDateColumn({
     name: 'updated_at',
     type: 'timestamptz',
