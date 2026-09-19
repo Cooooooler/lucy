@@ -523,7 +523,9 @@ describe('KnowledgeService', () => {
     const qb = makeKbQb();
     kbRepo.createQueryBuilder.mockReturnValue(qb);
     likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
-    await service.list('u1', { cursor: encodeCursor(new Date(), uuid(9)) });
+    await service.list('u1', {
+      cursor: encodeCursor(new Date(), uuid(9), 'createdAt'),
+    });
     expect(qb.orderBy).toHaveBeenCalledWith('kb.created_at', 'DESC');
     expect(qb.addOrderBy).toHaveBeenCalledWith('kb.id', 'DESC');
     // 毫秒截断会包裹排序列与过滤列，使索引失效；现在两处都用原始列
@@ -545,7 +547,7 @@ describe('KnowledgeService', () => {
     expect(result.list).toHaveLength(2);
     expect(result.nextCursor).not.toBeNull();
     // 游标指向本页最后一条（第 2 条），且编码的是 createdAt（不可变排序键）
-    const decoded = decodeCursor(result.nextCursor!);
+    const decoded = decodeCursor(result.nextCursor!, 'createdAt');
     expect(decoded.id).toBe(uuid(1));
     expect(decoded.timestamp.toISOString()).toBe(
       rows[1].createdAt.toISOString(),
@@ -556,7 +558,11 @@ describe('KnowledgeService', () => {
     const qb = makeKbQb();
     kbRepo.createQueryBuilder.mockReturnValue(qb);
     likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
-    const cursor = encodeCursor(new Date('2026-01-01T00:00:00.000Z'), OTHER_ID);
+    const cursor = encodeCursor(
+      new Date('2026-01-01T00:00:00.000Z'),
+      OTHER_ID,
+      'createdAt',
+    );
     await service.list('u1', { cursor });
     // 行比较（tuple comparison）让 Postgres 能把它优化为一次索引扫描
     expect(qb.andWhere).toHaveBeenCalledWith(
@@ -781,7 +787,11 @@ describe('KnowledgeService', () => {
     kbRepo.findOne.mockResolvedValue(kb());
     const qb = makeDocQb();
     docRepo.createQueryBuilder.mockReturnValue(qb);
-    const cursor = encodeCursor(new Date('2026-01-01T00:00:00.000Z'), OTHER_ID);
+    const cursor = encodeCursor(
+      new Date('2026-01-01T00:00:00.000Z'),
+      OTHER_ID,
+      'createdAt',
+    );
     await service.listDocuments('u1', 'kb1', { cursor, limit: 5 });
     expect(qb.take).toHaveBeenCalledWith(6);
     expect(qb.orderBy).toHaveBeenCalledWith('d.created_at', 'DESC');
@@ -809,7 +819,7 @@ describe('KnowledgeService', () => {
     docRepo.createQueryBuilder.mockReturnValue(qb);
     const result = await service.listDocuments('u1', 'kb1', { limit: 2 });
     expect(result.list).toHaveLength(2);
-    const decoded = decodeCursor(result.nextCursor!);
+    const decoded = decodeCursor(result.nextCursor!, 'createdAt');
     expect(decoded.id).toBe(uuid(1));
     expect(decoded.timestamp.toISOString()).toBe(
       rows[1].createdAt.toISOString(),

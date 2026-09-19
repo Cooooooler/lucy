@@ -111,7 +111,9 @@ describe('KeysetPaginator', () => {
     expect(qb.addOrderBy).toHaveBeenCalledWith('c.id', 'DESC');
     expect(page.list).toEqual([rows[0], rows[1]]);
     // 游标里必须是 updatedAt（而不是 createdAt）：否则下一页会用错列做行比较
-    expect(page.nextCursor).toBe(encodeCursor(rows[1].updatedAt, rows[1].id));
+    expect(page.nextCursor).toBe(
+      encodeCursor(rows[1].updatedAt, rows[1].id, 'updatedAt'),
+    );
 
     const cursor = page.nextCursor!;
     const next = makeQueryBuilder([], makeAlias('c'));
@@ -163,7 +165,7 @@ describe('KeysetPaginator', () => {
 
   it('带游标时追加行比较谓词（解码后按原始列比较）', async () => {
     const qb = makeQueryBuilder([row(2)], makeAlias('d'));
-    const cursor = encodeCursor(row(5).createdAt, row(5).id);
+    const cursor = encodeCursor(row(5).createdAt, row(5).id, 'createdAt');
 
     await paginator.fetchPage(qb as never, cursor, 3);
 
@@ -181,7 +183,9 @@ describe('KeysetPaginator', () => {
     const page = await paginator.fetchPage(qb as never, undefined, 2);
 
     expect(page.list).toEqual([row(1), row(2)]);
-    expect(page.nextCursor).toBe(encodeCursor(row(2).createdAt, row(2).id));
+    expect(page.nextCursor).toBe(
+      encodeCursor(row(2).createdAt, row(2).id, 'createdAt'),
+    );
   });
 
   it('结果不多于 limit 时 nextCursor 为 null（末页）', async () => {

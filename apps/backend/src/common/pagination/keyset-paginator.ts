@@ -1,19 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import type { EntityMetadata, SelectQueryBuilder } from 'typeorm';
-import { decodeCursor, encodeCursor } from './cursor.js';
+import { decodeCursor, encodeCursor, type CursorSortKey } from './cursor.js';
 import { resolvePageSize } from './page-params.js';
 
-/**
- * keyset 分页支持的排序键**属性名**（不是列名）。
- * 真实列名由实体元数据解析（见 {@link resolveSortColumn}），而不是写死 `created_at` / `id`：
- * 泛型约束只能保证实体「有这两个属性」，换个 `name` 映射（或换掉 snake_case 命名策略）
- * 照样编译通过，写死列名就会在运行期报列不存在（500），列存在时也可能对不上迁移里
- * 建的 keyset 索引，退化成排序扫描。
- */
-export type SortKeyProperty = 'createdAt' | 'updatedAt';
-
 /** 参与列名解析的属性：排序键加上用于决胜的 `id` */
-type ResolvableProperty = SortKeyProperty | 'id';
+type ResolvableProperty = CursorSortKey | 'id';
 
 /** 解析排序键属性对应的真实列名；缺失说明该实体不满足游标分页契约，按装配错误直接抛出 */
 function resolveSortColumn(
@@ -39,9 +30,12 @@ function resolveSortColumn(
  *
  * 语义要点（各列表共用同一份实现，排序键可指定）：
  * - 默认取实体的 `createdAt` 属性（不可变）：偏移分页下用可变排序键会让被更新的行越过
- *   游标、在后续页被永久漏掉；游标分页虽然不受「窗口滑动」影响，但只有**单调递增**的可变键
- *   才安全 —— 行只会移到已取过的方向，不会重新进入后续页。会话列表按最近活跃排序
+ *   游标、在后续页被永久漏掉；游标分页不受「窗口滑动」影响，但只有**单调递增**的可变键
+ *   才可接受 —— 行只会移到已取过的方向，不会重复；代价是本轮翻页期间被更新的行会
+ *   **被跳过**（它已移到游标之前），需刷新或重拉首页才能看到。会话列表按最近活跃排序
  *   （每次发消息刷新 `updatedAt`）正是这种情况，故可显式传入 `updatedAt`；
+ * - 排序键**随游标一起编码**（`cursor.ts` 的 `k`）并在解码时校验：知识库/文档的
+ *   `created_at` 游标不能拿到会话列表（`updated_at`）用，否则会拿错列做行比较而静默出错；
  * - 并列（同一毫秒、或同一事务批量插入）由 `id` 决胜，排序仍是全序；
  * - 谓词写成行比较 `(排序键, id) < (:cursorTs, :cursorId)`，Postgres 可优化成一次索引扫描
  *   （列顺序与实体上声明的 keyset 索引一致）；
@@ -61,7 +55,8 @@ export class KeysetPaginator {
    * 带上永不被读取的 `updatedAt`（用类型参数 + `Record<K, Date>` 做不到：省略实参时 `K`
    * 会回退到约束 `'createdAt' | 'updatedAt'`，两列又被同时要求）。
    * @param qb 已带过滤条件的查询构造器
-   * @param cursor 上一页返回的游标；省略表示首页
+   * @param cursor 上一页返回的游标；省略表示首页。游标里带着它签出时的排序键，与本次
+   *   `sortKey` 不一致（含缺少该字段的旧游标）会在解码处 400
    * @param limit 每页条数；经 `resolvePageSize` 归一化到 `[1, MAX_PAGE_SIZE]`（省略/非数值取默认值）
    * @param sortKey 排序键属性名，默认 `createdAt`（不可变）；按最近活跃排序的列表传 `updatedAt`
    * @returns 本页记录与下一页游标（null 表示已到末页）
@@ -71,7 +66,7 @@ export class KeysetPaginator {
     cursor: string | undefined,
     limit: number | undefined,
   ): Promise<{ list: T[]; nextCursor: string | null }>;
-  async fetchPage<T extends { id: string }, K extends SortKeyProperty>(
+  async fetchPage<T extends { id: string }, K extends CursorSortKey>(
     qb: SelectQueryBuilder<T & Record<K, Date>>,
     cursor: string | undefined,
     limit: number | undefined,
@@ -81,7 +76,7 @@ export class KeysetPaginator {
     qb: SelectQueryBuilder<{ id: string }>,
     cursor: string | undefined,
     limit: number | undefined,
-    sortKey: SortKeyProperty = 'createdAt',
+    sortKey: CursorSortKey = 'createdAt',
   ): Promise<{ list: { id: string }[]; nextCursor: string | null }> {
     const mainAlias = qb.expressionMap.mainAlias;
     if (!mainAlias?.hasMetadata) {
@@ -97,7 +92,8 @@ export class KeysetPaginator {
     const size = resolvePageSize(limit);
     qb.orderBy(sortColumn, 'DESC').addOrderBy(id, 'DESC');
     if (cursor) {
-      const { timestamp, id: cursorId } = decodeCursor(cursor);
+      // 带上本次的排序键：签出时用的列与当前列不一致就 400，不拿错列做行比较
+      const { timestamp, id: cursorId } = decodeCursor(cursor, sortKey);
       qb.andWhere(`(${sortColumn}, ${id}) < (:cursorTs, :cursorId)`, {
         cursorTs: timestamp,
         cursorId,
@@ -108,8 +104,9 @@ export class KeysetPaginator {
     // `resolveSortColumn` 兜底），故这里按排序键读出时间戳需要断言
     return this.toCursorPage(rows, size, (row) =>
       encodeCursor(
-        (row as unknown as Record<SortKeyProperty, Date>)[sortKey],
+        (row as unknown as Record<CursorSortKey, Date>)[sortKey],
         row.id,
+        sortKey,
       ),
     );
   }

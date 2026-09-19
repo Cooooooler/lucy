@@ -185,7 +185,7 @@ describe('AiService', () => {
 
     const page = await service.list(
       '1',
-      encodeCursor(last.updatedAt, last.id),
+      encodeCursor(last.updatedAt, last.id, 'updatedAt'),
       2,
     );
 
@@ -195,7 +195,9 @@ describe('AiService', () => {
       { cursorTs: last.updatedAt, cursorId: last.id },
     );
     expect(page.list).toEqual([rows[0], rows[1]]);
-    expect(page.nextCursor).toBe(encodeCursor(rows[1].updatedAt, rows[1].id));
+    expect(page.nextCursor).toBe(
+      encodeCursor(rows[1].updatedAt, rows[1].id, 'updatedAt'),
+    );
   });
 
   it('get 会话不存在抛错', async () => {
