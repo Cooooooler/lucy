@@ -25,6 +25,16 @@ const virtualizerStub = {
 
 type GridProps = ComponentProps<typeof KnowledgeGrid>;
 
+/** 宽度可控的滚动容器（jsdom 没有布局盒，clientWidth 恒为 0） */
+function makeSizedElement(clientWidth: number): HTMLDivElement {
+  const element = document.createElement('div');
+  Object.defineProperty(element, 'clientWidth', {
+    value: clientWidth,
+    configurable: true,
+  });
+  return element;
+}
+
 /** 卡片事件回调与 pending 态由路由持有：网格测试只关心透传 */
 function cardHandlers() {
   return {
@@ -81,8 +91,12 @@ describe('KnowledgeGrid', () => {
     useVirtualizerMock.mockReturnValue(virtualizerStub);
   });
 
-  it('加载中渲染 6 个轻量骨架卡片（等高、无 antd Card/Skeleton）', () => {
-    const { container } = renderGrid({ isLoading: true });
+  it('加载中渲染 6 个轻量骨架卡片（等高、列宽与真实网格同源）', () => {
+    // 给容器一个真实宽度：1000px → computeGridLayout: padding 32、3 列、gap 16
+    const { container } = renderGrid({
+      isLoading: true,
+      scrollElement: makeSizedElement(1000),
+    });
 
     const skeletons = [
       ...container.querySelectorAll('div.animate-pulse'),
@@ -94,7 +108,13 @@ describe('KnowledgeGrid', () => {
     // 与卡片同一等高约束：否则冷加载完成瞬间会跳高
     for (const skeleton of skeletons) {
       expect(skeleton.style.height).toBe('210px');
-      expect(skeleton.style.width).toContain('calc(');
+      // 列宽只减列间距（gap 16 × 2 = 32px）：容器的 padding 由外层 flex 容器承担，
+      // 卡片的 100% 已是内容盒宽度。若再扣一次 2·padding（旧实现的 bug），这里会出现 96px，
+      // 每列比真实卡片窄 2·padding/columns、整行右端还会多出空白。
+      // （表达式主体的精确形态由 grid-layout.test.ts 钉住，这里只断言「传入的 padding 是 0」。）
+      expect(skeleton.style.width).toContain('100%');
+      expect(skeleton.style.width).toContain('32px');
+      expect(skeleton.style.width).not.toContain('96px');
     }
   });
 

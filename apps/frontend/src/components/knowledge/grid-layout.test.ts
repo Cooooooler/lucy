@@ -1,11 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
+  columnWidthOperand,
   computeGridLayout,
   computeHorizontalPadding,
   GRID_GAP,
   GRID_MAX_COLUMNS,
   GRID_MIN_COLUMN_WIDTH,
 } from './grid-layout';
+
+describe('columnWidthOperand', () => {
+  it('扣掉 2·padding 与 (columns−1)·gap，得到列宽算式主体', () => {
+    // 虚拟网格：包含块无内边距，传真实 padding（3 列、padding 32、gap 16）
+    expect(columnWidthOperand(3, 16, 32)).toBe('(100% - 96px) / 3'); // 2*32 + 2*16
+    // 加载骨架：容器的 padding 已被内容盒排除，传 0 —— 再扣一次就会比真实卡片窄
+    expect(columnWidthOperand(3, 16, 0)).toBe('(100% - 32px) / 3');
+    // 单列没有列间距，但仍要扣掉 2·padding（虚拟网格那条路径）
+    expect(columnWidthOperand(1, 16, 24)).toBe('(100% - 48px) / 1');
+    // 单列 + 内容盒已排除内边距 = 与容器等宽
+    expect(columnWidthOperand(1, 16, 0)).toBe('(100% - 0px) / 1');
+  });
+});
 
 describe('computeHorizontalPadding', () => {
   it('按容器宽度分档', () => {
