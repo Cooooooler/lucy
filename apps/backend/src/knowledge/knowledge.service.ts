@@ -13,6 +13,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { basename, extname } from 'node:path';
 import { DataSource, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import {
   extractContent,
   SUPPORTED_DOCUMENT_EXTS,
@@ -34,7 +35,6 @@ import {
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
-import { KeysetPaginator } from './keyset-paginator.js';
 import {
   toDocumentDetail,
   toDocumentListItem,

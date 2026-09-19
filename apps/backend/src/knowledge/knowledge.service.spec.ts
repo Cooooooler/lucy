@@ -1,15 +1,19 @@
+import { FileService } from '@coool/file-nest';
 import { HttpStatus, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
-import { decodeCursor, encodeCursor } from './cursor.js';
+import { decodeCursor, encodeCursor } from '../common/pagination/cursor.js';
+import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
-import { KeysetPaginator } from './keyset-paginator.js';
+import { KnowledgeLike } from './entities/knowledge-like.entity.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 // ESM + SWC 下对 ES 导出命名空间 `vi.spyOn` 未必能拦截服务内部静态 import 绑定的同名导出
@@ -100,21 +104,38 @@ describe('KnowledgeService', () => {
     return qb;
   };
 
-  beforeEach(() => {
+  /**
+   * 经 DI 容器装配服务：provider 是否注册、注入 token 是否正确由容器判定，
+   * 手工 `new KnowledgeService(...)` 时漏注入/错位只会表现为运行时的 undefined，
+   * 且每新增一个构造依赖就要在每个手工构造点补参数。
+   * @param configService 覆盖 ConfigService（个别用例需要不同的 FILE_MAX_SIZE）
+   * @returns 由 TestingModule 解析出的服务实例
+   */
+  const buildService = async (
+    configService: ConfigService = config,
+  ): Promise<KnowledgeService> => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        KnowledgeService,
+        KeysetPaginator,
+        { provide: AppLogger, useValue: logger },
+        { provide: DataSource, useValue: dataSource },
+        { provide: getRepositoryToken(KnowledgeBase), useValue: kbRepo },
+        { provide: getRepositoryToken(KnowledgeDocument), useValue: docRepo },
+        { provide: getRepositoryToken(KnowledgeLike), useValue: likeRepo },
+        { provide: FileService, useValue: fileService },
+        { provide: ConfigService, useValue: configService },
+      ],
+    }).compile();
+    return moduleRef.get(KnowledgeService);
+  };
+
+  beforeEach(async () => {
     vi.clearAllMocks();
     // 点赞态回填（fillLikeInfo）被 get/list/update 共用：默认给一个空结果的可链式 stub，
     // 避免依赖「上个用例遗留的 mockReturnValue」——clearAllMocks 只清调用记录不清实现
     likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
-    service = new KnowledgeService(
-      logger,
-      dataSource,
-      kbRepo as never,
-      docRepo as never,
-      likeRepo as never,
-      fileService as never,
-      config,
-      new KeysetPaginator(),
-    );
+    service = await buildService();
   });
 
   const stored = (over = {}) =>
@@ -628,15 +649,8 @@ describe('KnowledgeService', () => {
   });
 
   it('addDocument FILE_MAX_SIZE 非数字时回退默认上限（不静默禁用）', async () => {
-    const svc = new KnowledgeService(
-      logger,
-      dataSource,
-      kbRepo as never,
-      docRepo as never,
-      likeRepo as never,
-      fileService as never,
+    const svc = await buildService(
       new ConfigService({ FILE_MAX_SIZE: '10MB' }),
-      new KeysetPaginator(),
     );
     kbRepo.findOne.mockResolvedValue(kb());
     const big = Buffer.alloc(20 * 1024 * 1024);

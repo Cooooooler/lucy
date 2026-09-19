@@ -1,17 +1,19 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommonModule } from '../common/common.module.js';
+import { PaginationModule } from '../common/pagination/pagination.module.js';
 import { BackendFileEntity } from './entities/backend-file.entity.js';
 import { KnowledgeBase } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
-import { KeysetPaginator } from './keyset-paginator.js';
 import { KnowledgeController } from './knowledge.controller.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 @Module({
   imports: [
     CommonModule,
+    // KeysetPaginator 与知识库无耦合，由 common 侧的模块提供，这里只消费
+    PaginationModule,
     TypeOrmModule.forFeature([
       KnowledgeBase,
       KnowledgeDocument,
@@ -20,7 +22,6 @@ import { KnowledgeService } from './knowledge.service.js';
     ]),
   ],
   controllers: [KnowledgeController],
-  // KeysetPaginator：与实体/授权/存储无关的游标分页装配，独立成 provider 便于复用与单测
-  providers: [KnowledgeService, KeysetPaginator],
+  providers: [KnowledgeService],
 })
 export class KnowledgeModule {}
