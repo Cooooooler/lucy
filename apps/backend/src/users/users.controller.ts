@@ -20,6 +20,7 @@ import {
   type CurrentUserPayload,
 } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
+import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
 import { UserRole } from '../common/roles.js';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto.js';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
@@ -88,6 +89,11 @@ export class UsersController {
   }
 
   @Patch(':id/status')
+  @SuccessMessage((data) =>
+    (data as { status?: number } | null)?.status === 1
+      ? '用户已启用'
+      : '用户已禁用',
+  )
   @ApiOperation({
     summary: '启用/禁用用户',
     description:
@@ -113,6 +119,7 @@ export class UsersController {
 
   @Patch(':id/role')
   @Roles(UserRole.SuperAdmin)
+  @SuccessMessage('角色修改成功')
   @ApiOperation({
     summary: '修改用户角色',
     description:
@@ -138,6 +145,7 @@ export class UsersController {
   }
 
   @Delete(':id')
+  @SuccessMessage('用户已删除')
   @ApiOperation({
     summary: '删除用户',
     description:

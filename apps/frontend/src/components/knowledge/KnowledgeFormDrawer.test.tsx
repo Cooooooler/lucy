@@ -72,7 +72,7 @@ describe('KnowledgeFormDrawer', () => {
     setUpdateMock(mutationMock());
   });
 
-  it('创建态提交调用 createKnowledgeBaseApi，提示成功并关闭抽屉', async () => {
+  it('创建态提交调用 createKnowledgeBaseApi 并关闭抽屉；成功提示由全局桥弹出（抽屉不再自己弹）', async () => {
     const mutateAsync = vi.fn().mockResolvedValue({});
     const createMock = setCreateMock(mutationMock({ mutateAsync }));
     const updateMock = setUpdateMock(mutationMock());
@@ -90,7 +90,7 @@ describe('KnowledgeFormDrawer', () => {
         visibility: 'private',
       });
     });
-    expect(await screen.findByText('知识库创建成功')).toBeInTheDocument();
+    expect(screen.queryByText('知识库创建成功')).not.toBeInTheDocument();
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(updateMock.mutateAsync).not.toHaveBeenCalled();
     expect(createMock.mutateAsync).toHaveBeenCalledTimes(1);
@@ -188,7 +188,7 @@ describe('KnowledgeFormDrawer', () => {
         },
       });
     });
-    expect(await screen.findByText('知识库更新成功')).toBeInTheDocument();
+    expect(screen.queryByText('知识库更新成功')).not.toBeInTheDocument();
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(createMock.mutateAsync).not.toHaveBeenCalled();
     expect(updateMock.mutateAsync).toHaveBeenCalledTimes(1);

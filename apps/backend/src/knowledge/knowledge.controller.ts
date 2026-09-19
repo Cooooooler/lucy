@@ -25,6 +25,7 @@ import {
   CurrentUser,
   type CurrentUserPayload,
 } from '../common/decorators/current-user.decorator.js';
+import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { DocumentListQueryDto } from './dto/document-list-query.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
@@ -49,6 +50,7 @@ export class KnowledgeController {
   constructor(private readonly knowledgeService: KnowledgeService) {}
 
   @Post()
+  @SuccessMessage('知识库创建成功')
   @ApiOperation({ summary: '创建知识库' })
   @ApiResponse({ status: 201, type: KnowledgeBaseItemDto })
   create(
@@ -83,6 +85,17 @@ export class KnowledgeController {
   }
 
   @Patch(':id')
+  // 可见性单独切换与整表单编辑走同一接口：只改 visibility 时给「已设为公开/私有」，
+  // 其他字段的更新给「知识库更新成功」。判请求体而非响应体——幂等重复提交也能给对文案。
+  // express 的 req.body 类型为 any：先收窄成可选字段对象再读，避免 any 污染。
+  @SuccessMessage((_data, req) => {
+    const body = req.body as { visibility?: unknown } | undefined;
+    return body?.visibility === 'public'
+      ? '已设为公开'
+      : body?.visibility === 'private'
+        ? '已设为私有'
+        : '知识库更新成功';
+  })
   @ApiOperation({ summary: '更新知识库' })
   @ApiResponse({ status: 200, type: KnowledgeBaseItemDto })
   update(
@@ -94,6 +107,7 @@ export class KnowledgeController {
   }
 
   @Delete(':id')
+  @SuccessMessage('知识库已删除')
   @ApiOperation({ summary: '删除知识库（级联清文档与文件）' })
   remove(
     @CurrentUser() user: CurrentUserPayload,
@@ -103,6 +117,7 @@ export class KnowledgeController {
   }
 
   @Post(':id/like')
+  @SuccessMessage('点赞成功')
   @ApiOperation({ summary: '点赞知识库' })
   @ApiResponse({ status: 200, type: LikeResultDto })
   like(
@@ -113,6 +128,7 @@ export class KnowledgeController {
   }
 
   @Delete(':id/like')
+  @SuccessMessage('已取消点赞')
   @ApiOperation({ summary: '取消点赞知识库' })
   @ApiResponse({ status: 200, type: LikeResultDto })
   unlike(
@@ -129,6 +145,7 @@ export class KnowledgeController {
     FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
   )
   @ApiConsumes('multipart/form-data')
+  @SuccessMessage('文档上传成功')
   @ApiOperation({
     summary: '上传文档',
     description: 'multipart/form-data，字段名 file',
@@ -166,6 +183,7 @@ export class KnowledgeController {
   }
 
   @Delete(':kbId/documents/:id')
+  @SuccessMessage('文档已删除')
   @ApiOperation({ summary: '删除文档（连带清理文件）' })
   removeDocument(
     @CurrentUser() user: CurrentUserPayload,

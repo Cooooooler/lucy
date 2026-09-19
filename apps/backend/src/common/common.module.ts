@@ -14,6 +14,7 @@ import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
 import { ApiResponseInterceptor } from './interceptors/api-response.interceptor.js';
 import { RequestContextMiddleware } from './request-context.middleware.js';
 import { ShutdownService } from './shutdown.service.js';
+import { validationExceptionFactory } from './validation-exception-factory.js';
 
 @Module({
   imports: [
@@ -29,7 +30,12 @@ import { ShutdownService } from './shutdown.service.js';
         },
       },
     }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60_000, limit: 100 }],
+      // 限流默认 message 是英文 `ThrottlerException: Too Many Requests`，
+      // 前端只展示后端文案，所以这里就给出可读中文。
+      errorMessage: '请求过于频繁，请稍后再试',
+    }),
   ],
   providers: [
     AppLogger,
@@ -50,6 +56,8 @@ import { ShutdownService } from './shutdown.service.js';
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
+        // 校验失败的文案由后端统一转成可读中文（见 validation-exception-factory）
+        exceptionFactory: validationExceptionFactory,
       }),
     },
   ],

@@ -195,7 +195,7 @@ describe('routes/_layout/knowledge', () => {
     expect(mutationMocks.like.mutate).not.toHaveBeenCalled();
   });
 
-  it('切换可见性：调用 update 并提示成功', async () => {
+  it('切换可见性：调用 update；成功提示由后端 message 经全局桥弹出（路由不再自己弹）', async () => {
     renderRoute();
     const kb = makeKb('kb1', '产品文档');
 
@@ -207,7 +207,7 @@ describe('routes/_layout/knowledge', () => {
       id: 'kb1',
       input: { visibility: 'public' },
     });
-    expect(await screen.findByText('已设为公开')).toBeInTheDocument();
+    expect(screen.queryByText('已设为公开')).not.toBeInTheDocument();
   });
 
   it('切换可见性失败：提示服务端返回的 message', async () => {
@@ -240,7 +240,7 @@ describe('routes/_layout/knowledge', () => {
     expect(await screen.findByText('操作失败，请稍后重试')).toBeInTheDocument();
   });
 
-  it('删除：先弹确认框，确认后才调用删除接口并提示', async () => {
+  it('删除：先弹确认框，确认后才调用删除接口；成功提示由全局桥弹出（路由不再自己弹）', async () => {
     renderRoute();
 
     await act(async () => {
@@ -257,7 +257,7 @@ describe('routes/_layout/knowledge', () => {
     await waitFor(() =>
       expect(mutationMocks.delete.mutateAsync).toHaveBeenCalledWith('kb1'),
     );
-    expect(await screen.findByText('知识库已删除')).toBeInTheDocument();
+    expect(screen.queryByText('知识库已删除')).not.toBeInTheDocument();
   });
 
   it('删除确认框取消时不调用接口', async () => {

@@ -1,4 +1,8 @@
-import { ExecutionContext, Injectable } from '@nestjs/common';
+import {
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { ClsService } from 'nestjs-cls';
@@ -29,6 +33,16 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   handleRequest<TUser>(
     ...args: [any, any, any, ExecutionContext, any?]
   ): TUser {
+    // passport 默认报错是英文 `Unauthorized`：无 token 或认证失败时换成可读中文。
+    // validate() 里抛出的业务异常（如「令牌已失效」「账号不可用」）原样透出不动。
+    // 参数签名须与 passport AuthGuard 兼容（any）：先落 unknown 元组再解构，避免 any 污染。
+    const [err, user] = args as unknown as [unknown, unknown];
+    if (err || !user) {
+      throw err instanceof UnauthorizedException &&
+        err.message !== 'Unauthorized'
+        ? err
+        : new UnauthorizedException('未登录或登录已过期');
+    }
     // super.handleRequest 返回 any：先落 unknown 再断言，避免 any 污染
     const raw: unknown = super.handleRequest(...args);
     const result = raw as TUser;

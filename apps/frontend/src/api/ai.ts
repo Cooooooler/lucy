@@ -44,7 +44,8 @@ export function createStreamRequest(
     `ai/conversations/${conversationId}/messages`,
     input,
     {
-      extra: { skipAuthRefresh: true },
+      // SSE 流：不走 json 解包本就不会广播；双保险标记静默
+      extra: { skipAuthRefresh: true, skipSuccessMessage: true },
     },
   );
 }

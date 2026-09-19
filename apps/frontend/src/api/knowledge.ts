@@ -43,11 +43,20 @@ export function deleteKnowledgeBaseApi(id: string) {
 }
 
 export function likeKnowledgeBaseApi(id: string) {
-  return http.post<LikeResultDto>(`knowledge/${id}/like`).json();
+  // 点赞高频且当前无 toast 预期：静默，避免打断浏览
+  return http
+    .post<LikeResultDto>(`knowledge/${id}/like`, undefined, {
+      extra: { skipSuccessMessage: true },
+    })
+    .json();
 }
 
 export function unlikeKnowledgeBaseApi(id: string) {
-  return http.delete<LikeResultDto>(`knowledge/${id}/like`).json();
+  return http
+    .delete<LikeResultDto>(`knowledge/${id}/like`, {
+      extra: { skipSuccessMessage: true },
+    })
+    .json();
 }
 
 // 上传文档：multipart/form-data，字段名 file。FormData 经 http 原样透传，
