@@ -20,8 +20,12 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../pagination.constants.js';
  * 重复。各模块需要游标分页时继承它，只声明自己的过滤字段。
  */
 export class CursorQueryDto {
+  // 游标的长度上限与 base64url 字符集同样要写进文档选项：Swagger 不解析装饰器，
+  // 漏写时 /docs 里 cursor 就是一个无边界字符串；两值取自 cursor.ts 的唯一定义处
   @ApiPropertyOptional({
     description: '分页游标（上一页返回的 nextCursor），省略表示第一页',
+    maxLength: CURSOR_MAX_LENGTH,
+    pattern: CURSOR_PATTERN.source,
   })
   @IsOptional()
   @IsString()

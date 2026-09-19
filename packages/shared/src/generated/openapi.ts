@@ -569,12 +569,13 @@ export interface components {
              */
             username: string;
             /**
+             * Format: email
              * @description 邮箱
              * @example lucy@example.com
              */
             email: string;
             /**
-             * @description 密码（8-72 位，需含大小写字母、数字与特殊字符）
+             * @description 密码（8-72 位，需含大写字母、小写字母、数字与至少一个符号/标点；首尾不能是空白）
              * @example Password1!
              */
             password: string;

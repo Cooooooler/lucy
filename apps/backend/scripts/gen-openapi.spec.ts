@@ -1,9 +1,34 @@
+import {
+  CONVERSATION_TITLE_MAX_LENGTH,
+  CONVERSATION_TITLE_MIN_LENGTH,
+  EMAIL_MAX_LENGTH,
+  KNOWLEDGE_KEYWORD_MAX_LENGTH,
+  LOGIN_ACCOUNT_MAX_LENGTH,
+  MESSAGE_CONTENT_MAX_LENGTH,
+  MESSAGE_CONTENT_MIN_LENGTH,
+  MODEL_NAME_MAX_LENGTH,
+  NICKNAME_MAX_LENGTH,
+  NICKNAME_MIN_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  USERNAME_MAX_LENGTH,
+  USERNAME_MIN_LENGTH,
+  USERNAME_PATTERN,
+} from '@lucy/shared';
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
+import {
+  CURSOR_MAX_LENGTH,
+  CURSOR_PATTERN,
+} from '../src/common/pagination/cursor.js';
+import {
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+} from '../src/common/pagination/pagination.constants.js';
 import { DocsModule } from '../src/docs/docs.module.js';
 
 const OUT = fileURLToPath(new URL('../openapi.json', import.meta.url));
@@ -135,5 +160,110 @@ describe('gen-openapi', () => {
       doc.components?.schemas?.KnowledgeDocumentListItemDto?.properties ?? {},
     ).sort();
     expect(listItem).toEqual(detail.filter((key) => key !== 'content'));
+  });
+
+  it('校验边界同步写进 Swagger（Swagger 不解析 class-validator 装饰器）', async () => {
+    await generateOpenApi();
+    const doc = JSON.parse(readFileSync(OUT, 'utf8')) as {
+      paths?: Record<
+        string,
+        Record<string, { parameters?: { name?: string; schema?: object }[] }>
+      >;
+      components?: {
+        schemas?: Record<
+          string,
+          { properties?: Record<string, Record<string, unknown>> }
+        >;
+      };
+    };
+
+    const paramOf = (path: string, name: string) => {
+      const params = doc.paths?.[path]?.get?.parameters ?? [];
+      const found = params.find((p) => p.name === name);
+      expect(found, `${path} 缺少 ${name} 查询参数`).toBeDefined();
+      return found?.schema as Record<string, unknown>;
+    };
+    const propOf = (schema: string, name: string) => {
+      const prop = doc.components?.schemas?.[schema]?.properties?.[name];
+      expect(prop, `${schema}.${name} 缺少契约声明`).toBeDefined();
+      return prop;
+    };
+
+    // 分页参数（CursorQueryDto / PageQueryDto）：默认值与上下界在文档可见
+    for (const path of ['/knowledge', '/knowledge/{kbId}/documents']) {
+      expect(paramOf(path, 'limit')).toMatchObject({
+        default: DEFAULT_PAGE_SIZE,
+        minimum: 1,
+        maximum: MAX_PAGE_SIZE,
+      });
+      expect(paramOf(path, 'cursor')).toMatchObject({
+        maxLength: CURSOR_MAX_LENGTH,
+        pattern: CURSOR_PATTERN.source,
+      });
+    }
+    for (const path of ['/ai/conversations', '/users']) {
+      expect(paramOf(path, 'pageSize')).toMatchObject({
+        default: DEFAULT_PAGE_SIZE,
+        minimum: 1,
+        maximum: MAX_PAGE_SIZE,
+      });
+      expect(paramOf(path, 'page')).toMatchObject({ default: 1, minimum: 1 });
+    }
+
+    // 各列表自己的过滤关键字：@MaxLength 只写在装饰器时文档是无边界字符串
+    expect(paramOf('/knowledge', 'name')).toMatchObject({
+      maxLength: KNOWLEDGE_KEYWORD_MAX_LENGTH,
+    });
+    expect(paramOf('/knowledge/{kbId}/documents', 'keyword')).toMatchObject({
+      maxLength: KNOWLEDGE_KEYWORD_MAX_LENGTH,
+    });
+
+    // 请求体边界：只写 @MinLength/@MaxLength 时文档是空的，必须两处同步。
+    // 期望值一律取自 @lucy/shared 的契约常量——否则改边界要动三处（装饰器/文档选项/测试），
+    // 而且测试只能证明「等于某个字面量」而非「与前端共用的那份契约一致」
+    expect(propOf('SendMessageDto', 'content')).toMatchObject({
+      minLength: MESSAGE_CONTENT_MIN_LENGTH,
+      maxLength: MESSAGE_CONTENT_MAX_LENGTH,
+    });
+    expect(propOf('SendMessageDto', 'model')).toMatchObject({
+      maxLength: MODEL_NAME_MAX_LENGTH,
+    });
+    expect(propOf('CreateConversationDto', 'model')).toMatchObject({
+      maxLength: MODEL_NAME_MAX_LENGTH,
+    });
+    expect(propOf('RenameConversationDto', 'title')).toMatchObject({
+      minLength: CONVERSATION_TITLE_MIN_LENGTH,
+      maxLength: CONVERSATION_TITLE_MAX_LENGTH,
+    });
+    // LoginDto：account 进等值查询、password 与注册侧同范围
+    expect(propOf('LoginDto', 'account')).toMatchObject({
+      minLength: 1,
+      maxLength: LOGIN_ACCOUNT_MAX_LENGTH,
+    });
+    expect(propOf('LoginDto', 'password')).toMatchObject({
+      minLength: 1,
+      maxLength: PASSWORD_MAX_LENGTH,
+    });
+    expect(propOf('RegisterDto', 'nickname')).toMatchObject({
+      minLength: NICKNAME_MIN_LENGTH,
+      maxLength: NICKNAME_MAX_LENGTH,
+    });
+    expect(propOf('RegisterDto', 'username')).toMatchObject({
+      minLength: USERNAME_MIN_LENGTH,
+      maxLength: USERNAME_MAX_LENGTH,
+      pattern: USERNAME_PATTERN.source,
+    });
+    // 密码只下发长度边界：复杂度正则带前瞻且需 u 标志，JSON Schema 的 pattern 无 flags、
+    // Go RE2/Rust regex 编译前瞻会失败，规则改由 description 承载（schema 里无 pattern）
+    expect(propOf('RegisterDto', 'password')).toMatchObject({
+      minLength: PASSWORD_MIN_LENGTH,
+      maxLength: PASSWORD_MAX_LENGTH,
+    });
+    expect(propOf('RegisterDto', 'password')?.pattern).toBeUndefined();
+    // 邮箱上界与 users.email 列（varchar(255)）对齐，超长会在插入时报 22001（500）
+    expect(propOf('RegisterDto', 'email')).toMatchObject({
+      format: 'email',
+      maxLength: EMAIL_MAX_LENGTH,
+    });
   });
 });
