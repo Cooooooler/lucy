@@ -36,6 +36,7 @@ import {
 } from './dto/knowledge-list-result.dto.js';
 import { LikeResultDto } from './dto/like-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
+import { KnowledgeBaseVisibility } from './entities/knowledge-base.entity.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 @ApiTags('knowledge')
@@ -87,12 +88,17 @@ export class KnowledgeController {
   // 可见性单独切换与整表单编辑走同一接口：请求体**仅含 visibility 单键**时才给
   // 「已设为公开/私有」——编辑抽屉保存总会带上 visibility（含标题/描述同改时），
   // 按值判定会把普通编辑误报成切换。其他一律「知识库更新成功」。
-  // express 的 req.body 类型为 any：先收窄成记录再读，避免 any 污染。
+  // 类型收窄到 UpdateKnowledgeBaseDto + 枚举比对：枚举改名时编译期即报错，
+  // 不会静默降级文案。注意 body 是 any，先断言再读，避免 any 污染。
   @SuccessMessage((_data, req) => {
-    const body = req.body as Record<string, unknown> | undefined;
+    const body = req.body as Partial<UpdateKnowledgeBaseDto> | undefined;
     if (body && Object.keys(body).length === 1) {
-      if (body.visibility === 'public') return '已设为公开';
-      if (body.visibility === 'private') return '已设为私有';
+      if (body.visibility === KnowledgeBaseVisibility.Public) {
+        return '已设为公开';
+      }
+      if (body.visibility === KnowledgeBaseVisibility.Private) {
+        return '已设为私有';
+      }
     }
     return '知识库更新成功';
   })

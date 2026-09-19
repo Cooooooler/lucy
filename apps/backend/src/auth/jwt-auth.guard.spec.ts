@@ -1,7 +1,6 @@
 import {
   ExecutionContext,
   ForbiddenException,
-  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -109,19 +108,18 @@ describe('JwtAuthGuard', () => {
     ).toThrowError(business);
   });
 
-  it('err 非 HttpException（如 Redis/DB 故障）按 500 抛中文，不伪装 401', () => {
+  it('err 非 HttpException（如 Redis/DB 故障）原样抛出，交给过滤器兜底 500', () => {
     const guard = new JwtAuthGuard(
       { getAllAndOverride: vi.fn() } as unknown as Reflector,
       { isActive: () => false } as unknown as ClsService,
     );
+    const boom = new Error('boom');
     try {
-      guard.handleRequest(new Error('boom'), null, null, context);
+      guard.handleRequest(boom, null, null, context);
       expect.unreachable();
     } catch (err) {
-      expect(err).toBeInstanceOf(InternalServerErrorException);
-      expect((err as InternalServerErrorException).message).toBe(
-        '服务器内部错误',
-      );
+      // 同一对象透出：业务码/日志由 AllExceptionsFilter 统一给 50000 + 上下文
+      expect(err).toBe(boom);
     }
   });
 
