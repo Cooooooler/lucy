@@ -50,7 +50,12 @@ export function fileModuleOptions(config: ConfigService) {
         password: config.get<string>('DB_PASSWORD', 'postgres'),
         database: config.get<string>('DB_NAME', 'lucy'),
         autoLoadEntities: true,
+        // 结构由迁移负责（synchronize: false）；下面两项必须与 src/db/data-source.ts 一致，
+        // 否则 migration:generate 产出的 DDL 会与运行时实体不一致（uuid 默认值退化成
+        // 依赖 uuid-ossp 扩展的 uuid_generate_v4()）
         synchronize: false,
+        uuidExtension: 'pgcrypto',
+        installExtensions: false,
       }),
     }),
     UsersModule,

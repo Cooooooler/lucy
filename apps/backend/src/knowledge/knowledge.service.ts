@@ -86,7 +86,7 @@ export class KnowledgeService {
    * 按**不可变**的 (created_at, id) 降序做 keyset 分页。刻意不用 updated_at：
    * 它是可变排序键，上页取出之后被更新的行会越过游标，从而在后续页被永久漏掉。
    * 并列（同一毫秒内插入、或同一事务批量插入）由 id 决胜，排序仍是全序。
-   * 排序与过滤均直接使用原始列（迁移保证时间列毫秒对齐），谓词写成行比较
+   * 排序与过滤均直接使用原始列（实体默认值保证时间列毫秒对齐），谓词写成行比较
    * `(created_at, id) < (:cursorTs, :cursorId)`，Postgres 可将其优化为一次索引扫描。
    * 附加每个知识库的 likeCount 与当前用户的 isLiked（查询后批量回写，避免 JOIN 破坏分页）。
    * @param userId 当前用户 ID
@@ -471,7 +471,7 @@ export class KnowledgeService {
    * 毫秒精度游标、`id` 决胜列），装配分散两处时极易只改一处而静默错页，故收敛到此。
    *
    * 约定：调用方需已用 `where()` 设好过滤条件（本方法只追加游标谓词）；
-   * 排序固定为 `created_at DESC, id DESC`，与迁移建的 keyset 索引列顺序一致。
+   * 排序固定为 `created_at DESC, id DESC`，与实体 @Index 声明的 keyset 索引列顺序一致。
    * @param qb 已带过滤条件的查询构造器
    * @param alias 实体别名（排序列名的前缀）
    * @param cursor 上一页返回的游标；省略表示首页

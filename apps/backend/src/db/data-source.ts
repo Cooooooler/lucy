@@ -20,20 +20,20 @@ export default new DataSource({
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/migrations/**/*{.ts,.js}'],
   /**
-   * 迁移不由 TypeORM 自动包事务，允许单个迁移自行决定是否开事务：
-   * - `transaction = false`（本仓库的分批回填、`CREATE INDEX CONCURRENTLY` 迁移）：
-   *   每条语句自动提交，避免长事务持锁、避免 CONCURRENTLY 落入事务块而报
-   *   “cannot run inside a transaction block”/“无法在事务块中运行”。
-   * - `transaction = true`：需要原子性的迁移请显式声明，TypeORM 会为其单独开事务。
-   *
-   * 因为 `none` 下「不声明」就等于「非原子」，约定**每个迁移都必须显式声明**
-   * （由 src/db/migrations/migrations.spec.ts 强制），避免原子性被静默降级。
-   *
-   * 注意必须用 `none`（而非 `each`）：TypeORM 的 `migration:revert` **只**看全局模式，
-   * 会无视单个迁移的 `transaction = false`，强行包一层事务——那样 `down()` 里的
-   * `DROP INDEX CONCURRENTLY` 必失败。`up` 路径下全局默认本就等价于 `false`。
-   * 全局 `all`（默认值）则直接禁止任何单迁移覆盖事务模式
-   * （ForbiddenTransactionModeOverrideError）。
+   * uuid 主键默认值用 `gen_random_uuid()`（PostgreSQL 13+ 内置），而不是 TypeORM 缺省
+   * 的 `uuid_generate_v4()`——后者依赖 uuid-ossp 扩展。`installExtensions: false` 关掉
+   * TypeORM 在每次建连后自动 `CREATE EXTENSION` 的行为：结构只由迁移负责，连接不该动 schema。
+   * 这两个选项必须与 AppModule 的 TypeOrmModule 配置一致，否则 `migration:generate`
+   * 产出的 DDL 与运行时实体不一致。
    */
-  migrationsTransactionMode: 'none',
+  uuidExtension: 'pgcrypto',
+  installExtensions: false,
+  /**
+   * 迁移由 `migration:generate` 从实体生成（见 AGENTS.md 的流程），事务模式用 TypeORM
+   * 默认的 `all`：每个迁移自动包一层事务，生成出来的文件不需要再手工补 `transaction` 声明。
+   *
+   * 将来若真需要**裸跑**的迁移（`CREATE INDEX CONCURRENTLY`、分批回填），把这里改成
+   * `migrationsTransactionMode: 'none'`，并在那些迁移上显式 `transaction = false`
+   * ——`all` 下 TypeORM 会直接拒绝单迁移覆盖事务模式（ForbiddenTransactionModeOverrideError）。
+   */
 });

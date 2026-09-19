@@ -69,10 +69,8 @@ try {
 
   // 真实往返：runMigrations() 只证明 up() 能跑，「可回滚」是另一条断言——
   // migration.spec 用的是假 QueryRunner，验不了 TypeORM 在 none 模式下是否真的执行了 down()。
-  // 测试库是一次性的，这里直接撤销到最后（含初始化迁移）再重跑，把该前提钉成每次 e2e 都跑的事实。
-  for (let i = 0; i < 2; i++) {
-    await dataSource.undoLastMigration();
-  }
+  // 测试库是一次性的，这里撤销到最后（迁移链现在只有初始化迁移这一条）再重跑，把该前提钉成事实。
+  await dataSource.undoLastMigration();
   await dataSource.runMigrations();
 
   const rows = await dataSource.query<{ table_name: string | null }[]>(
@@ -82,7 +80,7 @@ try {
     throw new Error('e2e 往返验证失败：撤销并重跑迁移后 users 表不存在');
   }
   console.log(
-    `[e2e] 测试库已就绪（含 migrate → revert ×2 → migrate 往返）：${E2E_DB_NAME}`,
+    `[e2e] 测试库已就绪（含 migrate → revert → migrate 往返）：${E2E_DB_NAME}`,
   );
 } finally {
   await dataSource.destroy();
