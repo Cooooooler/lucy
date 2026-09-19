@@ -14,6 +14,19 @@ interface DocBody {
   paths?: Record<string, { get?: { security?: unknown[] } }>;
 }
 
+/**
+ * 还原 NODE_ENV：直接 `process.env.NODE_ENV = saved` 在 saved 为 undefined 时会写入字符串
+ * `'undefined'`（Node 对 process.env 赋值做字符串化），并不是恢复原状——同一 worker 里后续读
+ * NODE_ENV 的代码会看到一个非空值（`?? 'development'` 这类兜底会被跳过）。
+ */
+function restoreNodeEnv(saved: string | undefined): void {
+  if (saved === undefined) {
+    delete process.env.NODE_ENV;
+  } else {
+    process.env.NODE_ENV = saved;
+  }
+}
+
 describe('Scalar docs (dev)', () => {
   let app: INestApplication<Server>;
   const savedEnv = process.env.NODE_ENV;
@@ -32,7 +45,7 @@ describe('Scalar docs (dev)', () => {
 
   afterAll(async () => {
     await app.close();
-    process.env.NODE_ENV = savedEnv;
+    restoreNodeEnv(savedEnv);
   });
 
   it('/docs 返回 Scalar HTML', async () => {
@@ -91,7 +104,7 @@ describe('Scalar docs (production no-op)', () => {
 
   afterAll(async () => {
     await app.close();
-    process.env.NODE_ENV = savedEnv;
+    restoreNodeEnv(savedEnv);
   });
 
   it('/docs 与 /docs-json 均 404', async () => {
