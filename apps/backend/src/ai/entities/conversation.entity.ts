@@ -14,15 +14,22 @@ import {
 import { User } from '../../users/user.entity.js';
 import { Message } from './message.entity.js';
 
-/** AI 对话会话：归属用户 + 默认模型 + 标题，一对多持有 Message；user_id 建索引支撑按用户查询 */
+/**
+ * AI 对话会话：归属用户 + 默认模型 + 标题，一对多持有 Message。
+ *
+ * `(user_id, updated_at, id)` 同时服务两件事：按用户查询（前缀即 `user_id`，故不再单独
+ * 建 `user_id` 索引，避免冗余索引），以及会话列表的 keyset 分页
+ * `ORDER BY updated_at DESC, id DESC` —— `@Index` 只能表达 ASC，反向索引扫描即可满足。
+ * 索引由 `migration:generate` 从实体产出（实体是 schema 的唯一来源），不手写 DDL。
+ */
 @Entity('ai_conversations')
+@Index('IDX_ai_conversations_user_updated_id', ['userId', 'updatedAt', 'id'])
 export class Conversation {
   @ApiProperty({ description: '会话 ID' })
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @ApiProperty({ description: '归属用户 ID' })
-  @Index()
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 

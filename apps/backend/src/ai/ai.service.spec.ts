@@ -6,10 +6,7 @@ import { lastValueFrom } from 'rxjs';
 import { toArray } from 'rxjs/operators';
 import { DataSource, IsNull } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
-import {
-  DEFAULT_PAGE_SIZE,
-  MAX_PAGE_SIZE,
-} from '../common/pagination/pagination.constants.js';
+import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import { AiService } from './ai.service.js';
 import { ContextService } from './context.service.js';
 import { Conversation } from './entities/conversation.entity.js';
@@ -24,7 +21,7 @@ describe('AiService', () => {
   const conversationRepo = {
     findOne: vi.fn(),
     save: vi.fn(),
-    findAndCount: vi.fn(),
+    createQueryBuilder: vi.fn(),
     delete: vi.fn(),
     update: vi.fn(),
   };
@@ -49,6 +46,7 @@ describe('AiService', () => {
   } as unknown as DataSource;
   const ollamaFactory = { getClient: vi.fn() };
   const contextService = { buildMessages: vi.fn() };
+  const paginator = { fetchPage: vi.fn() };
   const config = new ConfigService({ OLLAMA_MODEL: 'default-model' });
   const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
 
@@ -75,6 +73,7 @@ describe('AiService', () => {
         { provide: getRepositoryToken(Message), useValue: messageRepo },
         { provide: OllamaFactory, useValue: ollamaFactory },
         { provide: ContextService, useValue: contextService },
+        { provide: KeysetPaginator, useValue: paginator },
         { provide: ConfigService, useValue: configService },
       ],
     }).compile();
@@ -103,35 +102,41 @@ describe('AiService', () => {
     });
   });
 
-  it('list 返回分页结果', async () => {
-    conversationRepo.findAndCount.mockResolvedValue([[conv()], 1]);
-    await expect(service.list('1', 1, 20)).resolves.toEqual({
-      list: [expect.any(Conversation)],
-      total: 1,
-      page: 1,
-      pageSize: 20,
+  it('list 走游标分页：过滤归属用户，排序键取 updatedAt（最近活跃优先）', async () => {
+    const qb = { where: vi.fn().mockReturnThis() };
+    conversationRepo.createQueryBuilder.mockReturnValue(qb);
+    paginator.fetchPage.mockResolvedValue({
+      list: [conv()],
+      nextCursor: 'next',
     });
-  });
 
-  it('list 缺省分页参数在服务层归一化（默认值与 DTO 契约同源）', async () => {
-    conversationRepo.findAndCount.mockResolvedValue([[], 0]);
     await expect(service.list('1', undefined, undefined)).resolves.toEqual({
-      list: [],
-      total: 0,
-      page: 1,
-      pageSize: DEFAULT_PAGE_SIZE,
+      list: [expect.any(Conversation)],
+      nextCursor: 'next',
     });
-    expect(conversationRepo.findAndCount).toHaveBeenCalledWith(
-      expect.objectContaining({ skip: 0, take: DEFAULT_PAGE_SIZE }),
+    expect(conversationRepo.createQueryBuilder).toHaveBeenCalledWith('c');
+    expect(qb.where).toHaveBeenCalledWith('c.userId = :userId', {
+      userId: '1',
+    });
+    // 排序键必须是 updatedAt：会话按最近活跃排序，回落成 createdAt 会变成「按创建时间」
+    expect(paginator.fetchPage).toHaveBeenCalledWith(
+      qb,
+      undefined,
+      undefined,
+      'updatedAt',
     );
   });
 
-  it('list 越界分页参数在服务层归一化（内部调用方绕过 DTO 的 @Min/@Max）', async () => {
-    conversationRepo.findAndCount.mockResolvedValue([[], 0]);
-    await service.list('1', 0, 10 ** 9);
-    expect(conversationRepo.findAndCount).toHaveBeenCalledWith(
-      expect.objectContaining({ skip: 0, take: MAX_PAGE_SIZE }),
-    );
+  it('list 透传游标与条数（上界与默认值由 KeysetPaginator 归一化）', async () => {
+    const qb = { where: vi.fn().mockReturnThis() };
+    conversationRepo.createQueryBuilder.mockReturnValue(qb);
+    paginator.fetchPage.mockResolvedValue({ list: [], nextCursor: null });
+
+    await expect(service.list('1', 'cur', 5)).resolves.toEqual({
+      list: [],
+      nextCursor: null,
+    });
+    expect(paginator.fetchPage).toHaveBeenCalledWith(qb, 'cur', 5, 'updatedAt');
   });
 
   it('get 会话不存在抛错', async () => {

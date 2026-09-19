@@ -52,16 +52,14 @@ describe('useConversationList', () => {
   it('加载会话列表', async () => {
     const data = {
       list: [makeConversation()],
-      total: 1,
-      page: 1,
-      pageSize: 20,
+      nextCursor: null,
     };
     api.listConversationsApi.mockResolvedValue(data);
     const { result } = renderHook(() => useConversationList(), {
       wrapper: createWrapper(),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(api.listConversationsApi).toHaveBeenCalledWith(1, 20);
+    expect(api.listConversationsApi).toHaveBeenCalledWith();
     expect(result.current.data).toEqual(data);
   });
 });
@@ -96,9 +94,7 @@ describe('useCreateConversation', () => {
     api.createConversationApi.mockResolvedValue(created);
     api.listConversationsApi.mockResolvedValue({
       list: [],
-      total: 0,
-      page: 1,
-      pageSize: 20,
+      nextCursor: null,
     });
 
     const wrapper = createWrapper();

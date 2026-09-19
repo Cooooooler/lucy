@@ -8,29 +8,28 @@ import {
 } from '@/api/ai';
 import type {
   Conversation,
-  ConversationListResult,
   CreateConversationRequest,
   RenameConversationRequest,
   SendMessageRequest,
 } from '@/api/types';
+import type { CursorPageResult } from '@lucy/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 export const aiKeys = {
   all: ['ai'] as const,
   conversations: () => [...aiKeys.all, 'conversations'] as const,
-  // 会话列表查询（带分页参数）
-  conversationList: (page = 1, pageSize = 20) =>
-    [...aiKeys.conversations(), 'list', { page, pageSize }] as const,
+  // 会话列表查询（游标分页：只需第一页，故不带游标）
+  conversationList: () => [...aiKeys.conversations(), 'list'] as const,
   conversation: (id: string) => [...aiKeys.conversations(), id] as const,
 };
 
 // 列表失效前缀：命中所有页的列表查询，但不会误伤单个会话（conversation(id) 无 'list' 段）
 export const conversationListAll = [...aiKeys.conversations(), 'list'] as const;
 
-export function useConversationList(page = 1, pageSize = 20) {
-  return useQuery<ConversationListResult>({
-    queryKey: aiKeys.conversationList(page, pageSize),
-    queryFn: () => listConversationsApi(page, pageSize),
+export function useConversationList() {
+  return useQuery<CursorPageResult<Conversation>>({
+    queryKey: aiKeys.conversationList(),
+    queryFn: () => listConversationsApi(),
     placeholderData: (prev) => prev,
     staleTime: 0,
     refetchOnWindowFocus: false,

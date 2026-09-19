@@ -7,14 +7,16 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './pagination.constants.js';
 /**
  * KeysetPaginator 的单测：装配语义（排序键、多取一条、游标谓词）此前只通过 KnowledgeService
  * 的调用间接触发，这里直接钉住它自己的契约。
+ * `createdAt` 与 `updatedAt` 刻意取不同的时间，以便断言游标编的是**排序键**那一列。
  */
-type Row = { id: string; createdAt: Date };
+type Row = { id: string; createdAt: Date; updatedAt: Date };
 
-type SortKey = 'createdAt' | 'id';
+type SortKey = 'createdAt' | 'updatedAt';
 
 const row = (index: number): Row => ({
   id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
   createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, 0, index)),
+  updatedAt: new Date(Date.UTC(2026, 5, 1, 0, 0, 0, index)),
 });
 
 /**
@@ -24,10 +26,11 @@ const row = (index: number): Row => ({
  */
 function makeAlias(
   name: string,
-  columns: Partial<Record<SortKey, string>> = {},
+  columns: Partial<Record<SortKey | 'id', string>> = {},
 ) {
-  const mapping: Record<SortKey, string> = {
+  const mapping: Record<SortKey | 'id', string> = {
     createdAt: 'created_at',
+    updatedAt: 'updated_at',
     id: 'id',
     ...columns,
   };
@@ -38,7 +41,7 @@ function makeAlias(
       name: `${name}Entity`,
       findColumnWithPropertyName: (property: string) =>
         property in mapping
-          ? { databaseName: mapping[property as SortKey] }
+          ? { databaseName: mapping[property as SortKey | 'id'] }
           : undefined,
     },
   };
@@ -68,7 +71,7 @@ describe('KeysetPaginator', () => {
     vi.clearAllMocks();
   });
 
-  it('按不可变的 created_at 降序 + id 决胜排序，并多取一条（默认 20 → take(21)）', async () => {
+  it('默认按不可变的 created_at 降序 + id 决胜排序，并多取一条（默认 20 → take(21)）', async () => {
     const qb = makeQueryBuilder([row(1)]);
 
     await paginator.fetchPage(qb as never, undefined, undefined);
@@ -90,6 +93,33 @@ describe('KeysetPaginator', () => {
 
     expect(qb.orderBy).toHaveBeenCalledWith('x.created_on', 'DESC');
     expect(qb.addOrderBy).toHaveBeenCalledWith('x.id', 'DESC');
+  });
+
+  it('sortKey=updatedAt 时按 updated_at 排序，游标编码该列的时间戳（会话列表按最近活跃）', async () => {
+    const rows = [row(1), row(2), row(3)];
+    const qb = makeQueryBuilder(rows, makeAlias('c'));
+
+    const page = await paginator.fetchPage(
+      qb as never,
+      undefined,
+      2,
+      'updatedAt',
+    );
+
+    expect(qb.orderBy).toHaveBeenCalledWith('c.updated_at', 'DESC');
+    expect(qb.addOrderBy).toHaveBeenCalledWith('c.id', 'DESC');
+    expect(page.list).toEqual([rows[0], rows[1]]);
+    // 游标里必须是 updatedAt（而不是 createdAt）：否则下一页会用错列做行比较
+    expect(page.nextCursor).toBe(encodeCursor(rows[1].updatedAt, rows[1].id));
+
+    const cursor = page.nextCursor!;
+    const next = makeQueryBuilder([], makeAlias('c'));
+    await paginator.fetchPage(next as never, cursor, 2, 'updatedAt');
+
+    expect(next.andWhere).toHaveBeenCalledWith(
+      '(c.updated_at, c.id) < (:cursorTs, :cursorId)',
+      { cursorTs: rows[1].updatedAt, cursorId: rows[1].id },
+    );
   });
 
   it('limit 超过上限时按 MAX_PAGE_SIZE 钳制（@Max 只管 HTTP 入参，复用方绕过它）', async () => {

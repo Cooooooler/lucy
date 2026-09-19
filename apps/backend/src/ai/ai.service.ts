@@ -7,11 +7,9 @@ import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
-import {
-  resolvePageNumber,
-  resolvePageSize,
-} from '../common/pagination/page-params.js';
+import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import { ContextService } from './context.service.js';
+import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
 import { Conversation } from './entities/conversation.entity.js';
@@ -47,6 +45,7 @@ export class AiService {
     private readonly ollamaFactory: OllamaFactory,
     private readonly contextService: ContextService,
     private readonly config: ConfigService,
+    private readonly paginator: KeysetPaginator,
   ) {}
 
   // 同会话并发锁：key=conversationId，防止同会话并发生成（同时消除首条消息重复触发标题生成）
@@ -57,26 +56,26 @@ export class AiService {
     return this.conversationRepo.save({ userId, model: dto.model ?? null });
   }
 
-  /** AI：分页查询会话列表。分页入参经归一化后再进 SQL（越界值会变成全量 LIMIT 扫描）。 */
+  /**
+   * AI：游标分页查询会话列表（按最近活跃倒序）。
+   *
+   * 排序键取 `updatedAt`（每次发消息都会刷新，把会话顶到最前）：它只增不减，行只会移到
+   * 已取过的方向，游标分页下既不会重复也不会漏；改用偏移分页则会因窗口滑动而重复/漏行。
+   * @param userId 归属用户
+   * @param cursor 上一页返回的 nextCursor；省略表示第一页
+   * @param limit 每页条数；由 `KeysetPaginator` 归一化到 `[1, MAX_PAGE_SIZE]`
+   * @returns list 与下一页游标（null 表示已到底）
+   */
   async list(
     userId: string,
-    page: number | undefined,
-    pageSize: number | undefined,
-  ): Promise<{
-    list: Conversation[];
-    total: number;
-    page: number;
-    pageSize: number;
-  }> {
-    const safePage = resolvePageNumber(page);
-    const safePageSize = resolvePageSize(pageSize);
-    const [list, total] = await this.conversationRepo.findAndCount({
-      where: { userId },
-      order: { updatedAt: 'DESC' },
-      skip: (safePage - 1) * safePageSize,
-      take: safePageSize,
-    });
-    return { list, total, page: safePage, pageSize: safePageSize };
+    cursor: string | undefined,
+    limit: number | undefined,
+  ): Promise<ConversationListResultDto> {
+    const qb = this.conversationRepo
+      .createQueryBuilder('c')
+      .where('c.userId = :userId', { userId });
+    const page = await this.paginator.fetchPage(qb, cursor, limit, 'updatedAt');
+    return { list: page.list, nextCursor: page.nextCursor };
   }
 
   /** AI：拉取单会话（带消息）。 */
