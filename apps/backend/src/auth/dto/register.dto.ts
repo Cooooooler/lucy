@@ -6,13 +6,7 @@ import {
   Length,
   Matches,
 } from 'class-validator';
-
-/** 用户名字符集：仅字母数字下划线连字符（校验装饰器与 Swagger pattern 共用这一份） */
-export const USERNAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
-
-/** 密码复杂度：需同时含大写、小写、数字与特殊字符 */
-export const PASSWORD_PATTERN =
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/;
+import { PASSWORD_PATTERN, USERNAME_PATTERN } from './register.constraints.js';
 
 export class RegisterDto {
   // pattern/minLength 等约束要与下方 class-validator 装饰器同步写两处：

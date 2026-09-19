@@ -32,4 +32,15 @@ describe('RegisterDto 密码强度校验', () => {
     const passwordErrors = errors.filter((e) => e.property === 'password');
     expect(passwordErrors.length).toBeGreaterThan(0);
   });
+
+  // 「特殊字符」按非字母数字判定（[^a-zA-Z0-9]），不是符号白名单：
+  // 此前白名单漏了 _/-/~/空格 等，Str0ng-Pass 会被 400 且报错误导用户
+  it.each([
+    ['连字符', 'Str0ng-Pass'],
+    ['下划线', 'Str0ng_Pass'],
+    ['波浪号', 'Str0ng~Pass'],
+  ])('含 %s 的密码视为包含特殊字符，通过校验', async (_label, password) => {
+    const errors = await validate(buildDto({ password }));
+    expect(errors).toHaveLength(0);
+  });
 });

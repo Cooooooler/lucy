@@ -7,7 +7,7 @@ import { AppModule } from '../src/app.module.js';
 import {
   PASSWORD_PATTERN,
   USERNAME_PATTERN,
-} from '../src/auth/dto/register.dto.js';
+} from '../src/auth/dto/register.constraints.js';
 import {
   CURSOR_MAX_LENGTH,
   CURSOR_PATTERN,
@@ -197,6 +197,12 @@ describe('gen-openapi', () => {
       expect(paramOf(path, 'page')).toMatchObject({ default: 1, minimum: 1 });
     }
 
+    // 各列表自己的过滤关键字：@MaxLength 只写在装饰器时文档是无边界字符串
+    expect(paramOf('/knowledge', 'name')).toMatchObject({ maxLength: 100 });
+    expect(paramOf('/knowledge/{kbId}/documents', 'keyword')).toMatchObject({
+      maxLength: 100,
+    });
+
     // 请求体边界：只写 @MinLength/@MaxLength 时文档是空的，必须两处同步
     expect(propOf('SendMessageDto', 'content')).toMatchObject({
       minLength: 1,
@@ -211,6 +217,15 @@ describe('gen-openapi', () => {
     expect(propOf('RenameConversationDto', 'title')).toMatchObject({
       minLength: 1,
       maxLength: 50,
+    });
+    // LoginDto：account 进等值查询、password 与注册侧 bcrypt 上限对齐
+    expect(propOf('LoginDto', 'account')).toMatchObject({
+      minLength: 1,
+      maxLength: 255,
+    });
+    expect(propOf('LoginDto', 'password')).toMatchObject({
+      minLength: 1,
+      maxLength: 72,
     });
     expect(propOf('RegisterDto', 'nickname')).toMatchObject({
       minLength: 1,

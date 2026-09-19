@@ -9,6 +9,7 @@ export class DocumentListQueryDto extends CursorQueryDto {
   // 谓词无法走索引，超长输入是廉价的全表扫描放大器；顺带去掉首尾空白
   @ApiPropertyOptional({
     description: '匹配标题/内容的关键字（最多 100 字符）',
+    maxLength: 100,
   })
   @IsOptional()
   @Transform(({ value }): unknown =>
