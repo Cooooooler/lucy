@@ -1,4 +1,8 @@
-import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ClsService } from 'nestjs-cls';
 import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator.js';
@@ -111,6 +115,30 @@ describe('JwtAuthGuard', () => {
     );
     expect(() =>
       guard.handleRequest(new Error('boom'), null, null, context),
+    ).toThrowError(new UnauthorizedException('未登录或登录已过期'));
+  });
+
+  it('validate 抛出的 403 原样透出（不降级成 401）', () => {
+    const guard = new JwtAuthGuard(
+      { getAllAndOverride: vi.fn() } as unknown as Reflector,
+      { isActive: () => false } as unknown as ClsService,
+    );
+    const forbidden = new ForbiddenException('账号不可用');
+    try {
+      guard.handleRequest(forbidden, null, null, context);
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBe(forbidden);
+    }
+  });
+
+  it('passport 默认英文 Unauthorized 被换成中文兜底', () => {
+    const guard = new JwtAuthGuard(
+      { getAllAndOverride: vi.fn() } as unknown as Reflector,
+      { isActive: () => false } as unknown as ClsService,
+    );
+    expect(() =>
+      guard.handleRequest(new UnauthorizedException(), null, null, context),
     ).toThrowError(new UnauthorizedException('未登录或登录已过期'));
   });
 });

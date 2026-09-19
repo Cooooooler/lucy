@@ -33,9 +33,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const code = typeof body === 'object' && body.code ? body.code : status;
       const raw: string =
         typeof body === 'object'
-          ? Array.isArray(body.message)
-            ? (body.message[0] ?? '')
-            : (body.message ?? exception.message)
+          ? firstMessage(body.message, exception.message)
           : body;
       const message = readableErrorMessage(raw, status);
       if (status >= 500) {
@@ -82,6 +80,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return null;
     }
   }
+}
+
+/**
+ * 取异常体的第一条 message：数组取首项（可能为空数组），缺失时回退
+ * exception 自身的 message。抽成独立函数，避免嵌套三元（S3358）。
+ */
+function firstMessage(
+  message: string | string[] | undefined,
+  fallback: string,
+): string {
+  if (Array.isArray(message)) return message[0] ?? '';
+  return message ?? fallback;
 }
 
 /**

@@ -1,5 +1,6 @@
 import {
   ExecutionContext,
+  HttpException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -7,6 +8,10 @@ import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { ClsService } from 'nestjs-cls';
 import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator.js';
+import {
+  HTTP_STATUS_MESSAGES,
+  isFrameworkDefaultMessage,
+} from '../common/messages.js';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -33,15 +38,21 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   handleRequest<TUser>(
     ...args: [any, any, any, ExecutionContext, any?]
   ): TUser {
-    // passport 默认报错是英文 `Unauthorized`：无 token 或认证失败时换成可读中文。
-    // validate() 里抛出的业务异常（如「令牌已失效」「账号不可用」）原样透出不动。
-    // 参数签名须与 passport AuthGuard 兼容（any）：先落 unknown 元组再解构，避免 any 污染。
+    // 认证失败的文案归一：按异常类型/状态判断，不依赖文案字符串比较。
+    // - validate() 里抛出的业务 HttpException（如「令牌已失效」401、
+    //   将来可能的 403）原样透出，不丢状态码不改语义；
+    // - passport 缺 token 等默认英文 `Unauthorized`（401 且文案是框架默认串）
+    //   才换成可读中文；其他未知错误同样落 401 兜底，不透出技术细节。
     const [err, user] = args as unknown as [unknown, unknown];
     if (err || !user) {
-      throw err instanceof UnauthorizedException &&
-        err.message !== 'Unauthorized'
-        ? err
-        : new UnauthorizedException('未登录或登录已过期');
+      // getStatus() 返回 number 而非枚举：直接比 401，避免枚举比较规则误报
+      if (
+        err instanceof HttpException &&
+        (err.getStatus() !== 401 || !isFrameworkDefaultMessage(err.message))
+      ) {
+        throw err;
+      }
+      throw new UnauthorizedException(HTTP_STATUS_MESSAGES[401]);
     }
     // super.handleRequest 返回 any：先落 unknown 再断言，避免 any 污染
     const raw: unknown = super.handleRequest(...args);

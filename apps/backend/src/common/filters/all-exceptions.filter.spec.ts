@@ -94,6 +94,12 @@ describe('readableErrorMessage', () => {
     ['Not Found', 404, '请求的资源不存在'],
     ['Too Many Requests', 429, '请求过于频繁，请稍后再试'],
     ['Internal Server Error', 500, '服务器内部错误'],
+    ['Validation failed (uuid is expected)', 400, '请求参数有误'],
+    ['The value passed as UUID is not a string', 400, '请求参数有误'],
+    ['File too large', 413, '请求内容过大'],
+    ['Too many files', 400, '请求参数有误'],
+    ['Unexpected field', 400, '请求参数有误'],
+    ['Multipart: Boundary not found', 400, '请求参数有误'],
   ])('框架英文「%s」按状态 %i 归一', (raw, status, expected) => {
     expect(readableErrorMessage(raw, status)).toBe(expected);
   });

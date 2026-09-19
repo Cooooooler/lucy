@@ -1,14 +1,5 @@
 import { API_VERSION } from '@lucy/shared';
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Query,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Patch, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -21,6 +12,7 @@ import {
 } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
+import { UUIDParam } from '../common/pipes/uuid-param.js';
 import { UserRole } from '../common/roles.js';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto.js';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
@@ -78,10 +70,7 @@ export class UsersController {
     description: '不能查看自己或同级/更高级别的账号',
   })
   @ApiResponse({ status: 404, description: '用户不存在' })
-  get(
-    @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  get(@CurrentUser() user: CurrentUserPayload, @UUIDParam('id') id: string) {
     return this.usersService.getDetail(
       { userId: user.userId, role: user.role },
       id,
@@ -107,7 +96,7 @@ export class UsersController {
   @ApiResponse({ status: 404, description: '用户不存在' })
   updateStatus(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
     @Body() dto: UpdateUserStatusDto,
   ) {
     return this.usersService.updateStatus(
@@ -134,7 +123,7 @@ export class UsersController {
   @ApiResponse({ status: 404, description: '用户不存在' })
   updateRole(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
     @Body() dto: UpdateUserRoleDto,
   ) {
     return this.usersService.updateRole(
@@ -156,10 +145,7 @@ export class UsersController {
     description: '不能删除自己或同级/更高级别的账号',
   })
   @ApiResponse({ status: 404, description: '用户不存在' })
-  remove(
-    @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  remove(@CurrentUser() user: CurrentUserPayload, @UUIDParam('id') id: string) {
     return this.usersService.remove(
       { userId: user.userId, role: user.role },
       id,

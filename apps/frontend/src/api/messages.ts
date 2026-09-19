@@ -17,7 +17,13 @@ export function onApiSuccessMessage(listener: ApiSuccessListener): () => void {
 
 /** 广播一条成功提示（空串不广播，由调用方保证）。 */
 export function emitApiSuccessMessage(text: string): void {
-  for (const listener of listeners) {
-    listener(text);
+  // 快照遍历 + 逐个兜底：广播发生在解包同步路径上，任一订阅者抛错
+  // 或同步退订都不能污染已成功的数据流，也不能跳过其余订阅者。
+  for (const listener of [...listeners]) {
+    try {
+      listener(text);
+    } catch {
+      // 单个展示失败不影响请求结果与其他订阅者
+    }
   }
 }

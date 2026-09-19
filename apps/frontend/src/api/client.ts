@@ -172,8 +172,9 @@ const unwrapEnvelope: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
         ),
       );
     }
-    emitSuccessMessage(ctx.config.method, ctx.config.extra, body.message);
+    // 先落数据再广播：UI 层订阅者异常绝不能污染已成功的数据流
     ctx.result = body.data as never;
+    emitSuccessMessage(ctx.config.method, ctx.config.extra, body.message);
     return ctx;
   },
 };

@@ -153,6 +153,19 @@ describe('api/client', () => {
       });
       expect(heard).toEqual([]);
     });
+
+    it('订阅者抛错时 data 照常返回（UI 异常不污染数据流）', async () => {
+      fetchMock.mockResolvedValueOnce(successEnvelope('知识库已删除'));
+      const off = onApiSuccessMessage(() => {
+        throw new Error('toast boom');
+      });
+      try {
+        const data = await http.delete<{ id: string }>('knowledge/1').json();
+        expect(data).toEqual({ id: '1' });
+      } finally {
+        off();
+      }
+    });
   });
 
   describe('错误取值（不用 instanceof，克隆后类身份会丢）', () => {

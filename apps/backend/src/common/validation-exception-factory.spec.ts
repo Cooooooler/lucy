@@ -129,4 +129,14 @@ describe('validationExceptionFactory', () => {
       ]),
     ).toBe('weirdField应为文本');
   });
+
+  it('原型链字段名不泄漏函数源码（如 constructor）', () => {
+    expect(
+      messageOf([
+        error('constructor', {
+          whitelistValidation: 'property constructor should not exist',
+        }),
+      ]),
+    ).toBe('不支持的参数：constructor');
+  });
 });

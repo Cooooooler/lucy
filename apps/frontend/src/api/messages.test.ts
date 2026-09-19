@@ -30,4 +30,40 @@ describe('api/messages', () => {
     off();
     expect(() => off()).not.toThrow();
   });
+
+  it('单个订阅者抛错不影响其余订阅者，也不向外抛', () => {
+    const bad = vi.fn(() => {
+      throw new Error('toast boom');
+    });
+    const good = vi.fn();
+    const offBad = onApiSuccessMessage(bad);
+    const offGood = onApiSuccessMessage(good);
+    try {
+      expect(() => emitApiSuccessMessage('登录成功')).not.toThrow();
+      expect(bad).toHaveBeenCalledWith('登录成功');
+      expect(good).toHaveBeenCalledWith('登录成功');
+    } finally {
+      offBad();
+      offGood();
+    }
+  });
+
+  it('广播期间同步退订不跳过其余订阅者', () => {
+    const order: string[] = [];
+    let offFirst!: () => void;
+    offFirst = onApiSuccessMessage(() => {
+      order.push('first');
+      offFirst();
+    });
+    const offSecond = onApiSuccessMessage(() => {
+      order.push('second');
+    });
+    try {
+      emitApiSuccessMessage('登录成功');
+      expect(order).toEqual(['first', 'second']);
+    } finally {
+      offFirst();
+      offSecond();
+    }
+  });
 });

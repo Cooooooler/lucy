@@ -4,8 +4,6 @@ import {
   Controller,
   Delete,
   Get,
-  Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -23,6 +21,7 @@ import type { CurrentUserPayload } from '../common/decorators/current-user.decor
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
 import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js';
+import { UUIDParam } from '../common/pipes/uuid-param.js';
 import { AiService } from './ai.service.js';
 import { ConversationListQueryDto } from './dto/conversation-list-query.dto.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
@@ -76,7 +75,7 @@ export class AiController {
   @ApiResponse({ status: 404, description: '会话不存在' })
   get(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
   ): Promise<Conversation> {
     return this.aiService.get(user.userId, id);
   }
@@ -92,7 +91,7 @@ export class AiController {
   @ApiResponse({ status: 404, description: '会话不存在' })
   rename(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
     @Body() dto: RenameConversationDto,
   ): Promise<Conversation> {
     return this.aiService.rename(user.userId, id, dto.title);
@@ -105,7 +104,7 @@ export class AiController {
   @ApiResponse({ status: 404, description: '会话不存在' })
   remove(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
   ): Promise<null> {
     return this.aiService.remove(user.userId, id);
   }
@@ -135,7 +134,7 @@ export class AiController {
     })
     res: Response,
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
     @Body() dto: SendMessageDto,
   ): void {
     res.setHeader('Content-Type', 'text/event-stream');

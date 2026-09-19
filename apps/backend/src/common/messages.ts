@@ -6,6 +6,13 @@
  * 请求字段中文名。前端对失败响应不做自动展示，调用方经 `errorMessageOf` 取后端原文案。
  */
 
+/**
+ * 限流提示：ThrottlerModule 的 errorMessage 与 429 兜底共用同一句，
+ * 改文案只改这里。必须声明在 HTTP_STATUS_MESSAGES 之前（const 无提升，
+ * 对象字面量求值时引用未初始化的 const 会 TDZ 报错）。
+ */
+export const RATE_LIMIT_MESSAGE = '请求过于频繁，请稍后再试';
+
 /** 按 HTTP 状态的中文兜底：过滤器在 message 缺失或为框架英文默认串时使用 */
 export const HTTP_STATUS_MESSAGES: Record<number, string> = {
   400: '请求参数有误',
@@ -17,7 +24,7 @@ export const HTTP_STATUS_MESSAGES: Record<number, string> = {
   413: '请求内容过大',
   415: '不支持的文件类型',
   422: '请求内容无法处理',
-  429: '请求过于频繁，请稍后再试',
+  429: RATE_LIMIT_MESSAGE,
   500: '服务器内部错误',
   503: '服务暂时不可用，请稍后重试',
 };
@@ -26,6 +33,13 @@ export const HTTP_STATUS_MESSAGES: Record<number, string> = {
  * 需归一的框架英文默认串：Nest/http-exception 的默认 message、passport 的
  * `Unauthorized`、throttler 的 `Too Many Requests` 等。出现即按 HTTP 状态
  * 换成上面的中文，避免用户看到 `Unauthorized` 之类的英文。
+ *
+ * 另收录两处「英文 message + 中文 status 语义错位」的固定串：
+ * - `ParseUUIDPipe` 默认 `Validation failed (uuid is expected)` /
+ *   `The value passed as UUID is not a string`（正常走 `UUIDParam` 已是中文，
+ *   这里防将来有人绕过统一出口直接用 `ParseUUIDPipe`）
+ * - multer/busboy 经 `transformException` 原样透出的固定串（`File too large`
+ *   等，见 @nestjs/platform-express 的 multer.constants.js）
  */
 export const FRAMEWORK_DEFAULT_MESSAGES = new Set([
   'Bad Request',
@@ -40,7 +54,46 @@ export const FRAMEWORK_DEFAULT_MESSAGES = new Set([
   'Too Many Requests',
   'Internal Server Error',
   'Service Unavailable',
+  // ParseUUIDPipe 默认异常
+  'Validation failed (uuid is expected)',
+  'Validation failed (uuid v 4 is expected)',
+  'The value passed as UUID is not a string',
+  // multer 固定串（multer-error.js）
+  'Too many parts',
+  'File too large',
+  'Too many files',
+  'Field name too long',
+  'Field value too long',
+  'Too many fields',
+  'Unexpected field',
+  'Field name missing',
+  // busboy 固定串（multipart.js）
+  'Multipart: Boundary not found',
+  'Malformed part header',
+  'Unexpected end of form',
+  'Unexpected end of file',
 ]);
+
+/**
+ * 是否为框架默认英文 message：HttpException 的 message 可能是字符串、
+ * 字符串数组或对象（`{ message }`），统一抽成字符串再比对。
+ * 供 JwtAuthGuard 判定「passport 默认英文 401」用——按集合成员判断，
+ * 不写死单个字符串比较。
+ */
+export function isFrameworkDefaultMessage(message: unknown): boolean {
+  if (typeof message === 'string') {
+    return FRAMEWORK_DEFAULT_MESSAGES.has(message);
+  }
+  if (Array.isArray(message)) {
+    return message.some((item) => isFrameworkDefaultMessage(item));
+  }
+  if (message !== null && typeof message === 'object') {
+    return isFrameworkDefaultMessage(
+      (message as Record<string, unknown>).message,
+    );
+  }
+  return false;
+}
 
 /** 请求字段中文名：校验报错时把属性名翻译成人话；未收录的字段回退属性名本身 */
 export const FIELD_LABELS: Record<string, string> = {
@@ -67,7 +120,13 @@ export const FIELD_LABELS: Record<string, string> = {
 };
 
 export function fieldLabel(property: string): string {
-  return FIELD_LABELS[property] ?? property;
+  // 字段名来自请求（forbidNonWhitelisted 会把未知字段原样送进来）：必须用
+  // Object.hasOwn 判自有属性。直接 `FIELD_LABELS[property] ?? property` 会命中
+  // 原型链——`constructor`/`toString` 取到 Object.prototype 上的函数，`??`
+  // 不生效，最终拼出「不支持的参数：function Object() { [native code] }」。
+  return Object.hasOwn(FIELD_LABELS, property)
+    ? FIELD_LABELS[property]
+    : property;
 }
 
 /**
