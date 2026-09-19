@@ -7,7 +7,7 @@ import { DataSource } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
 import { decodeCursor, encodeCursor } from '../common/pagination/cursor.js';
-import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
+import { PaginationModule } from '../common/pagination/pagination.module.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
@@ -108,6 +108,10 @@ describe('KnowledgeService', () => {
    * 经 DI 容器装配服务：provider 是否注册、注入 token 是否正确由容器判定，
    * 手工 `new KnowledgeService(...)` 时漏注入/错位只会表现为运行时的 undefined，
    * 且每新增一个构造依赖就要在每个手工构造点补参数。
+   *
+   * `KeysetPaginator` 刻意不在这里 provide，而是走 `imports: [PaginationModule]`：
+   * 与生产一致的模块路径才会验证 `PaginationModule` 真的 exports 了它，
+   * 在这里再 provide 一份会把 exports 漏写也变成绿灯。
    * @param configService 覆盖 ConfigService（个别用例需要不同的 FILE_MAX_SIZE）
    * @returns 由 TestingModule 解析出的服务实例
    */
@@ -115,9 +119,9 @@ describe('KnowledgeService', () => {
     configService: ConfigService = config,
   ): Promise<KnowledgeService> => {
     const moduleRef = await Test.createTestingModule({
+      imports: [PaginationModule],
       providers: [
         KnowledgeService,
-        KeysetPaginator,
         { provide: AppLogger, useValue: logger },
         { provide: DataSource, useValue: dataSource },
         { provide: getRepositoryToken(KnowledgeBase), useValue: kbRepo },

@@ -14,7 +14,10 @@ import {
   CURSOR_MAX_LENGTH,
   CURSOR_PATTERN,
 } from '../../common/pagination/cursor.js';
-import { DEFAULT_PAGE_SIZE } from '../../common/pagination/keyset-paginator.js';
+import {
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+} from '../../common/pagination/pagination.constants.js';
 import { KnowledgeBaseVisibility } from '../entities/knowledge-base.entity.js';
 
 export class KnowledgeListQueryDto {
@@ -28,14 +31,14 @@ export class KnowledgeListQueryDto {
   @Matches(CURSOR_PATTERN, { message: '无效的分页游标' })
   cursor?: string;
 
-  // 默认值取自 keyset-paginator 的唯一定义处：该数字会经 `pnpm typegen` 进入共享契约
-  // 与前端文档，写死字面量会在改动 DEFAULT_PAGE_SIZE 时让文档与实现静默漂移
+  // 默认值与上限都取自 pagination.constants 的唯一定义处：这两个数字会经 `pnpm typegen`
+  // 进入共享契约与前端文档，写死字面量会在改动契约时让文档与实现静默漂移
   @ApiPropertyOptional({ description: '每页条数', default: DEFAULT_PAGE_SIZE })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(MAX_PAGE_SIZE)
   limit?: number;
 
   @ApiPropertyOptional({

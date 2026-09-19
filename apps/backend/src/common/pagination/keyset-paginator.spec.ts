@@ -1,7 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeCursor } from './cursor.js';
-import { DEFAULT_PAGE_SIZE, KeysetPaginator } from './keyset-paginator.js';
+import { KeysetPaginator } from './keyset-paginator.js';
+import { DEFAULT_PAGE_SIZE } from './pagination.constants.js';
 
 /**
  * KeysetPaginator 的单测：装配语义（排序键、多取一条、游标谓词）此前只通过 KnowledgeService

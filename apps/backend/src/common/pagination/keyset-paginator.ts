@@ -1,9 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { SelectQueryBuilder } from 'typeorm';
 import { decodeCursor, encodeCursor } from './cursor.js';
-
-/** 游标分页默认每页条数 */
-export const DEFAULT_PAGE_SIZE = 20;
+import { DEFAULT_PAGE_SIZE } from './pagination.constants.js';
 
 /**
  * keyset（游标）分页的通用装配：排序 → 游标谓词 → 多取一条 → 裁剪 + 生成下一页游标。
