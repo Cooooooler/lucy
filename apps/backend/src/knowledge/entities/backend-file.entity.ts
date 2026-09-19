@@ -1,4 +1,5 @@
 import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
+import { Exclude } from 'class-transformer';
 import {
   Column,
   CreateDateColumn,
@@ -24,6 +25,9 @@ export class BackendFileEntity {
   ownerId: string;
 
   @ApiHideProperty()
+  // 内部关系对象，不对外暴露：@ApiHideProperty 只管 Swagger，
+  // 出网与否由全局 ClassSerializerInterceptor 依据 @Exclude 决定（排除式，漏标即出网）。
+  @Exclude()
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({
     name: 'owner_id',
@@ -47,11 +51,16 @@ export class BackendFileEntity {
   @Column({ type: 'int' })
   size: number;
 
-  @ApiProperty({ description: '存储相对路径 key' })
+  // 存储内部信息：Swagger 与真实响应都不对外（存储相对路径 `key` 与校验和 `hash`
+  // 是底层实现细节，泄漏出去只会暴露存储布局）。@ApiHideProperty 只管 Swagger，
+  // 出网与否由 ClassSerializerInterceptor 依据 @Exclude 决定，两者都要标。
+  @ApiHideProperty()
+  @Exclude()
   @Column({ type: 'varchar', length: 255 })
   key: string;
 
-  @ApiProperty({ description: 'SHA-256 校验和' })
+  @ApiHideProperty()
+  @Exclude()
   @Column({ type: 'char', length: 64 })
   hash: string;
 

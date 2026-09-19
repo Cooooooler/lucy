@@ -1,4 +1,4 @@
-import { ApiError } from '@/api/client';
+import { errorStatusOf } from '@/api/client';
 import {
   useConversationList,
   useCreateConversation,
@@ -366,7 +366,7 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
     );
   }
   if (error) {
-    const isNotFound = error instanceof ApiError && error.status === 404;
+    const isNotFound = errorStatusOf(error) === 404;
     return (
       <Result
         status="warning"

@@ -19,4 +19,21 @@ export default new DataSource({
   database: process.env.DB_NAME ?? 'lucy',
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/migrations/**/*{.ts,.js}'],
+  /**
+   * 迁移不由 TypeORM 自动包事务，允许单个迁移自行决定是否开事务：
+   * - `transaction = false`（本仓库的分批回填、`CREATE INDEX CONCURRENTLY` 迁移）：
+   *   每条语句自动提交，避免长事务持锁、避免 CONCURRENTLY 落入事务块而报
+   *   “cannot run inside a transaction block”/“无法在事务块中运行”。
+   * - `transaction = true`：需要原子性的迁移请显式声明，TypeORM 会为其单独开事务。
+   *
+   * 因为 `none` 下「不声明」就等于「非原子」，约定**每个迁移都必须显式声明**
+   * （由 src/db/migrations/migrations.spec.ts 强制），避免原子性被静默降级。
+   *
+   * 注意必须用 `none`（而非 `each`）：TypeORM 的 `migration:revert` **只**看全局模式，
+   * 会无视单个迁移的 `transaction = false`，强行包一层事务——那样 `down()` 里的
+   * `DROP INDEX CONCURRENTLY` 必失败。`up` 路径下全局默认本就等价于 `false`。
+   * 全局 `all`（默认值）则直接禁止任何单迁移覆盖事务模式
+   * （ForbiddenTransactionModeOverrideError）。
+   */
+  migrationsTransactionMode: 'none',
 });

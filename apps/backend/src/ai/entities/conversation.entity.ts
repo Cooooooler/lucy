@@ -1,4 +1,5 @@
 import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
+import { Exclude } from 'class-transformer';
 import {
   Column,
   CreateDateColumn,
@@ -26,6 +27,9 @@ export class Conversation {
   userId: string;
 
   @ApiHideProperty()
+  // 关系对象：出网与否由全局序列化拦截器依据 @Exclude 决定（@ApiHideProperty 只管 Swagger）。
+  // User 带 passwordHash，populate 后漏标即随嵌套对象出网。
+  @Exclude()
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user?: User;

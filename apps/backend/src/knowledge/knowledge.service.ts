@@ -11,15 +11,22 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { basename, extname } from 'node:path';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Repository, type SelectQueryBuilder } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import {
   extractContent,
   SUPPORTED_DOCUMENT_EXTS,
 } from './content-extractor.js';
+import { decodeCursor, encodeCursor } from './cursor.js';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { DocumentListQueryDto } from './dto/document-list-query.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
+import type {
+  DocumentListResultDto,
+  KnowledgeBaseItemDto,
+  KnowledgeDocumentDetailDto,
+  KnowledgeListResultDto,
+} from './dto/knowledge-list-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
 import { BackendFileEntity } from './entities/backend-file.entity.js';
 import {
@@ -28,7 +35,15 @@ import {
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
+import {
+  toDocumentDetail,
+  toDocumentListItem,
+  toKnowledgeBaseItem,
+} from './knowledge.mapper.js';
 import { detectFileType } from './magic-bytes.js';
+
+/** 游标分页默认每页条数 */
+const DEFAULT_PAGE_SIZE = 20;
 
 @Injectable()
 export class KnowledgeService {
@@ -49,41 +64,40 @@ export class KnowledgeService {
    * 创建一个知识库。
    * @param userId 属主用户 ID
    * @param dto 创建参数（名称必填，描述/可见性可选）
-   * @returns 持久化后的知识库
+   * @returns 新知识库的对外契约视图（点赞态为空，即 likeCount=0 / isLiked=false）
    */
-  create(userId: string, dto: CreateKnowledgeBaseDto): Promise<KnowledgeBase> {
+  async create(
+    userId: string,
+    dto: CreateKnowledgeBaseDto,
+  ): Promise<KnowledgeBaseItemDto> {
     this.logger.log(`kb create name=${dto.name}`, KnowledgeService.name);
-    return this.kbRepo.save({
+    const kb = await this.kbRepo.save({
       ownerId: userId,
       name: dto.name,
       description: dto.description ?? null,
       visibility: dto.visibility ?? KnowledgeBaseVisibility.Private,
     });
+    return toKnowledgeBaseItem(kb);
   }
 
   /**
-   * 分页查询知识库列表。
+   * 游标分页查询知识库列表。
    * 默认返回当前用户拥有的 + 公开的知识库；可按 `visibility` / 名称关键字过滤。
+   * 按**不可变**的 (created_at, id) 降序做 keyset 分页。刻意不用 updated_at：
+   * 它是可变排序键，上页取出之后被更新的行会越过游标，从而在后续页被永久漏掉。
+   * 并列（同一毫秒内插入、或同一事务批量插入）由 id 决胜，排序仍是全序。
+   * 排序与过滤均直接使用原始列（迁移保证时间列毫秒对齐），谓词写成行比较
+   * `(created_at, id) < (:cursorTs, :cursorId)`，Postgres 可将其优化为一次索引扫描。
    * 附加每个知识库的 likeCount 与当前用户的 isLiked（查询后批量回写，避免 JOIN 破坏分页）。
    * @param userId 当前用户 ID
-   * @param query 分页与过滤参数
-   * @returns 分页结果（list 含 likeCount/isLiked/total/page/pageSize）
+   * @param query 游标与过滤参数
+   * @returns list 与下一页游标（null 表示已到底，list 元素为对外契约视图）
    */
   async list(
     userId: string,
     query: KnowledgeListQueryDto,
-  ): Promise<{
-    list: KnowledgeBase[];
-    total: number;
-    page: number;
-    pageSize: number;
-  }> {
-    const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? 20;
-    const qb = this.kbRepo
-      .createQueryBuilder('kb')
-      .orderBy('kb.updatedAt', 'DESC')
-      .addOrderBy('kb.id', 'DESC');
+  ): Promise<KnowledgeListResultDto> {
+    const qb = this.kbRepo.createQueryBuilder('kb');
     if (query.visibility) {
       if (query.visibility === KnowledgeBaseVisibility.Private) {
         qb.where('kb.ownerId = :uid', { uid: userId }).andWhere(
@@ -104,11 +118,18 @@ export class KnowledgeService {
     if (query.name) {
       qb.andWhere('kb.name ILIKE :name', { name: `%${query.name}%` });
     }
-    qb.skip((page - 1) * pageSize).take(pageSize);
-    const [list, total] = await qb.getManyAndCount();
+    const page = await this.fetchKeysetPage(
+      qb,
+      'kb',
+      query.cursor,
+      query.limit,
+    );
     // 批量回写 likeCount / isLiked，单次聚合查询，避免 N+1
-    await this.fillLikeInfo(userId, list);
-    return { list, total, page, pageSize };
+    await this.fillLikeInfo(userId, page.list);
+    return {
+      list: page.list.map(toKnowledgeBaseItem),
+      nextCursor: page.nextCursor,
+    };
   }
 
   /**
@@ -116,12 +137,12 @@ export class KnowledgeService {
    * @throws NotFoundException 知识库不存在
    * @throws ForbiddenException 用户无权访问（既非属主，也非公开）
    */
-  async get(userId: string, id: string): Promise<KnowledgeBase> {
+  async get(userId: string, id: string): Promise<KnowledgeBaseItemDto> {
     const kb = await this.kbRepo.findOne({ where: { id } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertReadable(kb, userId);
     await this.fillLikeInfo(userId, [kb]);
-    return kb;
+    return toKnowledgeBaseItem(kb);
   }
 
   /**
@@ -220,7 +241,7 @@ export class KnowledgeService {
     userId: string,
     id: string,
     dto: UpdateKnowledgeBaseDto,
-  ): Promise<KnowledgeBase> {
+  ): Promise<KnowledgeBaseItemDto> {
     const kb = await this.kbRepo.findOne({ where: { id } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertOwner(kb, userId);
@@ -228,8 +249,11 @@ export class KnowledgeService {
     if (dto.description !== undefined) kb.description = dto.description;
     if (dto.visibility !== undefined) kb.visibility = dto.visibility;
     const saved = await this.kbRepo.save(kb);
+    // 点赞态同样要回填：响应形状必须与 get/list 完全一致，
+    // 否则 mapper 的兜底会把「已点赞」谎报成 0/false。
+    await this.fillLikeInfo(userId, [saved]);
     this.logger.log(`kb update kb=${id}`, KnowledgeService.name);
-    return saved;
+    return toKnowledgeBaseItem(saved);
   }
 
   /**
@@ -270,7 +294,7 @@ export class KnowledgeService {
     userId: string,
     kbId: string,
     file: Express.Multer.File,
-  ): Promise<KnowledgeDocument> {
+  ): Promise<KnowledgeDocumentDetailDto> {
     const kb = await this.kbRepo.findOne({ where: { id: kbId } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertOwner(kb, userId);
@@ -344,43 +368,51 @@ export class KnowledgeService {
       `doc upload kb=${kbId} doc=${doc.id}`,
       KnowledgeService.name,
     );
-    return doc;
+    return toDocumentDetail(doc);
   }
 
   /**
-   * 分页查询某知识库下的文档。
+   * 游标分页查询某知识库下的文档。
+   * 按**不可变**的 (created_at, id) 降序做 keyset 分页（同 list()，不使用可变的 updated_at）；
    * 可按 `keyword` 模糊匹配标题或解析出的纯文本。
+   * 排序与过滤均直接使用原始列，谓词为行比较，可走索引。
+   *
+   * 列表**不返回 `content`**（解析出的全文，可达 MB 级）：查询做显式列投影，
+   * 返回前经 `toDocumentListItem` 收敛成列表项契约，`content` 只由详情接口给出。
    * @throws NotFoundException / ForbiddenException
    */
   async listDocuments(
     userId: string,
     kbId: string,
     query: DocumentListQueryDto,
-  ): Promise<{
-    list: KnowledgeDocument[];
-    total: number;
-    page: number;
-    pageSize: number;
-  }> {
+  ): Promise<DocumentListResultDto> {
     const kb = await this.kbRepo.findOne({ where: { id: kbId } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertReadable(kb, userId);
 
-    const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? 20;
     const qb = this.docRepo
       .createQueryBuilder('d')
-      .where('d.knowledgeBaseId = :kbId', { kbId })
-      .orderBy('d.createdAt', 'DESC')
-      .addOrderBy('d.id', 'DESC');
+      // 显式列投影：直接把 content 挡在 SELECT 之外（keyword 对 content 的 ILIKE 仍在 WHERE 里，
+      // 那是过滤、不读取整列回传），避免每页把 20 篇全文一次拉回
+      .select([
+        'd.id',
+        'd.knowledgeBaseId',
+        'd.fileId',
+        'd.title',
+        'd.createdAt',
+        'd.updatedAt',
+      ])
+      .where('d.knowledgeBaseId = :kbId', { kbId });
     if (query.keyword) {
       qb.andWhere('(d.title ILIKE :kw OR d.content ILIKE :kw)', {
         kw: `%${query.keyword}%`,
       });
     }
-    qb.skip((page - 1) * pageSize).take(pageSize);
-    const [list, total] = await qb.getManyAndCount();
-    return { list, total, page, pageSize };
+    const page = await this.fetchKeysetPage(qb, 'd', query.cursor, query.limit);
+    return {
+      list: page.list.map(toDocumentListItem),
+      nextCursor: page.nextCursor,
+    };
   }
 
   /**
@@ -391,7 +423,7 @@ export class KnowledgeService {
     userId: string,
     kbId: string,
     id: string,
-  ): Promise<KnowledgeDocument> {
+  ): Promise<KnowledgeDocumentDetailDto> {
     const kb = await this.kbRepo.findOne({ where: { id: kbId } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertReadable(kb, userId);
@@ -399,7 +431,7 @@ export class KnowledgeService {
       where: { id, knowledgeBaseId: kbId },
     });
     if (!doc) throw new NotFoundException('文档不存在');
-    return doc;
+    return toDocumentDetail(doc);
   }
 
   /**
@@ -430,6 +462,56 @@ export class KnowledgeService {
     });
     this.logger.log(`doc remove kb=${kbId} doc=${id}`, KnowledgeService.name);
     return null;
+  }
+
+  /**
+   * keyset（游标）分页的统一装配：排序 → 游标谓词 → 多取一条 → 裁剪 + 生成下一页游标。
+   *
+   * 知识库列表与文档列表的分页语义必须永远一致（不可变的 `created_at` 排序键、
+   * 毫秒精度游标、`id` 决胜列），装配分散两处时极易只改一处而静默错页，故收敛到此。
+   *
+   * 约定：调用方需已用 `where()` 设好过滤条件（本方法只追加游标谓词）；
+   * 排序固定为 `created_at DESC, id DESC`，与迁移建的 keyset 索引列顺序一致。
+   * @param qb 已带过滤条件的查询构造器
+   * @param alias 实体别名（排序列名的前缀）
+   * @param cursor 上一页返回的游标；省略表示首页
+   * @param limit 每页条数；省略取 DEFAULT_PAGE_SIZE
+   */
+  private async fetchKeysetPage<T extends { createdAt: Date; id: string }>(
+    qb: SelectQueryBuilder<T>,
+    alias: string,
+    cursor: string | undefined,
+    limit: number | undefined,
+  ): Promise<{ list: T[]; nextCursor: string | null }> {
+    const size = limit ?? DEFAULT_PAGE_SIZE;
+    qb.orderBy(`${alias}.created_at`, 'DESC').addOrderBy(`${alias}.id`, 'DESC');
+    if (cursor) {
+      const { timestamp, id } = decodeCursor(cursor);
+      qb.andWhere(
+        `(${alias}.created_at, ${alias}.id) < (:cursorTs, :cursorId)`,
+        { cursorTs: timestamp, cursorId: id },
+      );
+    }
+    const rows = await qb.take(size + 1).getMany();
+    return this.toCursorPage(rows, size, (row) =>
+      encodeCursor(row.createdAt, row.id),
+    );
+  }
+
+  /**
+   * 把「多取一条」的查询结果裁成首页大小，并生成下一页游标。
+   * 多取一条用于判断是否还有下一页，避免额外的 COUNT 查询。
+   */
+  private toCursorPage<T>(
+    rows: T[],
+    limit: number,
+    toCursor: (row: T) => string,
+  ): { list: T[]; nextCursor: string | null } {
+    const hasNext = rows.length > limit;
+    const list = hasNext ? rows.slice(0, limit) : rows;
+    const last = list.at(-1);
+    const nextCursor = hasNext && last ? toCursor(last) : null;
+    return { list, nextCursor };
   }
 
   private assertOwner(kb: KnowledgeBase, userId: string): void {

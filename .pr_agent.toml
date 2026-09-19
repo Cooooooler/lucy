@@ -11,8 +11,14 @@ fallback_models = ["deepseek/deepseek-v4-pro"]
 # 评审结论输出中文
 response_language = "zh-CN"
 # deepseek-flash 不在 pr-agent 内置的模型上下文表中，需显式声明其窗口大小，
-# 否则按未知模型处理；实际可用上下文仍受 max_model_tokens（默认 32000）约束以控成本。
-custom_model_max_tokens = 128000
+# 否则按未知模型处理。
+custom_model_max_tokens = 1048576
+# 输入预算（PR-Agent 语义：任何模型可用的最大 token 数，超出即丢弃文件并在评论里
+# 输出 "Review coverage: ... not included ... token budget"）。
+# 此前未设 → 走官方默认 32000，PR #46 因此有 18 个文件没进入评审。
+# deepseek-flash 实际是 1M 输入窗口，这里放开到接近上限（留出 max_output_tokens
+# 与提示词模板的余量），避免大 PR 被静默截断。
+max_model_tokens = 1000000
 # deepseek-flash 是推理模型：先产 reasoning 再产正文，两者共用输出预算。
 # 实测（PR #35，输入 25089 token）8192 会被 reasoning 吃光，正文为空导致
 # "Failed to review PR"；提到 32768 后正常输出（同为 32768 时 38K 输入仍可正常返回正文）。
@@ -55,6 +61,10 @@ require_estimate_effort_to_review = true
 num_max_findings = 5
 # 同一 PR 重复 /review 时复用同一条评论，避免刷屏
 persistent_comment = true
+# 大 diff 兜底：即使仍超出 token 预算，也把补丁分块评审后合并成一份结果，
+# 而不是静默丢下一批文件（官方默认 false；coverage footer 仍会列出未纳入的文件）。
+enable_large_pr_chunking = true
+max_number_of_calls = 5
 extra_instructions = """
 本项目是 pnpm + Turborepo monorepo（NestJS 后端 + Vite/React 前端），全仓 ESM。评审时请重点关注：
 - ESM 约束：后端相对导入必须带 .js 后缀；后端不可使用 __dirname/__filename（改用 import.meta.url）

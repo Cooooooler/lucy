@@ -10,6 +10,8 @@ export function makeKb(id: string, name: string): KnowledgeBase {
     description: `${name} 的描述`,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
+    likeCount: 0,
+    isLiked: false,
   };
 }
 
@@ -22,4 +24,6 @@ export const baseKb: KnowledgeBase = {
   description: '这是一段描述',
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
+  likeCount: 0,
+  isLiked: false,
 };

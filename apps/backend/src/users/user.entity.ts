@@ -1,4 +1,5 @@
 import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
+import { Exclude } from 'class-transformer';
 import {
   Column,
   CreateDateColumn,
@@ -9,7 +10,7 @@ import {
 } from 'typeorm';
 import { UserRole } from '../common/roles.js';
 
-/** 用户账号：username/email 全局唯一，status=1 为正常；passwordHash 经 @ApiHideProperty 不对外暴露 */
+/** 用户账号：username/email 全局唯一，status=1 为正常；passwordHash 经 @Exclude 不出网 */
 @Entity('users')
 @Unique(['username'])
 @Unique(['email'])
@@ -26,8 +27,11 @@ export class User {
   @Column({ type: 'varchar', length: 255 })
   email: string;
 
-  // passwordHash 不加 @ApiProperty
+  // passwordHash 不加 @ApiProperty：@ApiHideProperty 只管 Swagger 文档，
+  // 真正决定它是否出网的是全局 ClassSerializerInterceptor 读取的 @Exclude——
+  // 它是**排除式**的，只剔除被显式标注的字段，漏标即随任意响应出网。
   @ApiHideProperty()
+  @Exclude()
   @Column({ name: 'password_hash', type: 'varchar', length: 255 })
   passwordHash: string;
 

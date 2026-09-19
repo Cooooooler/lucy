@@ -1,4 +1,4 @@
-import { ApiError } from '@/api/client';
+import { errorMessageOf } from '@/api/client';
 import type { User } from '@/api/types';
 import type { UserListQuery } from '@/api/users';
 import { hasMinRole } from '@/auth/roles';
@@ -145,11 +145,7 @@ const UserRoleModal: FC<UserRoleModalProps> = ({ user, open, onClose }) => {
       message.success('角色修改成功');
       onClose();
     } catch (e) {
-      if (e instanceof ApiError) {
-        message.error(e.message);
-      } else {
-        message.error('修改失败，请稍后重试');
-      }
+      message.error(errorMessageOf(e, '修改失败，请稍后重试'));
     }
   };
 
@@ -251,11 +247,7 @@ function UsersPage() {
               message.success(next === 0 ? '用户已禁用' : '用户已启用');
             })
             .catch((e: unknown) => {
-              if (e instanceof ApiError) {
-                message.error(e.message);
-              } else {
-                message.error('操作失败，请稍后重试');
-              }
+              message.error(errorMessageOf(e, '操作失败，请稍后重试'));
               throw e;
             }),
       });
@@ -281,11 +273,7 @@ function UsersPage() {
               message.success('用户已删除');
             })
             .catch((e: unknown) => {
-              if (e instanceof ApiError) {
-                message.error(e.message);
-              } else {
-                message.error('删除失败，请稍后重试');
-              }
+              message.error(errorMessageOf(e, '删除失败，请稍后重试'));
               throw e;
             });
         },

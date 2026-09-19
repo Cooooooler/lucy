@@ -64,6 +64,12 @@ jobs:
       - name: Configure BYOK provider (DeepSeek, local-only)
         # apiKey 写成 "$DEEPSEEK_KEY" 字面量（heredoc 用引号禁止展开），
         # 由 CLI 在运行时读环境变量，密钥不落盘。
+        #
+        # contextWindow / maxOutput 必须显式声明：CLI 对「未声明窗口」的模型按 200k 兜底
+        # （命令包内 getContextLimit 的默认值），而 DeepSeek Flash 实际是 1M 输入。
+        # 不声明会导致前端这类大改动（本次前端 patch 209KB，且技能目录里还有一个全文
+        # 文档会被当作子目录 memory 每次请求重读）触发过早的上下文压缩；模型丢掉补丁后
+        # 只回一段残稿，被早停校验判废 → 前端评审整段丢弃。
         run: |
           mkdir -p "$HOME/.commandcode"
           cat > "$HOME/.commandcode/providers.json" <<'JSON'
@@ -76,7 +82,9 @@ jobs:
                 "models": {
                   "deepseek-flash": {
                     "reasoning": true,
-                    "reasoningEfforts": ["low", "medium", "high"]
+                    "reasoningEfforts": ["low", "medium", "high"],
+                    "contextWindow": 1048576,
+                    "maxOutput": 65536
                   }
                 }
               }
@@ -128,7 +136,8 @@ jobs:
 
           步骤：
           1. 先读该技能的 SKILL.md，了解规则分类与适用场景。
-          2. 读改动补丁 .pr-skill-review/frontend.patch（用 read_file）。
+          2. 读改动补丁 .pr-skill-review/frontend.patch（用 read_file；补丁可能较长，
+             若一次读不完整就按返回提示的 offset 分段读完，不要只评一部分）。
           3. 只针对补丁涉及的代码，按需读取技能里相关规则文件（rules/*.md）后再判断；必要时用 read_file/grep/glob 读取仓库相关源码作上下文。
           4. 只报高置信度、真实可改的问题，不要复述补丁，不要泛泛而谈。
 
@@ -156,7 +165,8 @@ jobs:
 
           步骤：
           1. 先读该技能的 SKILL.md，了解规则分类与适用场景。
-          2. 读改动补丁 .pr-skill-review/backend.patch（用 read_file）。
+          2. 读改动补丁 .pr-skill-review/backend.patch（用 read_file；补丁可能较长，
+             若一次读不完整就按返回提示的 offset 分段读完，不要只评一部分）。
           3. 只针对补丁涉及的代码，按需读取技能里相关规则文件（rules/*.md）后再判断；必要时用 read_file/grep/glob 读取仓库相关源码作上下文。
           4. 只报高置信度、真实可改的问题，不要复述补丁，不要泛泛而谈。
 

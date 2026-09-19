@@ -296,8 +296,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 知识库列表
-         * @description 返回自己的 + 公开的
+         * 知识库列表（游标分页）
+         * @description 返回自己的 + 公开的；用响应中的 nextCursor 翻页
          */
         get: operations["KnowledgeController_list"];
         put?: never;
@@ -353,7 +353,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 某知识库文档列表 */
+        /** 某知识库文档列表（游标分页） */
         get: operations["KnowledgeController_listDocuments"];
         put?: never;
         /**
@@ -714,7 +714,7 @@ export interface components {
              */
             visibility: "private" | "public";
         };
-        KnowledgeBase: {
+        KnowledgeBaseItemDto: {
             /** @description 知识库 ID */
             id: string;
             /** @description 属主用户 ID */
@@ -739,10 +739,22 @@ export interface components {
              * @description 更新时间
              */
             updatedAt: string;
-            /** @description 点赞数 */
-            likeCount?: number;
-            /** @description 当前用户是否已点赞 */
-            isLiked?: boolean;
+            /**
+             * @description 点赞数
+             * @example 0
+             */
+            likeCount: number;
+            /**
+             * @description 当前用户是否已点赞
+             * @example false
+             */
+            isLiked: boolean;
+        };
+        KnowledgeListResultDto: {
+            /** @description 知识库列表 */
+            list: components["schemas"]["KnowledgeBaseItemDto"][];
+            /** @description 下一页游标；null 表示已到末页 */
+            nextCursor: string | null;
         };
         UpdateKnowledgeBaseDto: {
             /** @description 名称 */
@@ -762,7 +774,7 @@ export interface components {
             /** @description 操作后当前用户是否已点赞 */
             isLiked: boolean;
         };
-        KnowledgeDocument: {
+        KnowledgeDocumentDetailDto: {
             /** @description 文档 ID */
             id: string;
             /** @description 所属知识库 ID */
@@ -783,6 +795,32 @@ export interface components {
              * @description 更新时间
              */
             updatedAt: string;
+        };
+        KnowledgeDocumentListItemDto: {
+            /** @description 文档 ID */
+            id: string;
+            /** @description 所属知识库 ID */
+            knowledgeBaseId: string;
+            /** @description 源文件 ID */
+            fileId: string;
+            /** @description 标题 */
+            title: string;
+            /**
+             * Format: date-time
+             * @description 创建时间
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description 更新时间
+             */
+            updatedAt: string;
+        };
+        DocumentListResultDto: {
+            /** @description 文档列表（不含解析全文 content） */
+            list: components["schemas"]["KnowledgeDocumentListItemDto"][];
+            /** @description 下一页游标；null 表示已到末页 */
+            nextCursor: string | null;
         };
         HealthResultDto: {
             /**
@@ -1296,13 +1334,13 @@ export interface operations {
     KnowledgeController_list: {
         parameters: {
             query?: {
-                /** @description 页码 */
-                page?: number;
+                /** @description 分页游标（上一页返回的 nextCursor），省略表示第一页 */
+                cursor?: string;
                 /** @description 每页条数 */
-                pageSize?: number;
+                limit?: number;
                 /** @description 按可见性过滤 */
                 visibility?: "private" | "public";
-                /** @description 名称关键字 */
+                /** @description 名称关键字（最多 100 字符） */
                 name?: string;
             };
             header?: never;
@@ -1315,7 +1353,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["KnowledgeListResultDto"];
+                };
             };
         };
     };
@@ -1337,7 +1377,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KnowledgeBase"];
+                    "application/json": components["schemas"]["KnowledgeBaseItemDto"];
                 };
             };
         };
@@ -1353,6 +1393,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeBaseItemDto"];
+                };
+            };
             /** @description 知识库不存在 */
             404: {
                 headers: {
@@ -1400,7 +1448,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["KnowledgeBaseItemDto"];
+                };
             };
         };
     };
@@ -1449,11 +1499,11 @@ export interface operations {
     KnowledgeController_listDocuments: {
         parameters: {
             query?: {
-                /** @description 页码 */
-                page?: number;
+                /** @description 分页游标（上一页返回的 nextCursor），省略表示第一页 */
+                cursor?: string;
                 /** @description 每页条数 */
-                pageSize?: number;
-                /** @description 匹配标题/内容的关键字 */
+                limit?: number;
+                /** @description 匹配标题/内容的关键字（最多 100 字符） */
                 keyword?: string;
             };
             header?: never;
@@ -1468,7 +1518,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["DocumentListResultDto"];
+                };
             };
         };
     };
@@ -1488,7 +1540,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KnowledgeDocument"];
+                    "application/json": components["schemas"]["KnowledgeDocumentDetailDto"];
                 };
             };
         };
@@ -1510,7 +1562,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KnowledgeDocument"];
+                    "application/json": components["schemas"]["KnowledgeDocumentDetailDto"];
                 };
             };
         };

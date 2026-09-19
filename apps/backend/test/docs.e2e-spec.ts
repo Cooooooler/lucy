@@ -1,5 +1,3 @@
-process.env.DB_NAME = 'lucy_test';
-
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { Server } from 'node:http';
@@ -18,9 +16,12 @@ interface DocBody {
 
 describe('Scalar docs (dev)', () => {
   let app: INestApplication<Server>;
+  const savedEnv = process.env.NODE_ENV;
 
   beforeAll(async () => {
-    process.env.NODE_ENV = process.env.NODE_ENV ?? 'test';
+    // 显式钉成 test，而不是 `?? 'test'`：外部 shell 带着 NODE_ENV=production 时
+    // DocsModule.setup 会直接 return，本用例会以「/docs 404」的形态失败（看似与改动无关）。
+    process.env.NODE_ENV = 'test';
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -31,6 +32,7 @@ describe('Scalar docs (dev)', () => {
 
   afterAll(async () => {
     await app.close();
+    process.env.NODE_ENV = savedEnv;
   });
 
   it('/docs 返回 Scalar HTML', async () => {
