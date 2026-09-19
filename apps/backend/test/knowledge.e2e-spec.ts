@@ -86,6 +86,8 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
   /** 文档列表契约用：承载文档的那个知识库与文档 id（在 beforeAll 里落库） */
   let docsKbId: string;
   let docRowId: string;
+  /** 文档列表**分页**用：另一个知识库，装 6 条同毫秒 + 4 条不同毫秒的文档 */
+  let docsPageKbId: string;
 
   const kbListKeys = [
     'id',
@@ -136,6 +138,46 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
          AND name ILIKE $2
        ORDER BY created_at DESC, id DESC`,
       [userId, `%${scopeToken}%`],
+    );
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * 用游标逐页翻完某个知识库的**文档**列表，收集全部 id。
+   * 与 sweep() 同构：走真实 HTTP，顺带断言列表项不带解析全文（列投影 + 分页在真实 SQL 上一起验）。
+   */
+  async function sweepDocuments(limit: number): Promise<string[]> {
+    const ids: string[] = [];
+    let cursor: string | null = null;
+    for (let i = 0; i < 1000; i++) {
+      const query: Record<string, string> = { limit: String(limit) };
+      if (cursor) query.cursor = cursor;
+      const res = await request(server)
+        .get(`/knowledge/${docsPageKbId}/documents`)
+        .query(query)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      const body = res.body as ApiBody<{
+        list: Record<string, unknown>[];
+        nextCursor: string | null;
+      }>;
+      for (const item of body.data.list) {
+        expect(item).not.toHaveProperty('content');
+        ids.push(item.id as string);
+      }
+      cursor = body.data.nextCursor;
+      if (!cursor) return ids;
+    }
+    throw new Error('文档分页未收敛：nextCursor 始终非 null');
+  }
+
+  /** 文档列表的权威顺序（与生产路径同一语义）：(created_at DESC, id DESC) */
+  async function expectedDocumentOrder(): Promise<string[]> {
+    const rows = await dataSource.query<{ id: string }[]>(
+      `SELECT id FROM knowledge_documents
+        WHERE knowledge_base_id = $1
+        ORDER BY created_at DESC, id DESC`,
+      [docsPageKbId],
     );
     return rows.map((row) => row.id);
   }
@@ -204,6 +246,51 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
        VALUES ($1, $2, $3, '文档标题', '正文内容', $4, $4)`,
       [docRowId, docsKbId, fileRowId, tieTs],
     );
+
+    // 文档列表的 keyset 分页：另起一个知识库承载 6 条同毫秒 + 4 条不同毫秒的文档。
+    // 单独一个库是为了不影响上面那条「列表做列投影」用例对 list[0]（'文档标题'）的断言。
+    docsPageKbId = tieIds[1];
+    const docSpecs: { title: string; createdAt: Date }[] = [];
+    for (let k = 0; k < 6; k++) {
+      docSpecs.push({ title: `doc-tie-${k}`, createdAt: tieTs });
+    }
+    docSpecs.push({
+      title: 'doc-newer-2s',
+      createdAt: new Date(tieTs.getTime() + 2000),
+    });
+    docSpecs.push({
+      title: 'doc-newer-1s',
+      createdAt: new Date(tieTs.getTime() + 1000),
+    });
+    docSpecs.push({
+      title: 'doc-older-1s',
+      createdAt: new Date(tieTs.getTime() - 1000),
+    });
+    docSpecs.push({
+      title: 'doc-older-2s',
+      createdAt: new Date(tieTs.getTime() - 2000),
+    });
+
+    for (const spec of docSpecs) {
+      const docId = randomUUID();
+      const fileId = randomUUID();
+      await dataSource.query(
+        `INSERT INTO files (id, owner_id, original_name, ext, mime, size, key, hash, storage, created_at, updated_at)
+         VALUES ($1, $2, 'a.txt', '.txt', 'text/plain', 12, $3, $4, 'local', $5, $5)`,
+        [
+          fileId,
+          userId,
+          `kb-e2e/${fileId}.txt`,
+          'a'.repeat(64),
+          spec.createdAt,
+        ],
+      );
+      await dataSource.query(
+        `INSERT INTO knowledge_documents (id, knowledge_base_id, file_id, title, content, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, NULL, $5, $5)`,
+        [docId, docsPageKbId, fileId, spec.title, spec.createdAt],
+      );
+    }
   });
 
   afterAll(async () => {
@@ -284,6 +371,16 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
     expect(item.name).toBe(`${scopeToken}-created`);
     expect(item.likeCount).toBe(0);
     expect(item.isLiked).toBe(false);
+  });
+
+  it('文档列表 keyset 分页：同毫秒按 id 决胜、逐页不重不漏（真实 SQL + 列投影）', async () => {
+    const expected = await expectedDocumentOrder();
+    expect(expected).toHaveLength(10);
+
+    // limit 取 1/2/3：1 与 2 会落在同毫秒并列组内部（游标必须用 id 决胜），3 覆盖跨页裁剪
+    for (const limit of [1, 2, 3]) {
+      expect(await sweepDocuments(limit), `limit=${limit}`).toEqual(expected);
+    }
   });
 
   it('文档列表做列投影：不含解析全文 content，详情才返回 content', async () => {

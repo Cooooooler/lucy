@@ -1,8 +1,9 @@
 import { errorMessageOf } from '@/api/client';
 import type { KnowledgeBase } from '@/api/types';
 import { KnowledgeCard } from '@/components/knowledge/KnowledgeCard.tsx';
-import { useVirtualGrid } from '@/hooks/use-virtual-grid';
-import { Button, Card, Empty, Result, Skeleton, Spin } from 'antd';
+import { CARD_ESTIMATED_HEIGHT } from '@/components/knowledge/grid-layout';
+import { useGridBreakpoints, useVirtualGrid } from '@/hooks/use-virtual-grid';
+import { Button, Empty, Result, Spin } from 'antd';
 import type { FC } from 'react';
 
 /** 正在 pending 的变更操作所对应的知识库 id（由路由持有的 mutation 提供，null 表示当前没有） */
@@ -42,16 +43,37 @@ type KnowledgeGridProps = {
 
 const SKELETON_KEYS = ['sk-1', 'sk-2', 'sk-3', 'sk-4', 'sk-5', 'sk-6'];
 
-/** 加载中：6 个骨架卡片（与卡片网格同构） */
-const KnowledgeGridLoading: FC = () => (
-  <div className="grid grid-cols-1 gap-4 px-4 pt-4 pb-8 sm:grid-cols-1 sm:px-6 md:grid-cols-2 md:px-8 lg:grid-cols-3 xl:grid-cols-4">
-    {SKELETON_KEYS.map((key) => (
-      <Card key={key} variant="borderless">
-        <Skeleton active paragraph={{ rows: 2 }} />
-      </Card>
-    ))}
-  </div>
-);
+/**
+ * 加载中：6 个骨架卡片。
+ *
+ * 刻意**不用 antd `Card`+`Skeleton`**、也刻意**按容器宽度而非视口断点**分列，否则会出现两处
+ * jank：一是本次改造的出发点正是「antd Card 单张约 4-5ms」，骨架反而比卡片还重；
+ * 二是视口断点（md/lg/xl）与真实网格的 `computeGridLayout(容器宽度)` 在 1024–1536px 区间会差
+ * 一列，冷加载完成瞬间整格跳列。这里复用网格同一套分档与 210px 等高约束。
+ */
+const KnowledgeGridLoading: FC<{ scrollElement: HTMLElement | null }> = ({
+  scrollElement,
+}) => {
+  const { columns, padding, gap } = useGridBreakpoints(scrollElement);
+  return (
+    <div
+      className="flex flex-wrap"
+      style={{ paddingLeft: padding, paddingRight: padding, gap }}
+    >
+      {SKELETON_KEYS.map((key) => (
+        <div
+          key={key}
+          className="animate-pulse rounded-lg bg-(--ant-color-fill-quaternary)"
+          style={{
+            // 与卡片同一套几何：等高（CARD_ESTIMATED_HEIGHT）与同一列宽公式
+            height: CARD_ESTIMATED_HEIGHT,
+            width: `calc((100% - ${padding * 2 + gap * (columns - 1)}px) / ${columns})`,
+          }}
+        />
+      ))}
+    </div>
+  );
+};
 
 const KnowledgeGridError: FC<{ error: unknown; onRetry: () => void }> = ({
   error,
@@ -188,7 +210,8 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
  * 各状态拆成独立组件并以扁平 if 返回，避免嵌套三元表达式。
  */
 export const KnowledgeGrid: FC<KnowledgeGridProps> = (props) => {
-  if (props.isLoading) return <KnowledgeGridLoading />;
+  if (props.isLoading)
+    return <KnowledgeGridLoading scrollElement={props.scrollElement} />;
   if (props.isError) {
     return <KnowledgeGridError error={props.error} onRetry={props.refetch} />;
   }

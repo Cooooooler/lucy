@@ -60,9 +60,15 @@ export function KnowledgeCard({
       </div>
 
       <div className="flex min-h-0 flex-1 items-start gap-4 px-4 py-3">
+        {/* 装饰性头像：显式宽高避免加载时占位抖动，lazy/async 让它不参与首屏关键路径。
+            注意它仍是第三方资源（api.dicebear.com）——是否改为仓库内联/本地 SVG 见后续决定。 */}
         <img
           src="https://api.dicebear.com/10.x/lorelei/svg?seed=1"
           alt=""
+          width={32}
+          height={32}
+          loading="lazy"
+          decoding="async"
           className="h-8 w-8 shrink-0 rounded-full"
         />
         <div

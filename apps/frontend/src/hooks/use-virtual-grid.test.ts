@@ -66,15 +66,16 @@ function makeSizedScrollElement(initialWidth: number): {
  * setup.ts 的 ResizeObserver 是 no-op 桩（回调永不触发），这里换成会记住回调的桩，
  * 用来驱动 useSyncExternalStore 的 subscribe → onChange → 渲染期重读快照这条分支——
  * 这是宽度改由 useSyncExternalStore 提供后唯一在 jsdom 下拿不到覆盖的路径。
+ * `resize(width)` 模拟真实通知：回调必须收到 entries（宽度从 contentRect 里取）。
  */
 function stubCapturingResizeObserver(): {
-  callbacks: (() => void)[];
+  resize: (width: number) => void;
   disconnected: () => number;
 } {
-  const callbacks: (() => void)[] = [];
+  const callbacks: ((entries: ResizeObserverEntry[]) => void)[] = [];
   let disconnected = 0;
   class CapturingResizeObserver {
-    constructor(callback: () => void) {
+    constructor(callback: (entries: ResizeObserverEntry[]) => void) {
       callbacks.push(callback);
     }
 
@@ -91,7 +92,14 @@ function stubCapturingResizeObserver(): {
     }
   }
   vi.stubGlobal('ResizeObserver', CapturingResizeObserver);
-  return { callbacks, disconnected: () => disconnected };
+  return {
+    resize: (width) => {
+      for (const callback of callbacks) {
+        callback([{ contentRect: { width } } as ResizeObserverEntry]);
+      }
+    },
+    disconnected: () => disconnected,
+  };
 }
 
 describe('useVirtualGrid', () => {
@@ -455,9 +463,9 @@ describe('useVirtualGrid', () => {
   });
 
   it('ResizeObserver 触发后按新宽度重算 lanes', () => {
-    const { element: scrollElement, setWidth } = makeSizedScrollElement(1600);
+    const { element: scrollElement } = makeSizedScrollElement(1600);
     // computeGridLayout(1600).columns === 4
-    const { callbacks, disconnected } = stubCapturingResizeObserver();
+    const { resize, disconnected } = stubCapturingResizeObserver();
 
     try {
       const { unmount } = renderHook(() =>
@@ -469,15 +477,11 @@ describe('useVirtualGrid', () => {
           fetchNextPage: vi.fn(),
         }),
       );
-      expect(callbacks).toHaveLength(1);
       const lastLanes = () =>
         (useVirtualizerMock.mock.calls.at(-1)?.[0] as { lanes: number }).lanes;
       expect(lastLanes()).toBe(4);
 
-      setWidth(700); // computeGridLayout(700).columns === 2
-      act(() => {
-        for (const callback of callbacks) callback();
-      });
+      act(() => resize(700)); // computeGridLayout(700).columns === 2
 
       expect(lastLanes()).toBe(2);
 
@@ -490,9 +494,9 @@ describe('useVirtualGrid', () => {
   });
 
   it('同一分档内的宽度变化不重渲染（快照返回同一引用）', () => {
-    const { element: scrollElement, setWidth } = makeSizedScrollElement(1200);
+    const { element: scrollElement } = makeSizedScrollElement(1200);
     // 1200 与 1100 都是 3 列档（computeGridLayout(1200).columns === 3）
-    const { callbacks } = stubCapturingResizeObserver();
+    const { resize } = stubCapturingResizeObserver();
 
     try {
       const { result } = renderHook(() =>
@@ -507,10 +511,7 @@ describe('useVirtualGrid', () => {
       const firstLayout = result.current.layout;
       expect(firstLayout.columns).toBe(3);
 
-      setWidth(1100);
-      act(() => {
-        for (const callback of callbacks) callback();
-      });
+      act(() => resize(1100));
 
       // useSyncExternalStore 以引用相等判断「快照没变」：同一档位返回同一对象，
       // 拖拽窗口的逐像素通知因此不会让整格重渲染（列宽已交给 CSS）

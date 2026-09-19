@@ -1,12 +1,7 @@
+/// <reference types="vite/client" />
 import { instanceToPlain } from 'class-transformer';
 import { getMetadataArgsStorage } from 'typeorm';
 import { describe, expect, it } from 'vitest';
-import { Conversation } from './ai/entities/conversation.entity.js';
-import { Message } from './ai/entities/message.entity.js';
-import { BackendFileEntity } from './knowledge/entities/backend-file.entity.js';
-import { KnowledgeBase } from './knowledge/entities/knowledge-base.entity.js';
-import { KnowledgeDocument } from './knowledge/entities/knowledge-document.entity.js';
-import { KnowledgeLike } from './knowledge/entities/knowledge-like.entity.js';
 import { User } from './users/user.entity.js';
 
 /**
@@ -21,24 +16,35 @@ import { User } from './users/user.entity.js';
  * **显式登记**成白名单：新增列/关系、去掉某个 `@Exclude()` 都会让本文件变红，
  * 迫使做出明确决定——内部字段加 `@Exclude()`，对外字段登记进白名单。
  *
- * 副作用导入：实体的装饰器在模块加载时把列/关系元数据注册进 TypeORM 存储，
- * 下面的断言依赖这些导入，勿删。
+ * 实体清单本身也是**自动发现**的（`import.meta.glob` 扫 `**\/*.entity.ts` + TypeORM 表元数据过滤）：
+ * 手工维护名单时新增实体文件不会被任何断言覆盖，等于护栏空转。
  */
 const SENTINEL = 'SENTINEL_OUTBOUND_VALUE';
 
 /** 实体类（构造无参；实例字段按元数据填充） */
 type EntityClass = new () => object;
 
-/** 全部实体：显式列出来既是为了注册元数据，也是白名单覆盖度的判据 */
-const ENTITY_CLASSES: EntityClass[] = [
-  User,
-  Conversation,
-  Message,
-  KnowledgeBase,
-  KnowledgeDocument,
-  BackendFileEntity,
-  KnowledgeLike,
-];
+/** 自动发现全部实体模块：新增实体文件若未登记进白名单，本文件会变红 */
+const ENTITY_MODULES = import.meta.glob<Record<string, unknown>>(
+  './**/*.entity.ts',
+  { eager: true },
+);
+
+/** 从模块导出里挑出「被 TypeORM 登记为表」的类 = 实体 */
+function discoverEntityClasses(): EntityClass[] {
+  const tables = new Set(
+    getMetadataArgsStorage().tables.map((table) => table.target),
+  );
+  const discovered = new Map<string, EntityClass>();
+  for (const module of Object.values(ENTITY_MODULES)) {
+    for (const exported of Object.values(module)) {
+      if (typeof exported === 'function' && tables.has(exported)) {
+        discovered.set(exported.name, exported as EntityClass);
+      }
+    }
+  }
+  return [...discovered.values()];
+}
 
 /**
  * 每个实体**允许出网**的字段集（= 该实体被返回时允许出现的键）。
@@ -137,13 +143,14 @@ function sentinelUser(): User {
 }
 
 describe('出站序列化契约', () => {
-  it('实体元数据已注册（防止下面的字段扫描空跑）', () => {
-    const registered = new Set(
-      getMetadataArgsStorage().tables.map((table) => table.target),
-    );
+  const entityClasses = discoverEntityClasses();
 
-    for (const entity of ENTITY_CLASSES) {
-      expect(registered.has(entity), `${entity.name} 未注册`).toBe(true);
+  it('实体元数据已注册（防止下面的字段扫描空跑）', () => {
+    // 自动发现本身要先可信：扫到的模块非空、每个实体都能扫到列/关系
+    expect(Object.keys(ENTITY_MODULES).length).toBeGreaterThan(0);
+    expect(entityClasses.length).toBeGreaterThan(0);
+
+    for (const entity of entityClasses) {
       expect(
         persistedFieldsOf(entity).length,
         `${entity.name} 扫不到任何列/关系`,
@@ -152,13 +159,14 @@ describe('出站序列化契约', () => {
   });
 
   it('每个实体都有出网白名单（新增实体必须显式登记）', () => {
+    // 双向对齐：白名单缺新实体 → 红；白名单里写了不存在的实体 → 也红
     expect(Object.keys(ALLOWED_OUTBOUND_KEYS).sort()).toEqual(
-      ENTITY_CLASSES.map((entity) => entity.name).sort(),
+      entityClasses.map((entity) => entity.name).sort(),
     );
   });
 
   it('实体出网字段集与白名单一致（新增列/关系必须显式决定）', () => {
-    for (const Entity of ENTITY_CLASSES) {
+    for (const Entity of entityClasses) {
       const instance = new Entity() as unknown as Record<string, unknown>;
       for (const field of persistedFieldsOf(Entity)) instance[field] = SENTINEL;
       for (const field of VIEW_FIELDS[Entity.name] ?? []) {

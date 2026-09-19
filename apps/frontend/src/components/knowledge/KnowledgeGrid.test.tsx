@@ -80,9 +80,21 @@ describe('KnowledgeGrid', () => {
     useVirtualizerMock.mockReturnValue(virtualizerStub);
   });
 
-  it('加载中渲染 6 个骨架卡片', () => {
+  it('加载中渲染 6 个轻量骨架卡片（等高、无 antd Card/Skeleton）', () => {
     const { container } = renderGrid({ isLoading: true });
-    expect(container.querySelectorAll('.ant-skeleton')).toHaveLength(6);
+
+    const skeletons = [
+      ...container.querySelectorAll('div.animate-pulse'),
+    ] as HTMLElement[];
+    expect(skeletons).toHaveLength(6);
+    // 不再挂 antd Card/Skeleton（本次改造的出发点就是 antd Card 太重）
+    expect(container.querySelectorAll('.ant-skeleton')).toHaveLength(0);
+    expect(container.querySelectorAll('.ant-card')).toHaveLength(0);
+    // 与卡片同一等高约束：否则冷加载完成瞬间会跳高
+    for (const skeleton of skeletons) {
+      expect(skeleton.style.height).toBe('210px');
+      expect(skeleton.style.width).toContain('calc(');
+    }
   });
 
   it('失败时渲染错误态并可重试（展示服务端业务文案）', async () => {

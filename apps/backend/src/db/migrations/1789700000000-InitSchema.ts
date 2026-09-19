@@ -36,6 +36,9 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class InitSchema1789700000000 implements MigrationInterface {
   name = 'InitSchema1789700000000';
 
+  /** 本迁移的时间戳（= 类名后缀），down() 用它判断「之前是否还有已执行的迁移」 */
+  static readonly TIMESTAMP = 1789700000000;
+
   /** 显式原子化：多语句 DDL 必须整体成功或整体回滚（约定见 data-source.ts）。 */
   transaction = true;
 
@@ -89,6 +92,18 @@ export class InitSchema1789700000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    // 与 up() 对称：存量库上 up() 只做 baseline（schema 早已存在、什么都没建），down() 就绝不能
+    // 无条件整库 DROP——否则在那类库上执行一次 `db:revert` 会把整个库清空。
+    // 判据：本迁移之前是否还有已执行的迁移。有 ⇒ 表是旧迁移建的，本迁移不负责拆；
+    // 没有（全新库）⇒ 库是本迁移建的，由本迁移拆掉，保持 create → revert → 重跑 的往返可用。
+    const [older] = (await queryRunner.query(
+      `SELECT count(*)::int AS executed FROM "migrations" WHERE "timestamp" < $1`,
+      [InitSchema1789700000000.TIMESTAMP],
+    )) as { executed: number }[];
+    if (older.executed > 0) {
+      return;
+    }
+
     // 逆依赖顺序整库拆掉（列级 down 对初始化迁移没有意义）
     await queryRunner.query(`
       DROP TABLE "knowledge_likes";

@@ -52,10 +52,68 @@ function toBreakpoints(width: number): GridBreakpoints {
   return { columns, padding, gap };
 }
 
+/** 容器宽度未知时（首个 commit 之前）按 0 宽度分档，与旧行为一致 */
+const INITIAL_BREAKPOINTS = toBreakpoints(0);
+
 // 固定行高是纯常量函数（忽略入参），提到模块级：useVirtualizer 每次渲染都用新 options
 // 调 setOptions，内联闭包会造成无谓的引用抖动。getScrollElement 闭包了 scrollElement，
 // 不能提升，保持内联。
 const estimateSize = () => CARD_ESTIMATED_HEIGHT + GRID_GAP;
+
+/**
+ * 订阅容器宽度并给出「分档」几何（列数/内边距）。抽出来是为了让**加载骨架**与虚拟网格
+ * 共用同一分档口径：骨架若按视口断点（md/lg/xl）分列、真实网格按容器宽度分列，
+ * 冷加载完成那一刻会整格跳列。
+ *
+ * 读 `clientWidth` 的时机是这里的关键：React 在渲染期与**每次提交后**都会重读快照，
+ * 而提交那一刻正是 React 刚把卡片内联样式写进 DOM 的时候——每次都读布局属性会强制同步重排
+ * （滚动时每帧一次）。因此只在「容器换了」与 ResizeObserver 回调里读，快照本身只读 ref。
+ * 首个 commit 那次读取必须保留：容器就绪的那一帧就得拿到真实列数，否则恢复滚动位置会按
+ * 错误列数算 offset（改用 useState + 被动 effect 则会先画一帧零宽单列）。
+ */
+export function useGridBreakpoints(
+  scrollElement: HTMLElement | null,
+): GridBreakpoints {
+  const widthRef = useRef(0);
+  /** 已经量过宽度的容器：不等于 scrollElement 时说明是新容器，需要重新量一次 */
+  const measuredElementRef = useRef<HTMLElement | null>(null);
+  const breakpointsRef = useRef<GridBreakpoints>(INITIAL_BREAKPOINTS);
+
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (!scrollElement) return () => {};
+      const observer = new ResizeObserver((entries) => {
+        const width = entries[0]?.contentRect.width;
+        if (typeof width === 'number') widthRef.current = width;
+        onChange();
+      });
+      observer.observe(scrollElement);
+      return () => observer.disconnect();
+    },
+    [scrollElement],
+  );
+
+  // 快照取「分档量」而非连续宽度：命中同一列数/内边距时返回**同一对象**，
+  // useSyncExternalStore 据此判定「没变」而跳过整格重渲染；连续变化的列宽交给 CSS 承担。
+  const getSnapshot = useCallback(() => {
+    if (measuredElementRef.current !== scrollElement) {
+      measuredElementRef.current = scrollElement;
+      widthRef.current = scrollElement?.clientWidth ?? 0;
+    }
+    const next = toBreakpoints(widthRef.current);
+    const cached = breakpointsRef.current;
+    if (cached.columns === next.columns && cached.padding === next.padding) {
+      return cached;
+    }
+    breakpointsRef.current = next;
+    return next;
+  }, [scrollElement]);
+
+  // 服务端渲染兜底（本仓是 SPA，用不到，但保持 useSyncExternalStore 三参契约完整）
+  const getServerSnapshot = useCallback(() => INITIAL_BREAKPOINTS, []);
+
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+}
 
 /**
  * 虚拟化网格：按容器宽度动态决定列数（lanes），并用虚拟窗口触发触底加载。
@@ -80,34 +138,7 @@ export function useVirtualGrid({
     onRestoreDone?.();
   });
 
-  // 容器宽度是「外部可变值」：用 useSyncExternalStore 在渲染期读 DOM。
-  // 不能用 useState + effect：那样的首次渲染宽度未知，会先绘制一帧 width=0 的
-  // 零宽单列布局（列表缓存保留后首帧就有数据，这一帧真的会被看见）。
-  const subscribeResize = useCallback(
-    (onChange: () => void) => {
-      if (!scrollElement) return () => {};
-      const observer = new ResizeObserver(() => onChange());
-      observer.observe(scrollElement);
-      return () => observer.disconnect();
-    },
-    [scrollElement],
-  );
-
-  // 快照刻意取「分档量」而不是连续的 clientWidth：ResizeObserver 每像素都回调一次，
-  // 快照若是宽度，拖拽窗口的每一像素都会让整格重渲染（重算几何 + 虚拟化 options 抖动）。
-  // 命中同一列数/内边距时返回**同一对象**，useSyncExternalStore 据此判定「没变」而跳过渲染；
-  // 连续变化的列宽改由 CSS 承担，浏览器自己重排。
-  const breakpointsRef = useRef<GridBreakpoints | null>(null);
-  const getBreakpoints = useCallback(() => {
-    const next = toBreakpoints(scrollElement?.clientWidth ?? 0);
-    const cached = breakpointsRef.current;
-    if (cached?.columns === next.columns && cached.padding === next.padding) {
-      return cached;
-    }
-    breakpointsRef.current = next;
-    return next;
-  }, [scrollElement]);
-  const layout = useSyncExternalStore(subscribeResize, getBreakpoints);
+  const layout = useGridBreakpoints(scrollElement);
 
   const virtualizer = useVirtualizer({
     count,
