@@ -49,7 +49,7 @@ describe('AI conversation keyset pagination (e2e)', () => {
     const query: Record<string, string> = { limit: String(limit) };
     if (cursor) query.cursor = cursor;
     const res = await request(server)
-      .get('/ai/conversations')
+      .get('/v1/ai/conversations')
       .query(query)
       .set(auth())
       .expect(200);
@@ -141,7 +141,7 @@ describe('AI conversation keyset pagination (e2e)', () => {
 
   it('响应形状：只有 list + nextCursor（旧的 total/page/pageSize 已移除）', async () => {
     const res = await request(server)
-      .get('/ai/conversations')
+      .get('/v1/ai/conversations')
       .set(auth())
       .expect(200);
     const body = res.body as ApiBody<ConversationPage>;
@@ -150,7 +150,7 @@ describe('AI conversation keyset pagination (e2e)', () => {
 
   it('limit 超过 DTO 上界（100）直接 400，不落到查询层', async () => {
     await request(server)
-      .get('/ai/conversations')
+      .get('/v1/ai/conversations')
       .query({ limit: '1000' })
       .set(auth())
       .expect(400);
@@ -164,7 +164,7 @@ describe('AI conversation keyset pagination (e2e)', () => {
     const pending = expected.find((id) => !firstIds.includes(id));
     if (!pending) throw new Error('没有可用于「翻页途中更新」的候选行');
     await request(server)
-      .patch(`/ai/conversations/${pending}`)
+      .patch(`/v1/ai/conversations/${pending}`)
       .set(auth())
       .send({ title: `renamed-${suffix}` })
       .expect(200);

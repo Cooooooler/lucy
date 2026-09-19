@@ -1,4 +1,9 @@
-import { INestApplication } from '@nestjs/common';
+import { API_VERSION } from '@lucy/shared';
+import {
+  INestApplication,
+  VERSION_NEUTRAL,
+  VersioningType,
+} from '@nestjs/common';
 import { Test, type TestingModuleBuilder } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import type { Server } from 'node:http';
@@ -31,8 +36,11 @@ export interface LoginData {
 }
 
 /**
- * 启动一个与生产同装配的 Nest 应用。
- * 含 `cookieParser`：刷新令牌经 HttpOnly cookie 读写，与 `main.ts` 保持一致。
+ * 启动一个与生产同装配的 Nest 应用：`cookieParser`（刷新令牌走 HttpOnly cookie）+
+ * URI 版本化（`VersioningType.URI`，默认 `[VERSION_NEUTRAL, API_VERSION]`），两者都与 `main.ts` 一致。
+ *
+ * ⚠️ 因为启用了版本化，各 spec 的请求路径必须带版本段（`/v1/...`）—— 否则打的是「无版本」
+ * 路径，控制器漏声明 `version` 这类回归在 e2e 里就抓不到（生产前端走的是 `/v1/...`）。
  * @param configure 可选：对 TestingModuleBuilder 做额外装配（如 `.overrideProvider(...)`），
  *   让「带替身服务的应用」也走同一处 bootstrap，而不是再抄一份 cookieParser/init
  */
@@ -49,6 +57,10 @@ export async function createE2eApp(
   // `app.getHttpServer()` 会被推断成 any（命中 @typescript-eslint/no-unsafe-assignment）
   const app = moduleRef.createNestApplication<INestApplication<Server>>();
   app.use(cookieParser());
+  app.enableVersioning({
+    type: VersioningType.URI,
+    defaultVersion: [VERSION_NEUTRAL, API_VERSION],
+  });
   await app.init();
   return { app, server: app.getHttpServer(), dataSource: app.get(DataSource) };
 }
@@ -59,7 +71,7 @@ export async function login(
   username: string,
 ): Promise<LoginData> {
   const res = await request(server)
-    .post('/auth/login')
+    .post('/v1/auth/login')
     .send({ account: username, password: E2E_PASSWORD })
     .expect(201);
   return (res.body as ApiBody<LoginData>).data;
@@ -71,7 +83,7 @@ export async function registerAndLogin(
   username: string,
 ): Promise<LoginData> {
   await request(server)
-    .post('/auth/register')
+    .post('/v1/auth/register')
     .send({
       username,
       email: `${username}@test.com`,

@@ -53,7 +53,7 @@ describe('Users role (e2e)', () => {
 
     // admin 调用改角色：路由层 @Roles(SuperAdmin) 直接 403
     await request(server)
-      .patch(`/users/${target.user.id}/role`)
+      .patch(`/v1/users/${target.user.id}/role`)
       .set('Authorization', `Bearer ${admin.accessToken}`)
       .send({ role: 'admin' })
       .expect(403);
@@ -61,14 +61,14 @@ describe('Users role (e2e)', () => {
     // superadmin 授 superadmin：DTO 白名单 IsIn 拦下，400
     const superToken = superadmin.accessToken;
     await request(server)
-      .patch(`/users/${target.user.id}/role`)
+      .patch(`/v1/users/${target.user.id}/role`)
       .set('Authorization', `Bearer ${superToken}`)
       .send({ role: 'superadmin' })
       .expect(400);
 
     // superadmin 提 user → admin：200，返回体角色已变更
     const updated = await request(server)
-      .patch(`/users/${target.user.id}/role`)
+      .patch(`/v1/users/${target.user.id}/role`)
       .set('Authorization', `Bearer ${superToken}`)
       .send({ role: 'admin' })
       .expect(200);
@@ -78,7 +78,7 @@ describe('Users role (e2e)', () => {
     const targetRelogin = await login(server, targetName);
     const targetToken = targetRelogin.accessToken;
     await request(server)
-      .get('/users')
+      .get('/v1/users')
       .set('Authorization', `Bearer ${targetToken}`)
       .expect(200);
   });
