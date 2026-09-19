@@ -6,6 +6,7 @@ import type {
 import { http } from './client';
 import type {
   Conversation,
+  ConversationItem,
   CreateConversationRequest,
   RenameConversationRequest,
   SendMessageRequest,
@@ -18,11 +19,11 @@ export function createConversationApi(input: CreateConversationRequest = {}) {
   return http.post<Conversation>('ai/conversations', input).json();
 }
 
-// 会话列表为游标分页（按最近活跃倒序），响应结构复用共享 CursorPageResult<T>；
-// 查询参数类型由共享包从生成的 operations 派生，避免手写漂移
+// 会话列表为游标分页（按最近活跃倒序），列表项是允许式白名单 ConversationItem；
+// 响应结构复用共享 CursorPageResult<T>，查询参数类型由共享包从生成的 operations 派生
 export function listConversationsApi(query: ConversationListQuery = {}) {
   return http
-    .get<CursorPageResult<Conversation>>('ai/conversations', query)
+    .get<CursorPageResult<ConversationItem>>('ai/conversations', query)
     .json();
 }
 

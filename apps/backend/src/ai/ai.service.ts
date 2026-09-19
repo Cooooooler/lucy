@@ -8,6 +8,7 @@ import { Observable } from 'rxjs';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
+import { toConversationItem } from './ai.mapper.js';
 import { ContextService } from './context.service.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
@@ -78,7 +79,10 @@ export class AiService {
       .createQueryBuilder('c')
       .where('c.userId = :userId', { userId });
     const page = await this.paginator.fetchPage(qb, cursor, limit, 'updatedAt');
-    return { list: page.list, nextCursor: page.nextCursor };
+    return {
+      list: page.list.map(toConversationItem),
+      nextCursor: page.nextCursor,
+    };
   }
 
   /** AI：拉取单会话（带消息）。 */
