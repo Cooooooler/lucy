@@ -33,4 +33,29 @@ describe('ConversationListQueryDto', () => {
     const dto = plainToInstance(ConversationListQueryDto, { pageSize: 101 });
     expect(await validate(dto)).not.toHaveLength(0);
   });
+
+  it('page=1e300 校验失败（@IsInt 基于 Number.isInteger，会放行非安全整数）', async () => {
+    // 放过去的话服务层只能静默降级成第 1 页：200 返回的不是请求的那一页，客户端只能从
+    // 响应里的 page 字段察觉
+    const dto = plainToInstance(ConversationListQueryDto, { page: 1e300 });
+    expect(dto.page).toBe(1e300);
+    expect(await validate(dto)).not.toHaveLength(0);
+  });
+
+  it('page 上界为 Number.MAX_SAFE_INTEGER（可表示整数的天花板，不是产品上界）', async () => {
+    expect(
+      await validate(
+        plainToInstance(ConversationListQueryDto, {
+          page: Number.MAX_SAFE_INTEGER,
+        }),
+      ),
+    ).toHaveLength(0);
+    expect(
+      await validate(
+        plainToInstance(ConversationListQueryDto, {
+          page: Number.MAX_SAFE_INTEGER + 1,
+        }),
+      ),
+    ).not.toHaveLength(0);
+  });
 });
