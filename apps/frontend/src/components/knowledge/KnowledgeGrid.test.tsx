@@ -85,15 +85,24 @@ describe('KnowledgeGrid', () => {
     expect(container.querySelectorAll('.ant-skeleton')).toHaveLength(6);
   });
 
-  it('失败时渲染错误态并可重试', async () => {
-    const { props } = renderGrid({
-      isError: true,
-      error: new Error('网络异常'),
+  it('失败时渲染错误态并可重试（展示服务端业务文案）', async () => {
+    // 模拟 hook-fetch 克隆后的错误：只有字段可用（见 api/client.ts 的 errorMessageOf）
+    const apiError = Object.assign(new Error('知识库列表加载失败'), {
+      name: 'ApiError',
+      status: 500,
     });
+    const { props } = renderGrid({ isError: true, error: apiError });
     expect(screen.getByText('加载失败')).toBeInTheDocument();
-    expect(screen.getByText('网络异常')).toBeInTheDocument();
+    expect(screen.getByText('知识库列表加载失败')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /重\s*试/ }));
     expect(props.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('失败且是技术性错误时走兜底文案（不把英文报错甩给用户）', () => {
+    renderGrid({ isError: true, error: new TypeError('Failed to fetch') });
+    expect(screen.getByText('加载失败')).toBeInTheDocument();
+    expect(screen.getByText('请稍后重试')).toBeInTheDocument();
+    expect(screen.queryByText(/Failed to fetch/)).not.toBeInTheDocument();
   });
 
   it('空列表且有过滤条件时提示无匹配', () => {

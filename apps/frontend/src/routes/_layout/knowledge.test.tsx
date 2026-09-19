@@ -352,6 +352,29 @@ describe('routes/_layout/knowledge', () => {
     expect(lastGridProps().initialRestoreIndex).toBe(0);
   });
 
+  it('改筛选即作废锚点：网格从未挂载（骨架/空态）时旧锚点不会被回放到新列表', async () => {
+    mockViewState({}, 7);
+    renderRoute();
+    expect(lastGridProps().initialRestoreIndex).toBe(7);
+
+    // 网格一直没挂载 → onRestoreDone 从未回调 → 锚点仍是 7；
+    // 此时改筛选必须直接作废它，否则新条件的数据回来后会被恢复到旧位置
+    await userEvent.click(screen.getByText('公开'));
+
+    expect(lastGridProps().initialRestoreIndex).toBe(0);
+  });
+
+  it('清空搜索同样作废锚点', async () => {
+    mockViewState({ name: '产品' }, 5);
+    renderRoute();
+
+    const input = screen.getByPlaceholderText('按名称搜索知识库');
+    await userEvent.clear(input);
+    await userEvent.keyboard('{Enter}');
+
+    expect(lastGridProps().initialRestoreIndex).toBe(0);
+  });
+
   it('onEdit 引用稳定（useCallback）：重渲染后仍是同一引用', async () => {
     mockViewState();
     renderRoute();

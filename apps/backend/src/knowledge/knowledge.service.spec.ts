@@ -404,11 +404,21 @@ describe('KnowledgeService', () => {
     fileService.save.mockResolvedValue(stored());
     fileRepo.save.mockResolvedValue({ id: 'f1' });
     docRepo.save.mockResolvedValue(doc({ content: '正文' }));
-    await service.addDocument('u1', 'kb1', {
+    const uploaded = await service.addDocument('u1', 'kb1', {
       buffer: Buffer.from('%PDF'),
       originalname: 'a.pdf',
       size: 4,
     } as never);
+    // 上传返回详情契约视图（与 getDocument 同形，含 content），不是实体本身
+    expect(uploaded).toEqual({
+      id: DOC_ID,
+      knowledgeBaseId: 'kb1',
+      fileId: 'f1',
+      title: 'a',
+      content: '正文',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
     expect(fileService.save).toHaveBeenCalled();
     expect(fileRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -792,12 +802,20 @@ describe('KnowledgeService', () => {
     );
   });
 
-  it('getDocument 属主可读返回嵌套文档', async () => {
+  it('getDocument 属主可读，返回详情契约视图（含 content，非实体）', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
-    docRepo.findOne.mockResolvedValue(doc());
-    await expect(service.getDocument('u1', 'kb1', 'd1')).resolves.toEqual(
-      expect.any(KnowledgeDocument),
-    );
+    docRepo.findOne.mockResolvedValue(doc({ content: '正文' }));
+    const result = await service.getDocument('u1', 'kb1', 'd1');
+
+    expect(result).toEqual({
+      id: DOC_ID,
+      knowledgeBaseId: 'kb1',
+      fileId: 'f1',
+      title: 'a',
+      content: '正文',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
     expect(docRepo.findOne).toHaveBeenCalledWith({
       where: { id: 'd1', knowledgeBaseId: 'kb1' },
     });

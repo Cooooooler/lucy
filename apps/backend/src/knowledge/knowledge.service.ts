@@ -24,6 +24,7 @@ import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
 import type {
   DocumentListResultDto,
   KnowledgeBaseItemDto,
+  KnowledgeDocumentDetailDto,
   KnowledgeListResultDto,
 } from './dto/knowledge-list-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
@@ -34,7 +35,11 @@ import {
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
-import { toDocumentListItem, toKnowledgeBaseItem } from './knowledge.mapper.js';
+import {
+  toDocumentDetail,
+  toDocumentListItem,
+  toKnowledgeBaseItem,
+} from './knowledge.mapper.js';
 import { detectFileType } from './magic-bytes.js';
 
 /** 游标分页默认每页条数 */
@@ -289,7 +294,7 @@ export class KnowledgeService {
     userId: string,
     kbId: string,
     file: Express.Multer.File,
-  ): Promise<KnowledgeDocument> {
+  ): Promise<KnowledgeDocumentDetailDto> {
     const kb = await this.kbRepo.findOne({ where: { id: kbId } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertOwner(kb, userId);
@@ -363,7 +368,7 @@ export class KnowledgeService {
       `doc upload kb=${kbId} doc=${doc.id}`,
       KnowledgeService.name,
     );
-    return doc;
+    return toDocumentDetail(doc);
   }
 
   /**
@@ -418,7 +423,7 @@ export class KnowledgeService {
     userId: string,
     kbId: string,
     id: string,
-  ): Promise<KnowledgeDocument> {
+  ): Promise<KnowledgeDocumentDetailDto> {
     const kb = await this.kbRepo.findOne({ where: { id: kbId } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertReadable(kb, userId);
@@ -426,7 +431,7 @@ export class KnowledgeService {
       where: { id, knowledgeBaseId: kbId },
     });
     if (!doc) throw new NotFoundException('文档不存在');
-    return doc;
+    return toDocumentDetail(doc);
   }
 
   /**
@@ -504,8 +509,8 @@ export class KnowledgeService {
   ): { list: T[]; nextCursor: string | null } {
     const hasNext = rows.length > limit;
     const list = hasNext ? rows.slice(0, limit) : rows;
-    const nextCursor =
-      hasNext && list.length > 0 ? toCursor(list[list.length - 1]) : null;
+    const last = list.at(-1);
+    const nextCursor = hasNext && last ? toCursor(last) : null;
     return { list, nextCursor };
   }
 

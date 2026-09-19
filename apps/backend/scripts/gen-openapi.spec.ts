@@ -103,5 +103,37 @@ describe('gen-openapi', () => {
     hasSuccessSchema('/knowledge/{id}', 'get', '200');
     hasSuccessSchema('/knowledge/{id}', 'patch', '200');
     hasSuccessSchema('/knowledge/{kbId}/documents', 'get', '200');
+    hasSuccessSchema('/knowledge/{kbId}/documents', 'post', '201');
+    hasSuccessSchema('/knowledge/{kbId}/documents/{id}', 'get', '200');
+  });
+
+  it('文档详情/列表契约字段集固定（含/不含解析全文 content）', async () => {
+    await generateOpenApi();
+    const doc = JSON.parse(readFileSync(OUT, 'utf8')) as {
+      components?: {
+        schemas?: Record<string, { properties?: Record<string, unknown> }>;
+      };
+    };
+
+    const detail = Object.keys(
+      doc.components?.schemas?.KnowledgeDocumentDetailDto?.properties ?? {},
+    ).sort();
+    expect(detail).toEqual(
+      [
+        'id',
+        'knowledgeBaseId',
+        'fileId',
+        'title',
+        'content',
+        'createdAt',
+        'updatedAt',
+      ].sort(),
+    );
+
+    // 列表项刻意不含 content（MB 级解析全文只随详情接口出网）
+    const listItem = Object.keys(
+      doc.components?.schemas?.KnowledgeDocumentListItemDto?.properties ?? {},
+    ).sort();
+    expect(listItem).toEqual(detail.filter((key) => key !== 'content'));
   });
 });

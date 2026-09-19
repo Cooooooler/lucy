@@ -774,7 +774,7 @@ export interface components {
             /** @description 操作后当前用户是否已点赞 */
             isLiked: boolean;
         };
-        KnowledgeDocument: {
+        KnowledgeDocumentDetailDto: {
             /** @description 文档 ID */
             id: string;
             /** @description 所属知识库 ID */
@@ -1540,7 +1540,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KnowledgeDocument"];
+                    "application/json": components["schemas"]["KnowledgeDocumentDetailDto"];
                 };
             };
         };
@@ -1562,7 +1562,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KnowledgeDocument"];
+                    "application/json": components["schemas"]["KnowledgeDocumentDetailDto"];
                 };
             };
         };

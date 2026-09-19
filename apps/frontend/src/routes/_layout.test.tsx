@@ -1,6 +1,6 @@
 import { logoutApi } from '@/api/auth.ts';
 import { resetClientCaches } from '@/reset-client-caches.ts';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Route as LayoutRoute } from './_layout';
@@ -86,9 +86,11 @@ describe('routes/_layout', () => {
     fireEvent.click(screen.getByLabelText('用户菜单'));
     const logoutButton = await screen.findByText('退出登录');
 
-    await act(async () => {
-      fireEvent.click(logoutButton);
-    });
+    fireEvent.click(logoutButton);
+    // fireEvent 自带 act 冲刷；这里只需等异步登出链路（logoutApi → 复位缓存 → 跳转）跑完
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith({ to: '/login' }),
+    );
 
     expect(logoutApiMock).toHaveBeenCalledTimes(1);
     expect(resetCachesMock).toHaveBeenCalledTimes(1);

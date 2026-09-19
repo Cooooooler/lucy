@@ -13,16 +13,24 @@ import {
 import { User } from '../../users/user.entity.js';
 import { KnowledgeBase } from './knowledge-base.entity.js';
 
-/** 知识库点赞记录：用户-知识库多对多关系，UNIQUE 约束保证幂等 */
+/**
+ * 知识库点赞记录：用户-知识库多对多关系，UNIQUE 约束保证幂等。
+ *
+ * 纯内部表——点赞对外只有 `{ likeCount, isLiked }` 这种聚合结果（见 KnowledgeService.like），
+ * 实体本身从不出现在任何响应里。因此**所有字段**都标 `@Exclude()`：出网集合为空，
+ * 「不让它出网」从注释承诺变成运行时事实（由 entity-serialization.spec.ts 的出网白名单把关）。
+ */
 @Entity('knowledge_likes')
 @Unique('UQ_knowledge_like', ['knowledgeBaseId', 'userId'])
 @Index('IDX_knowledge_like_kb', ['knowledgeBaseId'])
 export class KnowledgeLike {
   @ApiHideProperty()
+  @Exclude()
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @ApiHideProperty()
+  @Exclude()
   @Column({ name: 'knowledge_base_id', type: 'uuid' })
   knowledgeBaseId: string;
 
@@ -38,6 +46,7 @@ export class KnowledgeLike {
   knowledgeBase?: KnowledgeBase;
 
   @ApiHideProperty()
+  @Exclude()
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
@@ -52,6 +61,7 @@ export class KnowledgeLike {
   user?: User;
 
   @ApiHideProperty()
+  @Exclude()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

@@ -1,5 +1,6 @@
 import type {
   KnowledgeBaseItemDto,
+  KnowledgeDocumentDetailDto,
   KnowledgeDocumentListItemDto,
 } from './dto/knowledge-list-result.dto.js';
 import type { KnowledgeBase } from './entities/knowledge-base.entity.js';
@@ -39,4 +40,24 @@ export function toDocumentListItem(
 ): KnowledgeDocumentListItemDto {
   const { id, knowledgeBaseId, fileId, title, createdAt, updatedAt } = doc;
   return { id, knowledgeBaseId, fileId, title, createdAt, updatedAt };
+}
+
+/**
+ * 把文档实体映射为详情契约视图（允许式白名单，**含** `content` 解析全文）。
+ * 详情与上传共用同一形状，前端两处拿到的类型一致。
+ */
+export function toDocumentDetail(
+  doc: KnowledgeDocument,
+): KnowledgeDocumentDetailDto {
+  const { id, knowledgeBaseId, fileId, title, content, createdAt, updatedAt } =
+    doc;
+  return {
+    id,
+    knowledgeBaseId,
+    fileId,
+    title,
+    content,
+    createdAt,
+    updatedAt,
+  };
 }

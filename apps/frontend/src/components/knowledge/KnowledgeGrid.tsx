@@ -1,3 +1,4 @@
+import { errorMessageOf } from '@/api/client';
 import type { KnowledgeBase } from '@/api/types';
 import { KnowledgeCard } from '@/components/knowledge/KnowledgeCard.tsx';
 import { useVirtualGrid } from '@/hooks/use-virtual-grid';
@@ -59,7 +60,9 @@ const KnowledgeGridError: FC<{ error: unknown; onRetry: () => void }> = ({
   <Result
     status="error"
     title="加载失败"
-    subTitle={error instanceof Error ? error.message : '请稍后重试'}
+    // 与其它模块同一约定：只展示服务端业务文案（name === 'ApiError'），
+    // 网络中断/脚本异常这类技术报错一律走兜底，不把英文堆栈甩给用户
+    subTitle={errorMessageOf(error, '请稍后重试')}
     extra={
       <Button type="link" onClick={onRetry} className="text-sm">
         重试

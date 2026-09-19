@@ -1,5 +1,3 @@
-process.env.DB_NAME = 'lucy_test';
-
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { Server } from 'node:http';

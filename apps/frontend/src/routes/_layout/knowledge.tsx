@@ -168,8 +168,14 @@ function KnowledgeComponent() {
   // 筛选只可能由这两个事件改变，用 effect 比对「上一次 key」是对同一动作的重复建模，
   // 还多一趟 effect 与一个纯记账 ref。放进事件处理器天然满足「挂载时不归零」
   // （挂载不触发这两个处理器），因此不会与首可见项恢复互相打架。
+  //
+  // 同时必须**作废恢复锚点**：锚点只有网格的 onRestoreDone 会消费，而网格在骨架
+  // （冷加载）与空态（新条件无结果）下根本不挂载 KnowledgeGridVirtual，恢复 effect
+  // 不跑、也就永远不会回调。此时若把旧锚点留在路由上，等新条件的数据回来、网格重新
+  // 挂载时会拿它去恢复旧位置，把这里的 scrollTo({ top: 0 }) 覆盖掉。
   const handleSearch = useCallback(
     (value: string) => {
+      setRestoreIndex(0);
       setCommittedName(value);
       saveFilter({ name: value || undefined });
       scrollElement?.scrollTo({ top: 0 });
@@ -179,6 +185,7 @@ function KnowledgeComponent() {
 
   const handleVisibilityChange = useCallback(
     (value: VisibilityFilter) => {
+      setRestoreIndex(0);
       setVisibility(value);
       saveFilter({ visibility: value === 'all' ? undefined : value });
       scrollElement?.scrollTo({ top: 0 });

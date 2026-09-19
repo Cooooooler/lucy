@@ -101,11 +101,7 @@ export function useVirtualGrid({
   const getBreakpoints = useCallback(() => {
     const next = toBreakpoints(scrollElement?.clientWidth ?? 0);
     const cached = breakpointsRef.current;
-    if (
-      cached &&
-      cached.columns === next.columns &&
-      cached.padding === next.padding
-    ) {
+    if (cached?.columns === next.columns && cached.padding === next.padding) {
       return cached;
     }
     breakpointsRef.current = next;

@@ -105,3 +105,38 @@ export class DocumentListResultDto {
   })
   nextCursor: string | null;
 }
+
+/**
+ * 文档详情/上传响应（允许式白名单，是列表项的超集：多一个解析全文 `content`）。
+ *
+ * 不复用 `KnowledgeDocument` 实体：实体是持久化结构，拿它当契约意味着「新增列默认出网」
+ * （全局 ClassSerializerInterceptor 是排除式的，只剔除显式 `@Exclude()` 的字段）；
+ * 显式列白名单则让「哪一列能出网」是编译期/契约生成期可见的事实，且只有本 DTO 会带 `content`。
+ * 上传返回同一形状，前端拿到的类型与详情一致。
+ */
+export class KnowledgeDocumentDetailDto {
+  @ApiProperty({ description: '文档 ID' })
+  id: string;
+
+  @ApiProperty({ description: '所属知识库 ID' })
+  knowledgeBaseId: string;
+
+  @ApiProperty({ description: '源文件 ID' })
+  fileId: string;
+
+  @ApiProperty({ description: '标题' })
+  title: string;
+
+  @ApiProperty({
+    description: '解析出的纯文本',
+    type: String,
+    nullable: true,
+  })
+  content: string | null;
+
+  @ApiProperty({ description: '创建时间' })
+  createdAt: Date;
+
+  @ApiProperty({ description: '更新时间' })
+  updatedAt: Date;
+}

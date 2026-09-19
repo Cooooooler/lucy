@@ -93,7 +93,7 @@ describe('api/client', () => {
 
     it('克隆后的 API 错误：取出服务端 message', () => {
       const err = cloned('仅知识库主可操作', 403);
-      expect(err instanceof ApiError).toBe(false);
+      expect(err).not.toBeInstanceOf(ApiError);
       expect(errorMessageOf(err, '操作失败，请稍后重试')).toBe(
         '仅知识库主可操作',
       );

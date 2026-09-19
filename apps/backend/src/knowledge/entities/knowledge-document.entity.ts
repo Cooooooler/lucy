@@ -14,7 +14,7 @@ import { BackendFileEntity } from './backend-file.entity.js';
 import { KnowledgeBase } from './knowledge-base.entity.js';
 
 /**
- * 索引与迁移对齐（`src/db/migrations/*AlignKnowledgeTimestamps*`）：
+ * 索引与迁移对齐（`src/db/migrations/1789700000000-InitSchema.ts`）：
  * `IDX_knowledge_documents_kb_created`（缺 id 决胜列）已由
  * `IDX_knowledge_documents_kb_created_id` 取代。
  *
@@ -35,7 +35,7 @@ export class KnowledgeDocument {
 
   @ApiProperty({ description: '所属知识库 ID' })
   // 不再单独建 (knowledge_base_id) 索引：已被下面的复合索引前导列完全覆盖（含 FK 级联删除），
-  // 单列索引属冗余，白付写放大。迁移 AddKnowledgeKeysetIndexes 已 DROP 掉它。
+  // 单列索引属冗余，白付写放大。初始化迁移 1789700000000-InitSchema 里已不建它。
   @Column({ name: 'knowledge_base_id', type: 'uuid' })
   knowledgeBaseId: string;
 
@@ -78,7 +78,7 @@ export class KnowledgeDocument {
   content: string | null;
 
   @ApiProperty({ description: '创建时间' })
-  // default 必须与迁移 AlignKnowledgeTimestamps 的 DDL 逐字一致（毫秒对齐）：
+  // default 必须与迁移 1789700000000-InitSchema 的 DDL 逐字一致（毫秒对齐）：
   // 省略它时 TypeORM 元数据默认是 now()，migration:generate 会提出
   // `SET DEFAULT now()`，把微秒精度放回 created_at，进而让毫秒精度游标的
   // keyset 谓词 `(created_at, id) < (:cursorTs, :cursorId)` 整批跳行。

@@ -20,7 +20,7 @@
     "start:prod": "node dist/main",
     "test": "vitest run",
     "test:cov": "vitest run --coverage",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e": "tsx test/prepare-e2e-db.ts && vitest run --config vitest.e2e.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },

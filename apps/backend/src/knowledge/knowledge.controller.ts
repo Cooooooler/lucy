@@ -31,11 +31,11 @@ import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
 import {
   DocumentListResultDto,
   KnowledgeBaseItemDto,
+  KnowledgeDocumentDetailDto,
   KnowledgeListResultDto,
 } from './dto/knowledge-list-result.dto.js';
 import { LikeResultDto } from './dto/like-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
-import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 @ApiTags('knowledge')
@@ -133,12 +133,12 @@ export class KnowledgeController {
     summary: '上传文档',
     description: 'multipart/form-data，字段名 file',
   })
-  @ApiResponse({ status: 201, type: KnowledgeDocument })
+  @ApiResponse({ status: 201, type: KnowledgeDocumentDetailDto })
   addDocument(
     @CurrentUser() user: CurrentUserPayload,
     @Param('kbId', ParseUUIDPipe) kbId: string,
     @UploadedFile() file: Express.Multer.File,
-  ): Promise<KnowledgeDocument> {
+  ): Promise<KnowledgeDocumentDetailDto> {
     if (!file) throw new BadRequestException('缺少文件字段 file');
     return this.knowledgeService.addDocument(user.userId, kbId, file);
   }
@@ -156,12 +156,12 @@ export class KnowledgeController {
 
   @Get(':kbId/documents/:id')
   @ApiOperation({ summary: '文档详情（含解析文本）' })
-  @ApiResponse({ status: 200, type: KnowledgeDocument })
+  @ApiResponse({ status: 200, type: KnowledgeDocumentDetailDto })
   getDocument(
     @CurrentUser() user: CurrentUserPayload,
     @Param('kbId', ParseUUIDPipe) kbId: string,
     @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  ): Promise<KnowledgeDocumentDetailDto> {
     return this.knowledgeService.getDocument(user.userId, kbId, id);
   }
 

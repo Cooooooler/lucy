@@ -18,7 +18,7 @@ export enum KnowledgeBaseVisibility {
 }
 
 /**
- * 索引与迁移对齐（`src/db/migrations/*AlignKnowledgeTimestamps*`）：
+ * 索引与迁移对齐（`src/db/migrations/1789700000000-InitSchema.ts`）：
  * 后两条服务于 keyset 分页 `(owner_id = :uid OR visibility = 'public')`
  * 且 `ORDER BY created_at DESC, id DESC` 的两种分支。
  *
@@ -75,7 +75,7 @@ export class KnowledgeBase {
   description: string | null;
 
   @ApiProperty({ description: '创建时间' })
-  // default 必须与迁移 AlignKnowledgeTimestamps 的 DDL 逐字一致（毫秒对齐）：
+  // default 必须与迁移 1789700000000-InitSchema 的 DDL 逐字一致（毫秒对齐）：
   // 省略它时 TypeORM 元数据默认是 now()，migration:generate 会提出
   // `SET DEFAULT now()`，把微秒精度放回 created_at，进而让毫秒精度游标的
   // keyset 谓词 `(created_at, id) < (:cursorTs, :cursorId)` 整批跳行。
