@@ -1,4 +1,3 @@
-import { ApiError } from '@/api/client';
 import {
   useCreateKnowledgeBase,
   useUpdateKnowledgeBase,
@@ -44,14 +43,12 @@ function setUpdateMock(mock: MutationMock) {
 type DrawerProps = ComponentProps<typeof KnowledgeFormDrawer>;
 
 /**
- * hook-fetch 的 ResponseError 走 CJS interop 后，`new ApiError()` 的实例原型链
- * 停在 ResponseError.prototype 上（子类原型丢失，`instanceof ApiError` 为 false）。
- * 这里与 chat.test.tsx 一致，显式修正原型链，才能命中 `e instanceof ApiError` 分支。
+ * 模拟 hook-fetch 克隆后的请求错误：**类身份丢失**（`instanceof ApiError` 为 false，
+ * 见 api/client.ts 的 errorMessageOf 说明），只剩 message/name/code/status 字段。
+ * 用它而非 `new ApiError()`，是为了让「必须按字段取值」这条约束在测试里可证伪。
  */
-function apiError(message: string, code: number, status: number): ApiError {
-  const error = new ApiError(message, code, status);
-  Object.setPrototypeOf(error, ApiError.prototype);
-  return error;
+function clonedApiError(message: string, code: number, status: number): Error {
+  return Object.assign(new Error(message), { name: 'ApiError', code, status });
 }
 
 /** 渲染单例抽屉（默认创建态、已打开），onClose 由工厂注入 */
@@ -242,7 +239,7 @@ describe('KnowledgeFormDrawer', () => {
   it('创建态接口抛 ApiError 时提示 e.message 且不关闭抽屉', async () => {
     const mutateAsync = vi
       .fn()
-      .mockRejectedValue(apiError('名称已存在', 409, 409));
+      .mockRejectedValue(clonedApiError('名称已存在', 409, 409));
     setCreateMock(mutationMock({ mutateAsync }));
     const { onClose } = renderDrawer({ mode: 'create' });
 
@@ -256,7 +253,7 @@ describe('KnowledgeFormDrawer', () => {
   it('编辑态接口抛 ApiError 时提示 e.message 且不关闭抽屉', async () => {
     const mutateAsync = vi
       .fn()
-      .mockRejectedValue(apiError('无权修改', 403, 403));
+      .mockRejectedValue(clonedApiError('无权修改', 403, 403));
     setUpdateMock(mutationMock({ mutateAsync }));
     const { onClose } = renderDrawer({ mode: 'edit', kb: baseKb });
 

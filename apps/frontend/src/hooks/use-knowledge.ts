@@ -220,6 +220,10 @@ export function useInfiniteKnowledgeBaseList(
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: 0,
+    // 换筛选会切到新的 queryKey（新查询无缓存）：用上一组条件的数据做占位，
+    // 列表保持可见，不再「整块骨架 → 整格重挂」——虚拟网格与已挂卡片实例得以沿用。
+    // 占位期间 isPlaceholderData 为 true：它与新条件的 nextCursor 不匹配，触底预取必须停手。
+    placeholderData: (prev) => prev,
     // 保留默认 gcTime(5min)：离开 ≤5min 返回命中缓存，>5min 缓存回收后从首页重来。
     // 用 refetchOnMount/refetchOnReconnect 阻止重挂载与断网重连时重放历史分页
     // （useInfiniteQuery 重放会一次发 N 页请求）

@@ -22,8 +22,10 @@ export type MessageStatus = Message['status'];
 export type ConversationListResult =
   components['schemas']['ConversationListResultDto'];
 
-// 知识库：契约类型来自后端 Swagger 生成的 components.schemas（含 likeCount/isLiked optional 字段）
-export type KnowledgeBase = components['schemas']['KnowledgeBase'];
+// 知识库：契约类型来自后端 Swagger 生成的 components.schemas。
+// 后端已改用允许式契约 KnowledgeBaseItemDto（不再拿实体当契约），
+// 字段集在所有端点一致，likeCount/isLiked 因此是必填而非可选。
+export type KnowledgeBase = components['schemas']['KnowledgeBaseItemDto'];
 export type KnowledgeBaseVisibility = KnowledgeBase['visibility'];
 export type CreateKnowledgeBaseRequest =
   components['schemas']['CreateKnowledgeBaseDto'];

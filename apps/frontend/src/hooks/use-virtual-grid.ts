@@ -7,8 +7,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -22,6 +22,11 @@ type UseVirtualGridOptions = {
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
+  /**
+   * 当前渲染的是上一组筛选条件的占位数据（`keepPreviousData`）时为 true。
+   * 占位页携带的是**旧条件**的 nextCursor，此时翻页会把旧游标配新条件发出去，必须停手。
+   */
+  isPlaceholderData?: boolean;
   /** 挂载时一次性恢复到的首可见项索引；仅当 0 < index < count 时生效 */
   initialRestoreIndex?: number;
   /** 首可见项索引变化回调（滚动中持续上报，不触发渲染） */
@@ -33,6 +38,19 @@ type UseVirtualGridOptions = {
    */
   onRestoreDone?: () => void;
 };
+
+/** 随宽度「分档」变化的几何量：列数与左右内边距。卡片宽度由 CSS 计算（见 KnowledgeGridVirtual） */
+export type GridBreakpoints = {
+  columns: number;
+  padding: number;
+  gap: number;
+};
+
+/** 取宽度对应的分档几何（列宽等连续量此处用不到，由 CSS 表达） */
+function toBreakpoints(width: number): GridBreakpoints {
+  const { columns, padding, gap } = computeGridLayout(width);
+  return { columns, padding, gap };
+}
 
 // 固定行高是纯常量函数（忽略入参），提到模块级：useVirtualizer 每次渲染都用新 options
 // 调 setOptions，内联闭包会造成无谓的引用抖动。getScrollElement 闭包了 scrollElement，
@@ -50,28 +68,22 @@ export function useVirtualGrid({
   hasNextPage,
   isFetchingNextPage,
   fetchNextPage,
+  isPlaceholderData = false,
   initialRestoreIndex = 0,
   onFirstVisibleItemChange,
   onRestoreDone,
 }: UseVirtualGridOptions) {
-  // 回调经 ref 持有：避免每次渲染传入新的函数引用导致虚拟化器 options 抖动；
-  // 该 ref 由下方的被动 effect 更新，因此回调变更会在下一次被动 effect 之后才生效
-  // （同一 commit 内、被动 effect 冲刷前触发的 onChange 仍可能拿到旧回调）
-  const onFirstVisibleItemChangeRef = useRef(onFirstVisibleItemChange);
-  useEffect(() => {
-    onFirstVisibleItemChangeRef.current = onFirstVisibleItemChange;
-  }, [onFirstVisibleItemChange]);
-
-  // 同理由：恢复完成的回调只在 layout effect 里用一次，不该让 options/依赖抖动
-  const onRestoreDoneRef = useRef(onRestoreDone);
-  useEffect(() => {
-    onRestoreDoneRef.current = onRestoreDone;
-  }, [onRestoreDone]);
+  // 恢复完成的回调只在下面的 layout effect 里用一次：Effect Event 让它在 effect 内
+  // 始终是最新实现，同时身份稳定、不必进 effect 依赖数组——这正是「ref + 被动 effect
+  // 手工补写最新回调」那套写法要解决的问题（且那套写法在同一 commit 内仍有陈旧窗口）。
+  const notifyRestoreDone = useEffectEvent(() => {
+    onRestoreDone?.();
+  });
 
   // 容器宽度是「外部可变值」：用 useSyncExternalStore 在渲染期读 DOM。
   // 不能用 useState + effect：那样的首次渲染宽度未知，会先绘制一帧 width=0 的
   // 零宽单列布局（列表缓存保留后首帧就有数据，这一帧真的会被看见）。
-  const subscribeWidth = useCallback(
+  const subscribeResize = useCallback(
     (onChange: () => void) => {
       if (!scrollElement) return () => {};
       const observer = new ResizeObserver(() => onChange());
@@ -80,13 +92,26 @@ export function useVirtualGrid({
     },
     [scrollElement],
   );
-  const getWidth = useCallback(
-    () => (scrollElement ? scrollElement.clientWidth : 0),
-    [scrollElement],
-  );
-  const width = useSyncExternalStore(subscribeWidth, getWidth);
 
-  const layout = useMemo(() => computeGridLayout(width), [width]);
+  // 快照刻意取「分档量」而不是连续的 clientWidth：ResizeObserver 每像素都回调一次，
+  // 快照若是宽度，拖拽窗口的每一像素都会让整格重渲染（重算几何 + 虚拟化 options 抖动）。
+  // 命中同一列数/内边距时返回**同一对象**，useSyncExternalStore 据此判定「没变」而跳过渲染；
+  // 连续变化的列宽改由 CSS 承担，浏览器自己重排。
+  const breakpointsRef = useRef<GridBreakpoints | null>(null);
+  const getBreakpoints = useCallback(() => {
+    const next = toBreakpoints(scrollElement?.clientWidth ?? 0);
+    const cached = breakpointsRef.current;
+    if (
+      cached &&
+      cached.columns === next.columns &&
+      cached.padding === next.padding
+    ) {
+      return cached;
+    }
+    breakpointsRef.current = next;
+    return next;
+  }, [scrollElement]);
+  const layout = useSyncExternalStore(subscribeResize, getBreakpoints);
 
   const virtualizer = useVirtualizer({
     count,
@@ -110,6 +135,10 @@ export function useVirtualGrid({
     // 上报值会比真实首可见项小 overscan，往返会累积向上漂移。
     // 取「起点不晚于视口顶部的最后一项」：视口顶部落在某行内部时，该行仍部分可见，
     // 才是真正的首可见项；取首个 start >= offset 会跳过它，恢复时整卡下移一行。
+    //
+    // 这里直接用 props 里的回调（不做 ref/Effect Event 包装）：库每次渲染都会
+    // setOptions，本就持有最新实现；而 Effect Event 只在 effect 内可调用，
+    // 本回调却会被滚动/尺寸监听与命令式滚动触发（都在 effect 之外）。
     onChange: (instance) => {
       const offset = instance.scrollOffset ?? 0;
       const items = instance.getVirtualItems();
@@ -121,7 +150,7 @@ export function useVirtualGrid({
       // 兜底：渲染区间尚未覆盖视口顶部时（如测量前的首帧）沿用最早渲染的一项，
       // 否则会漏掉这次上报，锚点停在上一个位置
       const anchor = first ?? items[0];
-      if (anchor) onFirstVisibleItemChangeRef.current?.(anchor.index);
+      if (anchor) onFirstVisibleItemChange?.(anchor.index);
     },
   });
 
@@ -163,14 +192,18 @@ export function useVirtualGrid({
     // eslint-disable-next-line react-x/set-state-in-effect
     setRestored(true);
     // 通知调用方消费掉恢复锚点（见 onRestoreDone 的说明）
-    onRestoreDoneRef.current?.();
+    notifyRestoreDone();
   }, [scrollElement, count, initialRestoreIndex, virtualizer]);
 
   useEffect(() => {
+    // 占位数据属于上一组筛选条件，它的 nextCursor 与新条件不匹配：
+    // 此时翻页 = 旧游标 + 新过滤条件，会拉到一页与当前列表无关的数据
+    if (isPlaceholderData) return;
     if (!hasNextPage || isFetchingNextPage) return;
     // 提前两行预取
     if (lastVisibleIndex >= count - layout.columns * 2) fetchNextPage();
   }, [
+    isPlaceholderData,
     lastVisibleIndex,
     count,
     hasNextPage,

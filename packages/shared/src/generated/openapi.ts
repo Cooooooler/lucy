@@ -714,7 +714,7 @@ export interface components {
              */
             visibility: "private" | "public";
         };
-        KnowledgeBase: {
+        KnowledgeBaseItemDto: {
             /** @description 知识库 ID */
             id: string;
             /** @description 属主用户 ID */
@@ -739,14 +739,20 @@ export interface components {
              * @description 更新时间
              */
             updatedAt: string;
-            /** @description 点赞数 */
-            likeCount?: number;
-            /** @description 当前用户是否已点赞 */
-            isLiked?: boolean;
+            /**
+             * @description 点赞数
+             * @example 0
+             */
+            likeCount: number;
+            /**
+             * @description 当前用户是否已点赞
+             * @example false
+             */
+            isLiked: boolean;
         };
         KnowledgeListResultDto: {
             /** @description 知识库列表 */
-            list: components["schemas"]["KnowledgeBase"][];
+            list: components["schemas"]["KnowledgeBaseItemDto"][];
             /** @description 下一页游标；null 表示已到末页 */
             nextCursor: string | null;
         };
@@ -1371,7 +1377,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KnowledgeBase"];
+                    "application/json": components["schemas"]["KnowledgeBaseItemDto"];
                 };
             };
         };
@@ -1387,6 +1393,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeBaseItemDto"];
+                };
+            };
             /** @description 知识库不存在 */
             404: {
                 headers: {
@@ -1434,7 +1448,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["KnowledgeBaseItemDto"];
+                };
             };
         };
     };

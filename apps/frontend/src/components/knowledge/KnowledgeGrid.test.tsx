@@ -1,10 +1,4 @@
 import type { KnowledgeBase } from '@/api/types';
-import {
-  useDeleteKnowledgeBase,
-  useLikeKnowledgeBase,
-  useUnlikeKnowledgeBase,
-  useUpdateKnowledgeBase,
-} from '@/hooks/use-knowledge';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
@@ -19,18 +13,6 @@ vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: useVirtualizerMock,
 }));
 
-vi.mock('@/hooks/use-knowledge', () => ({
-  useUpdateKnowledgeBase: vi.fn(),
-  useLikeKnowledgeBase: vi.fn(),
-  useUnlikeKnowledgeBase: vi.fn(),
-  useDeleteKnowledgeBase: vi.fn(),
-}));
-
-const mockedUpdate = vi.mocked(useUpdateKnowledgeBase);
-const mockedLike = vi.mocked(useLikeKnowledgeBase);
-const mockedUnlike = vi.mocked(useUnlikeKnowledgeBase);
-const mockedDelete = vi.mocked(useDeleteKnowledgeBase);
-
 const virtualizerStub = {
   getVirtualItems: vi.fn(),
   getTotalSize: vi.fn(() => 0),
@@ -41,30 +23,17 @@ const virtualizerStub = {
   scrollOffset: null as number | null,
 };
 
-function noopMutationMock() {
+type GridProps = ComponentProps<typeof KnowledgeGrid>;
+
+/** 卡片事件回调与 pending 态由路由持有：网格测试只关心透传 */
+function cardHandlers() {
   return {
-    mutate: vi.fn(),
-    mutateAsync: vi.fn(),
-    isPending: false,
+    onToggleLike: vi.fn(),
+    onToggleVisibility: vi.fn(),
+    onDelete: vi.fn(),
+    pendingIds: { like: null, update: null, delete: null },
   };
 }
-
-function mockCardHooks() {
-  mockedUpdate.mockReturnValue(
-    noopMutationMock() as unknown as ReturnType<typeof useUpdateKnowledgeBase>,
-  );
-  mockedLike.mockReturnValue(
-    noopMutationMock() as unknown as ReturnType<typeof useLikeKnowledgeBase>,
-  );
-  mockedUnlike.mockReturnValue(
-    noopMutationMock() as unknown as ReturnType<typeof useUnlikeKnowledgeBase>,
-  );
-  mockedDelete.mockReturnValue(
-    noopMutationMock() as unknown as ReturnType<typeof useDeleteKnowledgeBase>,
-  );
-}
-
-type GridProps = ComponentProps<typeof KnowledgeGrid>;
 
 function renderGrid(overrides: Partial<GridProps> = {}) {
   const props: GridProps = {
@@ -75,9 +44,11 @@ function renderGrid(overrides: Partial<GridProps> = {}) {
     error: null,
     hasNextPage: false,
     isFetchingNextPage: false,
+    isPlaceholderData: false,
     fetchNextPage: vi.fn(),
     refetch: vi.fn(),
     hasFilter: false,
+    ...cardHandlers(),
     ...overrides,
   };
   return {
@@ -90,10 +61,16 @@ function renderGrid(overrides: Partial<GridProps> = {}) {
   };
 }
 
+/** 让虚拟化器认为「索引 0 的卡片可见」 */
+function makeFirstItemVisible() {
+  virtualizerStub.getVirtualItems.mockReturnValue([
+    { index: 0, start: 0, size: 200, lane: 0, key: 0 },
+  ]);
+}
+
 describe('KnowledgeGrid', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCardHooks();
     virtualizerStub.getVirtualItems.mockReturnValue([]);
     virtualizerStub.getTotalSize.mockReturnValue(0);
     virtualizerStub.scrollToIndex.mockReset();
@@ -145,11 +122,22 @@ describe('KnowledgeGrid', () => {
     expect(screen.getByText('已加载全部')).toBeInTheDocument();
   });
 
+  it('卡片宽度与位置交给 CSS calc（拖拽窗口不再逐像素重渲染）', () => {
+    const items = [makeKb('kb1', '知识库 A')];
+    makeFirstItemVisible();
+    const { container } = renderGrid({ items, hasNextPage: false });
+
+    const wrapper = container.querySelector(
+      '[data-index]',
+    ) as HTMLElement | null;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper?.style.width).toContain('calc(');
+    expect(wrapper?.style.left).toContain('calc(');
+  });
+
   it('接近末尾时触发预取，且不显示已加载全部', async () => {
     const items = [makeKb('kb1', '知识库 A')];
-    virtualizerStub.getVirtualItems.mockReturnValue([
-      { index: 0, start: 0, size: 200, lane: 0, key: 0 },
-    ]);
+    makeFirstItemVisible();
     const { props } = renderGrid({ items, hasNextPage: true });
     await waitFor(() => expect(props.fetchNextPage).toHaveBeenCalled());
     expect(screen.queryByText('已加载全部')).not.toBeInTheDocument();
@@ -157,11 +145,60 @@ describe('KnowledgeGrid', () => {
 
   it('加载下一页时显示加载中', () => {
     const items = [makeKb('kb1', '知识库 A')];
-    virtualizerStub.getVirtualItems.mockReturnValue([
-      { index: 0, start: 0, size: 200, lane: 0, key: 0 },
-    ]);
+    makeFirstItemVisible();
     renderGrid({ items, hasNextPage: true, isFetchingNextPage: true });
     expect(screen.getByText('加载中')).toBeInTheDocument();
+  });
+
+  it('换筛选的占位期间不预取（旧游标配新条件会拉错页），数据落地后恢复预取', async () => {
+    const items = [makeKb('kb1', '知识库 A')];
+    makeFirstItemVisible();
+    const { props, rerender } = renderGrid({
+      items,
+      hasNextPage: true,
+      isPlaceholderData: true,
+    });
+
+    // 列表保持可见（不换骨架），只给轻量提示
+    expect(screen.getByText('知识库 A')).toBeInTheDocument();
+    expect(screen.getByText('加载中')).toBeInTheDocument();
+    expect(props.fetchNextPage).not.toHaveBeenCalled();
+
+    // 仅翻转占位标记（数据不变）：此时才允许预取
+    rerender(
+      <AntdApp>
+        <KnowledgeGrid {...props} isPlaceholderData={false} />
+      </AntdApp>,
+    );
+    await waitFor(() => expect(props.fetchNextPage).toHaveBeenCalled());
+  });
+
+  it('把 pendingIds 落到对应卡片的禁用态', () => {
+    const items = [makeKb('kb1', '知识库 A')];
+    makeFirstItemVisible();
+    renderGrid({
+      items,
+      hasNextPage: false,
+      pendingIds: { like: 'kb1', update: null, delete: 'kb1' },
+    });
+
+    expect(screen.getByRole('button', { name: '点赞' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '删除知识库' })).toBeDisabled();
+    // 未 pending 的操作不受影响
+    expect(screen.getByRole('button', { name: '设为公开' })).toBeEnabled();
+  });
+
+  it('pendingIds 指向别的知识库时当前卡片保持可用', () => {
+    const items = [makeKb('kb1', '知识库 A')];
+    makeFirstItemVisible();
+    renderGrid({
+      items,
+      hasNextPage: false,
+      pendingIds: { like: 'kb9', update: 'kb9', delete: 'kb9' },
+    });
+
+    expect(screen.getByRole('button', { name: '点赞' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '删除知识库' })).toBeEnabled();
   });
 
   it('把 onEdit 透传到卡片：点击编辑按钮时收到该卡片', async () => {
@@ -181,11 +218,32 @@ describe('KnowledgeGrid', () => {
     expect(onEdit).toHaveBeenCalledWith(items[1]);
   });
 
+  it('把点赞/可见性/删除意图透传到路由持有的回调', async () => {
+    const items = [makeKb('kb1', '知识库 A')];
+    makeFirstItemVisible();
+    const onToggleLike = vi.fn();
+    const onToggleVisibility = vi.fn();
+    const onDelete = vi.fn();
+    renderGrid({
+      items,
+      hasNextPage: false,
+      onToggleLike,
+      onToggleVisibility,
+      onDelete,
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: '点赞' }));
+    await userEvent.click(screen.getByRole('button', { name: '设为公开' }));
+    await userEvent.click(screen.getByRole('button', { name: '删除知识库' }));
+
+    expect(onToggleLike).toHaveBeenCalledWith(items[0]);
+    expect(onToggleVisibility).toHaveBeenCalledWith(items[0]);
+    expect(onDelete).toHaveBeenCalledWith(items[0]);
+  });
+
   it('未传 onEdit 时点击编辑按钮不抛错', async () => {
     const items: KnowledgeBase[] = [makeKb('kb1', '知识库 A')];
-    virtualizerStub.getVirtualItems.mockReturnValue([
-      { index: 0, start: 0, size: 200, lane: 0, key: 0 },
-    ]);
+    makeFirstItemVisible();
     renderGrid({ items, hasNextPage: false });
 
     await userEvent.click(screen.getByRole('button', { name: '编辑知识库' }));
@@ -208,9 +266,7 @@ describe('KnowledgeGrid', () => {
 
   it('恢复完成前不渲染卡片（不白挂顶部那一窗）；容器就绪后解锁渲染', () => {
     const items = [makeKb('kb1', '知识库 A')];
-    virtualizerStub.getVirtualItems.mockReturnValue([
-      { index: 0, start: 0, size: 200, lane: 0, key: 0 },
-    ]);
+    makeFirstItemVisible();
     virtualizerStub.getTotalSize.mockReturnValue(200);
     const props = {
       items,
@@ -219,9 +275,11 @@ describe('KnowledgeGrid', () => {
       error: null,
       hasNextPage: false,
       isFetchingNextPage: false,
+      isPlaceholderData: false,
       fetchNextPage: vi.fn(),
       refetch: vi.fn(),
       hasFilter: false,
+      ...cardHandlers(),
       // 恢复目标超出当前条数：不滚动，但仍要走完「解锁渲染」
       initialRestoreIndex: 5,
     };

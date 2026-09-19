@@ -7,7 +7,13 @@ import {
   registerSessionExpired,
 } from '../stores/auth';
 import { makeUser } from '../test/fixtures';
-import { ApiError, http, refreshTokens } from './client';
+import {
+  ApiError,
+  errorMessageOf,
+  errorStatusOf,
+  http,
+  refreshTokens,
+} from './client';
 
 const fetchMock = vi.fn();
 const user = makeUser();
@@ -77,6 +83,37 @@ describe('api/client', () => {
         status: 502,
         message: '请求失败（502）',
       });
+    });
+  });
+
+  describe('错误取值（不用 instanceof，克隆后类身份会丢）', () => {
+    /** 模拟 hook-fetch 克隆后的错误：只有字段可用，`instanceof ApiError` 为 false */
+    const cloned = (message: string, status: number) =>
+      Object.assign(new Error(message), { name: 'ApiError', status });
+
+    it('克隆后的 API 错误：取出服务端 message', () => {
+      const err = cloned('仅知识库主可操作', 403);
+      expect(err instanceof ApiError).toBe(false);
+      expect(errorMessageOf(err, '操作失败，请稍后重试')).toBe(
+        '仅知识库主可操作',
+      );
+    });
+
+    it('非 API 错误（网络/脚本异常）走兜底文案，不把底层报错抛给用户', () => {
+      expect(errorMessageOf(new TypeError('Failed to fetch'), '操作失败')).toBe(
+        '操作失败',
+      );
+      expect(errorMessageOf(new Error('network error'), '操作失败')).toBe(
+        '操作失败',
+      );
+      expect(errorMessageOf(undefined, '操作失败')).toBe('操作失败');
+      expect(errorMessageOf('boom', '操作失败')).toBe('操作失败');
+    });
+
+    it('克隆后的 API 错误：取出 status（chat 的 404 分支依赖它）', () => {
+      expect(errorStatusOf(cloned('not found', 404))).toBe(404);
+      expect(errorStatusOf(new Error('network error'))).toBeUndefined();
+      expect(errorStatusOf(null)).toBeUndefined();
     });
   });
 

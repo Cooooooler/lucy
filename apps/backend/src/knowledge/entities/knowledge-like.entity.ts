@@ -1,4 +1,5 @@
 import { ApiHideProperty } from '@nestjs/swagger';
+import { Exclude } from 'class-transformer';
 import {
   Column,
   CreateDateColumn,
@@ -26,6 +27,9 @@ export class KnowledgeLike {
   knowledgeBaseId: string;
 
   @ApiHideProperty()
+  // 关系对象：@ApiHideProperty 只管 Swagger，出网与否由全局序列化拦截器依据
+  // @Exclude 决定（排除式）——populate 后未标注的话，被关联实体会整体泄出。
+  @Exclude()
   @ManyToOne(() => KnowledgeBase, { onDelete: 'CASCADE' })
   @JoinColumn({
     name: 'knowledge_base_id',
@@ -38,6 +42,8 @@ export class KnowledgeLike {
   userId: string;
 
   @ApiHideProperty()
+  // 同上：User 实体带 passwordHash，populate 后会随嵌套对象一起出网
+  @Exclude()
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({
     name: 'user_id',

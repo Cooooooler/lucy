@@ -30,31 +30,31 @@ import { DocumentListQueryDto } from './dto/document-list-query.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
 import {
   DocumentListResultDto,
+  KnowledgeBaseItemDto,
   KnowledgeListResultDto,
 } from './dto/knowledge-list-result.dto.js';
 import { LikeResultDto } from './dto/like-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
-import { KnowledgeBase } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 @ApiTags('knowledge')
 @ApiBearerAuth()
-// 序列化白名单：实体即对外契约，实体上的内部字段（关系对象如 owner/knowledgeBase/file）
-// 带 `@Exclude()`，由**全局**注册的 ClassSerializerInterceptor（见 CommonModule）在出站时剔除，
-// 不再按控制器单独挂——否则同一实体从别的控制器返回时保护会失效。
-// 代价是新增内部字段时必须同步加 `@Exclude()`（见各实体与 knowledge-list-result.dto.ts 的说明）。
+// 知识库相关端点统一返回**允许式** DTO（KnowledgeBaseItemDto / KnowledgeListResultDto），
+// 不再拿实体当契约：全局 ClassSerializerInterceptor 是排除式的，靠 @Exclude 兜底意味着
+// 「实体新增字段默认出网」。实体的 `@Exclude()`（各实体仍保留）现在是第二道防线——
+// 文档详情等仍直接返回实体，实体从任何控制器返回都受同一保护。
 @Controller({ path: 'knowledge', version: API_VERSION })
 export class KnowledgeController {
   constructor(private readonly knowledgeService: KnowledgeService) {}
 
   @Post()
   @ApiOperation({ summary: '创建知识库' })
-  @ApiResponse({ status: 201, type: KnowledgeBase })
+  @ApiResponse({ status: 201, type: KnowledgeBaseItemDto })
   create(
     @CurrentUser() user: CurrentUserPayload,
     @Body() dto: CreateKnowledgeBaseDto,
-  ): Promise<KnowledgeBase> {
+  ): Promise<KnowledgeBaseItemDto> {
     return this.knowledgeService.create(user.userId, dto);
   }
 
@@ -73,21 +73,23 @@ export class KnowledgeController {
 
   @Get(':id')
   @ApiOperation({ summary: '知识库详情' })
+  @ApiResponse({ status: 200, type: KnowledgeBaseItemDto })
   @ApiResponse({ status: 404, description: '知识库不存在' })
   get(
     @CurrentUser() user: CurrentUserPayload,
     @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  ): Promise<KnowledgeBaseItemDto> {
     return this.knowledgeService.get(user.userId, id);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: '更新知识库' })
+  @ApiResponse({ status: 200, type: KnowledgeBaseItemDto })
   update(
     @CurrentUser() user: CurrentUserPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateKnowledgeBaseDto,
-  ) {
+  ): Promise<KnowledgeBaseItemDto> {
     return this.knowledgeService.update(user.userId, id, dto);
   }
 

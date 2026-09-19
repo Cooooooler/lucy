@@ -1,22 +1,58 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { KnowledgeBase } from '../entities/knowledge-base.entity.js';
+import { KnowledgeBaseVisibility } from '../entities/knowledge-base.entity.js';
 
 /**
- * 知识库列表响应：游标分页的 list + nextCursor。
- * 独立 DTO 只为让 Swagger 产出 200 的响应 schema——此前控制器只有
- * `@ApiResponse({ description })`，生成的 200 响应是 `content?: never`，
- * 前端无法据此获得契约类型。
+ * 知识库对外契约项（**允许式**白名单，同 users 模块的 `UserListItemDto`）。
  *
- * 契约边界说明：`list` 的元素类型就是实体 `KnowledgeBase` 本身（本仓库**实体即对外契约**），
- * 不是另设的响应 DTO。真实响应 = 实体字段中**未被 `@Exclude()` 排除**的部分；
- * 全局注册的 `ClassSerializerInterceptor`（CommonModule）负责按 `@Exclude()` 做
- * 「排除式白名单」——全局而非按控制器挂载，实体从任何控制器返回都受同一保护。
- * 因此新增**内部/敏感字段**时必须同步给该字段加 `@Exclude()`，否则它会同时进入
- * 真实响应与 Swagger 契约。
+ * 不复用持久化实体 `KnowledgeBase`：全局 ClassSerializerInterceptor 是**排除式**的
+ * （只剔除显式标注 `@Exclude()` 的字段），拿实体当契约等于「新增字段默认出网」。
+ * 独立 DTO 让实体与契约的漂移在编译期/契约生成期暴露，而不是静默泄漏。
+ *
+ * 字段集在**所有**返回知识库的端点上完全一致（create/get/list/update）：
+ * `likeCount`/`isLiked` 是查询期计算的视图字段（非持久化列），此前只有 get/list 附带，
+ * 导致同一实体在不同端点有两种形状、前端只能全声明成可选；现在服务层统一填充。
+ * 真实响应 = 本 DTO 的字段；实体上的 `owner` 等内部关系对象不在此列。
  */
+export class KnowledgeBaseItemDto {
+  @ApiProperty({ description: '知识库 ID' })
+  id: string;
+
+  @ApiProperty({ description: '属主用户 ID' })
+  ownerId: string;
+
+  @ApiProperty({
+    description: '可见性',
+    enum: KnowledgeBaseVisibility,
+    default: KnowledgeBaseVisibility.Private,
+  })
+  visibility: KnowledgeBaseVisibility;
+
+  @ApiProperty({ description: '名称' })
+  name: string;
+
+  @ApiProperty({ description: '描述', type: String, nullable: true })
+  description: string | null;
+
+  @ApiProperty({ description: '创建时间' })
+  createdAt: Date;
+
+  @ApiProperty({ description: '更新时间' })
+  updatedAt: Date;
+
+  @ApiProperty({ description: '点赞数', example: 0 })
+  likeCount: number;
+
+  @ApiProperty({ description: '当前用户是否已点赞', example: false })
+  isLiked: boolean;
+}
+
+/** 知识库列表响应：游标分页的 list + nextCursor */
 export class KnowledgeListResultDto {
-  @ApiProperty({ description: '知识库列表', type: () => [KnowledgeBase] })
-  list: KnowledgeBase[];
+  @ApiProperty({
+    description: '知识库列表',
+    type: () => [KnowledgeBaseItemDto],
+  })
+  list: KnowledgeBaseItemDto[];
 
   @ApiProperty({
     description: '下一页游标；null 表示已到末页',
@@ -27,8 +63,7 @@ export class KnowledgeListResultDto {
 }
 
 /**
- * 文档列表项：与知识库列表不同，这里**不复用实体**，而是一份显式允许式白名单
- * （同 users 模块的 `UserListItemDto` + `user.mapper.ts` 的做法）。
+ * 文档列表项：同样是一份显式允许式白名单。
  *
  * 关键差异是刻意**不含 `content`**：它是解析出的纯文本，可达 MB 级，列表页只用标题/时间；
  * `content` 只由 `GET /knowledge/:kbId/documents/:id` 详情接口返回。

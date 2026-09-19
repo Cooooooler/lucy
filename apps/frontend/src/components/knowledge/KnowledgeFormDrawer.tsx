@@ -1,4 +1,4 @@
-import { ApiError } from '@/api/client';
+import { errorMessageOf } from '@/api/client';
 import type { KnowledgeBase } from '@/api/types';
 import {
   useCreateKnowledgeBase,
@@ -77,11 +77,12 @@ export const KnowledgeFormDrawer: FC<KnowledgeFormDrawerProps> = ({
       message.success(isEdit ? '知识库更新成功' : '知识库创建成功');
       onClose();
     } catch (e) {
-      if (e instanceof ApiError) {
-        message.error(e.message);
-      } else {
-        message.error(isEdit ? '更新失败，请稍后重试' : '创建失败，请稍后重试');
-      }
+      message.error(
+        errorMessageOf(
+          e,
+          isEdit ? '更新失败，请稍后重试' : '创建失败，请稍后重试',
+        ),
+      );
     }
   };
 

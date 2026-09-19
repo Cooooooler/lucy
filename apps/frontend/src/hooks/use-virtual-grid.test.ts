@@ -48,6 +48,52 @@ function makeScrollElement(): HTMLDivElement {
   return el;
 }
 
+/** 容器宽度可控的滚动元素（jsdom 无布局盒，clientWidth 恒为 0） */
+function makeSizedScrollElement(initialWidth: number): {
+  element: HTMLDivElement;
+  setWidth: (width: number) => void;
+} {
+  const element = document.createElement('div');
+  let clientWidth = initialWidth;
+  Object.defineProperty(element, 'clientWidth', {
+    get: () => clientWidth,
+    configurable: true,
+  });
+  return { element, setWidth: (width) => (clientWidth = width) };
+}
+
+/**
+ * setup.ts 的 ResizeObserver 是 no-op 桩（回调永不触发），这里换成会记住回调的桩，
+ * 用来驱动 useSyncExternalStore 的 subscribe → onChange → 渲染期重读快照这条分支——
+ * 这是宽度改由 useSyncExternalStore 提供后唯一在 jsdom 下拿不到覆盖的路径。
+ */
+function stubCapturingResizeObserver(): {
+  callbacks: (() => void)[];
+  disconnected: () => number;
+} {
+  const callbacks: (() => void)[] = [];
+  let disconnected = 0;
+  class CapturingResizeObserver {
+    constructor(callback: () => void) {
+      callbacks.push(callback);
+    }
+
+    observe(): void {
+      void 0;
+    }
+
+    unobserve(): void {
+      void 0;
+    }
+
+    disconnect(): void {
+      disconnected += 1;
+    }
+  }
+  vi.stubGlobal('ResizeObserver', CapturingResizeObserver);
+  return { callbacks, disconnected: () => disconnected };
+}
+
 describe('useVirtualGrid', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -258,7 +304,7 @@ describe('useVirtualGrid', () => {
     expect(onFirstVisibleItemChange).not.toHaveBeenCalled();
   });
 
-  it('回调经 ref 转发：重渲染后旧 options 的 onChange 也取到最新回调', () => {
+  it('每次渲染都把手头最新的回调交给虚拟化器（不再有 ref + 被动 effect 的陈旧窗口）', () => {
     const onA = vi.fn();
     const onB = vi.fn();
     const { rerender } = renderHook(
@@ -273,20 +319,23 @@ describe('useVirtualGrid', () => {
         }),
       { initialProps: { onChange: onA } },
     );
-    // 取首帧那个 options：若回调是直接闭包捕获（而非经 ref 转发），它仍会指向 onA
-    const options = useVirtualizerMock.mock.calls[0][0] as {
+
+    rerender({ onChange: onB });
+
+    // 库每次渲染都会 setOptions：它持有的是**最后一次**渲染的 options，
+    // 因此这里取最新一次调用即可拿到最新回调。旧实现用 ref 在被动 effect 里补写，
+    // 同一 commit 内（被动 effect 冲刷前）触发的 onChange 仍会拿到旧回调。
+    const options = useVirtualizerMock.mock.calls.at(-1)?.[0] as {
       onChange: (instance: {
         scrollOffset: number | null;
         getVirtualItems: () => VirtualItemStub[];
       }) => void;
     };
-
-    rerender({ onChange: onB });
-
     options.onChange({
       scrollOffset: 0,
       getVirtualItems: () => [makeVirtualItem(2)],
     });
+
     expect(onB).toHaveBeenCalledWith(2);
     expect(onA).not.toHaveBeenCalled();
   });
@@ -406,36 +455,9 @@ describe('useVirtualGrid', () => {
   });
 
   it('ResizeObserver 触发后按新宽度重算 lanes', () => {
-    const scrollElement = document.createElement('div');
-    let clientWidth = 1600; // computeGridLayout(1600).columns === 4
-    Object.defineProperty(scrollElement, 'clientWidth', {
-      get: () => clientWidth,
-      configurable: true,
-    });
-
-    // setup.ts 的 ResizeObserver 是 no-op 桩（回调永不触发），这里局部换成会记住回调的桩，
-    // 用来驱动 useSyncExternalStore 的 subscribe → onChange → 渲染期重读快照这条分支——
-    // 这是宽度改由 useSyncExternalStore 提供后唯一在 jsdom 下拿不到覆盖的路径。
-    const resizeCallbacks: (() => void)[] = [];
-    let disconnected = 0;
-    class CapturingResizeObserver {
-      constructor(callback: () => void) {
-        resizeCallbacks.push(callback);
-      }
-
-      observe(): void {
-        void 0;
-      }
-
-      unobserve(): void {
-        void 0;
-      }
-
-      disconnect(): void {
-        disconnected += 1;
-      }
-    }
-    vi.stubGlobal('ResizeObserver', CapturingResizeObserver);
+    const { element: scrollElement, setWidth } = makeSizedScrollElement(1600);
+    // computeGridLayout(1600).columns === 4
+    const { callbacks, disconnected } = stubCapturingResizeObserver();
 
     try {
       const { unmount } = renderHook(() =>
@@ -447,24 +469,71 @@ describe('useVirtualGrid', () => {
           fetchNextPage: vi.fn(),
         }),
       );
-      expect(resizeCallbacks).toHaveLength(1);
+      expect(callbacks).toHaveLength(1);
       const lastLanes = () =>
         (useVirtualizerMock.mock.calls.at(-1)?.[0] as { lanes: number }).lanes;
       expect(lastLanes()).toBe(4);
 
-      clientWidth = 700; // computeGridLayout(700).columns === 2
+      setWidth(700); // computeGridLayout(700).columns === 2
       act(() => {
-        for (const callback of resizeCallbacks) callback();
+        for (const callback of callbacks) callback();
       });
 
       expect(lastLanes()).toBe(2);
 
       // 清理职责在 subscribe 的返回值上（原来的 observer.disconnect() 已删除）
       unmount();
-      expect(disconnected).toBe(1);
+      expect(disconnected()).toBe(1);
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('同一分档内的宽度变化不重渲染（快照返回同一引用）', () => {
+    const { element: scrollElement, setWidth } = makeSizedScrollElement(1200);
+    // 1200 与 1100 都是 3 列档（computeGridLayout(1200).columns === 3）
+    const { callbacks } = stubCapturingResizeObserver();
+
+    try {
+      const { result } = renderHook(() =>
+        useVirtualGrid({
+          scrollElement,
+          count: 20,
+          hasNextPage: false,
+          isFetchingNextPage: false,
+          fetchNextPage: vi.fn(),
+        }),
+      );
+      const firstLayout = result.current.layout;
+      expect(firstLayout.columns).toBe(3);
+
+      setWidth(1100);
+      act(() => {
+        for (const callback of callbacks) callback();
+      });
+
+      // useSyncExternalStore 以引用相等判断「快照没变」：同一档位返回同一对象，
+      // 拖拽窗口的逐像素通知因此不会让整格重渲染（列宽已交给 CSS）
+      expect(result.current.layout).toBe(firstLayout);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('占位数据期间不预取（旧游标配新条件会拉错页）', () => {
+    virtualizerStub.getVirtualItems.mockReturnValue([makeVirtualItem(5)]);
+    const fetchNextPage = vi.fn();
+    renderHook(() =>
+      useVirtualGrid({
+        scrollElement: null,
+        count: 6,
+        hasNextPage: true,
+        isFetchingNextPage: false,
+        fetchNextPage,
+        isPlaceholderData: true,
+      }),
+    );
+    expect(fetchNextPage).not.toHaveBeenCalled();
   });
 
   it('恢复结束时回调一次 onRestoreDone（调用方据此消费锚点）', () => {

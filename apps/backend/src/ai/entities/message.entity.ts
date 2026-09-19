@@ -3,6 +3,7 @@ import {
   ApiProperty,
   ApiPropertyOptional,
 } from '@nestjs/swagger';
+import { Exclude } from 'class-transformer';
 import {
   Column,
   CreateDateColumn,
@@ -39,6 +40,8 @@ export class Message {
   conversationId: string;
 
   @ApiHideProperty()
+  // 关系对象：出网与否由全局序列化拦截器依据 @Exclude 决定（@ApiHideProperty 只管 Swagger）
+  @Exclude()
   @ManyToOne(() => Conversation, (c) => c.messages, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'conversation_id' })
   conversation?: Conversation;

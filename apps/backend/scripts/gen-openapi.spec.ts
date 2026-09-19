@@ -50,4 +50,58 @@ describe('gen-openapi', () => {
       doc.components?.schemas?.User?.properties?.passwordHash,
     ).toBeUndefined();
   });
+
+  it('知识库端点全部带 200/201 schema 且契约字段集一致', async () => {
+    await generateOpenApi();
+    const doc = JSON.parse(readFileSync(OUT, 'utf8')) as {
+      paths?: Record<
+        string,
+        Record<
+          string,
+          { responses?: Record<string, { content?: Record<string, unknown> }> }
+        >
+      >;
+      components?: {
+        schemas?: Record<
+          string,
+          { properties?: Record<string, unknown>; required?: string[] }
+        >;
+      };
+    };
+
+    const itemSchema = doc.components?.schemas?.KnowledgeBaseItemDto;
+    expect(itemSchema).toBeDefined();
+
+    // 允许式白名单：字段集固定，新增实体字段不会自动进入契约
+    const keys = Object.keys(itemSchema?.properties ?? {}).sort();
+    expect(keys).toEqual(
+      [
+        'id',
+        'ownerId',
+        'visibility',
+        'name',
+        'description',
+        'createdAt',
+        'updatedAt',
+        'likeCount',
+        'isLiked',
+      ].sort(),
+    );
+    // likeCount/isLiked 是必填：此前只有 get/list 附带，前端只能全声明成可选
+    expect(itemSchema?.required?.sort()).toEqual(keys);
+
+    /** 断言某端点的成功响应确实带 schema（历史上 get/update 的 200 是 content?: never） */
+    const hasSuccessSchema = (path: string, method: string, status: string) => {
+      const content = doc.paths?.[path]?.[method]?.responses?.[status]?.content;
+      expect(
+        Object.keys(content ?? {}).length,
+        `${method.toUpperCase()} ${path} 的 ${status} 缺少响应 schema`,
+      ).toBeGreaterThan(0);
+    };
+    hasSuccessSchema('/knowledge', 'get', '200');
+    hasSuccessSchema('/knowledge', 'post', '201');
+    hasSuccessSchema('/knowledge/{id}', 'get', '200');
+    hasSuccessSchema('/knowledge/{id}', 'patch', '200');
+    hasSuccessSchema('/knowledge/{kbId}/documents', 'get', '200');
+  });
 });

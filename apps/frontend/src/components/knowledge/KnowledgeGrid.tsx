@@ -4,6 +4,13 @@ import { useVirtualGrid } from '@/hooks/use-virtual-grid';
 import { Button, Card, Empty, Result, Skeleton, Spin } from 'antd';
 import type { FC } from 'react';
 
+/** 正在 pending 的变更操作所对应的知识库 id（由路由持有的 mutation 提供，null 表示当前没有） */
+export type KnowledgePendingIds = {
+  like: string | null;
+  update: string | null;
+  delete: string | null;
+};
+
 type KnowledgeGridProps = {
   /** 滚动容器，交给虚拟化作为 scrollElement */
   scrollElement: HTMLElement | null;
@@ -13,11 +20,17 @@ type KnowledgeGridProps = {
   error: unknown;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
+  /** 渲染的是上一组筛选条件的占位数据（keepPreviousData）：列表保持可见，只给轻量加载提示 */
+  isPlaceholderData: boolean;
   fetchNextPage: () => void;
   refetch: () => void;
   hasFilter: boolean;
-  /** 点击卡片「编辑」时上报意图；表单抽屉由路由持有 */
+  /** 卡片事件与 pending 态由路由持有（卡片保持纯展示，不各自实例化 mutation） */
   onEdit?: (kb: KnowledgeBase) => void;
+  onToggleLike: (kb: KnowledgeBase) => void;
+  onToggleVisibility: (kb: KnowledgeBase) => void;
+  onDelete: (kb: KnowledgeBase) => void;
+  pendingIds: KnowledgePendingIds;
   /** 挂载时一次性恢复到的首可见项索引（来自会话内视图状态） */
   initialRestoreIndex?: number;
   /** 本次挂载的恢复动作结束（调用方据此清掉锚点，避免重挂时回放） */
@@ -62,12 +75,13 @@ const KnowledgeGridEmpty: FC<{ hasFilter: boolean }> = ({ hasFilter }) => (
   />
 );
 
-/** 触底加载状态：加载中 / 已加载全部 */
+/** 触底加载/换筛选过渡状态：加载中 / 已加载全部 */
 const KnowledgeGridFooter: FC<{
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
-}> = ({ hasNextPage, isFetchingNextPage }) => {
-  if (isFetchingNextPage) {
+  isPlaceholderData: boolean;
+}> = ({ hasNextPage, isFetchingNextPage, isPlaceholderData }) => {
+  if (isFetchingNextPage || isPlaceholderData) {
     return (
       <div className="flex h-12 items-center justify-center gap-2 py-4">
         <Spin size="small" />
@@ -89,8 +103,13 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
   items,
   hasNextPage,
   isFetchingNextPage,
+  isPlaceholderData,
   fetchNextPage,
   onEdit,
+  onToggleLike,
+  onToggleVisibility,
+  onDelete,
+  pendingIds,
   initialRestoreIndex,
   onRestoreDone,
   onFirstVisibleItemChange,
@@ -101,10 +120,15 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
+    isPlaceholderData,
     initialRestoreIndex,
     onRestoreDone,
     onFirstVisibleItemChange,
   });
+
+  // 列宽与卡片位置全部交给 CSS calc：内容宽度 = 容器宽度 − 左右内边距，再按列数均分。
+  // 这样拖拽窗口时列宽由浏览器重排，不必逐像素经过 React（见 use-virtual-grid 的快照说明）。
+  const columnWidth = `(100% - ${layout.padding * 2 + layout.gap * (layout.columns - 1)}px) / ${layout.columns}`;
 
   return (
     <>
@@ -125,18 +149,24 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
                   style={{
                     position: 'absolute',
                     top: 0,
-                    left:
-                      layout.padding +
-                      (virtualItem.lane ?? 0) *
-                        (layout.columnWidth + layout.gap),
-                    width: layout.columnWidth,
+                    left: `calc(${layout.padding}px + ${virtualItem.lane ?? 0} * (${columnWidth} + ${layout.gap}px))`,
+                    width: `calc(${columnWidth})`,
                     transform: `translateY(${virtualItem.start}px)`,
                     paddingBottom: layout.gap,
                   }}
                 >
-                  {/* 原样透传 onEdit（不包箭头函数），不额外引入每次渲染都变化的引用；
+                  {/* 原样透传回调（不包箭头函数），不额外引入每次渲染都变化的引用；
                   可空处理留在卡片内部（onEdit?.()） */}
-                  <KnowledgeCard kb={kb} onEdit={onEdit} />
+                  <KnowledgeCard
+                    kb={kb}
+                    onEdit={onEdit}
+                    onToggleLike={onToggleLike}
+                    onToggleVisibility={onToggleVisibility}
+                    onDelete={onDelete}
+                    isLikePending={pendingIds.like === kb.id}
+                    isUpdatePending={pendingIds.update === kb.id}
+                    isDeletePending={pendingIds.delete === kb.id}
+                  />
                 </div>
               );
             })}
@@ -144,6 +174,7 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
       <KnowledgeGridFooter
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
+        isPlaceholderData={isPlaceholderData}
       />
     </>
   );

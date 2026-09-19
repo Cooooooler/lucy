@@ -91,6 +91,8 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 - `TypeOrmModule.forRootAsync` 读取上述变量，`synchronize: false`（schema 变更只走迁移），`autoLoadEntities: true`。
 - 迁移：`src/db/data-source.ts` 是 CLI 专用 DataSource（内置 `dotenv/config`），迁移文件放 `src/db/migrations/`。
+- **迁移历史已压缩**：全库只剩 `1789700000000-InitSchema.ts` 一个初始化迁移（只描述当前结构，供全新库一次建好）。**已有库不要跑它**——它不比对历史，会在建表时报「对象已存在」。
+- 每个迁移**必须显式声明 `transaction`**：`migrationsTransactionMode: 'none'` 下「未声明」等于「非原子」，由 `src/db/migrations.spec.ts` 动态 import 迁移实例强制（不是扫源码文本）。
 - 新增迁移（脚本未内置，Windows cmd 下 `$npm_config_name` 无法展开）：
   - 手写骨架：`pnpm --filter @lucy/backend exec tsx ./node_modules/typeorm/cli.js migration:create src/db/migrations/Name`
   - 基于实体 diff 生成：`pnpm --filter @lucy/backend exec tsx ./node_modules/typeorm/cli.js migration:generate src/db/migrations/Name -d src/db/data-source.ts`
@@ -109,6 +111,8 @@ Redis 集成逻辑已抽到 `packages/redis`（`@coool/redis-nest`），后端�
 ### apps/frontend（Vite + React）
 
 Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite build`（`tsconfig.json` 引用 `tsconfig.app.json` + `tsconfig.node.json`）。dev server 将 `/api` 代理到 `http://localhost:3000`（后端，`/api` 前缀在代理处 rewrite 去除），前端 dev 请求 baseURL 为 `/api/`。
+
+- **`vite dev` 与 `NODE_ENV`**：外部 shell / CI / IDE 若带着 `NODE_ENV=production`，Vite 会把 `import.meta.env.DEV` 判成 false（`DEV = !(NODE_ENV === 'production')`），前端于是改用 `/${API_VERSION}/` 而不经 `/api` 代理，登录等写请求被 SPA fallback 拦成 404。`vite.config.ts` 已在 `serve` 时把 NODE_ENV 钉回 `development`（`vite build` 的 production 语义不受影响）。同理 e2e 用例（如 docs）也不能继承外部 NODE_ENV，要显式设定。
 
 - **路由**：TanStack Router 文件式路由（`src/routes/`，`_auth/login|register`、`_layout/{about,chat,index,knowledge}`）；`src/routeTree.gen.ts` 由 `@tanstack/router-plugin` 自动生成，勿手改。
 - **状态/请求**：TanStack Store（`src/stores/auth.ts`）+ TanStack Query（`src/queryClient.ts`）；antd 6 + `@ant-design/pro-components` + ahooks。

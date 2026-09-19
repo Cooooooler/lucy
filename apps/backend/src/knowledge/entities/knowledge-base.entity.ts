@@ -95,9 +95,11 @@ export class KnowledgeBase {
   })
   updatedAt: Date;
 
-  @ApiProperty({ description: '点赞数', required: false })
+  // 查询期计算的视图字段（非持久化列，见 KnowledgeService.fillLikeInfo）：
+  // 对外契约由 KnowledgeBaseItemDto 定义，这里不参与 Swagger，也不靠序列化拦截器兜底。
+  @ApiHideProperty()
   likeCount?: number;
 
-  @ApiProperty({ description: '当前用户是否已点赞', required: false })
+  @ApiHideProperty()
   isLiked?: boolean;
 }

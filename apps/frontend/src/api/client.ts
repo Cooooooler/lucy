@@ -24,6 +24,33 @@ export class ApiError extends ResponseError {
   }
 }
 
+/**
+ * 取请求错误的可展示文案（`message.error` / `Result` 副标题等）。
+ *
+ * **不要用 `err instanceof ApiError` 判定**：hook-fetch 会把插件 reject 的错误克隆成
+ * 基础 `ResponseError`（同 `doRefresh` 处的说明），类身份在浏览器里会丢失——实测克隆后
+ * `instanceof ApiError` 为 false，而 `name`/`message`/`status`/`code` 都还在。
+ * 依赖 `instanceof` 会让分支永远走不进去，用户只能看到兜底文案（后端的具体原因被吞掉）。
+ *
+ * 判定仍要求 `name === 'ApiError'`：只有服务端给出的业务文案才直接展示，
+ * 网络中断、脚本异常这类技术错误一律走兜底文案（保持原有语义）。
+ */
+export function errorMessageOf(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.name === 'ApiError' && err.message) {
+    return err.message;
+  }
+  return fallback;
+}
+
+/**
+ * 取请求错误的 HTTP 状态码（取不到返回 undefined）。
+ * 同上：判定依据是字段而非类身份；克隆后 `status` 仍可靠。
+ */
+export function errorStatusOf(err: unknown): number | undefined {
+  const status = (err as { status?: unknown } | null | undefined)?.status;
+  return typeof status === 'number' ? status : undefined;
+}
+
 // 请求级扩展字段：
 //   skipAuthRefresh  跳过 401 自动刷新（登录/注册/刷新/SSE 流等不适配重放）
 //   __authRetry      记录 401 重放次数

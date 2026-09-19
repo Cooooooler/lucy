@@ -1,0 +1,139 @@
+import { MigrationInterface, QueryRunner } from 'typeorm';
+
+/**
+ * 数据库初始化迁移（全库唯一迁移，由此前 16 个迁移压缩而来）。
+ *
+ * 库结构已稳定：迁移历史不再保留，本文件描述**当前**的最终结构，供全新库一次建好。
+ * 因此历史数据操作一律不在此处重放——分批回填、`RENAME VALUE 'assistant'→'ai'`、
+ * 描述列宽度的两次数值调整、`transaction = false` 的 `CREATE INDEX CONCURRENTLY`
+ * 等都只对「旧库」有意义，对空库是空转（CONCURRENTLY 更是无谓且不能进事务）。
+ * 需要提升账号为 superadmin 的环境，直接在库里执行一次 UPDATE（无提权接口，见
+ * docs/superpowers/specs/2026-09-11-user-role-hierarchy-design.md §4）。
+ *
+ * ⚠️ 全新库直接跑本迁移即可；**已有库不要跑**——它不会比对历史，会在建表时
+ * 因对象已存在而报错。已有库的处置：保持现状（结构已等价），或导出数据后重建。
+ *
+ * 两个易被「顺手简化」而破坏的点：
+ * 1. `knowledge_bases`/`knowledge_documents` 的时间列默认值必须是
+ *    `date_trunc('milliseconds', now())`：keyset 分页的游标精度是毫秒（JS Date 固有精度），
+ *    默认值退回 `now()` 会写入微秒，使 `(created_at, id) < (:cursorTs, :cursorId)`
+ *    在同一毫秒内整批跳行。实体上的 `default: () => "date_trunc('milliseconds', now())"`
+ *    必须与此保持一致，否则 `migration:generate` 会提出把精度改回 `now()` 的变更。
+ * 2. `knowledge_*` 的 keyset 索引排序方向是 `created_at DESC, id DESC`，
+ *    而 `@Index` 装饰器只能表达 ASC——`migration:generate` 据此提出的 ASC 索引变更
+ *    必须在人工审查时拒绝。
+ *
+ * 事务：`transaction = true`。全部为 DDL，中途失败应整体回滚（约定见 data-source.ts）。
+ */
+export class InitSchema1789700000000 implements MigrationInterface {
+  name = 'InitSchema1789700000000';
+
+  /** 显式原子化：多语句 DDL 必须整体成功或整体回滚（约定见 data-source.ts）。 */
+  transaction = true;
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // ---- 用户 ----
+    await queryRunner.query(
+      `CREATE TABLE "users" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "username" character varying(50) NOT NULL, "email" character varying(255) NOT NULL, "password_hash" character varying(255) NOT NULL, "nickname" character varying(50), "status" smallint NOT NULL DEFAULT '1', "role" character varying(20) NOT NULL DEFAULT 'user', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "UQ_97672ac88f789774dd47f7c8be3" UNIQUE ("email"), CONSTRAINT "UQ_fe0bb3f6520ee0469504521e710" UNIQUE ("username"), CONSTRAINT "CHK_users_role" CHECK ("role" IN ('user', 'admin', 'superadmin')), CONSTRAINT "PK_a3ffb1c0c8416b9fc6f907b7433" PRIMARY KEY ("id"))`,
+    );
+
+    // ---- AI 对话 ----
+    await queryRunner.query(
+      `CREATE TYPE "public"."ai_messages_role_enum" AS ENUM('user', 'ai', 'system')`,
+    );
+    await queryRunner.query(
+      `CREATE TYPE "public"."ai_messages_status_enum" AS ENUM('complete', 'aborted', 'failed')`,
+    );
+    await queryRunner.query(
+      `CREATE TABLE "ai_conversations" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "user_id" uuid NOT NULL, "title" character varying(50), "model" character varying, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_60db12765b82858ba00c8aa4ae2" PRIMARY KEY ("id"))`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_12fdbf99ca0da93085d61edd3b" ON "ai_conversations" ("user_id")`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "ai_conversations" ADD CONSTRAINT "FK_12fdbf99ca0da93085d61edd3bb" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
+    );
+    await queryRunner.query(
+      `CREATE TABLE "ai_messages" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "conversation_id" uuid NOT NULL, "role" "public"."ai_messages_role_enum" NOT NULL, "content" text NOT NULL, "thinking" text, "status" "public"."ai_messages_status_enum", "truncated" boolean, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_a390434d4a515ba18a41bc996c2" PRIMARY KEY ("id"))`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_ai_messages_conversation_created" ON "ai_messages" ("conversation_id", "created_at")`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "ai_messages" ADD CONSTRAINT "FK_de21fcb2d1df7fd6ca70f555b6d" FOREIGN KEY ("conversation_id") REFERENCES "ai_conversations"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
+    );
+
+    // ---- 文件元数据 ----
+    await queryRunner.query(
+      `CREATE TABLE "files" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "owner_id" uuid NOT NULL, "original_name" character varying(255) NOT NULL, "ext" character varying(20) NOT NULL, "mime" character varying(100) NOT NULL, "size" integer NOT NULL, "key" character varying(255) NOT NULL, "hash" character(64) NOT NULL, "storage" character varying(20) NOT NULL DEFAULT 'local', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_files_id" PRIMARY KEY ("id"))`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_files_owner" ON "files" ("owner_id")`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "files" ADD CONSTRAINT "FK_files_owner" FOREIGN KEY ("owner_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
+    );
+
+    // ---- 知识库 ----
+    await queryRunner.query(
+      `CREATE TABLE "knowledge_bases" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "owner_id" uuid NOT NULL, "visibility" character varying(10) NOT NULL DEFAULT 'private', "name" character varying(100) NOT NULL, "description" character varying(200), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT date_trunc('milliseconds', now()), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT date_trunc('milliseconds', now()), CONSTRAINT "PK_knowledge_bases_id" PRIMARY KEY ("id"))`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_knowledge_bases_owner_visibility" ON "knowledge_bases" ("owner_id", "visibility")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_knowledge_bases_owner_created_id" ON "knowledge_bases" ("owner_id", "created_at" DESC, "id" DESC)`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_knowledge_bases_visibility_created_id" ON "knowledge_bases" ("visibility", "created_at" DESC, "id" DESC)`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "knowledge_bases" ADD CONSTRAINT "FK_knowledge_bases_owner" FOREIGN KEY ("owner_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
+    );
+
+    await queryRunner.query(
+      `CREATE TABLE "knowledge_documents" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "knowledge_base_id" uuid NOT NULL, "file_id" uuid NOT NULL, "title" character varying(255) NOT NULL, "content" text, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT date_trunc('milliseconds', now()), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT date_trunc('milliseconds', now()), CONSTRAINT "PK_knowledge_documents_id" PRIMARY KEY ("id"))`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_knowledge_documents_kb_created_id" ON "knowledge_documents" ("knowledge_base_id", "created_at" DESC, "id" DESC)`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_knowledge_documents_file" ON "knowledge_documents" ("file_id")`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "knowledge_documents" ADD CONSTRAINT "FK_knowledge_documents_kb" FOREIGN KEY ("knowledge_base_id") REFERENCES "knowledge_bases"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "knowledge_documents" ADD CONSTRAINT "FK_knowledge_documents_file" FOREIGN KEY ("file_id") REFERENCES "files"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
+    );
+
+    await queryRunner.query(
+      `CREATE TABLE "knowledge_likes" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "knowledge_base_id" uuid NOT NULL, "user_id" uuid NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_knowledge_likes_id" PRIMARY KEY ("id"))`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_knowledge_like_kb" ON "knowledge_likes" ("knowledge_base_id")`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "knowledge_likes" ADD CONSTRAINT "UQ_knowledge_like" UNIQUE ("knowledge_base_id", "user_id")`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "knowledge_likes" ADD CONSTRAINT "FK_knowledge_likes_kb" FOREIGN KEY ("knowledge_base_id") REFERENCES "knowledge_bases"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "knowledge_likes" ADD CONSTRAINT "FK_knowledge_likes_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
+    );
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    // 逆依赖顺序整库拆掉（列级 down 对初始化迁移没有意义）
+    await queryRunner.query(`DROP TABLE "knowledge_likes"`);
+    await queryRunner.query(`DROP TABLE "knowledge_documents"`);
+    await queryRunner.query(`DROP TABLE "knowledge_bases"`);
+    await queryRunner.query(`DROP TABLE "files"`);
+    await queryRunner.query(`DROP TABLE "ai_messages"`);
+    await queryRunner.query(`DROP TABLE "ai_conversations"`);
+    await queryRunner.query(`DROP TABLE "users"`);
+    await queryRunner.query(`DROP TYPE "public"."ai_messages_status_enum"`);
+    await queryRunner.query(`DROP TYPE "public"."ai_messages_role_enum"`);
+  }
+}

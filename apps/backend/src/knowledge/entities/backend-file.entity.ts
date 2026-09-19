@@ -1,4 +1,5 @@
 import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
+import { Exclude } from 'class-transformer';
 import {
   Column,
   CreateDateColumn,
@@ -24,6 +25,9 @@ export class BackendFileEntity {
   ownerId: string;
 
   @ApiHideProperty()
+  // 内部关系对象，不对外暴露：@ApiHideProperty 只管 Swagger，
+  // 出网与否由全局 ClassSerializerInterceptor 依据 @Exclude 决定（排除式，漏标即出网）。
+  @Exclude()
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({
     name: 'owner_id',

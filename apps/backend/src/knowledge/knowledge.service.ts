@@ -11,7 +11,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { basename, extname } from 'node:path';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Repository, type SelectQueryBuilder } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import {
   extractContent,
@@ -21,7 +21,11 @@ import { decodeCursor, encodeCursor } from './cursor.js';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { DocumentListQueryDto } from './dto/document-list-query.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
-import type { KnowledgeDocumentListItemDto } from './dto/knowledge-list-result.dto.js';
+import type {
+  DocumentListResultDto,
+  KnowledgeBaseItemDto,
+  KnowledgeListResultDto,
+} from './dto/knowledge-list-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
 import { BackendFileEntity } from './entities/backend-file.entity.js';
 import {
@@ -30,7 +34,7 @@ import {
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
-import { toDocumentListItem } from './knowledge.mapper.js';
+import { toDocumentListItem, toKnowledgeBaseItem } from './knowledge.mapper.js';
 import { detectFileType } from './magic-bytes.js';
 
 /** 游标分页默认每页条数 */
@@ -55,16 +59,20 @@ export class KnowledgeService {
    * 创建一个知识库。
    * @param userId 属主用户 ID
    * @param dto 创建参数（名称必填，描述/可见性可选）
-   * @returns 持久化后的知识库
+   * @returns 新知识库的对外契约视图（点赞态为空，即 likeCount=0 / isLiked=false）
    */
-  create(userId: string, dto: CreateKnowledgeBaseDto): Promise<KnowledgeBase> {
+  async create(
+    userId: string,
+    dto: CreateKnowledgeBaseDto,
+  ): Promise<KnowledgeBaseItemDto> {
     this.logger.log(`kb create name=${dto.name}`, KnowledgeService.name);
-    return this.kbRepo.save({
+    const kb = await this.kbRepo.save({
       ownerId: userId,
       name: dto.name,
       description: dto.description ?? null,
       visibility: dto.visibility ?? KnowledgeBaseVisibility.Private,
     });
+    return toKnowledgeBaseItem(kb);
   }
 
   /**
@@ -78,17 +86,13 @@ export class KnowledgeService {
    * 附加每个知识库的 likeCount 与当前用户的 isLiked（查询后批量回写，避免 JOIN 破坏分页）。
    * @param userId 当前用户 ID
    * @param query 游标与过滤参数
-   * @returns list 与下一页游标（null 表示已到底，list 含 likeCount/isLiked）
+   * @returns list 与下一页游标（null 表示已到底，list 元素为对外契约视图）
    */
   async list(
     userId: string,
     query: KnowledgeListQueryDto,
-  ): Promise<{ list: KnowledgeBase[]; nextCursor: string | null }> {
-    const limit = query.limit ?? DEFAULT_PAGE_SIZE;
-    const qb = this.kbRepo
-      .createQueryBuilder('kb')
-      .orderBy('kb.created_at', 'DESC')
-      .addOrderBy('kb.id', 'DESC');
+  ): Promise<KnowledgeListResultDto> {
+    const qb = this.kbRepo.createQueryBuilder('kb');
     if (query.visibility) {
       if (query.visibility === KnowledgeBaseVisibility.Private) {
         qb.where('kb.ownerId = :uid', { uid: userId }).andWhere(
@@ -109,20 +113,18 @@ export class KnowledgeService {
     if (query.name) {
       qb.andWhere('kb.name ILIKE :name', { name: `%${query.name}%` });
     }
-    if (query.cursor) {
-      const { timestamp, id } = decodeCursor(query.cursor);
-      qb.andWhere('(kb.created_at, kb.id) < (:cursorTs, :cursorId)', {
-        cursorTs: timestamp,
-        cursorId: id,
-      });
-    }
-    const rows = await qb.take(limit + 1).getMany();
-    const page = this.toCursorPage(rows, limit, (kb) =>
-      encodeCursor(kb.createdAt, kb.id),
+    const page = await this.fetchKeysetPage(
+      qb,
+      'kb',
+      query.cursor,
+      query.limit,
     );
     // 批量回写 likeCount / isLiked，单次聚合查询，避免 N+1
     await this.fillLikeInfo(userId, page.list);
-    return page;
+    return {
+      list: page.list.map(toKnowledgeBaseItem),
+      nextCursor: page.nextCursor,
+    };
   }
 
   /**
@@ -130,12 +132,12 @@ export class KnowledgeService {
    * @throws NotFoundException 知识库不存在
    * @throws ForbiddenException 用户无权访问（既非属主，也非公开）
    */
-  async get(userId: string, id: string): Promise<KnowledgeBase> {
+  async get(userId: string, id: string): Promise<KnowledgeBaseItemDto> {
     const kb = await this.kbRepo.findOne({ where: { id } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertReadable(kb, userId);
     await this.fillLikeInfo(userId, [kb]);
-    return kb;
+    return toKnowledgeBaseItem(kb);
   }
 
   /**
@@ -234,7 +236,7 @@ export class KnowledgeService {
     userId: string,
     id: string,
     dto: UpdateKnowledgeBaseDto,
-  ): Promise<KnowledgeBase> {
+  ): Promise<KnowledgeBaseItemDto> {
     const kb = await this.kbRepo.findOne({ where: { id } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertOwner(kb, userId);
@@ -242,8 +244,11 @@ export class KnowledgeService {
     if (dto.description !== undefined) kb.description = dto.description;
     if (dto.visibility !== undefined) kb.visibility = dto.visibility;
     const saved = await this.kbRepo.save(kb);
+    // 点赞态同样要回填：响应形状必须与 get/list 完全一致，
+    // 否则 mapper 的兜底会把「已点赞」谎报成 0/false。
+    await this.fillLikeInfo(userId, [saved]);
     this.logger.log(`kb update kb=${id}`, KnowledgeService.name);
-    return saved;
+    return toKnowledgeBaseItem(saved);
   }
 
   /**
@@ -375,15 +380,11 @@ export class KnowledgeService {
     userId: string,
     kbId: string,
     query: DocumentListQueryDto,
-  ): Promise<{
-    list: KnowledgeDocumentListItemDto[];
-    nextCursor: string | null;
-  }> {
+  ): Promise<DocumentListResultDto> {
     const kb = await this.kbRepo.findOne({ where: { id: kbId } });
     if (!kb) throw new NotFoundException('知识库不存在');
     this.assertReadable(kb, userId);
 
-    const limit = query.limit ?? DEFAULT_PAGE_SIZE;
     const qb = this.docRepo
       .createQueryBuilder('d')
       // 显式列投影：直接把 content 挡在 SELECT 之外（keyword 对 content 的 ILIKE 仍在 WHERE 里，
@@ -396,25 +397,13 @@ export class KnowledgeService {
         'd.createdAt',
         'd.updatedAt',
       ])
-      .where('d.knowledgeBaseId = :kbId', { kbId })
-      .orderBy('d.created_at', 'DESC')
-      .addOrderBy('d.id', 'DESC');
+      .where('d.knowledgeBaseId = :kbId', { kbId });
     if (query.keyword) {
       qb.andWhere('(d.title ILIKE :kw OR d.content ILIKE :kw)', {
         kw: `%${query.keyword}%`,
       });
     }
-    if (query.cursor) {
-      const { timestamp, id } = decodeCursor(query.cursor);
-      qb.andWhere('(d.created_at, d.id) < (:cursorTs, :cursorId)', {
-        cursorTs: timestamp,
-        cursorId: id,
-      });
-    }
-    const rows = await qb.take(limit + 1).getMany();
-    const page = this.toCursorPage(rows, limit, (doc) =>
-      encodeCursor(doc.createdAt, doc.id),
-    );
+    const page = await this.fetchKeysetPage(qb, 'd', query.cursor, query.limit);
     return {
       list: page.list.map(toDocumentListItem),
       nextCursor: page.nextCursor,
@@ -468,6 +457,40 @@ export class KnowledgeService {
     });
     this.logger.log(`doc remove kb=${kbId} doc=${id}`, KnowledgeService.name);
     return null;
+  }
+
+  /**
+   * keyset（游标）分页的统一装配：排序 → 游标谓词 → 多取一条 → 裁剪 + 生成下一页游标。
+   *
+   * 知识库列表与文档列表的分页语义必须永远一致（不可变的 `created_at` 排序键、
+   * 毫秒精度游标、`id` 决胜列），装配分散两处时极易只改一处而静默错页，故收敛到此。
+   *
+   * 约定：调用方需已用 `where()` 设好过滤条件（本方法只追加游标谓词）；
+   * 排序固定为 `created_at DESC, id DESC`，与迁移建的 keyset 索引列顺序一致。
+   * @param qb 已带过滤条件的查询构造器
+   * @param alias 实体别名（排序列名的前缀）
+   * @param cursor 上一页返回的游标；省略表示首页
+   * @param limit 每页条数；省略取 DEFAULT_PAGE_SIZE
+   */
+  private async fetchKeysetPage<T extends { createdAt: Date; id: string }>(
+    qb: SelectQueryBuilder<T>,
+    alias: string,
+    cursor: string | undefined,
+    limit: number | undefined,
+  ): Promise<{ list: T[]; nextCursor: string | null }> {
+    const size = limit ?? DEFAULT_PAGE_SIZE;
+    qb.orderBy(`${alias}.created_at`, 'DESC').addOrderBy(`${alias}.id`, 'DESC');
+    if (cursor) {
+      const { timestamp, id } = decodeCursor(cursor);
+      qb.andWhere(
+        `(${alias}.created_at, ${alias}.id) < (:cursorTs, :cursorId)`,
+        { cursorTs: timestamp, cursorId: id },
+      );
+    }
+    const rows = await qb.take(size + 1).getMany();
+    return this.toCursorPage(rows, size, (row) =>
+      encodeCursor(row.createdAt, row.id),
+    );
   }
 
   /**

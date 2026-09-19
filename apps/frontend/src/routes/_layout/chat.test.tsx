@@ -1,4 +1,3 @@
-import { ApiError } from '@/api/client';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
 import type { FC } from 'react';
@@ -93,10 +92,12 @@ describe('routes/_layout/chat', () => {
   });
 
   it('404 错误渲染“会话不存在”', () => {
-    const err404 = Object.assign(new ApiError('not found', undefined, 404), {
+    // 模拟 hook-fetch 克隆后的错误：**类身份已丢失**（instanceof ApiError 为 false），
+    // 只有 message/name/status 等字段可用——判定必须基于字段（见 errorStatusOf）
+    const err404 = Object.assign(new Error('not found'), {
+      name: 'ApiError',
       status: 404,
     });
-    Object.setPrototypeOf(err404, ApiError.prototype);
     useChatStreamMock.mockReturnValue({
       messages: [],
       streaming: false,
@@ -111,10 +112,10 @@ describe('routes/_layout/chat', () => {
   });
 
   it('非 404 错误渲染“加载失败”', () => {
-    const err500 = Object.assign(new ApiError('boom', undefined, 500), {
+    const err500 = Object.assign(new Error('boom'), {
+      name: 'ApiError',
       status: 500,
     });
-    Object.setPrototypeOf(err500, ApiError.prototype);
     useChatStreamMock.mockReturnValue({
       messages: [],
       streaming: false,

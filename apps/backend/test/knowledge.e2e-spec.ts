@@ -279,19 +279,13 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
       .expect(201);
     const item = (res.body as ApiBody<Record<string, unknown>>).data;
     expect(item).not.toHaveProperty('owner');
-    expect(Object.keys(item).sort()).toEqual(
-      [
-        'id',
-        'ownerId',
-        'visibility',
-        'name',
-        'description',
-        'createdAt',
-        'updatedAt',
-      ].sort(),
-    );
+    // 与 get/list/update 完全同一套字段（含查询期计算的 likeCount/isLiked）：
+    // 此前 create 少这两个字段，导致同一实体在不同端点有两种形状
+    expect(Object.keys(item).sort()).toEqual(kbListKeys);
     expect(item.ownerId).toBe(userId);
     expect(item.name).toBe(`${scopeToken}-created`);
+    expect(item.likeCount).toBe(0);
+    expect(item.isLiked).toBe(false);
   });
 
   it('文档列表做列投影：不含解析全文 content，详情才返回 content', async () => {
@@ -324,7 +318,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
     expect(detailItem.content).toBe('正文内容');
   });
 
-  it('GET /knowledge/:id 与列表项均不含 owner，其余字段与改造前一致', async () => {
+  it('GET /knowledge/:id、PATCH /knowledge/:id 与列表项同形且不含 owner', async () => {
     const auth = `Bearer ${token}`;
     const created = await request(server)
       .post('/knowledge')
@@ -340,6 +334,16 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
     const detailItem = (detail.body as ApiBody<Record<string, unknown>>).data;
     expect(detailItem).not.toHaveProperty('owner');
     expect(Object.keys(detailItem).sort()).toEqual(kbListKeys);
+
+    const patched = await request(server)
+      .patch(`/knowledge/${id}`)
+      .set('Authorization', auth)
+      .send({ name: `${scopeToken}-get-patched` })
+      .expect(200);
+    const patchedItem = (patched.body as ApiBody<Record<string, unknown>>).data;
+    expect(patchedItem).not.toHaveProperty('owner');
+    expect(Object.keys(patchedItem).sort()).toEqual(kbListKeys);
+    expect(patchedItem.name).toBe(`${scopeToken}-get-patched`);
 
     // 用 name 过滤把列表收敛到本用例自己的行（避免拉爆 395 行 dev 数据）
     const list = await request(server)

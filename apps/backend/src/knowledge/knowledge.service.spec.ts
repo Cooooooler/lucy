@@ -101,6 +101,9 @@ describe('KnowledgeService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // 点赞态回填（fillLikeInfo）被 get/list/update 共用：默认给一个空结果的可链式 stub，
+    // 避免依赖「上个用例遗留的 mockReturnValue」——clearAllMocks 只清调用记录不清实现
+    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
     service = new KnowledgeService(
       logger,
       dataSource,
@@ -147,6 +150,32 @@ describe('KnowledgeService', () => {
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
       ...over,
     });
+
+  /** 知识库对外契约视图（KnowledgeBaseItemDto）：服务层所有返回知识库的端点都必须是这个形状 */
+  const KB_ITEM_KEYS = [
+    'id',
+    'ownerId',
+    'visibility',
+    'name',
+    'description',
+    'createdAt',
+    'updatedAt',
+    'likeCount',
+    'isLiked',
+  ].sort();
+
+  const kbItem = (over = {}) => ({
+    id: KB_ID,
+    ownerId: 'u1',
+    visibility: KnowledgeBaseVisibility.Private,
+    name: '产品文档',
+    description: null,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    likeCount: 0,
+    isLiked: false,
+    ...over,
+  });
 
   // 可链式 QueryBuilder mock：记录 where/andWhere 等调用参数，供 list 用
   const makeKbQb = () => {
@@ -202,11 +231,12 @@ describe('KnowledgeService', () => {
   const uuid = (i: number) =>
     `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
 
-  it('create 保存知识库（默认 private）', async () => {
+  it('create 保存知识库（默认 private）并返回契约视图', async () => {
     kbRepo.save.mockResolvedValue(kb());
-    await expect(service.create('u1', { name: 'x' })).resolves.toBeInstanceOf(
-      KnowledgeBase,
-    );
+    const result = await service.create('u1', { name: 'x' });
+    expect(result).toEqual(kbItem());
+    // 契约项是普通视图对象，不携带实体上的内部关系（owner 等）
+    expect(result).not.toBeInstanceOf(KnowledgeBase);
     expect(kbRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({
         ownerId: 'u1',
@@ -218,9 +248,8 @@ describe('KnowledgeService', () => {
 
   it('get 属主可读，附带 likeCount/isLiked', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
-    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
     const result = await service.get('u1', 'kb1');
-    expect(result).toEqual(expect.any(KnowledgeBase));
+    expect(result).toEqual(kbItem());
     expect(result.likeCount).toBe(0);
     expect(result.isLiked).toBe(false);
   });
@@ -229,10 +258,48 @@ describe('KnowledgeService', () => {
     kbRepo.findOne.mockResolvedValue(
       kb({ visibility: KnowledgeBaseVisibility.Public }),
     );
-    likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
     await expect(service.get('u2', 'kb1')).resolves.toEqual(
-      expect.any(KnowledgeBase),
+      kbItem({ visibility: KnowledgeBaseVisibility.Public }),
     );
+  });
+
+  it('create/get/list/update 字段集完全一致（契约不随端点漂移）', async () => {
+    kbRepo.save.mockResolvedValue(kb());
+    const created = await service.create('u1', { name: 'x' });
+
+    kbRepo.findOne.mockResolvedValue(kb());
+    const detail = await service.get('u1', KB_ID);
+
+    kbRepo.createQueryBuilder.mockReturnValue(makeKbQb());
+    const listed = await service.list('u1', {});
+
+    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.save.mockResolvedValue(kb());
+    const updated = await service.update('u1', KB_ID, { name: 'y' });
+
+    for (const [endpoint, item] of Object.entries({
+      create: created,
+      get: detail,
+      list: listed.list[0],
+      update: updated,
+    })) {
+      expect(Object.keys(item).sort(), `${endpoint} 的字段集不一致`).toEqual(
+        KB_ITEM_KEYS,
+      );
+    }
+  });
+
+  it('update 回填点赞态（更新后仍与 get/list 同形，不谎报 0/false）', async () => {
+    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.save.mockResolvedValue(kb());
+    const likeQb = makeLikeQb();
+    likeQb.getRawMany.mockResolvedValue([{ kbId: KB_ID, cnt: '3' }]);
+    likeRepo.createQueryBuilder.mockReturnValue(likeQb);
+
+    const result = await service.update('u1', KB_ID, { name: 'y' });
+
+    expect(result.likeCount).toBe(3);
+    expect(result.isLiked).toBe(true);
   });
 
   it('get 私有库非属主抛 FORBIDDEN', async () => {
@@ -388,7 +455,7 @@ describe('KnowledgeService', () => {
     // 多取一条判断是否有下一页
     expect(qb.take).toHaveBeenCalledWith(21);
     expect(result).toEqual({
-      list: [expect.any(KnowledgeBase)],
+      list: [kbItem()],
       nextCursor: null,
     });
     // 验证 like 回写
