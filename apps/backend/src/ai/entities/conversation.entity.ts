@@ -54,13 +54,14 @@ export class Conversation {
   messages: Message[];
 
   @ApiProperty({ description: '创建时间' })
-  // 毫秒对齐：keyset 游标是毫秒精度（JS Date 的固有精度），列默认值若落到微秒，
-  // `(updated_at, id) < (:cursorTs, :cursorId)` 会在同一毫秒内整批跳行（静默漏数据）。
-  // 应用内写入走 JS `new Date()` 本就不会带亚毫秒，这里守的是直写 SQL / seed / 批量导入。
+  // 毫秒精度靠**列类型**保证（`timestamptz(3)`），不靠列默认值：DEFAULT 只在 INSERT 生效，
+  // 而 updated_at 是后续每次 UPDATE 都会重写的列（由 ORM 注入值），microsecond 一旦落进去，
+  // 毫秒精度的游标就会向下截断、同一毫秒内的行在下一页被整批跳过（静默漏数据）。
+  // 精度写进类型后，无论 ORM、seed 还是直写 SQL 都是毫秒粒度。
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',
-    default: () => "date_trunc('milliseconds', now())",
+    precision: 3,
   })
   createdAt: Date;
 
@@ -69,7 +70,7 @@ export class Conversation {
   @UpdateDateColumn({
     name: 'updated_at',
     type: 'timestamptz',
-    default: () => "date_trunc('milliseconds', now())",
+    precision: 3,
   })
   updatedAt: Date;
 }
