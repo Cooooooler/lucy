@@ -149,9 +149,16 @@ describe('AiService', () => {
     return qb;
   };
 
-  it('create 保存会话', async () => {
-    conversationRepo.save.mockResolvedValue(conv());
-    await expect(service.create('1', {})).resolves.toBeInstanceOf(Conversation);
+  it('create 保存会话并返回允许式契约视图（与列表项同形）', async () => {
+    const saved = timedConv(1);
+    conversationRepo.save.mockResolvedValue(saved);
+    await expect(service.create('1', {})).resolves.toEqual({
+      id: saved.id,
+      title: saved.title,
+      model: saved.model,
+      createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt,
+    });
     expect(conversationRepo.save).toHaveBeenCalledWith({
       userId: '1',
       model: null,
@@ -240,10 +247,17 @@ describe('AiService', () => {
     expect(res.messages).toEqual([]);
   });
 
-  it('rename 改名并返回', async () => {
+  it('rename 改名并返回允许式契约视图（与列表项同形）', async () => {
+    const saved = Object.assign(timedConv(1), { title: '新标题' });
     conversationRepo.findOne.mockResolvedValue(conv());
-    conversationRepo.save.mockResolvedValue(conv());
-    await service.rename('1', 'c1', '新标题');
+    conversationRepo.save.mockResolvedValue(saved);
+    await expect(service.rename('1', 'c1', '新标题')).resolves.toEqual({
+      id: saved.id,
+      title: '新标题',
+      model: saved.model,
+      createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt,
+    });
     expect(conversationRepo.save).toHaveBeenCalled();
   });
 

@@ -186,4 +186,27 @@ describe('AI conversation keyset pagination (e2e)', () => {
     expect(fresh.list.map((item) => item.id as string)).toContain(pending);
     expect((fresh.list[0] as { id: string }).id).toBe(pending);
   });
+
+  // 放在最后：本用例会多造一条会话，前面的断言依赖初始的 9 条
+  it('创建/改名返回与列表项同一份允许式契约（不含 messages / userId）', async () => {
+    const created = await request(server)
+      .post('/v1/ai/conversations')
+      .set(auth())
+      .send({})
+      .expect(201);
+    const createdItem = (created.body as ApiBody<Record<string, unknown>>).data;
+    expect(Object.keys(createdItem).sort()).toEqual(itemKeys);
+    // 服务端不 populate 关系，契约里就不该有它（拿实体当契约时会变成必填）
+    expect(createdItem).not.toHaveProperty('messages');
+    expect(createdItem).not.toHaveProperty('userId');
+
+    const renamed = await request(server)
+      .patch(`/v1/ai/conversations/${createdItem.id as string}`)
+      .set(auth())
+      .send({ title: `renamed-${suffix}` })
+      .expect(200);
+    const renamedItem = (renamed.body as ApiBody<Record<string, unknown>>).data;
+    expect(Object.keys(renamedItem).sort()).toEqual(itemKeys);
+    expect(renamedItem.title).toBe(`renamed-${suffix}`);
+  });
 });

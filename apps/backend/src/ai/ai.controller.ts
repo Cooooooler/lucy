@@ -24,7 +24,10 @@ import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js';
 import { CursorQueryDto } from '../common/pagination/dto/cursor-query.dto.js';
 import { AiService } from './ai.service.js';
-import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
+import {
+  ConversationItemDto,
+  ConversationListResultDto,
+} from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { RenameConversationDto } from './dto/rename-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
@@ -38,11 +41,15 @@ export class AiController {
 
   @Post('conversations')
   @ApiOperation({ summary: '创建会话', description: '新建一个 AI 对话会话' })
-  @ApiResponse({ status: 201, description: '创建成功', type: Conversation })
+  @ApiResponse({
+    status: 201,
+    description: '创建成功',
+    type: ConversationItemDto,
+  })
   create(
     @CurrentUser() user: CurrentUserPayload,
     @Body() dto: CreateConversationDto,
-  ): Promise<Conversation> {
+  ): Promise<ConversationItemDto> {
     return this.aiService.create(user.userId, dto);
   }
 
@@ -87,14 +94,14 @@ export class AiController {
   @ApiResponse({
     status: 200,
     description: '返回更新后会话',
-    type: Conversation,
+    type: ConversationItemDto,
   })
   @ApiResponse({ status: 404, description: '会话不存在' })
   rename(
     @CurrentUser() user: CurrentUserPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RenameConversationDto,
-  ): Promise<Conversation> {
+  ): Promise<ConversationItemDto> {
     return this.aiService.rename(user.userId, id, dto.title);
   }
 
