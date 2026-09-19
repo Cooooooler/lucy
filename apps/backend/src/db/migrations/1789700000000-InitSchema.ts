@@ -10,8 +10,11 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * 需要提升账号为 superadmin 的环境，直接在库里执行一次 UPDATE（无提权接口，见
  * docs/superpowers/specs/2026-09-11-user-role-hierarchy-design.md §4）。
  *
- * ⚠️ 全新库直接跑本迁移即可；**已有库不要跑**——它不会比对历史，会在建表时
- * 因对象已存在而报错。已有库的处置：保持现状（结构已等价），或导出数据后重建。
+ * ⚠️ 存量库（跑过旧 16 个迁移的库）**直接跑本迁移即可**：`up()` 会先探测 schema 是否已存在，
+ * 存在就跳过建表（TypeORM 仍会把本迁移记录为已执行，历史就此对齐）。这条探测是必须的——
+ * 没有它的话，存量库的 `migrations` 表里只有旧记录，TypeORM 会把本迁移当成待执行去
+ * `CREATE TABLE`，撞上「对象已存在」后报错回滚，该行永远落不了库，此后 `db:migrate`
+ * 会**永久失败**，任何新迁移都再也上不去。
  *
  * 两个易被「顺手简化」而破坏的点：
  * 1. `knowledge_bases`/`knowledge_documents` 的时间列默认值必须是
@@ -37,6 +40,15 @@ export class InitSchema1789700000000 implements MigrationInterface {
   transaction = true;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // 存量库保护（见文件头说明）：schema 已在则视为本迁移已应用，直接返回。
+    // 不能靠「文档里写一句不要跑」——那没有护栏，且会让 db:migrate 在存量库上永久失败。
+    const [existing] = (await queryRunner.query(
+      `SELECT to_regclass('public.users') AS table_name`,
+    )) as { table_name: string | null }[];
+    if (existing?.table_name) {
+      return;
+    }
+
     await queryRunner.query(`
       -- 用户
       CREATE TABLE "users" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "username" character varying(50) NOT NULL, "email" character varying(255) NOT NULL, "password_hash" character varying(255) NOT NULL, "nickname" character varying(50), "status" smallint NOT NULL DEFAULT '1', "role" character varying(20) NOT NULL DEFAULT 'user', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "UQ_97672ac88f789774dd47f7c8be3" UNIQUE ("email"), CONSTRAINT "UQ_fe0bb3f6520ee0469504521e710" UNIQUE ("username"), CONSTRAINT "CHK_users_role" CHECK ("role" IN ('user', 'admin', 'superadmin')), CONSTRAINT "PK_a3ffb1c0c8416b9fc6f907b7433" PRIMARY KEY ("id"));
@@ -70,7 +82,6 @@ export class InitSchema1789700000000 implements MigrationInterface {
       ALTER TABLE "knowledge_documents" ADD CONSTRAINT "FK_knowledge_documents_file" FOREIGN KEY ("file_id") REFERENCES "files"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
 
       CREATE TABLE "knowledge_likes" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "knowledge_base_id" uuid NOT NULL, "user_id" uuid NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_knowledge_likes_id" PRIMARY KEY ("id"));
-      CREATE INDEX "IDX_knowledge_like_kb" ON "knowledge_likes" ("knowledge_base_id");
       ALTER TABLE "knowledge_likes" ADD CONSTRAINT "UQ_knowledge_like" UNIQUE ("knowledge_base_id", "user_id");
       ALTER TABLE "knowledge_likes" ADD CONSTRAINT "FK_knowledge_likes_kb" FOREIGN KEY ("knowledge_base_id") REFERENCES "knowledge_bases"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
       ALTER TABLE "knowledge_likes" ADD CONSTRAINT "FK_knowledge_likes_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION;

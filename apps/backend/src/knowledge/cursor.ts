@@ -12,6 +12,15 @@ interface CursorPayload {
 }
 
 /**
+ * 游标入参约束的**唯一定义处**（两个列表查询 DTO 的 `@MaxLength` / `@Matches` 都从这里取）：
+ * 三处（两个 DTO + 本文件的解码）各写一份时，改一处就会漂移成「DTO 放行、解码 400」。
+ */
+export const CURSOR_MAX_LENGTH = 512;
+
+/** base64url 字符集：不符者直接 400，避免把任意长/带特殊字符的输入带进解码与 SQL */
+export const CURSOR_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+/**
  * UUID 校验（大小写均可）。主键是 uuid 列：伪造/截断的 id 一旦带进 SQL，Postgres 会在
  * `uuid = character varying` 比较时抛 22P02（invalid input syntax for type uuid），
  * 表现为 500；故在解码入口就拦成 400。

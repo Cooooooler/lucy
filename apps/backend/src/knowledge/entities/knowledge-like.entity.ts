@@ -4,7 +4,6 @@ import {
   Column,
   CreateDateColumn,
   Entity,
-  Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
@@ -19,10 +18,13 @@ import { KnowledgeBase } from './knowledge-base.entity.js';
  * 纯内部表——点赞对外只有 `{ likeCount, isLiked }` 这种聚合结果（见 KnowledgeService.like），
  * 实体本身从不出现在任何响应里。因此**所有字段**都标 `@Exclude()`：出网集合为空，
  * 「不让它出网」从注释承诺变成运行时事实（由 entity-serialization.spec.ts 的出网白名单把关）。
+ *
+ * 不额外建 `(knowledge_base_id)` 单列索引：计数/删除都按 `(knowledge_base_id, user_id)`
+ * 前缀访问，`UQ_knowledge_like` 的唯一索引已完全覆盖（与 knowledge_documents 删掉
+ * `IDX_knowledge_documents_kb` 同一理由：冗余索引只增加写放大）。
  */
 @Entity('knowledge_likes')
 @Unique('UQ_knowledge_like', ['knowledgeBaseId', 'userId'])
-@Index('IDX_knowledge_like_kb', ['knowledgeBaseId'])
 export class KnowledgeLike {
   @ApiHideProperty()
   @Exclude()

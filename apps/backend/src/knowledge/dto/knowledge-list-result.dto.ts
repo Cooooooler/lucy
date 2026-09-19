@@ -1,3 +1,4 @@
+import type { CursorPageResult } from '@lucy/shared';
 import { ApiProperty } from '@nestjs/swagger';
 import { KnowledgeBaseVisibility } from '../entities/knowledge-base.entity.js';
 
@@ -46,8 +47,8 @@ export class KnowledgeBaseItemDto {
   isLiked: boolean;
 }
 
-/** 知识库列表响应：游标分页的 list + nextCursor */
-export class KnowledgeListResultDto {
+/** 知识库列表响应：游标分页的 list + nextCursor（形状由共享 `CursorPageResult` 编译期约束） */
+export class KnowledgeListResultDto implements CursorPageResult<KnowledgeBaseItemDto> {
   @ApiProperty({
     description: '知识库列表',
     type: () => [KnowledgeBaseItemDto],
@@ -90,8 +91,8 @@ export class KnowledgeDocumentListItemDto {
   updatedAt: Date;
 }
 
-/** 文档列表响应：游标分页的 list + nextCursor（list 元素见 KnowledgeDocumentListItemDto） */
-export class DocumentListResultDto {
+/** 文档列表响应：游标分页的 list + nextCursor（形状由共享 `CursorPageResult` 编译期约束） */
+export class DocumentListResultDto implements CursorPageResult<KnowledgeDocumentListItemDto> {
   @ApiProperty({
     description: '文档列表（不含解析全文 content）',
     type: () => [KnowledgeDocumentListItemDto],

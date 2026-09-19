@@ -19,8 +19,14 @@ export enum KnowledgeBaseVisibility {
 
 /**
  * 索引与迁移对齐（`src/db/migrations/1789700000000-InitSchema.ts`）：
- * 后两条服务于 keyset 分页 `(owner_id = :uid OR visibility = 'public')`
- * 且 `ORDER BY created_at DESC, id DESC` 的两种分支。
+ * 后两条服务的是**过滤后**的两种查询——`visibility = 'public'` 走
+ * `IDX_knowledge_bases_visibility_created_id`，属主维度（`owner_id = :uid`）走
+ * `IDX_knowledge_bases_owner_created_id`，两者都能拿到 `(created_at DESC, id DESC)` 的有序扫描。
+ *
+ * ⚠️ 默认分支 `(owner_id = :uid OR visibility = 'public')` **不属于**这两种情况：两个 OR 分支的
+ * 前导列不同，任何单个 btree 都无法同时提供该排序，规划器只能 BitmapOr/顺序扫描后再排序
+ * （`LIMIT` 之前要把匹配集排完）。公开库规模变大后这条最常用路径会退化，届时应拆成
+ * `UNION ALL` 的两个分支各自 `LIMIT` 再按 `(created_at, id)` 归并，而不是指望现有索引。
  *
  * 注意：迁移 DDL 建的排序方向是 `created_at DESC, id DESC`（keyset 排序所需），
  * 而 `@Index` 装饰器只能表达 ASC —— `migration:generate` 可能据此提出一个 ASC
