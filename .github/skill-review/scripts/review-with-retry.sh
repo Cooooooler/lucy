@@ -8,8 +8,12 @@
 #   SKILL_REVIEW_MODEL  BYOK 模型 id（workflow env 透传）
 #
 # 合格判定（is_valid）：
-#   0. 命中「未发现需要修改的问题」= 规范化的「无问题」结论，直接合格。
-#      它天然很短（约 39 字节），若按长度判废，干净的评审结果就永远发不出去。
+#   0. 判为「无问题」结论（is_no_issue）直接合格：它天然很短（约 39 字节），
+#      若按长度判废，干净的评审结果就永远发不出去。
+#      —— 只认规范句式会吞掉干净结论：模型常把「未发现需要修改的问题」改写成
+#      「未发现问题」等说法，随后被判废→判空，明明没问题反而什么都不发。
+#      故这里接受一组常见变体，命中变体时统一回规范句式（见文件末尾），
+#      保证「没发现问题」也一定出现在评论里。
 #   1. 输出 < 500 字节（早停残稿的典型特征，参考：完整评审约 2000+ 字节）
 #   2. 汉字数 < 30（早停残稿是英文思考草稿，几乎没有汉字）
 #      —— 这里刻意**不用**「必须出现『前端』/『后端』」做判据：提示词里给的是路径写法，
@@ -28,7 +32,10 @@ MIN_BYTES=500
 MIN_HANZI=30
 MAX_ATTEMPTS=2
 # 规范化的「无问题」结论（前后端共用同一句式，只差锚点词）
-NO_ISSUE_RE='未发现需要修改的问题'
+NO_ISSUE_CANON='未发现需要修改的问题'
+# 「无问题」结论的常见变体。只在输出够短时启用（见 is_no_issue），
+# 避免长评审正文里偶然出现这些词被误判成「无问题」。
+NO_ISSUE_RE='未发现(任何|需要(修改|改动|调整)的)?问题|没有发现(任何)?问题|未见(任何)?问题|没有问题|无需(修改|改动|调整)|无问题'
 
 run_once() {
   command-code -p "$(cat ".pr-skill-review/${SIDE}-prompt.txt")" \
@@ -50,10 +57,18 @@ hanzi_count() {
   grep -oP '\p{Han}' "$OUT" 2> /dev/null | wc -l | tr -d ' '
 }
 
+# 是否为「无问题」结论：规范句式任何长度都认；其余变体只认短输出（一句话结论）
+is_no_issue() {
+  [ -f "$OUT" ] || return 1
+  grep -q "$NO_ISSUE_CANON" "$OUT" && return 0
+  [ "$(wc -c < "$OUT" | tr -d ' ')" -lt "$MIN_BYTES" ] || return 1
+  grep -Eq "$NO_ISSUE_RE" "$OUT"
+}
+
 is_valid() {
   [ -f "$OUT" ] || return 1
   # 「无问题」是合法结论，不以长度/汉字数判废
-  grep -q "$NO_ISSUE_RE" "$OUT" && return 0
+  is_no_issue && return 0
   local bytes hanzi
   bytes=$(wc -c < "$OUT" | tr -d ' ')
   [ "$bytes" -ge "$MIN_BYTES" ] || return 1
@@ -86,6 +101,13 @@ while ! is_valid && [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
 done
 
 if is_valid; then
+  # is_no_issue 命中但正文没有规范句式 ⇒ 走的是变体分支（必为短输出），统一回规范句式，
+  # 让措辞不同但语义相同的「无问题」结果都能稳定落到评论里
+  # （Assemble 以文件非空作为发送条件）。已是规范句式的输出原样保留。
+  if is_no_issue && ! grep -q "$NO_ISSUE_CANON" "$OUT"; then
+    printf '%s%s\n' "$ANCHOR" "$NO_ISSUE_CANON" > "$OUT"
+    echo "${SIDE} review: no issue found, normalized to canonical line"
+  fi
   echo "${SIDE}.md bytes: $(wc -c < "$OUT" | tr -d ' ')"
 else
   report_invalid "$attempt"
