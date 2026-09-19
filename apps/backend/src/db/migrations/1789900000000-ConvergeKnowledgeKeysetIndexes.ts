@@ -88,6 +88,10 @@ export class ConvergeKnowledgeKeysetIndexes1789900000000 implements MigrationInt
    * 从系统目录取（而不是 `pg_get_indexdef(indexrelid, n, pretty)`）：后者的第 n 列形式只返回
    * **表达式**，`DESC` 被整条丢掉（实测 `created_at DESC` 只回 `created_at`），拿它比对
    * 会把 ASC 与 DESC 判成同一个索引。`indoption` 是每个键列的排序选项位图，bit 0 = DESC。
+   *
+   * 必须限定 `current_schema()` 与 `relkind = 'i'`：索引名在**每个 schema 内**唯一，但别的
+   * schema 可以有同名索引；不限定就会取到多行，`rows[0]` 是哪一行不确定——若恰好取到形态
+   * 相符的那一行，`up()` 会跳过真正该做的重建，收尾校验还会报「已收敛」。
    */
   private async describe(
     queryRunner: QueryRunner,
@@ -100,10 +104,13 @@ export class ConvergeKnowledgeKeysetIndexes1789900000000 implements MigrationInt
               json_agg((i.indoption[k - 1] & 1) = 1 ORDER BY k) AS "descending"
          FROM pg_index i
          JOIN pg_class c ON c.oid = i.indexrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
          JOIN pg_class t ON t.oid = i.indrelid
          CROSS JOIN generate_series(1, i.indnkeyatts) AS k
          JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = i.indkey[k - 1]
         WHERE c.relname = $1
+          AND c.relkind = 'i'
+          AND n.nspname = current_schema()
         GROUP BY t.relname, i.indisvalid`,
       [name],
     )) as IndexState[];

@@ -2,7 +2,12 @@
 // 否则脚本可能按默认值 127.0.0.1:5432 去 DROP/CREATE，而用例连的是另一台库。
 import 'dotenv/config';
 import { Client } from 'pg';
-import { KEYSET_INDEX_NAMES } from '../src/db/keyset-indexes.js';
+import {
+  columnDefinitionsOf,
+  KEYSET_INDEX_NAMES,
+  KEYSET_INDEXES,
+  type KeysetIndexSpec,
+} from '../src/db/keyset-indexes.js';
 import { E2E_DB_NAME } from './e2e-db-config.js';
 
 /**
@@ -92,11 +97,14 @@ try {
   }
   // 索引名与期望条数取自 keyset-indexes.ts（收敛迁移用的是同一份）：手抄字面量时，
   // 新增第 4 条索引只会让这里报出难懂的「期望 3，实际 4」。INVALID 的索引等于没有，故一并过滤。
+  // 限定 current_schema()：索引名只在单个 schema 内唯一，别处同名会多计一条而误判失败。
   const indexes = await dataSource.query<{ name: string }[]>(
     `SELECT c.relname AS name
        FROM pg_index i
        JOIN pg_class c ON c.oid = i.indexrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE c.relname = ANY($1::text[])
+        AND n.nspname = current_schema()
         AND i.indisvalid`,
     [KEYSET_INDEX_NAMES],
   );
@@ -105,8 +113,57 @@ try {
       `e2e 往返验证失败：keyset 索引未重建为有效状态（期望 ${KEYSET_INDEX_NAMES.length}，实际 ${indexes.length}）`,
     );
   }
+
+  // 收敛演练：全新库上三条索引本来就对，迁移全程走「形态已符 → 跳过」，DROP/重建那条分支
+  // 一次都不会执行；而那条分支正是这条迁移存在的唯一理由（历史上同名索引被 ASC 版本取代过）。
+  // 这里把库改回旧形态：一条被删、一条被换成 ASC，再删掉迁移的执行记录后重跑，断言全部重建为
+  // DESC 形态。断言用 pg_get_indexdef 的完整定义，与迁移内部的 indoption 位运算互为独立判据。
+  const specOf = (fragment: string): KeysetIndexSpec => {
+    const spec = KEYSET_INDEXES.find((candidate) =>
+      candidate.name.includes(fragment),
+    );
+    if (!spec) {
+      throw new Error(`keyset-indexes.ts 里找不到名字含 ${fragment} 的索引`);
+    }
+    return spec;
+  };
+  const visibility = specOf('visibility');
+  const documents = specOf('documents');
+  const ascColumns = (spec: KeysetIndexSpec): string =>
+    spec.columns.map((column) => `"${column.name}"`).join(', ');
+
+  await dataSource.query(`DROP INDEX "${documents.name}"`);
+  await dataSource.query(`DROP INDEX "${visibility.name}"`);
+  await dataSource.query(
+    `CREATE INDEX "${visibility.name}" ON "${visibility.table}" (${ascColumns(visibility)})`,
+  );
+  await dataSource.query(`DELETE FROM "migrations" WHERE "name" = $1`, [
+    'ConvergeKnowledgeKeysetIndexes1789900000000',
+  ]);
+  await dataSource.runMigrations();
+
+  const definitions = await dataSource.query<{ name: string; def: string }[]>(
+    `SELECT c.relname AS name, pg_get_indexdef(i.indexrelid) AS def
+       FROM pg_index i
+       JOIN pg_class c ON c.oid = i.indexrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relname = ANY($1::text[])
+        AND n.nspname = current_schema()`,
+    [KEYSET_INDEX_NAMES],
+  );
+  const definitionOf = new Map(definitions.map((row) => [row.name, row.def]));
+  for (const spec of KEYSET_INDEXES) {
+    const expected = `USING btree (${columnDefinitionsOf(spec).join(', ')})`;
+    const actual = definitionOf.get(spec.name);
+    if (!actual?.includes(expected)) {
+      throw new Error(
+        `e2e 收敛演练失败：${spec.name} 不是 ${expected}，实际 ${actual ?? '不存在'}`,
+      );
+    }
+  }
+
   console.log(
-    `[e2e] 测试库已就绪（含 migrate → revert ×${executed} → migrate 往返 + 索引校验）：${E2E_DB_NAME}`,
+    `[e2e] 测试库已就绪（migrate → revert ×${executed} → migrate 往返 + 索引校验 + 收敛演练 → ${E2E_DB_NAME}）`,
   );
 } finally {
   await dataSource.destroy();
