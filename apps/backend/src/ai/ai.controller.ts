@@ -22,6 +22,7 @@ import type { Response } from 'express';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js';
+import { DEFAULT_PAGE_SIZE } from '../common/pagination/pagination.constants.js';
 import { AiService } from './ai.service.js';
 import { ConversationListQueryDto } from './dto/conversation-list-query.dto.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
@@ -60,7 +61,7 @@ export class AiController {
     return this.aiService.list(
       user.userId,
       query.page ?? 1,
-      query.pageSize ?? 20,
+      query.pageSize ?? DEFAULT_PAGE_SIZE,
     );
   }
 

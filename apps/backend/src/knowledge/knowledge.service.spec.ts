@@ -204,9 +204,26 @@ describe('KnowledgeService', () => {
     ...over,
   });
 
+  /**
+   * 主别名 + 实体元数据 stub：`KeysetPaginator` 从 QueryBuilder 自身解析别名与排序列名
+   * （不再由调用方传 alias），故 mock 的 QueryBuilder 要提供 `expressionMap.mainAlias`；
+   * 列名映射与实体上的 `name:` 一致。
+   */
+  const aliasStub = (name: string) => ({
+    name,
+    hasMetadata: true,
+    metadata: {
+      name: `${name}Entity`,
+      findColumnWithPropertyName: (property: string) => ({
+        databaseName: property === 'createdAt' ? 'created_at' : 'id',
+      }),
+    },
+  });
+
   // 可链式 QueryBuilder mock：记录 where/andWhere 等调用参数，供 list 用
   const makeKbQb = () => {
     const qb = {
+      expressionMap: { mainAlias: aliasStub('kb') },
       where: vi.fn(),
       orWhere: vi.fn(),
       andWhere: vi.fn(),
@@ -228,6 +245,7 @@ describe('KnowledgeService', () => {
   // 可链式 QueryBuilder mock：供 listDocuments 用（docRepo）
   const makeDocQb = () => {
     const qb = {
+      expressionMap: { mainAlias: aliasStub('d') },
       select: vi.fn(),
       where: vi.fn(),
       andWhere: vi.fn(),

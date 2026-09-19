@@ -116,12 +116,7 @@ export class KnowledgeService {
     if (query.name) {
       qb.andWhere('kb.name ILIKE :name', { name: `%${query.name}%` });
     }
-    const page = await this.paginator.fetchPage(
-      qb,
-      'kb',
-      query.cursor,
-      query.limit,
-    );
+    const page = await this.paginator.fetchPage(qb, query.cursor, query.limit);
     // 批量回写 likeCount / isLiked，单次聚合查询，避免 N+1
     await this.fillLikeInfo(userId, page.list);
     return {
@@ -406,12 +401,7 @@ export class KnowledgeService {
         kw: `%${query.keyword}%`,
       });
     }
-    const page = await this.paginator.fetchPage(
-      qb,
-      'd',
-      query.cursor,
-      query.limit,
-    );
+    const page = await this.paginator.fetchPage(qb, query.cursor, query.limit);
     return {
       list: page.list.map(toDocumentListItem),
       nextCursor: page.nextCursor,

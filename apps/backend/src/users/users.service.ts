@@ -7,6 +7,7 @@ import {
 import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { DEFAULT_PAGE_SIZE } from '../common/pagination/pagination.constants.js';
 import { ROLE_RANK, roleRank, UserRole } from '../common/roles.js';
 import { PasswordService } from '../password/password.service.js';
 import { UserAccessService } from './user-access.service.js';
@@ -87,7 +88,7 @@ export class UsersService {
     pageSize: number;
   }> {
     const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? 20;
+    const pageSize = query.pageSize ?? DEFAULT_PAGE_SIZE;
     const [rows, total] = await this.usersRepo.findPage({
       page,
       pageSize,

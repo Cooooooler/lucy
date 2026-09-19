@@ -1,7 +1,30 @@
 import { Injectable } from '@nestjs/common';
-import type { SelectQueryBuilder } from 'typeorm';
+import type { EntityMetadata, SelectQueryBuilder } from 'typeorm';
 import { decodeCursor, encodeCursor } from './cursor.js';
-import { DEFAULT_PAGE_SIZE } from './pagination.constants.js';
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './pagination.constants.js';
+
+/**
+ * keyset 分页要求的排序键**属性名**（不是列名）。
+ * 真实列名由实体元数据解析（见 {@link resolveSortColumn}），而不是写死 `created_at` / `id`：
+ * 泛型约束只能保证实体「有这两个属性」，换个 `name` 映射（或换掉 snake_case 命名策略）
+ * 照样编译通过，写死列名就会在运行期报列不存在（500），列存在时也可能对不上迁移里
+ * 建的 `(created_at DESC, id DESC)` keyset 索引，退化成排序扫描。
+ */
+type SortKeyProperty = 'createdAt' | 'id';
+
+/** 解析排序键属性对应的真实列名；缺失说明该实体不满足游标分页契约，按装配错误直接抛出 */
+function resolveSortColumn(
+  metadata: EntityMetadata,
+  property: SortKeyProperty,
+): string {
+  const column = metadata.findColumnWithPropertyName(property);
+  if (!column) {
+    throw new Error(
+      `KeysetPaginator: 实体 ${metadata.name} 缺少 ${property} 列，无法用于游标分页`,
+    );
+  }
+  return column.databaseName;
+}
 
 /**
  * keyset（游标）分页的通用装配：排序 → 游标谓词 → 多取一条 → 裁剪 + 生成下一页游标。
@@ -12,8 +35,8 @@ import { DEFAULT_PAGE_SIZE } from './pagination.constants.js';
  * 由 `PaginationModule` 提供：需要复用的模块 `imports` 该模块即可，不必把无关特性耦进来。
  *
  * 语义要点（知识库列表与文档列表必须完全一致，所以只有这一份实现）：
- * - 排序键是**不可变**的 `created_at`（不用可变的 `updated_at`：上页取出后被更新的行会越过游标，
- *   在后续页被永久漏掉）；
+ * - 排序键取实体的 `createdAt` 属性（列 `created_at`），**不用可变的 `updatedAt`**：
+ *   上页取出后被更新的行会越过游标，在后续页被永久漏掉；
  * - 并列（同一毫秒、或同一事务批量插入）由 `id` 决胜，排序仍是全序；
  * - 谓词写成行比较 `(created_at, id) < (:cursorTs, :cursorId)`，Postgres 可优化成一次索引扫描
  *   （列顺序与 `created_at DESC, id DESC` 的 keyset 索引一致）；
@@ -24,26 +47,37 @@ export class KeysetPaginator {
   /**
    * 取一页（keyset）。
    * 约定：调用方需已用 `where()` 设好过滤条件（本方法只追加排序与游标谓词）。
+   *
+   * 别名与排序列名一律从 `qb` 自身解析，不由调用方再传一份：多一份真值就会在写错时
+   * 静默拼出不存在的列（运行期 500）。
    * @param qb 已带过滤条件的查询构造器
-   * @param alias 实体别名（排序列名前缀）
    * @param cursor 上一页返回的游标；省略表示首页
-   * @param limit 每页条数；省略取 DEFAULT_PAGE_SIZE
+   * @param limit 每页条数；省略取 `DEFAULT_PAGE_SIZE`，超过 `MAX_PAGE_SIZE` 时按上限钳制
    * @returns 本页记录与下一页游标（null 表示已到末页）
    */
   async fetchPage<T extends { createdAt: Date; id: string }>(
     qb: SelectQueryBuilder<T>,
-    alias: string,
     cursor: string | undefined,
     limit: number | undefined,
   ): Promise<{ list: T[]; nextCursor: string | null }> {
-    const size = limit ?? DEFAULT_PAGE_SIZE;
-    qb.orderBy(`${alias}.created_at`, 'DESC').addOrderBy(`${alias}.id`, 'DESC');
-    if (cursor) {
-      const { timestamp, id } = decodeCursor(cursor);
-      qb.andWhere(
-        `(${alias}.created_at, ${alias}.id) < (:cursorTs, :cursorId)`,
-        { cursorTs: timestamp, cursorId: id },
+    const mainAlias = qb.expressionMap.mainAlias;
+    if (!mainAlias?.hasMetadata) {
+      throw new Error(
+        'KeysetPaginator: QueryBuilder 的主别名没有实体元数据，无法用于游标分页',
       );
+    }
+    const createdAt = `${mainAlias.name}.${resolveSortColumn(mainAlias.metadata, 'createdAt')}`;
+    const id = `${mainAlias.name}.${resolveSortColumn(mainAlias.metadata, 'id')}`;
+    // 上界在此复核：DTO 的 `@Max` 只作用于 HTTP 入参路径，本方法收的是结构化类型，
+    // 内部复用方（会话/消息列表、拼接上下文）能直接给 limit，不钳制就是一次 take(N+1) 大扫描
+    const size = Math.min(limit ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+    qb.orderBy(createdAt, 'DESC').addOrderBy(id, 'DESC');
+    if (cursor) {
+      const { timestamp, id: cursorId } = decodeCursor(cursor);
+      qb.andWhere(`(${createdAt}, ${id}) < (:cursorTs, :cursorId)`, {
+        cursorTs: timestamp,
+        cursorId,
+      });
     }
     const rows = await qb.take(size + 1).getMany();
     return this.toCursorPage(rows, size, (row) =>
