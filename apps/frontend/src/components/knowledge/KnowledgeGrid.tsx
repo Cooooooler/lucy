@@ -1,7 +1,10 @@
 import { errorMessageOf } from '@/api/client';
 import type { KnowledgeBase } from '@/api/types';
 import { KnowledgeCard } from '@/components/knowledge/KnowledgeCard.tsx';
-import { CARD_ESTIMATED_HEIGHT } from '@/components/knowledge/grid-layout';
+import {
+  CARD_ESTIMATED_HEIGHT,
+  columnWidthOperand,
+} from '@/components/knowledge/grid-layout';
 import { useGridBreakpoints, useVirtualGrid } from '@/hooks/use-virtual-grid';
 import { Button, Empty, Result, Spin } from 'antd';
 import type { FC } from 'react';
@@ -57,6 +60,8 @@ const KnowledgeGridLoading: FC<{ scrollElement: HTMLElement | null }> = ({
   scrollElement,
 }) => {
   const { columns, padding, gap } = useGridBreakpoints(scrollElement);
+  // 容器的 padding 由 flex 容器承担，卡片的 `100%` 已经是内容盒宽度 → 算式里传 padding: 0
+  const width = `calc(${columnWidthOperand(columns, gap, 0)})`;
   return (
     <div
       className="flex flex-wrap"
@@ -69,7 +74,7 @@ const KnowledgeGridLoading: FC<{ scrollElement: HTMLElement | null }> = ({
           style={{
             // 与卡片同一套几何：等高（CARD_ESTIMATED_HEIGHT）与同一列宽公式
             height: CARD_ESTIMATED_HEIGHT,
-            width: `calc((100% - ${padding * 2 + gap * (columns - 1)}px) / ${columns})`,
+            width,
           }}
         />
       ))}
@@ -177,7 +182,12 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
 
   // 列宽与卡片位置全部交给 CSS calc：内容宽度 = 容器宽度 − 左右内边距，再按列数均分。
   // 这样拖拽窗口时列宽由浏览器重排，不必逐像素经过 React（见 use-virtual-grid 的快照说明）。
-  const columnWidth = `(100% - ${layout.padding * 2 + layout.gap * (layout.columns - 1)}px) / ${layout.columns}`;
+  // 表达式与加载骨架共用 grid-layout 的同一份几何（包含块不同，故此处传真实 padding）。
+  const columnWidth = columnWidthOperand(
+    layout.columns,
+    layout.gap,
+    layout.padding,
+  );
 
   return (
     <>

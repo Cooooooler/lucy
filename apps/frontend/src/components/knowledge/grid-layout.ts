@@ -55,3 +55,25 @@ export function computeGridLayout(width: number): GridLayout {
   );
   return { columns, columnWidth, padding, gap: GRID_GAP };
 }
+
+/**
+ * 卡片列宽的 CSS **算式主体**（调用方自行包一层 `calc()`）：
+ * 与虚拟网格共用同一份几何，避免两处手抄后漂移——例如骨架里再扣一次内边距，就会比真实
+ * 卡片窄 `2·padding/columns`、整行右端多出一截空白，恰好违背「骨架与列表几何同源」的初衷。
+ *
+ * 返回形如 `(100% - 48px) / 3` 的运算式，便于嵌进更复杂的表达式
+ * （`left: calc(32px + 2 * ((100% - 48px) / 3 + 16px))`）——`calc()` 不能嵌套 `calc()`。
+ *
+ * 两条调用路径的**包含块不同**，所以内边距要按包含块实际包含的量传入：
+ * - 虚拟网格：`100%` 解析到 `position: relative` 的包装层，它**没有**内边距（内边距由卡片
+ *   `left` 补出来），因此传真实 `padding`；
+ * - 加载骨架：`100%` 解析到带 `paddingLeft/Right` 的 flex 容器**内容盒**，内边距已被排除，
+ *   因此传 `0`。
+ */
+export function columnWidthOperand(
+  columns: number,
+  gap: number,
+  padding: number,
+): string {
+  return `(100% - ${padding * 2 + gap * (columns - 1)}px) / ${columns}`;
+}
