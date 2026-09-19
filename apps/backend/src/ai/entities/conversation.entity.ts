@@ -54,10 +54,22 @@ export class Conversation {
   messages: Message[];
 
   @ApiProperty({ description: '创建时间' })
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  // 毫秒对齐：keyset 游标是毫秒精度（JS Date 的固有精度），列默认值若落到微秒，
+  // `(updated_at, id) < (:cursorTs, :cursorId)` 会在同一毫秒内整批跳行（静默漏数据）。
+  // 应用内写入走 JS `new Date()` 本就不会带亚毫秒，这里守的是直写 SQL / seed / 批量导入。
+  @CreateDateColumn({
+    name: 'created_at',
+    type: 'timestamptz',
+    default: () => "date_trunc('milliseconds', now())",
+  })
   createdAt: Date;
 
   @ApiProperty({ description: '更新时间' })
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  // 同上，且它正是会话列表的排序键，必须与 created_at 的精度保持一致
+  @UpdateDateColumn({
+    name: 'updated_at',
+    type: 'timestamptz',
+    default: () => "date_trunc('milliseconds', now())",
+  })
   updatedAt: Date;
 }

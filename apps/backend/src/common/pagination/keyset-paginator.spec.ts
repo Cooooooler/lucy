@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import type { SelectQueryBuilder } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeCursor } from './cursor.js';
 import { KeysetPaginator } from './keyset-paginator.js';
@@ -120,6 +121,22 @@ describe('KeysetPaginator', () => {
       '(c.updated_at, c.id) < (:cursorTs, :cursorId)',
       { cursorTs: rows[1].updatedAt, cursorId: rows[1].id },
     );
+  });
+
+  it('泛型只要求排序键那一列：只带 createdAt 的实体也能用默认排序（编译期契约）', async () => {
+    // 这里的 qb 刻意不用 `as never`：泛型若回到「必须同时具备 createdAt 与 updatedAt」，
+    // 本用例会编译失败 —— 这是它存在的唯一理由
+    const rows = [row(1)];
+    const stub = makeQueryBuilder(rows);
+    const qb = stub as unknown as SelectQueryBuilder<
+      Pick<Row, 'id' | 'createdAt'>
+    >;
+
+    const page = await paginator.fetchPage(qb, undefined, 5);
+
+    expect(page.list).toEqual(rows);
+    // 断言走 stub：`qb` 是真实类型，取它的方法会被 @typescript-eslint/unbound-method 拦下
+    expect(stub.orderBy).toHaveBeenCalledWith('kb.created_at', 'DESC');
   });
 
   it('limit 超过上限时按 MAX_PAGE_SIZE 钳制（@Max 只管 HTTP 入参，复用方绕过它）', async () => {

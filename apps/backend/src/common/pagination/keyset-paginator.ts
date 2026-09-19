@@ -55,18 +55,34 @@ export class KeysetPaginator {
    *
    * 别名与排序列名一律从 `qb` 自身解析，不由调用方再传一份：多一份真值就会在写错时
    * 静默拼出不存在的列（运行期 500）。
+   *
+   * 类型上用重载表达「**只要求排序键那一列**」：不传 `sortKey` 时只要求 `createdAt`，
+   * 传 `updatedAt` 时只要求 `updatedAt` —— 只按 `createdAt` 分页的实体不必为了满足类型而
+   * 带上永不被读取的 `updatedAt`（用类型参数 + `Record<K, Date>` 做不到：省略实参时 `K`
+   * 会回退到约束 `'createdAt' | 'updatedAt'`，两列又被同时要求）。
    * @param qb 已带过滤条件的查询构造器
    * @param cursor 上一页返回的游标；省略表示首页
    * @param limit 每页条数；经 `resolvePageSize` 归一化到 `[1, MAX_PAGE_SIZE]`（省略/非数值取默认值）
    * @param sortKey 排序键属性名，默认 `createdAt`（不可变）；按最近活跃排序的列表传 `updatedAt`
    * @returns 本页记录与下一页游标（null 表示已到末页）
    */
-  async fetchPage<T extends { id: string; createdAt: Date; updatedAt: Date }>(
+  async fetchPage<T extends { id: string; createdAt: Date }>(
     qb: SelectQueryBuilder<T>,
     cursor: string | undefined,
     limit: number | undefined,
+  ): Promise<{ list: T[]; nextCursor: string | null }>;
+  async fetchPage<T extends { id: string }, K extends SortKeyProperty>(
+    qb: SelectQueryBuilder<T & Record<K, Date>>,
+    cursor: string | undefined,
+    limit: number | undefined,
+    sortKey: K,
+  ): Promise<{ list: (T & Record<K, Date>)[]; nextCursor: string | null }>;
+  async fetchPage(
+    qb: SelectQueryBuilder<{ id: string }>,
+    cursor: string | undefined,
+    limit: number | undefined,
     sortKey: SortKeyProperty = 'createdAt',
-  ): Promise<{ list: T[]; nextCursor: string | null }> {
+  ): Promise<{ list: { id: string }[]; nextCursor: string | null }> {
     const mainAlias = qb.expressionMap.mainAlias;
     if (!mainAlias?.hasMetadata) {
       throw new Error(
@@ -88,8 +104,13 @@ export class KeysetPaginator {
       });
     }
     const rows = await qb.take(size + 1).getMany();
+    // 实现签名只认 `{ id }`，排序键那一列的存在性由上面的重载对调用方保证（运行期另有
+    // `resolveSortColumn` 兜底），故这里按排序键读出时间戳需要断言
     return this.toCursorPage(rows, size, (row) =>
-      encodeCursor(row[sortKey], row.id),
+      encodeCursor(
+        (row as unknown as Record<SortKeyProperty, Date>)[sortKey],
+        row.id,
+      ),
     );
   }
 

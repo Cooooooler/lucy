@@ -6,7 +6,9 @@ import { lastValueFrom } from 'rxjs';
 import { toArray } from 'rxjs/operators';
 import { DataSource, IsNull } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
-import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
+import { encodeCursor } from '../common/pagination/cursor.js';
+import { DEFAULT_PAGE_SIZE } from '../common/pagination/pagination.constants.js';
+import { PaginationModule } from '../common/pagination/pagination.module.js';
 import { AiService } from './ai.service.js';
 import { ContextService } from './context.service.js';
 import { Conversation } from './entities/conversation.entity.js';
@@ -46,22 +48,24 @@ describe('AiService', () => {
   } as unknown as DataSource;
   const ollamaFactory = { getClient: vi.fn() };
   const contextService = { buildMessages: vi.fn() };
-  const paginator = { fetchPage: vi.fn() };
   const config = new ConfigService({ OLLAMA_MODEL: 'default-model' });
   const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
 
   let service: AiService;
 
   /**
-   * 经 DI 容器装配服务：`@InjectRepository`/`@InjectDataSource` 的 token 是否与生产一致
-   * 由容器判定。手工 `new AiService(...)` 时漏注入/错位只表现为运行时的 undefined，
-   * 且每新增一个构造依赖都要在每个手工构造点补位置参数（`as never` 还会把类型错误一起抹掉）。
+   * 经 DI 容器装配：`@InjectRepository`/`@InjectDataSource` 的 token 是否与生产一致由容器判定。
+   * 手工 `new AiService(...)` 时漏注入/错位只表现为运行时的 undefined，且每新增一个构造依赖
+   * 都要在每个手工构造点补位置参数（`as never` 还会把类型错误一起抹掉）。
+   *
+   * `KeysetPaginator` 与 `knowledge.service.spec.ts` 同法：刻意不在这里 provide，而是走
+   * `imports: [PaginationModule]` —— 与生产一致的模块路径才会验证 `PaginationModule` 真的
+   * exports 了它，在 providers 里再 provide 一份会把 `ai.module.ts` 的 imports 写错也变成绿灯。
    * @param configService 覆盖 ConfigService（空闲超时用例需要不同的 OLLAMA_TIMEOUT_MS）
    */
-  const buildService = async (
-    configService: ConfigService = config,
-  ): Promise<AiService> => {
-    const moduleRef = await Test.createTestingModule({
+  const buildModule = (configService: ConfigService = config) =>
+    Test.createTestingModule({
+      imports: [PaginationModule],
       providers: [
         AiService,
         { provide: AppLogger, useValue: logger },
@@ -73,10 +77,14 @@ describe('AiService', () => {
         { provide: getRepositoryToken(Message), useValue: messageRepo },
         { provide: OllamaFactory, useValue: ollamaFactory },
         { provide: ContextService, useValue: contextService },
-        { provide: KeysetPaginator, useValue: paginator },
         { provide: ConfigService, useValue: configService },
       ],
-    }).compile();
+    });
+
+  const buildService = async (
+    configService: ConfigService = config,
+  ): Promise<AiService> => {
+    const moduleRef = await buildModule(configService).compile();
     return moduleRef.get(AiService);
   };
 
@@ -93,6 +101,54 @@ describe('AiService', () => {
       model: null,
     });
 
+  /** 带排序键时间戳的会话：真 paginator 会用 updatedAt 生成游标，所以必须给真实 Date */
+  const timedConv = (index: number): Conversation =>
+    Object.assign(conv(), {
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, 0, index)),
+      updatedAt: new Date(Date.UTC(2026, 5, 1, 0, 0, 0, index)),
+    });
+
+  /**
+   * 会话列表的 QueryBuilder stub：只实现 `KeysetPaginator` 用到的能力（链式排序/多取一条 +
+   * 「属性名 → 列名」的实体元数据解析）。容器里给的是真 paginator（走 `PaginationModule`），
+   * 所以列名解析写错就会拼出不存在的列 —— 这正是这里不拿 spy 顶替它的原因。
+   */
+  const makeListQueryBuilder = (rows: Conversation[]) => {
+    const columns: Record<string, string> = {
+      createdAt: 'created_at',
+      updatedAt: 'updated_at',
+      id: 'id',
+    };
+    const qb = {
+      expressionMap: {
+        mainAlias: {
+          name: 'c',
+          hasMetadata: true,
+          metadata: {
+            name: 'Conversation',
+            findColumnWithPropertyName: (property: string) =>
+              columns[property]
+                ? { databaseName: columns[property] }
+                : undefined,
+          },
+        },
+      },
+      where: vi.fn(),
+      orderBy: vi.fn(),
+      addOrderBy: vi.fn(),
+      andWhere: vi.fn(),
+      take: vi.fn(),
+      getMany: vi.fn().mockResolvedValue(rows),
+    };
+    qb.where.mockReturnValue(qb);
+    qb.orderBy.mockReturnValue(qb);
+    qb.addOrderBy.mockReturnValue(qb);
+    qb.andWhere.mockReturnValue(qb);
+    qb.take.mockReturnValue(qb);
+    return qb;
+  };
+
   it('create 保存会话', async () => {
     conversationRepo.save.mockResolvedValue(conv());
     await expect(service.create('1', {})).resolves.toBeInstanceOf(Conversation);
@@ -102,41 +158,44 @@ describe('AiService', () => {
     });
   });
 
-  it('list 走游标分页：过滤归属用户，排序键取 updatedAt（最近活跃优先）', async () => {
-    const qb = { where: vi.fn().mockReturnThis() };
+  it('list 走游标分页：过滤归属用户，按 updatedAt 排序（最近活跃优先）', async () => {
+    const qb = makeListQueryBuilder([timedConv(1)]);
     conversationRepo.createQueryBuilder.mockReturnValue(qb);
-    paginator.fetchPage.mockResolvedValue({
-      list: [conv()],
-      nextCursor: 'next',
-    });
 
     await expect(service.list('1', undefined, undefined)).resolves.toEqual({
       list: [expect.any(Conversation)],
-      nextCursor: 'next',
+      nextCursor: null,
     });
     expect(conversationRepo.createQueryBuilder).toHaveBeenCalledWith('c');
     expect(qb.where).toHaveBeenCalledWith('c.userId = :userId', {
       userId: '1',
     });
-    // 排序键必须是 updatedAt：会话按最近活跃排序，回落成 createdAt 会变成「按创建时间」
-    expect(paginator.fetchPage).toHaveBeenCalledWith(
-      qb,
-      undefined,
-      undefined,
-      'updatedAt',
-    );
+    // 排序键必须是 updated_at（最近活跃优先）；回落成 created_at 会变成「按创建时间」
+    expect(qb.orderBy).toHaveBeenCalledWith('c.updated_at', 'DESC');
+    expect(qb.addOrderBy).toHaveBeenCalledWith('c.id', 'DESC');
+    // 多取一条判下一页，避免额外的 COUNT
+    expect(qb.take).toHaveBeenCalledWith(DEFAULT_PAGE_SIZE + 1);
   });
 
-  it('list 透传游标与条数（上界与默认值由 KeysetPaginator 归一化）', async () => {
-    const qb = { where: vi.fn().mockReturnThis() };
+  it('list 带游标：追加行比较谓词，多取到一条时给出下一页游标', async () => {
+    const rows = [timedConv(1), timedConv(2), timedConv(3)];
+    const qb = makeListQueryBuilder(rows);
     conversationRepo.createQueryBuilder.mockReturnValue(qb);
-    paginator.fetchPage.mockResolvedValue({ list: [], nextCursor: null });
+    const last = timedConv(9);
 
-    await expect(service.list('1', 'cur', 5)).resolves.toEqual({
-      list: [],
-      nextCursor: null,
-    });
-    expect(paginator.fetchPage).toHaveBeenCalledWith(qb, 'cur', 5, 'updatedAt');
+    const page = await service.list(
+      '1',
+      encodeCursor(last.updatedAt, last.id),
+      2,
+    );
+
+    expect(qb.take).toHaveBeenCalledWith(3);
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      '(c.updated_at, c.id) < (:cursorTs, :cursorId)',
+      { cursorTs: last.updatedAt, cursorId: last.id },
+    );
+    expect(page.list).toEqual([rows[0], rows[1]]);
+    expect(page.nextCursor).toBe(encodeCursor(rows[1].updatedAt, rows[1].id));
   });
 
   it('get 会话不存在抛错', async () => {
