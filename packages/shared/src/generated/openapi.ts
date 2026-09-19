@@ -665,13 +665,28 @@ export interface components {
              */
             updatedAt: string;
         };
+        ConversationItemDto: {
+            /** @description 会话 ID */
+            id: string;
+            /** @description 标题 */
+            title: string | null;
+            /** @description 会话默认模型 */
+            model: string | null;
+            /**
+             * Format: date-time
+             * @description 创建时间
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description 更新时间
+             */
+            updatedAt: string;
+        };
         ConversationListResultDto: {
             /** @description 会话列表 */
-            list: components["schemas"]["Conversation"][];
-            /**
-             * @description 下一页游标；null 表示已到末页
-             * @example null
-             */
+            list: components["schemas"]["ConversationItemDto"][];
+            /** @description 下一页游标；null 表示已到末页 */
             nextCursor: string | null;
         };
         RenameConversationDto: {

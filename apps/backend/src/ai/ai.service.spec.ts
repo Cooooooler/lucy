@@ -9,6 +9,7 @@ import { AppLogger } from '../common/app-logger.service.js';
 import { encodeCursor } from '../common/pagination/cursor.js';
 import { DEFAULT_PAGE_SIZE } from '../common/pagination/pagination.constants.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
+import { toConversationItem } from './ai.mapper.js';
 import { AiService } from './ai.service.js';
 import { ContextService } from './context.service.js';
 import { Conversation } from './entities/conversation.entity.js';
@@ -158,14 +159,23 @@ describe('AiService', () => {
     });
   });
 
-  it('list 走游标分页：过滤归属用户，按 updatedAt 排序（最近活跃优先）', async () => {
-    const qb = makeListQueryBuilder([timedConv(1)]);
+  it('list 走游标分页：过滤归属用户，按 updatedAt 排序，列表项走允许式白名单', async () => {
+    const row = timedConv(1);
+    const qb = makeListQueryBuilder([row]);
     conversationRepo.createQueryBuilder.mockReturnValue(qb);
 
-    await expect(service.list('1', undefined, undefined)).resolves.toEqual({
-      list: [expect.any(Conversation)],
-      nextCursor: null,
-    });
+    const page = await service.list('1', undefined, undefined);
+
+    expect(page.nextCursor).toBeNull();
+    expect(page.list).toEqual([toConversationItem(row)]);
+    // 白名单：不含 userId 等实体字段（拿实体当契约等于「新增字段默认出网」）
+    expect(Object.keys(page.list[0]).sort()).toEqual([
+      'createdAt',
+      'id',
+      'model',
+      'title',
+      'updatedAt',
+    ]);
     expect(conversationRepo.createQueryBuilder).toHaveBeenCalledWith('c');
     expect(qb.where).toHaveBeenCalledWith('c.userId = :userId', {
       userId: '1',
@@ -194,7 +204,10 @@ describe('AiService', () => {
       '(c.updated_at, c.id) < (:cursorTs, :cursorId)',
       { cursorTs: last.updatedAt, cursorId: last.id },
     );
-    expect(page.list).toEqual([rows[0], rows[1]]);
+    expect(page.list).toEqual([
+      toConversationItem(rows[0]),
+      toConversationItem(rows[1]),
+    ]);
     expect(page.nextCursor).toBe(
       encodeCursor(rows[1].updatedAt, rows[1].id, 'updatedAt'),
     );

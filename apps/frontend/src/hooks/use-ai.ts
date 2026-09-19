@@ -8,6 +8,7 @@ import {
 } from '@/api/ai';
 import type {
   Conversation,
+  ConversationItem,
   CreateConversationRequest,
   RenameConversationRequest,
   SendMessageRequest,
@@ -27,7 +28,7 @@ export const aiKeys = {
 export const conversationListAll = [...aiKeys.conversations(), 'list'] as const;
 
 export function useConversationList() {
-  return useQuery<CursorPageResult<Conversation>>({
+  return useQuery<CursorPageResult<ConversationItem>>({
     queryKey: aiKeys.conversationList(),
     queryFn: () => listConversationsApi(),
     placeholderData: (prev) => prev,
