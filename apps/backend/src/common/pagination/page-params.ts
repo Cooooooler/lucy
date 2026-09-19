@@ -9,9 +9,13 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './pagination.constants.js';
  * SQL（`LIMIT 2.5`、负 LIMIT）在运行期变成 500。两条分页路径共用这里，边界策略不会各自漂移。
  */
 
-/** 归一化每页条数到契约区间 `[1, MAX_PAGE_SIZE]`：非数值回退默认值，越界钳到边界 */
+/**
+ * 归一化每页条数到契约区间 `[1, MAX_PAGE_SIZE]`：未传或 NaN 回退默认值，其余（含 ±Infinity）
+ * 一律按「越界」钳到边界 —— 把 `+Infinity` 当作「未传」回退默认值，会让同一个函数对 `-5`
+ * （钳到 1）与 `+Infinity` 采取两种口径。
+ */
 export function resolvePageSize(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) {
+  if (value === undefined || Number.isNaN(value)) {
     return DEFAULT_PAGE_SIZE;
   }
   return Math.min(Math.max(Math.trunc(value), 1), MAX_PAGE_SIZE);

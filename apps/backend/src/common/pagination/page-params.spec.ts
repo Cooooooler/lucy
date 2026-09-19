@@ -11,9 +11,13 @@ describe('resolvePageSize', () => {
     expect(resolvePageSize(undefined)).toBe(DEFAULT_PAGE_SIZE);
   });
 
-  it('非数值（NaN/Infinity）回退默认值，不拼进 LIMIT', () => {
+  it('NaN 回退默认值，不拼进 LIMIT', () => {
     expect(resolvePageSize(Number.NaN)).toBe(DEFAULT_PAGE_SIZE);
-    expect(resolvePageSize(Number.POSITIVE_INFINITY)).toBe(DEFAULT_PAGE_SIZE);
+  });
+
+  it('±Infinity 按越界钳到边界（不是当「未传」回退默认值）', () => {
+    expect(resolvePageSize(Number.POSITIVE_INFINITY)).toBe(MAX_PAGE_SIZE);
+    expect(resolvePageSize(Number.NEGATIVE_INFINITY)).toBe(1);
   });
 
   it('0 与负数钳到下界 1', () => {
