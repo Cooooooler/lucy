@@ -34,9 +34,14 @@ const migrationFiles = readdirSync(MIGRATIONS_DIR).filter((file) =>
  * ——`CREATE INDEX CONCURRENTLY`、分批回填。往里加名字就是一次显式决定，
  * 借此挡住「照抄一句 transaction = false」或把语义写反却仍然绿灯。
  */
-const BARE_RUN_MIGRATIONS = new Set<string>([]);
+const BARE_RUN_MIGRATIONS = new Set<string>([
+  // CONCURRENTLY 不能在事务块中执行；非 CONCURRENTLY 的 CREATE INDEX 又会把 SHARE 锁
+  // 持到事务提交，在规模不受控的存量库上就是一次部署级写阻塞（只建索引这一件事，
+  // 时间列默认值的收敛另有一条原子迁移）
+  'ConvergeKnowledgeKeysetIndexes',
+]);
 
-/** 迁移文件名是否在白名单里（按类名匹配；改名即失效 → 必须重新确认） */
+/** 迁移文件名是否在白名单里（按文件名里的类名片段匹配，不含时间戳前缀；改名即失效 → 必须重新确认） */
 function isBareRunAllowed(file: string): boolean {
   return [...BARE_RUN_MIGRATIONS].some((name) => file.includes(name));
 }

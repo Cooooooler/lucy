@@ -2,6 +2,7 @@
 // 否则脚本可能按默认值 127.0.0.1:5432 去 DROP/CREATE，而用例连的是另一台库。
 import 'dotenv/config';
 import { Client } from 'pg';
+import { KEYSET_INDEX_NAMES } from '../src/db/keyset-indexes.js';
 import { E2E_DB_NAME } from './e2e-db-config.js';
 
 /**
@@ -70,10 +71,14 @@ try {
   // 真实往返：runMigrations() 只证明 up() 能跑，「可回滚」是另一条断言——
   // migration.spec 用的是假 QueryRunner，验不了 TypeORM 在 none 模式下是否真的执行了 down()。
   // 测试库是一次性的，这里撤销到空库再重跑，把该前提钉成每次 e2e 都跑的事实。
-  // 撤销次数取自「刚跑完的迁移条数」，不写死数字：写死的话新增一条迁移就会让往返只覆盖最后 N 条，
-  // 注释所述的「撤销到最后（含初始化迁移）」会静默失效、护栏空转。
-  const applied = dataSource.migrations.length;
-  for (let i = 0; i < applied; i++) {
+  // 撤销次数取自 `migrations` 表里**已执行**的条数，既不写死数字，也不用
+  // `dataSource.migrations.length`——后者是 glob 解析出的迁移**总数**，两者当前相等只因为
+  // 紧接着在空库上跑完了全部迁移；一旦某条迁移在存量库上早退、或记录写入策略变化，
+  // 循环就会多撤一次，以 TypeORM 的「没有可回滚迁移」异常收场，而注释会让人以为这是安全写法。
+  const [{ executed }] = await dataSource.query<{ executed: number }[]>(
+    `SELECT count(*)::int AS executed FROM "migrations"`,
+  );
+  for (let i = 0; i < executed; i++) {
     await dataSource.undoLastMigration();
   }
   await dataSource.runMigrations();
@@ -85,26 +90,23 @@ try {
   if (!rows[0]?.table_name) {
     throw new Error('e2e 往返验证失败：撤销并重跑迁移后 users 表不存在');
   }
+  // 索引名与期望条数取自 keyset-indexes.ts（收敛迁移用的是同一份）：手抄字面量时，
+  // 新增第 4 条索引只会让这里报出难懂的「期望 3，实际 4」。INVALID 的索引等于没有，故一并过滤。
   const indexes = await dataSource.query<{ name: string }[]>(
     `SELECT c.relname AS name
        FROM pg_index i
        JOIN pg_class c ON c.oid = i.indexrelid
-      WHERE c.relname = ANY($1::text[])`,
-    [
-      [
-        'IDX_knowledge_bases_owner_created_id',
-        'IDX_knowledge_bases_visibility_created_id',
-        'IDX_knowledge_documents_kb_created_id',
-      ],
-    ],
+      WHERE c.relname = ANY($1::text[])
+        AND i.indisvalid`,
+    [KEYSET_INDEX_NAMES],
   );
-  if (indexes.length !== 3) {
+  if (indexes.length !== KEYSET_INDEX_NAMES.length) {
     throw new Error(
-      `e2e 往返验证失败：keyset 索引未重建（期望 3，实际 ${indexes.length}）`,
+      `e2e 往返验证失败：keyset 索引未重建为有效状态（期望 ${KEYSET_INDEX_NAMES.length}，实际 ${indexes.length}）`,
     );
   }
   console.log(
-    `[e2e] 测试库已就绪（含 migrate → revert ×${applied} → migrate 往返 + 索引校验）：${E2E_DB_NAME}`,
+    `[e2e] 测试库已就绪（含 migrate → revert ×${executed} → migrate 往返 + 索引校验）：${E2E_DB_NAME}`,
   );
 } finally {
   await dataSource.destroy();
