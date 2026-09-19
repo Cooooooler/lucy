@@ -12,7 +12,12 @@ import type {
 // 流式发送标记 skipAuthRefresh：SSE 流中途不应触发 401 重放，否则会破坏流协议。
 
 export function createConversationApi(input: CreateConversationRequest = {}) {
-  return http.post<Conversation>('ai/conversations', input).json();
+  // 首条消息无感创建会话（chat.tsx handleSubmit）：静默，不弹「会话创建成功」
+  return http
+    .post<Conversation>('ai/conversations', input, {
+      extra: { skipSuccessMessage: true },
+    })
+    .json();
 }
 
 export function listConversationsApi(page = 1, pageSize = 20) {
@@ -44,7 +49,8 @@ export function createStreamRequest(
     `ai/conversations/${conversationId}/messages`,
     input,
     {
-      extra: { skipAuthRefresh: true },
+      // SSE 流：不走 json 解包本就不会广播；双保险标记静默
+      extra: { skipAuthRefresh: true, skipSuccessMessage: true },
     },
   );
 }

@@ -11,6 +11,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Route as KnowledgeRoute } from './knowledge';
 
 /**
+ * 本地 message.success 的调用 spy：路由不再自己弹成功提示（改由后端 message
+ * 经全局桥弹出），把 useApp 的 message 换成可观测对象即能断言「未调用」——
+ * 若有人把 message.success 加回生产代码，这些用例会失败。modal 等其余透传真实值。
+ */
+const messageSuccess = vi.fn();
+vi.mock('antd', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('antd')>();
+  const useApp = () => {
+    const real = mod.App.useApp();
+    return { ...real, message: { ...real.message, success: messageSuccess } };
+  };
+  return { ...mod, App: { ...mod.App, useApp } };
+});
+
+/**
  * 四个写操作由路由持有一份（卡片只上报意图）：这里用可控的 mutation stub
  * 替换 hook，断言「意图 → 调用哪个 mutation / 参数 / 反馈提示 / pending 透传」。
  */
@@ -195,7 +210,7 @@ describe('routes/_layout/knowledge', () => {
     expect(mutationMocks.like.mutate).not.toHaveBeenCalled();
   });
 
-  it('切换可见性：调用 update 并提示成功', async () => {
+  it('切换可见性：调用 update；成功提示由后端 message 经全局桥弹出（路由不再自己弹）', async () => {
     renderRoute();
     const kb = makeKb('kb1', '产品文档');
 
@@ -207,7 +222,8 @@ describe('routes/_layout/knowledge', () => {
       id: 'kb1',
       input: { visibility: 'public' },
     });
-    expect(await screen.findByText('已设为公开')).toBeInTheDocument();
+    // 可失败的「不再自己弹」：本地 message.success 一旦被调用即失败
+    expect(messageSuccess).not.toHaveBeenCalled();
   });
 
   it('切换可见性失败：提示服务端返回的 message', async () => {
@@ -240,7 +256,7 @@ describe('routes/_layout/knowledge', () => {
     expect(await screen.findByText('操作失败，请稍后重试')).toBeInTheDocument();
   });
 
-  it('删除：先弹确认框，确认后才调用删除接口并提示', async () => {
+  it('删除：先弹确认框，确认后才调用删除接口；成功提示由全局桥弹出（路由不再自己弹）', async () => {
     renderRoute();
 
     await act(async () => {
@@ -257,7 +273,8 @@ describe('routes/_layout/knowledge', () => {
     await waitFor(() =>
       expect(mutationMocks.delete.mutateAsync).toHaveBeenCalledWith('kb1'),
     );
-    expect(await screen.findByText('知识库已删除')).toBeInTheDocument();
+    // 可失败的「不再自己弹」：本地 message.success 一旦被调用即失败
+    expect(messageSuccess).not.toHaveBeenCalled();
   });
 
   it('删除确认框取消时不调用接口', async () => {

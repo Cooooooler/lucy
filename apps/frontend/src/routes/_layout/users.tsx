@@ -142,7 +142,7 @@ const UserRoleModal: FC<UserRoleModalProps> = ({ user, open, onClose }) => {
         id: user.id,
         input: { role: values.role },
       });
-      message.success('角色修改成功');
+      // 成功提示（「角色修改成功」）由后端 message 经全局桥弹出
       onClose();
     } catch (e) {
       message.error(errorMessageOf(e, '修改失败，请稍后重试'));
@@ -242,14 +242,14 @@ function UsersPage() {
         okText: next === 0 ? '禁用' : '启用',
         okType: next === 0 ? 'danger' : 'primary',
         onOk: () =>
-          updateStatus({ id: record.id, input: { status: next as 0 | 1 } })
-            .then(() => {
-              message.success(next === 0 ? '用户已禁用' : '用户已启用');
-            })
-            .catch((e: unknown) => {
-              message.error(errorMessageOf(e, '操作失败，请稍后重试'));
-              throw e;
-            }),
+          // 成功提示（「用户已禁用/启用」）由后端 message 经全局桥弹出
+          updateStatus({
+            id: record.id,
+            input: { status: next as 0 | 1 },
+          }).catch((e: unknown) => {
+            message.error(errorMessageOf(e, '操作失败，请稍后重试'));
+            throw e;
+          }),
       });
     },
     [message, modal, updateStatus],
@@ -268,14 +268,14 @@ function UsersPage() {
           if (rowsRef.current.length <= 1 && pageRef.current > 1) {
             setPage(pageRef.current - 1);
           }
-          return deleteUser(record.id)
-            .then(() => {
-              message.success('用户已删除');
-            })
-            .catch((e: unknown) => {
-              message.error(errorMessageOf(e, '删除失败，请稍后重试'));
-              throw e;
-            });
+          return (
+            deleteUser(record.id)
+              // 成功提示（「用户已删除」）由后端 message 经全局桥弹出
+              .catch((e: unknown) => {
+                message.error(errorMessageOf(e, '删除失败，请稍后重试'));
+                throw e;
+              })
+          );
         },
       });
     },

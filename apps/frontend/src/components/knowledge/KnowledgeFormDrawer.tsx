@@ -74,7 +74,7 @@ export const KnowledgeFormDrawer: FC<KnowledgeFormDrawerProps> = ({
       } else {
         await createMutation.mutateAsync(input);
       }
-      message.success(isEdit ? '知识库更新成功' : '知识库创建成功');
+      // 成功提示（「知识库创建/更新成功」）由后端 message 经全局桥弹出
       onClose();
     } catch (e) {
       message.error(

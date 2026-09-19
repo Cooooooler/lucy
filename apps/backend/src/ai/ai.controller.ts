@@ -4,8 +4,6 @@ import {
   Controller,
   Delete,
   Get,
-  Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -21,8 +19,10 @@ import {
 import type { Response } from 'express';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
+import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
 import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js';
 import { PageQueryDto } from '../common/pagination/dto/page-query.dto.js';
+import { UUIDParam } from '../common/pipes/uuid-param.js';
 import { AiService } from './ai.service.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
@@ -37,6 +37,7 @@ export class AiController {
   constructor(private readonly aiService: AiService) {}
 
   @Post('conversations')
+  @SuccessMessage('会话创建成功')
   @ApiOperation({ summary: '创建会话', description: '新建一个 AI 对话会话' })
   @ApiResponse({ status: 201, description: '创建成功', type: Conversation })
   create(
@@ -68,12 +69,13 @@ export class AiController {
   @ApiResponse({ status: 404, description: '会话不存在' })
   get(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
   ): Promise<Conversation> {
     return this.aiService.get(user.userId, id);
   }
 
   @Patch('conversations/:id')
+  @SuccessMessage('会话已重命名')
   @ApiOperation({ summary: '改名', description: '修改会话标题' })
   @ApiResponse({
     status: 200,
@@ -83,19 +85,20 @@ export class AiController {
   @ApiResponse({ status: 404, description: '会话不存在' })
   rename(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
     @Body() dto: RenameConversationDto,
   ): Promise<Conversation> {
     return this.aiService.rename(user.userId, id, dto.title);
   }
 
   @Delete('conversations/:id')
+  @SuccessMessage('会话已删除')
   @ApiOperation({ summary: '删除会话', description: '级联删除该会话全部消息' })
   @ApiResponse({ status: 200, description: '删除成功' })
   @ApiResponse({ status: 404, description: '会话不存在' })
   remove(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
   ): Promise<null> {
     return this.aiService.remove(user.userId, id);
   }
@@ -125,7 +128,7 @@ export class AiController {
     })
     res: Response,
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
     @Body() dto: SendMessageDto,
   ): void {
     res.setHeader('Content-Type', 'text/event-stream');

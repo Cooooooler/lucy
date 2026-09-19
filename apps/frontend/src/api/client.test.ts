@@ -14,6 +14,7 @@ import {
   http,
   refreshTokens,
 } from './client';
+import { onApiSuccessMessage } from './messages';
 
 const fetchMock = vi.fn();
 const user = makeUser();
@@ -83,6 +84,87 @@ describe('api/client', () => {
         status: 502,
         message: '请求失败（502）',
       });
+    });
+  });
+
+  describe('成功提示广播（后端 message → ApiMessageBridge）', () => {
+    const successEnvelope = (message: string, data: unknown = { id: '1' }) =>
+      new Response(JSON.stringify({ code: 0, message, data }), {
+        status: 200,
+      });
+    let heard: string[];
+    let unsubscribe: () => void;
+
+    beforeEach(() => {
+      heard = [];
+      unsubscribe = onApiSuccessMessage((text) => heard.push(text));
+    });
+
+    afterEach(() => {
+      unsubscribe();
+    });
+
+    it('变更请求成功且 message 非 ok → 广播', async () => {
+      fetchMock.mockResolvedValueOnce(successEnvelope('知识库已删除'));
+      await http.delete('knowledge/1').json();
+      expect(heard).toEqual(['知识库已删除']);
+    });
+
+    it('PATCH 成功 → 广播（data 照常返回）', async () => {
+      fetchMock.mockResolvedValueOnce(successEnvelope('用户已启用'));
+      const data = await http
+        .patch<{ status: number }>('users/1/status', { status: 1 })
+        .json();
+      expect(data).toEqual({ id: '1' });
+      expect(heard).toEqual(['用户已启用']);
+    });
+
+    it('message 为 ok 时不广播（查询类/默认成功不弹）', async () => {
+      fetchMock.mockResolvedValueOnce(okEnvelope({ id: '1' }));
+      await http.post<{ id: string }>('auth/login', {}).json();
+      expect(heard).toEqual([]);
+    });
+
+    it('GET 请求即使带业务 message 也不广播', async () => {
+      fetchMock.mockResolvedValueOnce(successEnvelope('知识库已删除'));
+      await http.get('knowledge/1').json();
+      expect(heard).toEqual([]);
+    });
+
+    it('skipSuccessMessage 标记的请求不广播', async () => {
+      fetchMock.mockResolvedValueOnce(successEnvelope('点赞成功'));
+      await http
+        .post('knowledge/1/like', undefined, {
+          extra: { skipSuccessMessage: true },
+        })
+        .json();
+      expect(heard).toEqual([]);
+    });
+
+    it('失败响应不广播成功提示', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ code: 40401, message: '知识库不存在', data: null }),
+          { status: 404 },
+        ),
+      );
+      await expect(http.delete('knowledge/1').json()).rejects.toMatchObject({
+        name: 'ApiError',
+      });
+      expect(heard).toEqual([]);
+    });
+
+    it('订阅者抛错时 data 照常返回（UI 异常不污染数据流）', async () => {
+      fetchMock.mockResolvedValueOnce(successEnvelope('知识库已删除'));
+      const off = onApiSuccessMessage(() => {
+        throw new Error('toast boom');
+      });
+      try {
+        const data = await http.delete<{ id: string }>('knowledge/1').json();
+        expect(data).toEqual({ id: '1' });
+      } finally {
+        off();
+      }
     });
   });
 

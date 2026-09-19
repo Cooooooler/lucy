@@ -1,4 +1,9 @@
-import { ExecutionContext } from '@nestjs/common';
+import {
+  ExecutionContext,
+  ForbiddenException,
+  InternalServerErrorException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ClsService } from 'nestjs-cls';
 import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator.js';
@@ -81,5 +86,66 @@ describe('JwtAuthGuard', () => {
     } finally {
       superProto['handleRequest'] = orig;
     }
+  });
+
+  it('无 user 时抛「未登录或登录已过期」（不再是英文 Unauthorized）', () => {
+    const guard = new JwtAuthGuard(
+      { getAllAndOverride: vi.fn() } as unknown as Reflector,
+      { isActive: () => false } as unknown as ClsService,
+    );
+    expect(() => guard.handleRequest(null, null, null, context)).toThrowError(
+      new UnauthorizedException('未登录或登录已过期'),
+    );
+  });
+
+  it('validate 抛出的业务中文异常原样透出', () => {
+    const guard = new JwtAuthGuard(
+      { getAllAndOverride: vi.fn() } as unknown as Reflector,
+      { isActive: () => false } as unknown as ClsService,
+    );
+    const business = new UnauthorizedException('令牌已失效');
+    expect(() =>
+      guard.handleRequest(business, null, null, context),
+    ).toThrowError(business);
+  });
+
+  it('err 非 HttpException（如 Redis/DB 故障）按 500 抛中文，不伪装 401', () => {
+    const guard = new JwtAuthGuard(
+      { getAllAndOverride: vi.fn() } as unknown as Reflector,
+      { isActive: () => false } as unknown as ClsService,
+    );
+    try {
+      guard.handleRequest(new Error('boom'), null, null, context);
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(InternalServerErrorException);
+      expect((err as InternalServerErrorException).message).toBe(
+        '服务器内部错误',
+      );
+    }
+  });
+
+  it('validate 抛出的 403 原样透出（不降级成 401）', () => {
+    const guard = new JwtAuthGuard(
+      { getAllAndOverride: vi.fn() } as unknown as Reflector,
+      { isActive: () => false } as unknown as ClsService,
+    );
+    const forbidden = new ForbiddenException('账号不可用');
+    try {
+      guard.handleRequest(forbidden, null, null, context);
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBe(forbidden);
+    }
+  });
+
+  it('passport 默认英文 Unauthorized 被换成中文兜底', () => {
+    const guard = new JwtAuthGuard(
+      { getAllAndOverride: vi.fn() } as unknown as Reflector,
+      { isActive: () => false } as unknown as ClsService,
+    );
+    expect(() =>
+      guard.handleRequest(new UnauthorizedException(), null, null, context),
+    ).toThrowError(new UnauthorizedException('未登录或登录已过期'));
   });
 });

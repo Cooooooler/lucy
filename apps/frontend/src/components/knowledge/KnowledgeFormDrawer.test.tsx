@@ -15,6 +15,20 @@ vi.mock('@/hooks/use-knowledge', () => ({
   useUpdateKnowledgeBase: vi.fn(),
 }));
 
+/**
+ * 本地 message.success 的调用 spy：抽屉不再自己弹成功提示（改由后端 message
+ * 经全局桥弹出），把 useApp 的 message 换成可观测对象即能断言「未调用」。
+ */
+const messageSuccess = vi.fn();
+vi.mock('antd', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('antd')>();
+  const useApp = () => {
+    const real = mod.App.useApp();
+    return { ...real, message: { ...real.message, success: messageSuccess } };
+  };
+  return { ...mod, App: { ...mod.App, useApp } };
+});
+
 const mockedCreate = vi.mocked(useCreateKnowledgeBase);
 const mockedUpdate = vi.mocked(useUpdateKnowledgeBase);
 
@@ -72,7 +86,7 @@ describe('KnowledgeFormDrawer', () => {
     setUpdateMock(mutationMock());
   });
 
-  it('创建态提交调用 createKnowledgeBaseApi，提示成功并关闭抽屉', async () => {
+  it('创建态提交调用 createKnowledgeBaseApi 并关闭抽屉；成功提示由全局桥弹出（抽屉不再自己弹）', async () => {
     const mutateAsync = vi.fn().mockResolvedValue({});
     const createMock = setCreateMock(mutationMock({ mutateAsync }));
     const updateMock = setUpdateMock(mutationMock());
@@ -90,7 +104,9 @@ describe('KnowledgeFormDrawer', () => {
         visibility: 'private',
       });
     });
-    expect(await screen.findByText('知识库创建成功')).toBeInTheDocument();
+    expect(screen.queryByText('知识库创建成功')).not.toBeInTheDocument();
+    // 可失败的「不再自己弹」：本地 message.success 一旦被调用即失败
+    expect(messageSuccess).not.toHaveBeenCalled();
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(updateMock.mutateAsync).not.toHaveBeenCalled();
     expect(createMock.mutateAsync).toHaveBeenCalledTimes(1);
@@ -188,7 +204,9 @@ describe('KnowledgeFormDrawer', () => {
         },
       });
     });
-    expect(await screen.findByText('知识库更新成功')).toBeInTheDocument();
+    expect(screen.queryByText('知识库更新成功')).not.toBeInTheDocument();
+    // 可失败的「不再自己弹」：本地 message.success 一旦被调用即失败
+    expect(messageSuccess).not.toHaveBeenCalled();
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(createMock.mutateAsync).not.toHaveBeenCalled();
     expect(updateMock.mutateAsync).toHaveBeenCalledTimes(1);

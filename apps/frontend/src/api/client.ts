@@ -7,6 +7,7 @@ import type { BodyType, HookFetchPlugin, RequestConfig } from 'hook-fetch';
 import hookFetch, { ResponseError } from 'hook-fetch';
 import { sseTextDecoderPlugin } from 'hook-fetch/plugins';
 import { applyTokens, authStore, handleSessionExpired } from '../stores/auth';
+import { emitApiSuccessMessage } from './messages';
 import type { RefreshResult } from './types';
 
 export class ApiError extends ResponseError {
@@ -53,9 +54,11 @@ export function errorStatusOf(err: unknown): number | undefined {
 
 // 请求级扩展字段：
 //   skipAuthRefresh  跳过 401 自动刷新（登录/注册/刷新/SSE 流等不适配重放）
+//   skipSuccessMessage  跳过成功提示广播（后台刷新、点赞等高频/静默请求）
 //   __authRetry      记录 401 重放次数
 type RequestExtra = {
   skipAuthRefresh?: boolean;
+  skipSuccessMessage?: boolean;
   __authRetry?: number;
 };
 
@@ -147,7 +150,9 @@ const normalizeError: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
 };
 
 // 解包同时进行前后端约定错误处理
-// 解包 { code, message, data } 信封；非 OK / 非 2xx 抛出 ApiError
+// 解包 { code, message, data } 信封；非 OK / 非 2xx 抛出 ApiError。
+// 成功时把后端 message 广播给 ApiMessageBridge：文案与出现时机都由后端决定，
+// 前端只展示。仅变更方法（POST/PUT/PATCH/DELETE）广播，'ok'（查询类）与静默请求不广播。
 const unwrapEnvelope: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
   name: 'unwrap-envelope',
   afterResponse(ctx) {
@@ -167,10 +172,31 @@ const unwrapEnvelope: HookFetchPlugin<ApiResponse<unknown>, RequestExtra> = {
         ),
       );
     }
+    // 先落数据再广播：UI 层订阅者异常绝不能污染已成功的数据流
     ctx.result = body.data as never;
+    emitSuccessMessage(ctx.config.method, ctx.config.extra, body.message);
     return ctx;
   },
 };
+
+/** 变更方法 + 非 'ok' message + 未静默 → 广播成功提示 */
+function emitSuccessMessage(
+  method: string | undefined,
+  extra: RequestExtra | undefined,
+  message: unknown,
+): void {
+  if (extra?.skipSuccessMessage) return;
+  if (
+    method !== 'POST' &&
+    method !== 'PUT' &&
+    method !== 'PATCH' &&
+    method !== 'DELETE'
+  ) {
+    return;
+  }
+  if (typeof message !== 'string' || !message || message === 'ok') return;
+  emitApiSuccessMessage(message);
+}
 
 // 401 → 单飞刷新 → 经实例重放一次（重放走完整插件链：authHeader 注入新 token、normalizeError错误处理、unwrapEnvelope 解包）。
 // 重放后仍 401 视为会话过期；刷新失败原样抛会话过期错误
@@ -247,7 +273,8 @@ async function doRefresh(): Promise<RefreshResult> {
     // 长效 token 在 HttpOnly cookie 里，浏览器自动携带，无需传 body
     const tokens = await http
       .post<RefreshResult>('auth/refresh', undefined, {
-        extra: { skipAuthRefresh: true },
+        // 后台静默换发：既不触发 401 重放，也不弹「令牌已刷新」提示
+        extra: { skipAuthRefresh: true, skipSuccessMessage: true },
       })
       .json();
     applyTokens(tokens.accessToken);

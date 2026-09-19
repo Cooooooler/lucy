@@ -110,7 +110,7 @@ function SignupPageBlock() {
   const onSubmit = async (values: RegisterFormValues) => {
     try {
       await registerMutation.mutateAsync(values);
-      message.success('注册成功，请登录');
+      // 成功提示由后端 message 经全局 ApiMessageBridge 弹出，这里不再自己写文案。
       navigate({ to: '/login' });
     } catch (err) {
       message.error(err instanceof Error ? err.message : '注册失败');

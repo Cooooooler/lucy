@@ -1,7 +1,10 @@
 import { ErrorCode } from '@lucy/shared';
 import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
-import { AllExceptionsFilter } from './all-exceptions.filter.js';
+import {
+  AllExceptionsFilter,
+  readableErrorMessage,
+} from './all-exceptions.filter.js';
 
 describe('AllExceptionsFilter', () => {
   let filter: AllExceptionsFilter;
@@ -61,6 +64,18 @@ describe('AllExceptionsFilter', () => {
     });
   });
 
+  it('框架英文默认串按状态归一为中文', () => {
+    filter.catch(
+      new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED),
+      host,
+    );
+    expect(json).toHaveBeenCalledWith({
+      code: HttpStatus.UNAUTHORIZED,
+      message: '未登录或登录已过期',
+      data: null,
+    });
+  });
+
   it('非 HttpException 返回 500 + ErrorCode.INTERNAL', () => {
     filter.catch(new Error('oops'), host);
     expect(res.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
@@ -69,5 +84,46 @@ describe('AllExceptionsFilter', () => {
       message: '服务器内部错误',
       data: null,
     });
+  });
+});
+
+describe('readableErrorMessage', () => {
+  it.each([
+    ['Unauthorized', 401, '未登录或登录已过期'],
+    ['Forbidden', 403, '无权限访问'],
+    ['Not Found', 404, '请求的资源不存在'],
+    ['Too Many Requests', 429, '请求过于频繁，请稍后再试'],
+    ['Internal Server Error', 500, '服务器内部错误'],
+    ['Validation failed (uuid is expected)', 400, '请求参数有误'],
+    ['The value passed as UUID is not a string', 400, '请求参数有误'],
+    ['File too large', 413, '请求内容过大'],
+    ['Too many files', 400, '请求参数有误'],
+    ['Unexpected field', 400, '请求参数有误'],
+    ['Multipart: Boundary not found', 400, '请求参数有误'],
+  ])('框架英文「%s」按状态 %i 归一', (raw, status, expected) => {
+    expect(readableErrorMessage(raw, status)).toBe(expected);
+  });
+
+  it('Cannot GET /x 翻译成资源不存在', () => {
+    expect(readableErrorMessage('Cannot GET /nope', 404)).toBe(
+      '请求的资源不存在',
+    );
+  });
+
+  it('业务中文原样透出', () => {
+    expect(readableErrorMessage('用户名或密码错误', 401)).toBe(
+      '用户名或密码错误',
+    );
+  });
+
+  it('未收录的英文不动（等业务侧逐案改）', () => {
+    expect(readableErrorMessage('Something custom', 400)).toBe(
+      'Something custom',
+    );
+  });
+
+  it('空串回退状态兜底', () => {
+    expect(readableErrorMessage('   ', 400)).toBe('请求参数有误');
+    expect(readableErrorMessage('', 418)).toBe('请求失败');
   });
 });
