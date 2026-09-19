@@ -1,22 +1,14 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * 数据库初始化迁移（全库唯一迁移，由此前 16 个迁移压缩而来）。
+ * 数据库初始化迁移——**全库唯一的迁移**，描述当前完整结构，全新库一次建好。
  *
- * 库结构已稳定：迁移历史不再保留，本文件描述**当前**的最终结构，供全新库一次建好。
- * 因此历史数据操作一律不在此处重放——分批回填、`RENAME VALUE 'assistant'→'ai'`、
- * 描述列宽度的两次数值调整、`transaction = false` 的 `CREATE INDEX CONCURRENTLY`
- * 等都只对「旧库」有意义，对空库是空转（CONCURRENTLY 更是无谓且不能进事务）。
- * 需要提升账号为 superadmin 的环境，直接在库里执行一次 UPDATE（无提权接口，见
- * docs/superpowers/specs/2026-09-11-user-role-hierarchy-design.md §4）。
+ * 本阶段库一律重建（不做存量库收敛），所以这里只有建库 DDL：**结构变更直接改本文件**，
+ * 不要新增「给旧库补结构」的收敛迁移。目标库若已有这些对象（例如从备份恢复的库），
+ * 请先删库重建——本迁移不做「schema 已存在就跳过」的探测，那是为早已不存在的旧迁移链
+ * 准备的，留着只会让 `db:migrate` 的成功取决于库的历史状态。
  *
- * ⚠️ 存量库（跑过旧 16 个迁移的库）**直接跑本迁移即可**：`up()` 会先探测 schema 是否已存在，
- * 存在就跳过建表（TypeORM 仍会把本迁移记录为已执行，历史就此对齐）。这条探测是必须的——
- * 没有它的话，存量库的 `migrations` 表里只有旧记录，TypeORM 会把本迁移当成待执行去
- * `CREATE TABLE`，撞上「对象已存在」后报错回滚，该行永远落不了库，此后 `db:migrate`
- * 会**永久失败**，任何新迁移都再也上不去。
- *
- * 两个易被「顺手简化」而破坏的点：
+ * 三个易被「顺手简化」而破坏的点：
  * 1. `knowledge_bases`/`knowledge_documents` 的时间列默认值必须是
  *    `date_trunc('milliseconds', now())`：keyset 分页的游标精度是毫秒（JS Date 固有精度），
  *    默认值退回 `now()` 会写入微秒，使 `(created_at, id) < (:cursorTs, :cursorId)`
@@ -25,6 +17,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * 2. `knowledge_*` 的 keyset 索引排序方向是 `created_at DESC, id DESC`，
  *    而 `@Index` 装饰器只能表达 ASC——`migration:generate` 据此提出的 ASC 索引变更
  *    必须在人工审查时拒绝。
+ * 3. 提升账号为 superadmin 没有提权接口，直接在库里执行一次 UPDATE（见
+ *    docs/superpowers/specs/2026-09-11-user-role-hierarchy-design.md §4）。
  *
  * 事务：`transaction = true`，整个 DDL 要么全成、要么全回滚（约定见 data-source.ts）。
  *
@@ -36,22 +30,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class InitSchema1789700000000 implements MigrationInterface {
   name = 'InitSchema1789700000000';
 
-  /** 本迁移的时间戳（= 类名后缀），down() 用它判断「之前是否还有已执行的迁移」 */
-  static readonly TIMESTAMP = 1789700000000;
-
   /** 显式原子化：多语句 DDL 必须整体成功或整体回滚（约定见 data-source.ts）。 */
   transaction = true;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // 存量库保护（见文件头说明）：schema 已在则视为本迁移已应用，直接返回。
-    // 不能靠「文档里写一句不要跑」——那没有护栏，且会让 db:migrate 在存量库上永久失败。
-    const [existing] = (await queryRunner.query(
-      `SELECT to_regclass('public.users') AS table_name`,
-    )) as { table_name: string | null }[];
-    if (existing?.table_name) {
-      return;
-    }
-
     await queryRunner.query(`
       -- 用户
       CREATE TABLE "users" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "username" character varying(50) NOT NULL, "email" character varying(255) NOT NULL, "password_hash" character varying(255) NOT NULL, "nickname" character varying(50), "status" smallint NOT NULL DEFAULT '1', "role" character varying(20) NOT NULL DEFAULT 'user', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "UQ_97672ac88f789774dd47f7c8be3" UNIQUE ("email"), CONSTRAINT "UQ_fe0bb3f6520ee0469504521e710" UNIQUE ("username"), CONSTRAINT "CHK_users_role" CHECK ("role" IN ('user', 'admin', 'superadmin')), CONSTRAINT "PK_a3ffb1c0c8416b9fc6f907b7433" PRIMARY KEY ("id"));
@@ -92,19 +74,8 @@ export class InitSchema1789700000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    // 与 up() 对称：存量库上 up() 只做 baseline（schema 早已存在、什么都没建），down() 就绝不能
-    // 无条件整库 DROP——否则在那类库上执行一次 `db:revert` 会把整个库清空。
-    // 判据：本迁移之前是否还有已执行的迁移。有 ⇒ 表是旧迁移建的，本迁移不负责拆；
-    // 没有（全新库）⇒ 库是本迁移建的，由本迁移拆掉，保持 create → revert → 重跑 的往返可用。
-    const [older] = (await queryRunner.query(
-      `SELECT count(*)::int AS executed FROM "migrations" WHERE "timestamp" < $1`,
-      [InitSchema1789700000000.TIMESTAMP],
-    )) as { executed: number }[];
-    if (older.executed > 0) {
-      return;
-    }
-
-    // 逆依赖顺序整库拆掉（列级 down 对初始化迁移没有意义）
+    // 与 up() 对称：整库拆掉（列级 down 对初始化迁移没有意义），保持
+    // create → revert → 重跑 的往返可用。
     await queryRunner.query(`
       DROP TABLE "knowledge_likes";
       DROP TABLE "knowledge_documents";
