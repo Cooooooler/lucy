@@ -1,4 +1,4 @@
-import { API_VERSION } from '@lucy/shared';
+import { API_VERSION, type components } from '@lucy/shared';
 import { Body, Controller, Delete, Get, Patch, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -78,11 +78,14 @@ export class UsersController {
   }
 
   @Patch(':id/status')
-  @SuccessMessage((data) =>
-    (data as { status?: number } | null)?.status === 1
-      ? '用户已启用'
-      : '用户已禁用',
-  )
+  // status 严格三分：1→启用、0→禁用，其余（null/改名/契约变化）回中性兜底，
+  // 绝不把「取不到」判成「已禁用」误导用户。类型用共享契约替代手写断言。
+  @SuccessMessage((data) => {
+    const status = (data as components['schemas']['User'] | null)?.status;
+    if (status === 1) return '用户已启用';
+    if (status === 0) return '用户已禁用';
+    return '更新成功';
+  })
   @ApiOperation({
     summary: '启用/禁用用户',
     description:

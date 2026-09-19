@@ -1,6 +1,7 @@
 import {
   ExecutionContext,
   ForbiddenException,
+  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -108,14 +109,20 @@ describe('JwtAuthGuard', () => {
     ).toThrowError(business);
   });
 
-  it('err 非 401 异常时换成登录过期（不透出技术细节）', () => {
+  it('err 非 HttpException（如 Redis/DB 故障）按 500 抛中文，不伪装 401', () => {
     const guard = new JwtAuthGuard(
       { getAllAndOverride: vi.fn() } as unknown as Reflector,
       { isActive: () => false } as unknown as ClsService,
     );
-    expect(() =>
-      guard.handleRequest(new Error('boom'), null, null, context),
-    ).toThrowError(new UnauthorizedException('未登录或登录已过期'));
+    try {
+      guard.handleRequest(new Error('boom'), null, null, context);
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(InternalServerErrorException);
+      expect((err as InternalServerErrorException).message).toBe(
+        '服务器内部错误',
+      );
+    }
   });
 
   it('validate 抛出的 403 原样透出（不降级成 401）', () => {

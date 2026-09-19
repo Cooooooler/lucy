@@ -19,6 +19,7 @@ export function onApiSuccessMessage(listener: ApiSuccessListener): () => void {
 export function emitApiSuccessMessage(text: string): void {
   // 快照遍历 + 逐个兜底：广播发生在解包同步路径上，任一订阅者抛错
   // 或同步退订都不能污染已成功的数据流，也不能跳过其余订阅者。
+  // 注：`[...listeners]` 的复制是故意的快照语义（Sonar S7747 在此处为误报）。
   for (const listener of [...listeners]) {
     try {
       listener(text);

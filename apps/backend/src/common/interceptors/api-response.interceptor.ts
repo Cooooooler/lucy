@@ -3,6 +3,7 @@ import {
   CallHandler,
   ExecutionContext,
   Injectable,
+  Logger,
   NestInterceptor,
 } from '@nestjs/common';
 import type { Request } from 'express';
@@ -40,6 +41,8 @@ export function defaultSuccessMessage(method: string): string {
 
 @Injectable()
 export class ApiResponseInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(ApiResponseInterceptor.name);
+
   intercept(ctx: ExecutionContext, next: CallHandler) {
     const isSse = Boolean(Reflect.getMetadata(SSE_METADATA, ctx.getHandler()));
     // SSE 事件帧为 {type,data}，逐帧包 {code,message,data} 信封会破坏流协议，
@@ -65,7 +68,8 @@ export class ApiResponseInterceptor implements NestInterceptor {
   }
 
   // 文案优先级：@SuccessMessage（静态或解析器）> 方法级兜底 > 'ok'。
-  // 解析器抛错时回退方法级兜底：文案生成绝不能把一次成功响应变成 500。
+  // 解析器抛错时记 warn 后回退方法级兜底：文案生成绝不能把一次成功响应变成 500，
+  // 但载荷形状变化导致的反向文案必须让开发者看得见，否则用户看到错文案无人知晓。
   private resolveMessage(
     declared: string | SuccessMessageResolver | undefined,
     data: unknown,
@@ -74,7 +78,11 @@ export class ApiResponseInterceptor implements NestInterceptor {
     if (typeof declared === 'function') {
       try {
         return declared(data, request);
-      } catch {
+      } catch (err) {
+        this.logger.warn(
+          `SuccessMessage 解析失败，回退方法兜底：${request.method} ${request.path} ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
         return defaultSuccessMessage(request.method);
       }
     }

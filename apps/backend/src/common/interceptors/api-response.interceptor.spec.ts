@@ -1,4 +1,4 @@
-import type { ExecutionContext } from '@nestjs/common';
+import { Logger, type ExecutionContext } from '@nestjs/common';
 import 'reflect-metadata';
 import { firstValueFrom, lastValueFrom, of } from 'rxjs';
 import {
@@ -79,19 +79,28 @@ describe('ApiResponseInterceptor', () => {
     expect(result.message).toBe('用户已禁用');
   });
 
-  it('解析器抛错时回退方法级兜底，不把成功变 500', async () => {
-    const handler = () => {};
-    Reflect.defineMetadata(
-      SUCCESS_MESSAGE_KEY,
-      () => {
-        throw new Error('resolver boom');
-      },
-      handler,
-    );
-    const result = (await firstValueFrom(
-      interceptor.intercept(makeCtx(handler, 'DELETE'), next),
-    )) as { message: string };
-    expect(result.message).toBe('删除成功');
+  it('解析器抛错时记 warn 并回退方法级兜底，不把成功变 500', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {});
+    try {
+      const handler = () => {};
+      Reflect.defineMetadata(
+        SUCCESS_MESSAGE_KEY,
+        () => {
+          throw new Error('resolver boom');
+        },
+        handler,
+      );
+      const result = (await firstValueFrom(
+        interceptor.intercept(makeCtx(handler, 'DELETE'), next),
+      )) as { message: string };
+      expect(result.message).toBe('删除成功');
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain('resolver boom');
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('SSE 路由不包裹信封，原样透传', async () => {

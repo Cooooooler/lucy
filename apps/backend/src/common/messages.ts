@@ -14,7 +14,7 @@
 export const RATE_LIMIT_MESSAGE = '请求过于频繁，请稍后再试';
 
 /** 按 HTTP 状态的中文兜底：过滤器在 message 缺失或为框架英文默认串时使用 */
-export const HTTP_STATUS_MESSAGES: Record<number, string> = {
+export const HTTP_STATUS_MESSAGES: Partial<Record<number, string>> = {
   400: '请求参数有误',
   401: '未登录或登录已过期',
   403: '无权限访问',
