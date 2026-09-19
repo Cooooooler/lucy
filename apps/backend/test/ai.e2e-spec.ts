@@ -1,41 +1,17 @@
 import { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
-import cookieParser from 'cookie-parser';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { AppModule } from '../src/app.module.js';
-
-interface ApiBody<T> {
-  code: number;
-  message: string;
-  data: T;
-}
-
-interface LoginData {
-  accessToken: string;
-  user: { id: string; role: string };
-}
+import {
+  type ApiBody,
+  createE2eApp,
+  registerAndLogin,
+} from './e2e-auth.helper.js';
 
 interface ConversationPage {
   list: Record<string, unknown>[];
   nextCursor: string | null;
-}
-
-async function registerAndLogin(
-  server: Server,
-  username: string,
-): Promise<LoginData> {
-  await request(server)
-    .post('/auth/register')
-    .send({ username, email: `${username}@test.com`, password: 'Password1!' })
-    .expect(201);
-  const res = await request(server)
-    .post('/auth/login')
-    .send({ account: username, password: 'Password1!' })
-    .expect(201);
-  return (res.body as ApiBody<LoginData>).data;
 }
 
 /**
@@ -108,14 +84,7 @@ describe('AI conversation keyset pagination (e2e)', () => {
   }
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-    app = moduleRef.createNestApplication();
-    app.use(cookieParser());
-    await app.init();
-    server = app.getHttpServer();
-    dataSource = app.get(DataSource);
+    ({ app, server, dataSource } = await createE2eApp());
 
     const login = await registerAndLogin(server, `e2e_ai_${suffix}`);
     token = login.accessToken;

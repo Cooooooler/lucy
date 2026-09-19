@@ -9,7 +9,6 @@ import { AppLogger } from '../common/app-logger.service.js';
 import { encodeCursor } from '../common/pagination/cursor.js';
 import { DEFAULT_PAGE_SIZE } from '../common/pagination/pagination.constants.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
-import { toConversationItem } from './ai.mapper.js';
 import { AiService } from './ai.service.js';
 import { ContextService } from './context.service.js';
 import { Conversation } from './entities/conversation.entity.js';
@@ -159,23 +158,32 @@ describe('AiService', () => {
     });
   });
 
+  /** 列表项允许式白名单的键集（已排序，与 `Object.keys(...).sort()` 比对） */
+  const itemKeys = ['createdAt', 'id', 'model', 'title', 'updatedAt'];
+
   it('list 走游标分页：过滤归属用户，按 updatedAt 排序，列表项走允许式白名单', async () => {
-    const row = timedConv(1);
+    const row = Object.assign(timedConv(1), {
+      title: '会话标题',
+      model: 'qwen2.5:7b',
+    });
     const qb = makeListQueryBuilder([row]);
     conversationRepo.createQueryBuilder.mockReturnValue(qb);
 
     const page = await service.list('1', undefined, undefined);
 
     expect(page.nextCursor).toBeNull();
-    expect(page.list).toEqual([toConversationItem(row)]);
-    // 白名单：不含 userId 等实体字段（拿实体当契约等于「新增字段默认出网」）
-    expect(Object.keys(page.list[0]).sort()).toEqual([
-      'createdAt',
-      'id',
-      'model',
-      'title',
-      'updatedAt',
+    // 期望值逐字段显式写出、不引用生产 mapper：否则映射器漏拷/错拷字段时这里会恒等通过
+    expect(page.list).toEqual([
+      {
+        id: row.id,
+        title: '会话标题',
+        model: 'qwen2.5:7b',
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      },
     ]);
+    // 白名单：不含 userId 等实体字段（拿实体当契约等于「新增字段默认出网」）
+    expect(Object.keys(page.list[0]).sort()).toEqual(itemKeys);
     expect(conversationRepo.createQueryBuilder).toHaveBeenCalledWith('c');
     expect(qb.where).toHaveBeenCalledWith('c.userId = :userId', {
       userId: '1',
@@ -204,10 +212,17 @@ describe('AiService', () => {
       '(c.updated_at, c.id) < (:cursorTs, :cursorId)',
       { cursorTs: last.updatedAt, cursorId: last.id },
     );
-    expect(page.list).toEqual([
-      toConversationItem(rows[0]),
-      toConversationItem(rows[1]),
-    ]);
+    expect(page.list).toHaveLength(2);
+    // 同上：逐字段写期望，且这条裁剪路径也要断言形状（此前没有）
+    expect(page.list[0]).toEqual({
+      id: rows[0].id,
+      title: rows[0].title,
+      model: rows[0].model,
+      createdAt: rows[0].createdAt,
+      updatedAt: rows[0].updatedAt,
+    });
+    expect(Object.keys(page.list[0]).sort()).toEqual(itemKeys);
+    expect(page.list.map((item) => item.id)).toEqual([rows[0].id, rows[1].id]);
     expect(page.nextCursor).toBe(
       encodeCursor(rows[1].updatedAt, rows[1].id, 'updatedAt'),
     );

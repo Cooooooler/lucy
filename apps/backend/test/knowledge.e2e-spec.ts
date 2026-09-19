@@ -1,43 +1,19 @@
 import { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
-import cookieParser from 'cookie-parser';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { AppModule } from '../src/app.module.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
 } from '../src/knowledge/entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from '../src/knowledge/entities/knowledge-document.entity.js';
 import { KnowledgeService } from '../src/knowledge/knowledge.service.js';
-
-interface ApiBody<T> {
-  code: number;
-  message: string;
-  data: T;
-}
-
-interface LoginData {
-  accessToken: string;
-  user: { id: string; role: string };
-}
-
-async function registerAndLogin(
-  server: Server,
-  username: string,
-): Promise<LoginData> {
-  await request(server)
-    .post('/auth/register')
-    .send({ username, email: `${username}@test.com`, password: 'Password1!' })
-    .expect(201);
-  const res = await request(server)
-    .post('/auth/login')
-    .send({ account: username, password: 'Password1!' })
-    .expect(201);
-  return (res.body as ApiBody<LoginData>).data;
-}
+import {
+  type ApiBody,
+  createE2eApp,
+  registerAndLogin,
+} from './e2e-auth.helper.js';
 
 /**
  * 删除本用例造出的全部数据（含 likes / documents / files / 知识库 / 用户），
@@ -183,14 +159,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
   }
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-    app = moduleRef.createNestApplication();
-    app.use(cookieParser());
-    await app.init();
-    server = app.getHttpServer();
-    dataSource = app.get(DataSource);
+    ({ app, server, dataSource } = await createE2eApp());
 
     const login = await registerAndLogin(server, `e2e_kb_${suffix}`);
     token = login.accessToken;
@@ -531,17 +500,9 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
   };
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    })
-      .overrideProvider(KnowledgeService)
-      .useValue(stub)
-      .compile();
-    app = moduleRef.createNestApplication();
-    app.use(cookieParser());
-    await app.init();
-    server = app.getHttpServer();
-    dataSource = app.get(DataSource);
+    ({ app, server, dataSource } = await createE2eApp((builder) =>
+      builder.overrideProvider(KnowledgeService).useValue(stub),
+    ));
 
     const login = await registerAndLogin(server, `e2e_ser_${suffix}`);
     token = login.accessToken;

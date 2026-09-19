@@ -1,18 +1,10 @@
 import { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
-import cookieParser from 'cookie-parser';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { AppModule } from '../src/app.module.js';
 import { User } from '../src/users/user.entity.js';
-
-interface ApiBody<T> {
-  code: number;
-  message: string;
-  data: T;
-}
+import { type ApiBody, createE2eApp } from './e2e-auth.helper.js';
 
 interface TokenData {
   accessToken: string;
@@ -24,13 +16,7 @@ describe('Auth (e2e)', () => {
   const suffix = randomUUID().slice(0, 8);
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-    app = moduleRef.createNestApplication();
-    // 与 main.ts 保持一致：refresh 令牌经 HttpOnly cookie 读写，需 cookieParser 解析
-    app.use(cookieParser());
-    await app.init();
+    ({ app } = await createE2eApp());
   });
 
   afterAll(async () => {

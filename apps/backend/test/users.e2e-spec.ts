@@ -1,55 +1,23 @@
 import { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
-import cookieParser from 'cookie-parser';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { AppModule } from '../src/app.module.js';
 import { UserRole } from '../src/common/roles.js';
 import { User } from '../src/users/user.entity.js';
-
-interface ApiBody<T> {
-  code: number;
-  message: string;
-  data: T;
-}
-
-interface LoginData {
-  accessToken: string;
-  user: { id: string; role: string };
-}
-
-async function login(server: Server, username: string): Promise<LoginData> {
-  const res = await request(server)
-    .post('/auth/login')
-    .send({ account: username, password: 'Password1!' })
-    .expect(201);
-  return (res.body as ApiBody<LoginData>).data;
-}
-
-async function registerAndLogin(
-  server: Server,
-  username: string,
-): Promise<LoginData> {
-  await request(server)
-    .post('/auth/register')
-    .send({ username, email: `${username}@test.com`, password: 'Password1!' })
-    .expect(201);
-  return login(server, username);
-}
+import {
+  type ApiBody,
+  createE2eApp,
+  login,
+  registerAndLogin,
+} from './e2e-auth.helper.js';
 
 describe('Users role (e2e)', () => {
   let app: INestApplication<Server>;
   const suffix = randomUUID().slice(0, 8);
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-    app = moduleRef.createNestApplication();
-    app.use(cookieParser());
-    await app.init();
+    ({ app } = await createE2eApp());
   });
 
   afterAll(async () => {
