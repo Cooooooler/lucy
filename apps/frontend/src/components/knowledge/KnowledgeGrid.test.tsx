@@ -44,6 +44,7 @@ function renderGrid(overrides: Partial<GridProps> = {}) {
     error: null,
     hasNextPage: false,
     isFetchingNextPage: false,
+    isFetchNextPageError: false,
     isPlaceholderData: false,
     fetchNextPage: vi.fn(),
     refetch: vi.fn(),
@@ -162,6 +163,26 @@ describe('KnowledgeGrid', () => {
     const { props } = renderGrid({ items, hasNextPage: true });
     await waitFor(() => expect(props.fetchNextPage).toHaveBeenCalled());
     expect(screen.queryByText('已加载全部')).not.toBeInTheDocument();
+  });
+
+  it('取下一页失败：页脚就地提示 + 重试，且不再自动重发（不会形成失败重试风暴）', async () => {
+    const items = [makeKb('kb1', '知识库 A')];
+    makeFirstItemVisible();
+    const { props } = renderGrid({
+      items,
+      hasNextPage: true,
+      isFetchNextPageError: true,
+    });
+
+    // 列表仍在（不是整页错误态）
+    expect(screen.getByText('知识库 A')).toBeInTheDocument();
+    expect(screen.queryByText('加载失败')).toBeInTheDocument();
+    expect(screen.queryByText('已加载全部')).not.toBeInTheDocument();
+    // hook 侧已闩住：不会因为 isFetchingNextPage 由 true→false 而立刻重发
+    expect(props.fetchNextPage).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: /重\s*试/ }));
+    expect(props.fetchNextPage).toHaveBeenCalledTimes(1);
   });
 
   it('加载下一页时显示加载中', () => {
@@ -296,6 +317,7 @@ describe('KnowledgeGrid', () => {
       error: null,
       hasNextPage: false,
       isFetchingNextPage: false,
+      isFetchNextPageError: false,
       isPlaceholderData: false,
       fetchNextPage: vi.fn(),
       refetch: vi.fn(),

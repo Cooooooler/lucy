@@ -29,6 +29,18 @@ const migrationFiles = readdirSync(MIGRATIONS_DIR).filter((file) =>
   /^\d+.*\.ts$/.test(file),
 );
 
+/**
+ * 允许裸跑（`transaction = false`）的迁移**白名单**：只放行「必须在事务外执行」的迁移
+ * ——`CREATE INDEX CONCURRENTLY`、分批回填。往里加名字就是一次显式决定，
+ * 借此挡住「照抄一句 transaction = false」或把语义写反却仍然绿灯。
+ */
+const BARE_RUN_MIGRATIONS = new Set<string>([]);
+
+/** 迁移文件名是否在白名单里（按类名匹配；改名即失效 → 必须重新确认） */
+function isBareRunAllowed(file: string): boolean {
+  return [...BARE_RUN_MIGRATIONS].some((name) => file.includes(name));
+}
+
 /** 加载迁移模块并取出生明的迁移类实例 */
 async function loadMigrationInstances(): Promise<
   { file: string; instance: MigrationInterface }[]
@@ -68,6 +80,24 @@ describe('迁移事务约定', () => {
       `以下迁移未声明 transaction，在 migrationsTransactionMode: 'none' 下会被静默按非原子执行：\n` +
         `${missing.join('\n')}\n` +
         `需要原子性请加 \`transaction = true;\`；必须裸跑（CONCURRENTLY / 分批回填）请加 \`transaction = false;\` 并说明理由。`,
+    ).toEqual([]);
+  });
+
+  it('除裸跑白名单外，迁移必须显式声明 transaction = true', async () => {
+    const migrations = await loadMigrationInstances();
+    const notAtomic = migrations
+      .filter(
+        ({ file, instance }) =>
+          instance.transaction !== true && !isBareRunAllowed(file),
+      )
+      .map(({ file }) => file);
+
+    expect(
+      notAtomic,
+      `以下迁移声明了 \`transaction = false\`（或写法有误）却不在裸跑白名单里：\n` +
+        `${notAtomic.join('\n')}\n` +
+        `真的必须裸跑（CREATE INDEX CONCURRENTLY / 分批回填）请把类名加进 BARE_RUN_MIGRATIONS 并写明理由；` +
+        `否则请改回 \`transaction = true\`——none 模式下一次中途失败会留下无法重跑的半成品。`,
     ).toEqual([]);
   });
 });

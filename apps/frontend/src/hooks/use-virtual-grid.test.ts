@@ -537,6 +537,33 @@ describe('useVirtualGrid', () => {
     expect(fetchNextPage).not.toHaveBeenCalled();
   });
 
+  it('取下一页失败后停手：不再自动重发（否则 true→false 会触发失败重试风暴）', () => {
+    virtualizerStub.getVirtualItems.mockReturnValue([makeVirtualItem(5)]);
+    const fetchNextPage = vi.fn();
+    const { rerender } = renderHook(
+      ({ isFetchNextPageError }: { isFetchNextPageError: boolean }) =>
+        useVirtualGrid({
+          scrollElement: null,
+          count: 6,
+          hasNextPage: true,
+          isFetchingNextPage: false,
+          fetchNextPage,
+          isFetchNextPageError,
+        }),
+      { initialProps: { isFetchNextPageError: false } },
+    );
+    // 正常情况会预取一次
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
+
+    // 失败后（isFetchingNextPage 也由 true 回到 false）不能再自动发请求
+    rerender({ isFetchNextPageError: true });
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
+
+    // 用户重试成功后恢复自动预取
+    rerender({ isFetchNextPageError: false });
+    expect(fetchNextPage).toHaveBeenCalledTimes(2);
+  });
+
   it('恢复结束时回调一次 onRestoreDone（调用方据此消费锚点）', () => {
     const scrollElement = makeScrollElement();
     const onRestoreDone = vi.fn();

@@ -211,6 +211,7 @@ function KnowledgeComponent() {
           error={query.error}
           hasNextPage={query.hasNextPage}
           isFetchingNextPage={query.isFetchingNextPage}
+          isFetchNextPageError={query.isFetchNextPageError}
           isPlaceholderData={query.isPlaceholderData}
           fetchNextPage={query.fetchNextPage}
           refetch={query.refetch}

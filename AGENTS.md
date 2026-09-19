@@ -91,7 +91,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 - `TypeOrmModule.forRootAsync` 读取上述变量，`synchronize: false`（schema 变更只走迁移），`autoLoadEntities: true`。
 - 迁移：`src/db/data-source.ts` 是 CLI 专用 DataSource（内置 `dotenv/config`），迁移文件放 `src/db/migrations/`。
-- **e2e 跑在独立测试库上**：`test:e2e` 会先执行 `test/prepare-e2e-db.ts`（重建 `lucy_test` 并跑迁移），库名由 `vitest.e2e.config.ts` 的 `test.env` 指定——写在 spec 文件顶部**无效**（ESM 提升会让赋值晚于 `ConfigModule` 读取 `.env` 并快照的时刻，实测会打到开发库）。脚本带安全阀：库名不以 `_test` 结尾直接报错。
+- **e2e 跑在独立测试库上**：库名唯一定义在 `test/e2e-db-config.ts`（`E2E_DB_NAME`，缺省 `lucy_test`；非 `*_test` 后缀直接抛错，因此绕过 `pnpm test:e2e` 直接跑 vitest 也拦得住）。`test:e2e` 会先执行 `test/prepare-e2e-db.ts`：重建测试库 → 跑迁移 → **验一次 `migrate → revert ×2 → migrate` 往返**。库名不能写在各 spec 顶部——ESM 提升会让赋值晚于 `ConfigModule` 读取 `.env` 并快照的时刻（实测会打到开发库）。
 - **迁移历史已压缩**：全库只剩 `1789700000000-InitSchema.ts`（初始化，只描述当前结构）与随后的存量库收敛迁移（如 `1789800000000-DropRedundantKnowledgeIndexes`）。存量库**直接跑 `db:migrate` 即可**：`up()` 会先探测 schema 是否已存在，存在就跳过建表并被记录为已执行（反过来 `down()` 也会判断「之前是否还有已执行的迁移」，存量库上不做整库 DROP，避免 `db:revert` 清库——两条分支由 `src/db/init-schema.migration.spec.ts` 钉住）。
 - 每个迁移**必须显式声明 `transaction`**：`migrationsTransactionMode: 'none'` 下「未声明」等于「非原子」，由 `src/db/migrations.spec.ts` 动态 import 迁移实例强制（不是扫源码文本）。
 - 新增迁移（脚本未内置，Windows cmd 下 `$npm_config_name` 无法展开）：

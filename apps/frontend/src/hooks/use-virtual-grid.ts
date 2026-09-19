@@ -27,6 +27,12 @@ type UseVirtualGridOptions = {
    * 占位页携带的是**旧条件**的 nextCursor，此时翻页会把旧游标配新条件发出去，必须停手。
    */
   isPlaceholderData?: boolean;
+  /**
+   * 上一次「取下一页」失败时为 true。失败后**必须停手**：`isFetchingNextPage` 由 true 变 false
+   * 会让触底 effect 重新满足条件并立刻再发一次请求（失败 → 重发 → 失败，无限重试），
+   * 而失败重试的入口交给页脚按钮，由此处只负责不再自动触发。
+   */
+  isFetchNextPageError?: boolean;
   /** 挂载时一次性恢复到的首可见项索引；仅当 0 < index < count 时生效 */
   initialRestoreIndex?: number;
   /** 首可见项索引变化回调（滚动中持续上报，不触发渲染） */
@@ -127,6 +133,7 @@ export function useVirtualGrid({
   isFetchingNextPage,
   fetchNextPage,
   isPlaceholderData = false,
+  isFetchNextPageError = false,
   initialRestoreIndex = 0,
   onFirstVisibleItemChange,
   onRestoreDone,
@@ -226,11 +233,15 @@ export function useVirtualGrid({
     // 占位数据属于上一组筛选条件，它的 nextCursor 与新条件不匹配：
     // 此时翻页 = 旧游标 + 新过滤条件，会拉到一页与当前列表无关的数据
     if (isPlaceholderData) return;
+    // 上一次取下一页已失败：停手，等用户在页脚主动重试。
+    // 不停手的话 isFetchingNextPage 由 true→false 会让本 effect 立刻重发，形成失败重试风暴。
+    if (isFetchNextPageError) return;
     if (!hasNextPage || isFetchingNextPage) return;
     // 提前两行预取
     if (lastVisibleIndex >= count - layout.columns * 2) fetchNextPage();
   }, [
     isPlaceholderData,
+    isFetchNextPageError,
     lastVisibleIndex,
     count,
     hasNextPage,

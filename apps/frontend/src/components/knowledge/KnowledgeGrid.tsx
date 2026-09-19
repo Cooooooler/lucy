@@ -22,6 +22,8 @@ type KnowledgeGridProps = {
   error: unknown;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
+  /** 取下一页失败：页脚就地提示 + 重试（不走整页 isError，避免丢掉已加载的列表） */
+  isFetchNextPageError: boolean;
   /** 渲染的是上一组筛选条件的占位数据（keepPreviousData）：列表保持可见，只给轻量加载提示 */
   isPlaceholderData: boolean;
   fetchNextPage: () => void;
@@ -100,17 +102,37 @@ const KnowledgeGridEmpty: FC<{ hasFilter: boolean }> = ({ hasFilter }) => (
   />
 );
 
-/** 触底加载/换筛选过渡状态：加载中 / 已加载全部 */
+/** 触底加载/换筛选过渡/取下一页失败：三种状态都在页脚就地表达 */
 const KnowledgeGridFooter: FC<{
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   isPlaceholderData: boolean;
-}> = ({ hasNextPage, isFetchingNextPage, isPlaceholderData }) => {
+  isFetchNextPageError: boolean;
+  onRetryNextPage: () => void;
+}> = ({
+  hasNextPage,
+  isFetchingNextPage,
+  isPlaceholderData,
+  isFetchNextPageError,
+  onRetryNextPage,
+}) => {
   if (isFetchingNextPage || isPlaceholderData) {
     return (
       <div className="flex h-12 items-center justify-center gap-2 py-4">
         <Spin size="small" />
         <span className="text-sm text-gray-400">加载中</span>
+      </div>
+    );
+  }
+  // 失败就地提示 + 重试：不能走整页 isError 分支——那会把已经加载好的整屏列表换成错误页，
+  // 已加载的分页与滚动位置全丢；同时预取已被 hook 闩住，重试入口只在这里。
+  if (isFetchNextPageError) {
+    return (
+      <div className="flex h-12 items-center justify-center gap-2 py-4">
+        <span className="text-sm text-gray-400">加载失败</span>
+        <Button type="link" size="small" onClick={onRetryNextPage}>
+          重试
+        </Button>
       </div>
     );
   }
@@ -128,6 +150,7 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
   items,
   hasNextPage,
   isFetchingNextPage,
+  isFetchNextPageError,
   isPlaceholderData,
   fetchNextPage,
   onEdit,
@@ -144,6 +167,7 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
     count: items.length,
     hasNextPage,
     isFetchingNextPage,
+    isFetchNextPageError,
     fetchNextPage,
     isPlaceholderData,
     initialRestoreIndex,
@@ -200,6 +224,8 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         isPlaceholderData={isPlaceholderData}
+        isFetchNextPageError={isFetchNextPageError}
+        onRetryNextPage={fetchNextPage}
       />
     </>
   );
