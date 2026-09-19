@@ -1,5 +1,4 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsOptional,
@@ -32,22 +31,21 @@ export class RegisterDto {
   @IsEmail()
   email: string;
 
-  // 密码常从密码管理器/剪贴板粘贴，首尾空白不可见且客户端往往自行 trim；
-  // 不先 trim 再入库，就会造出「用户自认的密码登不进去」的账号（登录侧同样 trim，两侧一致）
+  // 复杂度正则带前瞻、且需要 u 标志，而 JSON Schema 的 pattern 没有 flags 位、
+  // 多个引擎（Go RE2、Rust regex）编译前瞻直接失败——写进契约会让非 JS 消费方生成不出代码。
+  // 边界（长度）照常下发，复杂度规则放 description 说明。
   @ApiProperty({
-    description: '密码（8-72 位，需含大小写字母、数字与特殊字符）',
+    description:
+      '密码（8-72 位，需含大写字母、小写字母、数字与至少一个符号/标点；首尾不能是空白）',
     example: 'Password1!',
     minLength: 8,
     maxLength: 72,
-    pattern: PASSWORD_PATTERN.source,
   })
-  @Transform(({ value }): unknown =>
-    typeof value === 'string' ? value.trim() : (value as unknown),
-  )
   @IsString()
   @Length(8, 72)
   @Matches(PASSWORD_PATTERN, {
-    message: '密码需包含大写字母、小写字母、数字与特殊字符',
+    message:
+      '密码需包含大写字母、小写字母、数字与至少一个符号（首尾不能是空白）',
   })
   password: string;
 

@@ -1,5 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 export class LoginDto {
@@ -17,19 +16,16 @@ export class LoginDto {
   // account 接受用户名或邮箱二选一，由 AuthService 依是否含 '@' 分流查询
   account: string;
 
-  // 上界与注册侧 RegisterDto 的 @Length(8, 72) 同范围：登录只挡明显越界输入，
-  // 真正的强度判定在注册侧（哈希是 node:crypto scrypt，没有 bcrypt 的 72 字节截断一说）
+  // 刻意**不 trim**：trim 等于把待验证凭据换成另一个字符串，而旧版注册正则没有 `$` 锚定、
+  // 曾放行过含首尾空白的密码（` Pass1! ` 会被原样哈希），那些存量账号一旦在登录侧被 trim
+  // 就永远 401，且本仓库没有改密/重置入口。上界与注册侧 @Length(8, 72) 同范围，
+  // 只挡明显越界输入（真正的强度判定在注册侧；哈希是 node:crypto scrypt，无 bcrypt 的截断一说）
   @ApiProperty({
     description: '密码',
     example: 'Password1!',
     minLength: 1,
     maxLength: 72,
   })
-  // 与注册侧一致地 trim：注册时入库的是 trim 后的值，登录不 trim 会让
-  // 「粘贴密码时带了个尾随空格」直接 401
-  @Transform(({ value }): unknown =>
-    typeof value === 'string' ? value.trim() : (value as unknown),
-  )
   @IsString()
   @IsNotEmpty()
   @MaxLength(72)

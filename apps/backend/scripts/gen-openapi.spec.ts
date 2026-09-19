@@ -4,10 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
-import {
-  PASSWORD_PATTERN,
-  USERNAME_PATTERN,
-} from '../src/auth/dto/register.constraints.js';
+import { USERNAME_PATTERN } from '../src/auth/dto/register.constraints.js';
 import {
   CURSOR_MAX_LENGTH,
   CURSOR_PATTERN,
@@ -236,11 +233,13 @@ describe('gen-openapi', () => {
       maxLength: 50,
       pattern: USERNAME_PATTERN.source,
     });
+    // 密码只下发长度边界：复杂度正则带前瞻且需 u 标志，JSON Schema 的 pattern 无 flags、
+    // Go RE2/Rust regex 编译前瞻会失败，规则改由 description 承载（schema 里无 pattern）
     expect(propOf('RegisterDto', 'password')).toMatchObject({
       minLength: 8,
       maxLength: 72,
-      pattern: PASSWORD_PATTERN.source,
     });
+    expect(propOf('RegisterDto', 'password')?.pattern).toBeUndefined();
     expect(propOf('RegisterDto', 'email')).toMatchObject({ format: 'email' });
   });
 });
