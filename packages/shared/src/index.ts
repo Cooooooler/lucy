@@ -1,5 +1,9 @@
 import type { operations } from './generated/openapi.js';
 
+// 前后端共用的契约边界常量（用户名/密码规则、各字段长度上界）：
+// 后端校验与文档、前端 zod 与输入框上限都从这里取，避免只改一半的漂移
+export * from './contract-limits.js';
+
 /** 后端统一响应包裹结构，前后端共享 */
 export interface ApiResponse<T = unknown> {
   code: number;

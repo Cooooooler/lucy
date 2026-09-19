@@ -1,10 +1,26 @@
+import {
+  CONVERSATION_TITLE_MAX_LENGTH,
+  CONVERSATION_TITLE_MIN_LENGTH,
+  EMAIL_MAX_LENGTH,
+  KNOWLEDGE_KEYWORD_MAX_LENGTH,
+  LOGIN_ACCOUNT_MAX_LENGTH,
+  MESSAGE_CONTENT_MAX_LENGTH,
+  MESSAGE_CONTENT_MIN_LENGTH,
+  MODEL_NAME_MAX_LENGTH,
+  NICKNAME_MAX_LENGTH,
+  NICKNAME_MIN_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  USERNAME_MAX_LENGTH,
+  USERNAME_MIN_LENGTH,
+  USERNAME_PATTERN,
+} from '@lucy/shared';
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
-import { USERNAME_PATTERN } from '../src/auth/dto/register.constraints.js';
 import {
   CURSOR_MAX_LENGTH,
   CURSOR_PATTERN,
@@ -195,51 +211,59 @@ describe('gen-openapi', () => {
     }
 
     // 各列表自己的过滤关键字：@MaxLength 只写在装饰器时文档是无边界字符串
-    expect(paramOf('/knowledge', 'name')).toMatchObject({ maxLength: 100 });
+    expect(paramOf('/knowledge', 'name')).toMatchObject({
+      maxLength: KNOWLEDGE_KEYWORD_MAX_LENGTH,
+    });
     expect(paramOf('/knowledge/{kbId}/documents', 'keyword')).toMatchObject({
-      maxLength: 100,
+      maxLength: KNOWLEDGE_KEYWORD_MAX_LENGTH,
     });
 
-    // 请求体边界：只写 @MinLength/@MaxLength 时文档是空的，必须两处同步
+    // 请求体边界：只写 @MinLength/@MaxLength 时文档是空的，必须两处同步。
+    // 期望值一律取自 @lucy/shared 的契约常量——否则改边界要动三处（装饰器/文档选项/测试），
+    // 而且测试只能证明「等于某个字面量」而非「与前端共用的那份契约一致」
     expect(propOf('SendMessageDto', 'content')).toMatchObject({
-      minLength: 1,
-      maxLength: 4000,
+      minLength: MESSAGE_CONTENT_MIN_LENGTH,
+      maxLength: MESSAGE_CONTENT_MAX_LENGTH,
     });
     expect(propOf('SendMessageDto', 'model')).toMatchObject({
-      maxLength: 100,
+      maxLength: MODEL_NAME_MAX_LENGTH,
     });
     expect(propOf('CreateConversationDto', 'model')).toMatchObject({
-      maxLength: 100,
+      maxLength: MODEL_NAME_MAX_LENGTH,
     });
     expect(propOf('RenameConversationDto', 'title')).toMatchObject({
-      minLength: 1,
-      maxLength: 50,
+      minLength: CONVERSATION_TITLE_MIN_LENGTH,
+      maxLength: CONVERSATION_TITLE_MAX_LENGTH,
     });
-    // LoginDto：account 进等值查询、password 与注册侧 @Length(8, 72) 同范围
+    // LoginDto：account 进等值查询、password 与注册侧同范围
     expect(propOf('LoginDto', 'account')).toMatchObject({
       minLength: 1,
-      maxLength: 255,
+      maxLength: LOGIN_ACCOUNT_MAX_LENGTH,
     });
     expect(propOf('LoginDto', 'password')).toMatchObject({
       minLength: 1,
-      maxLength: 72,
+      maxLength: PASSWORD_MAX_LENGTH,
     });
     expect(propOf('RegisterDto', 'nickname')).toMatchObject({
-      minLength: 1,
-      maxLength: 50,
+      minLength: NICKNAME_MIN_LENGTH,
+      maxLength: NICKNAME_MAX_LENGTH,
     });
     expect(propOf('RegisterDto', 'username')).toMatchObject({
-      minLength: 3,
-      maxLength: 50,
+      minLength: USERNAME_MIN_LENGTH,
+      maxLength: USERNAME_MAX_LENGTH,
       pattern: USERNAME_PATTERN.source,
     });
     // 密码只下发长度边界：复杂度正则带前瞻且需 u 标志，JSON Schema 的 pattern 无 flags、
     // Go RE2/Rust regex 编译前瞻会失败，规则改由 description 承载（schema 里无 pattern）
     expect(propOf('RegisterDto', 'password')).toMatchObject({
-      minLength: 8,
-      maxLength: 72,
+      minLength: PASSWORD_MIN_LENGTH,
+      maxLength: PASSWORD_MAX_LENGTH,
     });
     expect(propOf('RegisterDto', 'password')?.pattern).toBeUndefined();
-    expect(propOf('RegisterDto', 'email')).toMatchObject({ format: 'email' });
+    // 邮箱上界与 users.email 列（varchar(255)）对齐，超长会在插入时报 22001（500）
+    expect(propOf('RegisterDto', 'email')).toMatchObject({
+      format: 'email',
+      maxLength: EMAIL_MAX_LENGTH,
+    });
   });
 });

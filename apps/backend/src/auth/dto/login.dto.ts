@@ -1,18 +1,19 @@
+import { LOGIN_ACCOUNT_MAX_LENGTH, PASSWORD_MAX_LENGTH } from '@lucy/shared';
 import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 export class LoginDto {
   // 登录是唯一没有长度边界的 auth 请求体：account 会直接进「按用户名或邮箱等值查询」，
-  // 超长输入是廉价的扫描放大器。255 同时覆盖 username（50）与 email 形态
+  // 超长输入是廉价的扫描放大器。上界覆盖 username（50）与 email（255）两种形态
   @ApiProperty({
     description: '用户名或邮箱',
     example: 'lucy',
     minLength: 1,
-    maxLength: 255,
+    maxLength: LOGIN_ACCOUNT_MAX_LENGTH,
   })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(255)
+  @MaxLength(LOGIN_ACCOUNT_MAX_LENGTH)
   // account 接受用户名或邮箱二选一，由 AuthService 依是否含 '@' 分流查询
   account: string;
 
@@ -24,10 +25,10 @@ export class LoginDto {
     description: '密码',
     example: 'Password1!',
     minLength: 1,
-    maxLength: 72,
+    maxLength: PASSWORD_MAX_LENGTH,
   })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(72)
+  @MaxLength(PASSWORD_MAX_LENGTH)
   password: string;
 }

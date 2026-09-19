@@ -3,7 +3,6 @@ import {
   MiddlewareConsumer,
   Module,
   NestModule,
-  ValidationPipe,
 } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -14,6 +13,7 @@ import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
 import { ApiResponseInterceptor } from './interceptors/api-response.interceptor.js';
 import { RequestContextMiddleware } from './request-context.middleware.js';
 import { ShutdownService } from './shutdown.service.js';
+import { createValidationPipe } from './validation-pipe.js';
 
 @Module({
   imports: [
@@ -46,11 +46,8 @@ import { ShutdownService } from './shutdown.service.js';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     {
       provide: APP_PIPE,
-      useValue: new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
+      // 配置在 createValidationPipe 里唯一定义（测试断言的是同一份配置下的行为）
+      useValue: createValidationPipe(),
     },
   ],
   exports: [AppLogger, ShutdownService],

@@ -1,9 +1,8 @@
-import { ValidationPipe } from '@nestjs/common';
-import { APP_PIPE } from '@nestjs/core';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import 'reflect-metadata';
-import { CommonModule } from '../../common/common.module.js';
+import { describe, expect, it } from 'vitest';
+import { createValidationPipe } from '../../common/validation-pipe.js';
 import { RegisterDto } from './register.dto.js';
 
 const validBase = {
@@ -94,25 +93,17 @@ describe('RegisterDto 密码强度校验', () => {
   );
 });
 
-// 属性级校验之外，再钉住真正生效的入口。实例取自 CommonModule 的声明本身，
-// 不是手抄一份选项——线上 APP_PIPE 配置改了（例如去掉 forbidNonWhitelisted），
-// 下面的行为断言就会红。
-// 不用 Test.createTestingModule 编译 CommonModule：它的 AppLogger 依赖 ClsService
-// 与 nestjs-pino 的 Logger，脱离 AppModule 起不来。
-const globalValidationPipe = (
-  Reflect.getMetadata('providers', CommonModule) as
-    { provide?: unknown; useValue?: unknown }[] | undefined
-)?.find((provider) => provider.provide === APP_PIPE)?.useValue;
+// 属性级校验之外，再钉住真正生效的入口：管道实例来自 createValidationPipe——
+// CommonModule 的 APP_PIPE 用的是同一个工厂（不是各写一份选项），所以线上把
+// forbidNonWhitelisted 之类关掉时，下面的行为断言会直接红。
+// 不走 Test.createTestingModule 取 APP_PIPE：它是 Nest 的 enhancer token，
+// TestingModule.get() 会报「provider does not exist in the current context」。
+describe('RegisterDto 经全局 ValidationPipe', () => {
+  const pipe = createValidationPipe();
 
-describe('RegisterDto 经 CommonModule 注册的全局 ValidationPipe', () => {
-  const pipe = globalValidationPipe as ValidationPipe;
   // transform 的返回类型是 any，显式收成 unknown 以免 any 逃逸
   const throughPipe = (value: unknown): Promise<unknown> =>
     pipe.transform(value, { type: 'body', metatype: RegisterDto });
-
-  it('CommonModule 注册了全局 ValidationPipe', () => {
-    expect(globalValidationPipe).toBeInstanceOf(ValidationPipe);
-  });
 
   it('合法请求体被放行并转成 DTO 实例', async () => {
     const result = await throughPipe({ ...validBase, password: 'ValidPass1!' });
