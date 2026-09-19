@@ -569,6 +569,7 @@ export interface components {
              */
             username: string;
             /**
+             * Format: email
              * @description 邮箱
              * @example lucy@example.com
              */

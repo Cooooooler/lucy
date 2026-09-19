@@ -8,7 +8,12 @@ import {
 } from 'class-validator';
 
 export class SendMessageDto {
-  @ApiProperty({ description: '用户消息内容', example: '你好' })
+  @ApiProperty({
+    description: '用户消息内容',
+    example: '你好',
+    minLength: 1,
+    maxLength: 4000,
+  })
   @IsString()
   @MinLength(1)
   @MaxLength(4000)
@@ -17,6 +22,7 @@ export class SendMessageDto {
   @ApiPropertyOptional({
     description: '本次请求模型覆盖',
     example: 'qwen2.5:7b',
+    maxLength: 100,
   })
   @IsOptional()
   @IsString()

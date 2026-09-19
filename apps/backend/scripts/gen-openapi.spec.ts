@@ -4,6 +4,18 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
+import {
+  PASSWORD_PATTERN,
+  USERNAME_PATTERN,
+} from '../src/auth/dto/register.dto.js';
+import {
+  CURSOR_MAX_LENGTH,
+  CURSOR_PATTERN,
+} from '../src/common/pagination/cursor.js';
+import {
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+} from '../src/common/pagination/pagination.constants.js';
 import { DocsModule } from '../src/docs/docs.module.js';
 
 const OUT = fileURLToPath(new URL('../openapi.json', import.meta.url));
@@ -135,5 +147,85 @@ describe('gen-openapi', () => {
       doc.components?.schemas?.KnowledgeDocumentListItemDto?.properties ?? {},
     ).sort();
     expect(listItem).toEqual(detail.filter((key) => key !== 'content'));
+  });
+
+  it('校验边界同步写进 Swagger（Swagger 不解析 class-validator 装饰器）', async () => {
+    await generateOpenApi();
+    const doc = JSON.parse(readFileSync(OUT, 'utf8')) as {
+      paths?: Record<
+        string,
+        Record<string, { parameters?: { name?: string; schema?: object }[] }>
+      >;
+      components?: {
+        schemas?: Record<
+          string,
+          { properties?: Record<string, Record<string, unknown>> }
+        >;
+      };
+    };
+
+    const paramOf = (path: string, name: string) => {
+      const params = doc.paths?.[path]?.get?.parameters ?? [];
+      const found = params.find((p) => p.name === name);
+      expect(found, `${path} 缺少 ${name} 查询参数`).toBeDefined();
+      return found?.schema as Record<string, unknown>;
+    };
+    const propOf = (schema: string, name: string) => {
+      const prop = doc.components?.schemas?.[schema]?.properties?.[name];
+      expect(prop, `${schema}.${name} 缺少契约声明`).toBeDefined();
+      return prop;
+    };
+
+    // 分页参数（CursorQueryDto / PageQueryDto）：默认值与上下界在文档可见
+    for (const path of ['/knowledge', '/knowledge/{kbId}/documents']) {
+      expect(paramOf(path, 'limit')).toMatchObject({
+        default: DEFAULT_PAGE_SIZE,
+        minimum: 1,
+        maximum: MAX_PAGE_SIZE,
+      });
+      expect(paramOf(path, 'cursor')).toMatchObject({
+        maxLength: CURSOR_MAX_LENGTH,
+        pattern: CURSOR_PATTERN.source,
+      });
+    }
+    for (const path of ['/ai/conversations', '/users']) {
+      expect(paramOf(path, 'pageSize')).toMatchObject({
+        default: DEFAULT_PAGE_SIZE,
+        minimum: 1,
+        maximum: MAX_PAGE_SIZE,
+      });
+      expect(paramOf(path, 'page')).toMatchObject({ default: 1, minimum: 1 });
+    }
+
+    // 请求体边界：只写 @MinLength/@MaxLength 时文档是空的，必须两处同步
+    expect(propOf('SendMessageDto', 'content')).toMatchObject({
+      minLength: 1,
+      maxLength: 4000,
+    });
+    expect(propOf('SendMessageDto', 'model')).toMatchObject({
+      maxLength: 100,
+    });
+    expect(propOf('CreateConversationDto', 'model')).toMatchObject({
+      maxLength: 100,
+    });
+    expect(propOf('RenameConversationDto', 'title')).toMatchObject({
+      minLength: 1,
+      maxLength: 50,
+    });
+    expect(propOf('RegisterDto', 'nickname')).toMatchObject({
+      minLength: 1,
+      maxLength: 50,
+    });
+    expect(propOf('RegisterDto', 'username')).toMatchObject({
+      minLength: 3,
+      maxLength: 50,
+      pattern: USERNAME_PATTERN.source,
+    });
+    expect(propOf('RegisterDto', 'password')).toMatchObject({
+      minLength: 8,
+      maxLength: 72,
+      pattern: PASSWORD_PATTERN.source,
+    });
+    expect(propOf('RegisterDto', 'email')).toMatchObject({ format: 'email' });
   });
 });
