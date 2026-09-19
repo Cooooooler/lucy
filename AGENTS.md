@@ -92,8 +92,8 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 - `TypeOrmModule.forRootAsync` 读取上述变量，`synchronize: false`（schema 变更只走迁移），`autoLoadEntities: true`。
 - 迁移：`src/db/data-source.ts` 是 CLI 专用 DataSource（内置 `dotenv/config`），迁移文件放 `src/db/migrations/`。
 - **e2e 跑在独立测试库上**：库名唯一定义在 `test/e2e-db-config.ts`（`E2E_DB_NAME`，缺省 `lucy_test`；非 `*_test` 后缀直接抛错，因此绕过 `pnpm test:e2e` 直接跑 vitest 也拦得住）。`test:e2e` 会先执行 `test/prepare-e2e-db.ts`：重建测试库 → 跑迁移 → **验一次 `migrate → revert → migrate` 往返**。库名不能写在各 spec 顶部——ESM 提升会让赋值晚于 `ConfigModule` 读取 `.env` 并快照的时刻（实测会打到开发库）。
-- **迁移历史已压缩成单文件**：`src/db/migrations/` 下**只有** `1789700000000-InitSchema.ts`，它描述当前完整结构，全新库一次建好。库一律重建、不做存量库收敛，所以它也没有「schema 已存在就跳过」的探测：要重建直接删库。结构变更请直接改它，不要新增「给旧库补结构」的收敛迁移。`up()`/`down()` 的 DDL 契约（建哪些表、keyset 索引的列序与 DESC、毫秒默认值）由 `src/db/init-schema.migration.spec.ts` 钉住。
-- 每个迁移**必须显式声明 `transaction`**：`migrationsTransactionMode: 'none'` 下「未声明」等于「非原子」，由 `src/db/migrations.spec.ts` 动态 import 迁移实例强制（不是扫源码文本）。
+- **迁移历史已压缩成单文件**：`src/db/migrations/` 下**只有** `1789700000000-InitSchema.ts`，它描述当前完整结构，全新库一次建好。库一律重建、不做存量库收敛，所以它也没有「schema 已存在就跳过」的探测：要重建直接删库。结构变更请直接改它，不要新增「给旧库补结构」的收敛迁移。
+- 每个迁移**必须显式声明 `transaction`**：`migrationsTransactionMode: 'none'` 下「未声明」等于「非原子」，只能在评审时人工把关（没有自动化护栏）。
 - 新增迁移（脚本未内置，Windows cmd 下 `$npm_config_name` 无法展开）：
   - 手写骨架：`pnpm --filter @lucy/backend exec tsx ./node_modules/typeorm/cli.js migration:create src/db/migrations/Name`
   - 基于实体 diff 生成：`pnpm --filter @lucy/backend exec tsx ./node_modules/typeorm/cli.js migration:generate src/db/migrations/Name -d src/db/data-source.ts`
