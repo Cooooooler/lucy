@@ -11,13 +11,12 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { basename, extname } from 'node:path';
-import { DataSource, Repository, type SelectQueryBuilder } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import {
   extractContent,
   SUPPORTED_DOCUMENT_EXTS,
 } from './content-extractor.js';
-import { decodeCursor, encodeCursor } from './cursor.js';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { DocumentListQueryDto } from './dto/document-list-query.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
@@ -35,15 +34,13 @@ import {
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
+import { KeysetPaginator } from './keyset-paginator.js';
 import {
   toDocumentDetail,
   toDocumentListItem,
   toKnowledgeBaseItem,
 } from './knowledge.mapper.js';
 import { detectFileType } from './magic-bytes.js';
-
-/** 游标分页默认每页条数 */
-const DEFAULT_PAGE_SIZE = 20;
 
 @Injectable()
 export class KnowledgeService {
@@ -58,6 +55,7 @@ export class KnowledgeService {
     private readonly likeRepo: Repository<KnowledgeLike>,
     private readonly fileService: FileService,
     private readonly config: ConfigService,
+    private readonly paginator: KeysetPaginator,
   ) {}
 
   /**
@@ -118,7 +116,7 @@ export class KnowledgeService {
     if (query.name) {
       qb.andWhere('kb.name ILIKE :name', { name: `%${query.name}%` });
     }
-    const page = await this.fetchKeysetPage(
+    const page = await this.paginator.fetchPage(
       qb,
       'kb',
       query.cursor,
@@ -408,7 +406,12 @@ export class KnowledgeService {
         kw: `%${query.keyword}%`,
       });
     }
-    const page = await this.fetchKeysetPage(qb, 'd', query.cursor, query.limit);
+    const page = await this.paginator.fetchPage(
+      qb,
+      'd',
+      query.cursor,
+      query.limit,
+    );
     return {
       list: page.list.map(toDocumentListItem),
       nextCursor: page.nextCursor,
@@ -462,56 +465,6 @@ export class KnowledgeService {
     });
     this.logger.log(`doc remove kb=${kbId} doc=${id}`, KnowledgeService.name);
     return null;
-  }
-
-  /**
-   * keyset（游标）分页的统一装配：排序 → 游标谓词 → 多取一条 → 裁剪 + 生成下一页游标。
-   *
-   * 知识库列表与文档列表的分页语义必须永远一致（不可变的 `created_at` 排序键、
-   * 毫秒精度游标、`id` 决胜列），装配分散两处时极易只改一处而静默错页，故收敛到此。
-   *
-   * 约定：调用方需已用 `where()` 设好过滤条件（本方法只追加游标谓词）；
-   * 排序固定为 `created_at DESC, id DESC`，与实体 @Index 声明的 keyset 索引列顺序一致。
-   * @param qb 已带过滤条件的查询构造器
-   * @param alias 实体别名（排序列名的前缀）
-   * @param cursor 上一页返回的游标；省略表示首页
-   * @param limit 每页条数；省略取 DEFAULT_PAGE_SIZE
-   */
-  private async fetchKeysetPage<T extends { createdAt: Date; id: string }>(
-    qb: SelectQueryBuilder<T>,
-    alias: string,
-    cursor: string | undefined,
-    limit: number | undefined,
-  ): Promise<{ list: T[]; nextCursor: string | null }> {
-    const size = limit ?? DEFAULT_PAGE_SIZE;
-    qb.orderBy(`${alias}.created_at`, 'DESC').addOrderBy(`${alias}.id`, 'DESC');
-    if (cursor) {
-      const { timestamp, id } = decodeCursor(cursor);
-      qb.andWhere(
-        `(${alias}.created_at, ${alias}.id) < (:cursorTs, :cursorId)`,
-        { cursorTs: timestamp, cursorId: id },
-      );
-    }
-    const rows = await qb.take(size + 1).getMany();
-    return this.toCursorPage(rows, size, (row) =>
-      encodeCursor(row.createdAt, row.id),
-    );
-  }
-
-  /**
-   * 把「多取一条」的查询结果裁成首页大小，并生成下一页游标。
-   * 多取一条用于判断是否还有下一页，避免额外的 COUNT 查询。
-   */
-  private toCursorPage<T>(
-    rows: T[],
-    limit: number,
-    toCursor: (row: T) => string,
-  ): { list: T[]; nextCursor: string | null } {
-    const hasNext = rows.length > limit;
-    const list = hasNext ? rows.slice(0, limit) : rows;
-    const last = list.at(-1);
-    const nextCursor = hasNext && last ? toCursor(last) : null;
-    return { list, nextCursor };
   }
 
   private assertOwner(kb: KnowledgeBase, userId: string): void {

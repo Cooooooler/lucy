@@ -9,6 +9,7 @@ import {
   KnowledgeBaseVisibility,
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
+import { KeysetPaginator } from './keyset-paginator.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 // ESM + SWC 下对 ES 导出命名空间 `vi.spyOn` 未必能拦截服务内部静态 import 绑定的同名导出
@@ -112,6 +113,7 @@ describe('KnowledgeService', () => {
       likeRepo as never,
       fileService as never,
       config,
+      new KeysetPaginator(),
     );
   });
 
@@ -634,6 +636,7 @@ describe('KnowledgeService', () => {
       likeRepo as never,
       fileService as never,
       new ConfigService({ FILE_MAX_SIZE: '10MB' }),
+      new KeysetPaginator(),
     );
     kbRepo.findOne.mockResolvedValue(kb());
     const big = Buffer.alloc(20 * 1024 * 1024);
