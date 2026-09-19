@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { resolvePageNumber, resolvePageSize } from './page-params.js';
-import {
-  DEFAULT_PAGE_SIZE,
-  MAX_PAGE_NUMBER,
-  MAX_PAGE_SIZE,
-} from './pagination.constants.js';
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './pagination.constants.js';
 
 /**
  * 两条分页路径共用的入参守卫：这里钉住的是「越界值不会进 SQL」这一契约，
@@ -52,14 +48,10 @@ describe('resolvePageNumber', () => {
     expect(resolvePageNumber(-3)).toBe(1);
   });
 
-  it('合法页码原样返回，上界为 MAX_PAGE_NUMBER（含边界）', () => {
+  it('合法页码原样返回，不设上界（深翻页由 OFFSET 语义决定）', () => {
     expect(resolvePageNumber(1)).toBe(1);
-    expect(resolvePageNumber(50)).toBe(50);
-    expect(resolvePageNumber(MAX_PAGE_NUMBER)).toBe(MAX_PAGE_NUMBER);
-  });
-
-  it('超过 MAX_PAGE_NUMBER 回退第 1 页', () => {
-    expect(resolvePageNumber(MAX_PAGE_NUMBER + 1)).toBe(1);
+    expect(resolvePageNumber(1000)).toBe(1000);
+    expect(resolvePageNumber(10 ** 9)).toBe(10 ** 9);
   });
 
   it('非安全整数回退第 1 页（1e300 会让 OFFSET 溢出 Postgres int8 变 500）', () => {

@@ -15,14 +15,3 @@ export const DEFAULT_PAGE_SIZE = 20;
 
 /** 每页条数上限（各列表 DTO 的 `@Max` 与 Swagger `maximum` 同源） */
 export const MAX_PAGE_SIZE = 100;
-
-/**
- * 页码上限（`page` 的 DTO `@Max` 与 Swagger `maximum` 同源）。
- *
- * 深翻页本身合法，这里挡的是荒谬值：`OFFSET (page - 1) * pageSize` 一旦超出 Postgres int8
- * 范围（约 9.2e18）查询就在解析阶段报 `bigint out of range`。`1e300` 这类值 `Number.isInteger`
- * 判为真、`@IsInt` 因此放行，只有上界拦得住。
- *
- * 取 100：与 `MAX_PAGE_SIZE` 同量级，可翻页窗口为 100 页 × 最多 100 条/页。
- */
-export const MAX_PAGE_NUMBER = 100;

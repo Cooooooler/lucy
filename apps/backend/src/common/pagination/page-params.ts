@@ -1,8 +1,4 @@
-import {
-  DEFAULT_PAGE_SIZE,
-  MAX_PAGE_NUMBER,
-  MAX_PAGE_SIZE,
-} from './pagination.constants.js';
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './pagination.constants.js';
 
 /**
  * 分页入参归一化——游标分页（`limit`）与页码分页（`page`/`pageSize`）共用的**同一处边界策略**。
@@ -22,15 +18,14 @@ export function resolvePageSize(value: number | undefined): number {
 }
 
 /**
- * 归一化页码到契约区间 `[1, MAX_PAGE_NUMBER]`：非安全整数（含 NaN/±Infinity/1e300）与越界值
- * 一律回退第 1 页。
+ * 归一化页码：低于 1 或非安全整数回退第 1 页。
  *
- * 为什么不能只用 `Number.isFinite`：`1e300` 是有限整数——`Number.isInteger` 为真，`@IsInt`
- * 因此放行——它会算出 1e302 的 OFFSET，超出 Postgres int8 上限，查询在解析阶段报
- * `bigint out of range` 被全局过滤器兜成 500。
+ * 页码**不设上界**（深翻页由 OFFSET 语义决定，合法页码原样返回），但必须挡住 `1e300` 这类
+ * 非安全整数：`Number.isInteger` 判为真、`@IsInt` 因此放行，它算出的
+ * `OFFSET (page - 1) * pageSize` 超出 Postgres int8 上限（约 9.2e18），查询在解析阶段报
+ * `bigint out of range`，被全局过滤器兜成 500。每页条数的上限由 {@link resolvePageSize} 负责。
  */
 export function resolvePageNumber(value: number | undefined): number {
   const page = value === undefined ? Number.NaN : Math.trunc(value);
-  if (!Number.isSafeInteger(page)) return 1;
-  return page >= 1 && page <= MAX_PAGE_NUMBER ? page : 1;
+  return Number.isSafeInteger(page) && page >= 1 ? page : 1;
 }
