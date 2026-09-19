@@ -7,7 +7,10 @@ import {
 import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
-import { DEFAULT_PAGE_SIZE } from '../common/pagination/pagination.constants.js';
+import {
+  resolvePageNumber,
+  resolvePageSize,
+} from '../common/pagination/page-params.js';
 import { ROLE_RANK, roleRank, UserRole } from '../common/roles.js';
 import { PasswordService } from '../password/password.service.js';
 import { UserAccessService } from './user-access.service.js';
@@ -87,8 +90,10 @@ export class UsersService {
     page: number;
     pageSize: number;
   }> {
-    const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? DEFAULT_PAGE_SIZE;
+    // 分页入参在此归一化：入参是宽松的结构化类型（内部调用方直接传对象），
+    // 越界/非法的 pageSize 会在 repository 里变成全量 LIMIT 扫描或非法 SQL
+    const page = resolvePageNumber(query.page);
+    const pageSize = resolvePageSize(query.pageSize);
     const [rows, total] = await this.usersRepo.findPage({
       page,
       pageSize,

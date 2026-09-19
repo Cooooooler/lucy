@@ -100,6 +100,20 @@ describe('KeysetPaginator', () => {
     expect(qb.take).toHaveBeenCalledWith(MAX_PAGE_SIZE + 1);
   });
 
+  it('limit 为 0/负数/非数值时在入口归一化（不把非法值拼进 LIMIT）', async () => {
+    const zero = makeQueryBuilder([]);
+    await paginator.fetchPage(zero as never, undefined, 0);
+    expect(zero.take).toHaveBeenCalledWith(2);
+
+    const negative = makeQueryBuilder([]);
+    await paginator.fetchPage(negative as never, undefined, -5);
+    expect(negative.take).toHaveBeenCalledWith(2);
+
+    const notANumber = makeQueryBuilder([]);
+    await paginator.fetchPage(notANumber as never, undefined, Number.NaN);
+    expect(notANumber.take).toHaveBeenCalledWith(DEFAULT_PAGE_SIZE + 1);
+  });
+
   it('带游标时追加行比较谓词（解码后按原始列比较）', async () => {
     const qb = makeQueryBuilder([row(2)], makeAlias('d'));
     const cursor = encodeCursor(row(5).createdAt, row(5).id);

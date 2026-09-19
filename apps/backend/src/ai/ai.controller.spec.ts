@@ -53,9 +53,9 @@ describe('AiController', () => {
     expect(aiService.list).toHaveBeenCalledWith('1', 2, 10);
   });
 
-  it('list 缺省分页参数使用默认值', async () => {
+  it('list 缺省分页参数原样透传（默认值由 AiService 归一化，避免两处各有一份）', async () => {
     await controller.list(user, {});
-    expect(aiService.list).toHaveBeenCalledWith('1', 1, 20);
+    expect(aiService.list).toHaveBeenCalledWith('1', undefined, undefined);
   });
 
   it('get/rename/remove 透传', async () => {

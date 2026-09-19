@@ -7,18 +7,18 @@ import {
 } from '../../common/pagination/pagination.constants.js';
 
 export class ConversationListQueryDto {
-  @ApiPropertyOptional({ description: '页码', example: 1, minimum: 1 })
+  @ApiPropertyOptional({ description: '页码', default: 1, minimum: 1 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   page?: number;
 
-  // 默认值与上限取自 pagination.constants 的唯一定义处：硬编码会在改动契约时
-  // 让 Swagger 文档、校验与 controller 的兜底值各自漂移
+  // 默认值与上限取自 pagination.constants 的唯一定义处，且用 `default:`（不是 `example:`）
+  // 与另三个列表 DTO 一致：这两项是实际生效的默认值/边界，会经 typegen 进共享契约与前端文档
   @ApiPropertyOptional({
     description: '每页条数',
-    example: DEFAULT_PAGE_SIZE,
+    default: DEFAULT_PAGE_SIZE,
     minimum: 1,
     maximum: MAX_PAGE_SIZE,
   })

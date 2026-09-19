@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { EntityMetadata, SelectQueryBuilder } from 'typeorm';
 import { decodeCursor, encodeCursor } from './cursor.js';
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './pagination.constants.js';
+import { resolvePageSize } from './page-params.js';
 
 /**
  * keyset 分页要求的排序键**属性名**（不是列名）。
@@ -52,7 +52,7 @@ export class KeysetPaginator {
    * 静默拼出不存在的列（运行期 500）。
    * @param qb 已带过滤条件的查询构造器
    * @param cursor 上一页返回的游标；省略表示首页
-   * @param limit 每页条数；省略取 `DEFAULT_PAGE_SIZE`，超过 `MAX_PAGE_SIZE` 时按上限钳制
+   * @param limit 每页条数；经 `resolvePageSize` 归一化到 `[1, MAX_PAGE_SIZE]`（省略/非数值取默认值）
    * @returns 本页记录与下一页游标（null 表示已到末页）
    */
   async fetchPage<T extends { createdAt: Date; id: string }>(
@@ -68,9 +68,10 @@ export class KeysetPaginator {
     }
     const createdAt = `${mainAlias.name}.${resolveSortColumn(mainAlias.metadata, 'createdAt')}`;
     const id = `${mainAlias.name}.${resolveSortColumn(mainAlias.metadata, 'id')}`;
-    // 上界在此复核：DTO 的 `@Max` 只作用于 HTTP 入参路径，本方法收的是结构化类型，
-    // 内部复用方（会话/消息列表、拼接上下文）能直接给 limit，不钳制就是一次 take(N+1) 大扫描
-    const size = Math.min(limit ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+    // 入口守卫：DTO 的 `@Min`/`@Max`/`@IsInt` 只作用于 HTTP 入参路径，本方法收的是结构化
+    // 类型，内部复用方（会话/消息列表、拼接上下文）能直接给 limit——上界不挡是 take(N+1)
+    // 大扫描，下界与非数值不挡则拼出 `LIMIT 2.5`/负 LIMIT。归一化策略与页码分页共用一处实现
+    const size = resolvePageSize(limit);
     qb.orderBy(createdAt, 'DESC').addOrderBy(id, 'DESC');
     if (cursor) {
       const { timestamp, id: cursorId } = decodeCursor(cursor);

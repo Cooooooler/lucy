@@ -22,7 +22,6 @@ import type { Response } from 'express';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js';
-import { DEFAULT_PAGE_SIZE } from '../common/pagination/pagination.constants.js';
 import { AiService } from './ai.service.js';
 import { ConversationListQueryDto } from './dto/conversation-list-query.dto.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
@@ -58,11 +57,8 @@ export class AiController {
     @CurrentUser() user: CurrentUserPayload,
     @Query() query: ConversationListQueryDto,
   ) {
-    return this.aiService.list(
-      user.userId,
-      query.page ?? 1,
-      query.pageSize ?? DEFAULT_PAGE_SIZE,
-    );
+    // 分页入参原样透传：默认值与边界策略由 AiService 归一化，避免两处各有一份默认值
+    return this.aiService.list(user.userId, query.page, query.pageSize);
   }
 
   @Get('conversations/:id')
