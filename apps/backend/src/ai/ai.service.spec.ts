@@ -1,20 +1,24 @@
 import { ErrorCode } from '@lucy/shared';
 import { ConfigService } from '@nestjs/config';
+import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { lastValueFrom } from 'rxjs';
 import { toArray } from 'rxjs/operators';
 import { DataSource, IsNull } from 'typeorm';
-import type { AppLogger } from '../common/app-logger.service.js';
+import { AppLogger } from '../common/app-logger.service.js';
 import {
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
 } from '../common/pagination/pagination.constants.js';
 import { AiService } from './ai.service.js';
+import { ContextService } from './context.service.js';
 import { Conversation } from './entities/conversation.entity.js';
 import {
   Message,
   MessageRole,
   MessageStatus,
 } from './entities/message.entity.js';
+import { OllamaFactory } from './ollama.factory.js';
 
 describe('AiService', () => {
   const conversationRepo = {
@@ -50,17 +54,36 @@ describe('AiService', () => {
 
   let service: AiService;
 
-  beforeEach(() => {
+  /**
+   * 经 DI 容器装配服务：`@InjectRepository`/`@InjectDataSource` 的 token 是否与生产一致
+   * 由容器判定。手工 `new AiService(...)` 时漏注入/错位只表现为运行时的 undefined，
+   * 且每新增一个构造依赖都要在每个手工构造点补位置参数（`as never` 还会把类型错误一起抹掉）。
+   * @param configService 覆盖 ConfigService（空闲超时用例需要不同的 OLLAMA_TIMEOUT_MS）
+   */
+  const buildService = async (
+    configService: ConfigService = config,
+  ): Promise<AiService> => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        AiService,
+        { provide: AppLogger, useValue: logger },
+        { provide: DataSource, useValue: dataSource },
+        {
+          provide: getRepositoryToken(Conversation),
+          useValue: conversationRepo,
+        },
+        { provide: getRepositoryToken(Message), useValue: messageRepo },
+        { provide: OllamaFactory, useValue: ollamaFactory },
+        { provide: ContextService, useValue: contextService },
+        { provide: ConfigService, useValue: configService },
+      ],
+    }).compile();
+    return moduleRef.get(AiService);
+  };
+
+  beforeEach(async () => {
     vi.clearAllMocks();
-    service = new AiService(
-      logger,
-      dataSource,
-      conversationRepo as never,
-      messageRepo as never,
-      ollamaFactory as never,
-      contextService as never,
-      config,
-    );
+    service = await buildService();
   });
 
   const conv = () =>
@@ -281,13 +304,7 @@ describe('AiService', () => {
     it('空闲超时：无输出触发超时错误码并落库 failed', async () => {
       vi.useFakeTimers();
       try {
-        service = new AiService(
-          logger,
-          dataSource,
-          conversationRepo as never,
-          messageRepo as never,
-          ollamaFactory as never,
-          contextService as never,
+        service = await buildService(
           new ConfigService({
             OLLAMA_MODEL: 'default-model',
             OLLAMA_TIMEOUT_MS: 1000,
