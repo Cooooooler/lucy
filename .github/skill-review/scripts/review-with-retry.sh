@@ -5,7 +5,8 @@
 #   REVIEW_SIDE   frontend | backend（决定 prompt/patch/输出文件名）
 #   REVIEW_SKILL  技能目录名（与 .github/skill-review/skills 下一致）
 #   REVIEW_ANCHOR 中文锚点（前端=前端，后端=后端）；仅在环境不支持 grep -P 时作为回退判据
-#   SKILL_REVIEW_MODEL  BYOK 模型 id（workflow env 透传）
+#   SKILL_REVIEW_MODEL  账号网关内的模型 id（workflow env 透传，当前固定
+#                         deepseek/deepseek-v4.1-flash；不再走 BYOK providers.json）
 #
 # 合格判定（is_valid）：
 #   0. 判为「无问题」结论（is_no_issue）直接合格：它天然很短（约 39 字节），
@@ -39,7 +40,6 @@ NO_ISSUE_RE='未发现(任何|需要(修改|改动|调整)的)?问题|没有发�
 
 run_once() {
   command-code -p "$(cat ".pr-skill-review/${SIDE}-prompt.txt")" \
-    --local-only \
     --no-skills \
     --skill ".github/skill-review/skills/${SKILL}" \
     --model "$SKILL_REVIEW_MODEL" \
