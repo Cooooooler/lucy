@@ -31,9 +31,15 @@ export class KnowledgeListQueryDto {
   @Matches(CURSOR_PATTERN, { message: '无效的分页游标' })
   cursor?: string;
 
-  // 默认值与上限都取自 pagination.constants 的唯一定义处：这两个数字会经 `pnpm typegen`
-  // 进入共享契约与前端文档，写死字面量会在改动契约时让文档与实现静默漂移
-  @ApiPropertyOptional({ description: '每页条数', default: DEFAULT_PAGE_SIZE })
+  // 默认值与上限都取自 pagination.constants 的唯一定义处，与 `@Min`/`@Max` 校验、各 service
+  // 的兜底同源；但 `minimum`/`maximum` 只进 OpenAPI 文档（/docs、docs-json）——这类数值约束
+  // 在 `@lucy/shared` 的生成类型里不可表达（query 参数只是 `limit?: number`）
+  @ApiPropertyOptional({
+    description: '每页条数',
+    default: DEFAULT_PAGE_SIZE,
+    minimum: 1,
+    maximum: MAX_PAGE_SIZE,
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()

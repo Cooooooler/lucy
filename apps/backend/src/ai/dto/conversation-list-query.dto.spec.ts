@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import { MAX_PAGE_NUMBER } from '../../common/pagination/pagination.constants.js';
 import { ConversationListQueryDto } from './conversation-list-query.dto.js';
 
 describe('ConversationListQueryDto', () => {
@@ -32,5 +33,26 @@ describe('ConversationListQueryDto', () => {
   it('pageSize>100 校验失败（最大 100）', async () => {
     const dto = plainToInstance(ConversationListQueryDto, { pageSize: 101 });
     expect(await validate(dto)).not.toHaveLength(0);
+  });
+
+  it('page=1e300 校验失败（@IsInt 放行非安全整数，靠 @Max 拦住 500）', async () => {
+    const dto = plainToInstance(ConversationListQueryDto, { page: 1e300 });
+    expect(dto.page).toBe(1e300);
+    expect(await validate(dto)).not.toHaveLength(0);
+  });
+
+  it('page 上界为 MAX_PAGE_NUMBER（含边界）', async () => {
+    expect(
+      await validate(
+        plainToInstance(ConversationListQueryDto, {
+          page: MAX_PAGE_NUMBER + 1,
+        }),
+      ),
+    ).not.toHaveLength(0);
+    expect(
+      await validate(
+        plainToInstance(ConversationListQueryDto, { page: MAX_PAGE_NUMBER }),
+      ),
+    ).toHaveLength(0);
   });
 });
