@@ -215,7 +215,7 @@ export interface paths {
         };
         /**
          * 会话列表
-         * @description 按更新时间倒序分页
+         * @description 按最近活跃倒序，游标分页
          */
         get: operations["AiController_list"];
         put?: never;
@@ -669,20 +669,10 @@ export interface components {
             /** @description 会话列表 */
             list: components["schemas"]["Conversation"][];
             /**
-             * @description 总条数
-             * @example 0
+             * @description 下一页游标；null 表示已到末页
+             * @example null
              */
-            total: number;
-            /**
-             * @description 当前页码
-             * @example 1
-             */
-            page: number;
-            /**
-             * @description 每页条数
-             * @example 20
-             */
-            pageSize: number;
+            nextCursor: string | null;
         };
         RenameConversationDto: {
             /** @description 新标题 */
@@ -1173,10 +1163,10 @@ export interface operations {
     AiController_list: {
         parameters: {
             query?: {
-                /** @description 页码 */
-                page?: number;
+                /** @description 分页游标（上一页返回的 nextCursor），省略表示第一页 */
+                cursor?: string;
                 /** @description 每页条数 */
-                pageSize?: number;
+                limit?: number;
             };
             header?: never;
             path?: never;

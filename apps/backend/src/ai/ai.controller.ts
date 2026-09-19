@@ -22,7 +22,7 @@ import type { Response } from 'express';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js';
-import { PageQueryDto } from '../common/pagination/dto/page-query.dto.js';
+import { CursorQueryDto } from '../common/pagination/dto/cursor-query.dto.js';
 import { AiService } from './ai.service.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
@@ -47,15 +47,21 @@ export class AiController {
   }
 
   @Get('conversations')
-  @ApiOperation({ summary: '会话列表', description: '按更新时间倒序分页' })
+  @ApiOperation({
+    summary: '会话列表',
+    description: '按最近活跃倒序，游标分页',
+  })
   @ApiResponse({
     status: 200,
     description: '返回分页会话列表',
     type: ConversationListResultDto,
   })
-  list(@CurrentUser() user: CurrentUserPayload, @Query() query: PageQueryDto) {
-    // 分页入参原样透传：默认值与边界策略由 AiService 归一化，避免两处各有一份默认值
-    return this.aiService.list(user.userId, query.page, query.pageSize);
+  list(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query() query: CursorQueryDto,
+  ) {
+    // 分页入参原样透传：默认值与边界策略由 KeysetPaginator 归一化，避免两处各有一份默认值
+    return this.aiService.list(user.userId, query.cursor, query.limit);
   }
 
   @Get('conversations/:id')

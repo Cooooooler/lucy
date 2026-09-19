@@ -14,15 +14,22 @@ import {
 import { User } from '../../users/user.entity.js';
 import { Message } from './message.entity.js';
 
-/** AI 对话会话：归属用户 + 默认模型 + 标题，一对多持有 Message；user_id 建索引支撑按用户查询 */
+/**
+ * AI 对话会话：归属用户 + 默认模型 + 标题，一对多持有 Message。
+ *
+ * `(user_id, updated_at, id)` 同时服务两件事：按用户查询（前缀即 `user_id`，故不再单独
+ * 建 `user_id` 索引，避免冗余索引），以及会话列表的 keyset 分页
+ * `ORDER BY updated_at DESC, id DESC` —— `@Index` 只能表达 ASC，反向索引扫描即可满足。
+ * 索引由 `migration:generate` 从实体产出（实体是 schema 的唯一来源），不手写 DDL。
+ */
 @Entity('ai_conversations')
+@Index('IDX_ai_conversations_user_updated_id', ['userId', 'updatedAt', 'id'])
 export class Conversation {
   @ApiProperty({ description: '会话 ID' })
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @ApiProperty({ description: '归属用户 ID' })
-  @Index()
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
@@ -47,10 +54,23 @@ export class Conversation {
   messages: Message[];
 
   @ApiProperty({ description: '创建时间' })
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  // 毫秒精度靠**列类型**保证（`timestamptz(3)`），不靠列默认值：DEFAULT 只在 INSERT 生效，
+  // 而 updated_at 是后续每次 UPDATE 都会重写的列（由 ORM 注入值），microsecond 一旦落进去，
+  // 毫秒精度的游标就会向下截断、同一毫秒内的行在下一页被整批跳过（静默漏数据）。
+  // 精度写进类型后，无论 ORM、seed 还是直写 SQL 都是毫秒粒度。
+  @CreateDateColumn({
+    name: 'created_at',
+    type: 'timestamptz',
+    precision: 3,
+  })
   createdAt: Date;
 
   @ApiProperty({ description: '更新时间' })
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  // 同上，且它正是会话列表的排序键，必须与 created_at 的精度保持一致
+  @UpdateDateColumn({
+    name: 'updated_at',
+    type: 'timestamptz',
+    precision: 3,
+  })
   updatedAt: Date;
 }

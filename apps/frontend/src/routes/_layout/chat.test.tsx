@@ -27,7 +27,7 @@ const useChatStreamMock = vi.fn();
 
 vi.mock('@/hooks/use-ai', () => ({
   useConversationList: () => ({
-    data: { list: [] },
+    data: { list: [], nextCursor: null },
     isLoading: false,
     error: null,
   }),

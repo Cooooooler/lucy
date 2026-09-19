@@ -97,20 +97,28 @@ describe('api/ai', () => {
       expect(result).toEqual(conv);
     });
 
-    it('listConversationsApi 携带分页参数', async () => {
+    it('listConversationsApi 携带游标分页参数', async () => {
       const data = {
         list: [makeConversation()],
-        total: 1,
-        page: 2,
-        pageSize: 10,
+        nextCursor: 'next-cursor',
       };
       fetchMock.mockResolvedValueOnce(okEnvelope(data));
-      const result = await listConversationsApi(2, 10);
+      const result = await listConversationsApi({ limit: 10, cursor: 'abc' });
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/v1/ai/conversations?page=2&pageSize=10',
+        '/api/v1/ai/conversations?limit=10&cursor=abc',
         expect.objectContaining({ method: 'GET' }),
       );
       expect(result).toEqual(data);
+    });
+
+    it('listConversationsApi 缺省参数不带查询串（默认值与上界由后端归一化）', async () => {
+      const data = { list: [], nextCursor: null };
+      fetchMock.mockResolvedValueOnce(okEnvelope(data));
+      await expect(listConversationsApi()).resolves.toEqual(data);
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/v1/ai/conversations',
+        expect.objectContaining({ method: 'GET' }),
+      );
     });
 
     it('getConversationApi 调用 GET 详情', async () => {
