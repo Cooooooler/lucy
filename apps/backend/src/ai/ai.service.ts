@@ -7,6 +7,10 @@ import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import {
+  resolvePageNumber,
+  resolvePageSize,
+} from '../common/pagination/page-params.js';
 import { ContextService } from './context.service.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
@@ -53,24 +57,26 @@ export class AiService {
     return this.conversationRepo.save({ userId, model: dto.model ?? null });
   }
 
-  /** AI：分页查询会话列表。 */
+  /** AI：分页查询会话列表。分页入参经归一化后再进 SQL（越界值会变成全量 LIMIT 扫描）。 */
   async list(
     userId: string,
-    page: number,
-    pageSize: number,
+    page: number | undefined,
+    pageSize: number | undefined,
   ): Promise<{
     list: Conversation[];
     total: number;
     page: number;
     pageSize: number;
   }> {
+    const safePage = resolvePageNumber(page);
+    const safePageSize = resolvePageSize(pageSize);
     const [list, total] = await this.conversationRepo.findAndCount({
       where: { userId },
       order: { updatedAt: 'DESC' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      skip: (safePage - 1) * safePageSize,
+      take: safePageSize,
     });
-    return { list, total, page, pageSize };
+    return { list, total, page: safePage, pageSize: safePageSize };
   }
 
   /** AI：拉取单会话（带消息）。 */

@@ -1,14 +1,19 @@
+import { FileService } from '@coool/file-nest';
 import { HttpStatus, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
-import { decodeCursor, encodeCursor } from './cursor.js';
+import { decodeCursor, encodeCursor } from '../common/pagination/cursor.js';
+import { PaginationModule } from '../common/pagination/pagination.module.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
+import { KnowledgeLike } from './entities/knowledge-like.entity.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 // ESM + SWC 下对 ES 导出命名空间 `vi.spyOn` 未必能拦截服务内部静态 import 绑定的同名导出
@@ -99,20 +104,42 @@ describe('KnowledgeService', () => {
     return qb;
   };
 
-  beforeEach(() => {
+  /**
+   * 经 DI 容器装配服务：provider 是否注册、注入 token 是否正确由容器判定，
+   * 手工 `new KnowledgeService(...)` 时漏注入/错位只会表现为运行时的 undefined，
+   * 且每新增一个构造依赖就要在每个手工构造点补参数。
+   *
+   * `KeysetPaginator` 刻意不在这里 provide，而是走 `imports: [PaginationModule]`：
+   * 与生产一致的模块路径才会验证 `PaginationModule` 真的 exports 了它，
+   * 在这里再 provide 一份会把 exports 漏写也变成绿灯。
+   * @param configService 覆盖 ConfigService（个别用例需要不同的 FILE_MAX_SIZE）
+   * @returns 由 TestingModule 解析出的服务实例
+   */
+  const buildService = async (
+    configService: ConfigService = config,
+  ): Promise<KnowledgeService> => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [PaginationModule],
+      providers: [
+        KnowledgeService,
+        { provide: AppLogger, useValue: logger },
+        { provide: DataSource, useValue: dataSource },
+        { provide: getRepositoryToken(KnowledgeBase), useValue: kbRepo },
+        { provide: getRepositoryToken(KnowledgeDocument), useValue: docRepo },
+        { provide: getRepositoryToken(KnowledgeLike), useValue: likeRepo },
+        { provide: FileService, useValue: fileService },
+        { provide: ConfigService, useValue: configService },
+      ],
+    }).compile();
+    return moduleRef.get(KnowledgeService);
+  };
+
+  beforeEach(async () => {
     vi.clearAllMocks();
     // 点赞态回填（fillLikeInfo）被 get/list/update 共用：默认给一个空结果的可链式 stub，
     // 避免依赖「上个用例遗留的 mockReturnValue」——clearAllMocks 只清调用记录不清实现
     likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
-    service = new KnowledgeService(
-      logger,
-      dataSource,
-      kbRepo as never,
-      docRepo as never,
-      likeRepo as never,
-      fileService as never,
-      config,
-    );
+    service = await buildService();
   });
 
   const stored = (over = {}) =>
@@ -177,9 +204,26 @@ describe('KnowledgeService', () => {
     ...over,
   });
 
+  /**
+   * 主别名 + 实体元数据 stub：`KeysetPaginator` 从 QueryBuilder 自身解析别名与排序列名
+   * （不再由调用方传 alias），故 mock 的 QueryBuilder 要提供 `expressionMap.mainAlias`；
+   * 列名映射与实体上的 `name:` 一致。
+   */
+  const aliasStub = (name: string) => ({
+    name,
+    hasMetadata: true,
+    metadata: {
+      name: `${name}Entity`,
+      findColumnWithPropertyName: (property: string) => ({
+        databaseName: property === 'createdAt' ? 'created_at' : 'id',
+      }),
+    },
+  });
+
   // 可链式 QueryBuilder mock：记录 where/andWhere 等调用参数，供 list 用
   const makeKbQb = () => {
     const qb = {
+      expressionMap: { mainAlias: aliasStub('kb') },
       where: vi.fn(),
       orWhere: vi.fn(),
       andWhere: vi.fn(),
@@ -201,6 +245,7 @@ describe('KnowledgeService', () => {
   // 可链式 QueryBuilder mock：供 listDocuments 用（docRepo）
   const makeDocQb = () => {
     const qb = {
+      expressionMap: { mainAlias: aliasStub('d') },
       select: vi.fn(),
       where: vi.fn(),
       andWhere: vi.fn(),
@@ -626,13 +671,7 @@ describe('KnowledgeService', () => {
   });
 
   it('addDocument FILE_MAX_SIZE 非数字时回退默认上限（不静默禁用）', async () => {
-    const svc = new KnowledgeService(
-      logger,
-      dataSource,
-      kbRepo as never,
-      docRepo as never,
-      likeRepo as never,
-      fileService as never,
+    const svc = await buildService(
       new ConfigService({ FILE_MAX_SIZE: '10MB' }),
     );
     kbRepo.findOne.mockResolvedValue(kb());

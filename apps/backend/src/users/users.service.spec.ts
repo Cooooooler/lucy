@@ -7,6 +7,7 @@ import { Test } from '@nestjs/testing';
 import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { MAX_PAGE_SIZE } from '../common/pagination/pagination.constants.js';
 import { UserRole } from '../common/roles.js';
 import { PasswordService } from '../password/password.service.js';
 import { UserAccessService } from './user-access.service.js';
@@ -144,6 +145,14 @@ describe('UsersService', () => {
       expect.objectContaining({ id: 'u1', role: UserRole.User }),
     );
     expect(result.list[0]).not.toHaveProperty('passwordHash');
+  });
+
+  it('list 越界分页参数在服务层归一化（内部调用方绕过 DTO 的 @Min/@Max）', async () => {
+    usersRepo.findPage.mockResolvedValue([[], 0]);
+    await service.list(admin, { page: 0, pageSize: 10 ** 9 });
+    expect(usersRepo.findPage).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 1, pageSize: MAX_PAGE_SIZE }),
+    );
   });
 
   it('list superadmin 仅可见 user 与 admin（排除自己、同级与上级）', async () => {

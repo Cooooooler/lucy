@@ -1,37 +1,11 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
-import {
-  IsEnum,
-  IsInt,
-  IsOptional,
-  IsString,
-  Matches,
-  Max,
-  MaxLength,
-  Min,
-} from 'class-validator';
-import { CURSOR_MAX_LENGTH, CURSOR_PATTERN } from '../cursor.js';
+import { Transform } from 'class-transformer';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { CursorQueryDto } from '../../common/pagination/dto/cursor-query.dto.js';
 import { KnowledgeBaseVisibility } from '../entities/knowledge-base.entity.js';
 
-export class KnowledgeListQueryDto {
-  @ApiPropertyOptional({
-    description: '分页游标（上一页返回的 nextCursor），省略表示第一页',
-  })
-  @IsOptional()
-  @IsString()
-  @MaxLength(CURSOR_MAX_LENGTH)
-  // 字符集与长度上限取自 cursor.ts 的唯一定义处，避免与解码入口漂移
-  @Matches(CURSOR_PATTERN, { message: '无效的分页游标' })
-  cursor?: string;
-
-  @ApiPropertyOptional({ description: '每页条数', default: 20 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
+/** 知识库列表的请求参数：分页部分继承 `CursorQueryDto`，这里只声明本列表自己的过滤字段。 */
+export class KnowledgeListQueryDto extends CursorQueryDto {
   @ApiPropertyOptional({
     description: '按可见性过滤',
     enum: KnowledgeBaseVisibility,

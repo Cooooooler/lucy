@@ -21,9 +21,9 @@ import type { CurrentUserPayload } from '../common/decorators/current-user.decor
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
 import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js';
+import { PageQueryDto } from '../common/pagination/dto/page-query.dto.js';
 import { UUIDParam } from '../common/pipes/uuid-param.js';
 import { AiService } from './ai.service.js';
-import { ConversationListQueryDto } from './dto/conversation-list-query.dto.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { RenameConversationDto } from './dto/rename-conversation.dto.js';
@@ -54,15 +54,9 @@ export class AiController {
     description: '返回分页会话列表',
     type: ConversationListResultDto,
   })
-  list(
-    @CurrentUser() user: CurrentUserPayload,
-    @Query() query: ConversationListQueryDto,
-  ) {
-    return this.aiService.list(
-      user.userId,
-      query.page ?? 1,
-      query.pageSize ?? 20,
-    );
+  list(@CurrentUser() user: CurrentUserPayload, @Query() query: PageQueryDto) {
+    // 分页入参原样透传：默认值与边界策略由 AiService 归一化，避免两处各有一份默认值
+    return this.aiService.list(user.userId, query.page, query.pageSize);
   }
 
   @Get('conversations/:id')
