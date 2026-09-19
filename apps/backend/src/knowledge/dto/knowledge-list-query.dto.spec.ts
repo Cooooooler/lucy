@@ -9,46 +9,8 @@ describe('KnowledgeListQueryDto', () => {
     ).toHaveLength(0);
   });
 
-  it('合法 base64url 游标通过', async () => {
-    const dto = plainToInstance(KnowledgeListQueryDto, {
-      cursor: 'eyJ0IjoiMjAyNi0wMS0wMVQwMDowMDowMC4wMDBaIiwiaSI6ImFiYyJ9',
-    });
-    expect(await validate(dto)).toHaveLength(0);
-  });
-
-  it('游标含 base64url 之外的字符校验失败', async () => {
-    const dto = plainToInstance(KnowledgeListQueryDto, {
-      cursor: 'abc+def/ghi=',
-    });
-    expect(await validate(dto)).not.toHaveLength(0);
-  });
-
-  it('游标超长（>512）校验失败', async () => {
-    const dto = plainToInstance(KnowledgeListQueryDto, {
-      cursor: 'a'.repeat(513),
-    });
-    expect(await validate(dto)).not.toHaveLength(0);
-  });
-
-  it('游标非字符串校验失败', async () => {
-    const dto = plainToInstance(KnowledgeListQueryDto, { cursor: 123 });
-    expect(await validate(dto)).not.toHaveLength(0);
-  });
-
-  it("limit='10' 被转换为 number 10 并通过校验", async () => {
-    const dto = plainToInstance(KnowledgeListQueryDto, { limit: '10' });
-    expect(dto.limit).toBe(10);
-    expect(await validate(dto)).toHaveLength(0);
-  });
-
-  it('limit=0 / limit=101 校验失败（1..100）', async () => {
-    expect(
-      await validate(plainToInstance(KnowledgeListQueryDto, { limit: 0 })),
-    ).not.toHaveLength(0);
-    expect(
-      await validate(plainToInstance(KnowledgeListQueryDto, { limit: 101 })),
-    ).not.toHaveLength(0);
-  });
+  // cursor / limit 的契约（含游标字符集与条数上下限）由基类 CursorQueryDto 的 spec 钉住，
+  // 这里只覆盖本 DTO 自己的字段，避免同一份断言在四处重复维护
 
   it('name 超过 100 字符校验失败（ILIKE 谓词走不了索引，超长输入是扫描放大器）', async () => {
     const dto = plainToInstance(KnowledgeListQueryDto, {

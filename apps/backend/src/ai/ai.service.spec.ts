@@ -4,6 +4,10 @@ import { lastValueFrom } from 'rxjs';
 import { toArray } from 'rxjs/operators';
 import { DataSource, IsNull } from 'typeorm';
 import type { AppLogger } from '../common/app-logger.service.js';
+import {
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+} from '../common/pagination/pagination.constants.js';
 import { AiService } from './ai.service.js';
 import { Conversation } from './entities/conversation.entity.js';
 import {
@@ -84,6 +88,27 @@ describe('AiService', () => {
       page: 1,
       pageSize: 20,
     });
+  });
+
+  it('list 缺省分页参数在服务层归一化（默认值与 DTO 契约同源）', async () => {
+    conversationRepo.findAndCount.mockResolvedValue([[], 0]);
+    await expect(service.list('1', undefined, undefined)).resolves.toEqual({
+      list: [],
+      total: 0,
+      page: 1,
+      pageSize: DEFAULT_PAGE_SIZE,
+    });
+    expect(conversationRepo.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 0, take: DEFAULT_PAGE_SIZE }),
+    );
+  });
+
+  it('list 越界分页参数在服务层归一化（内部调用方绕过 DTO 的 @Min/@Max）', async () => {
+    conversationRepo.findAndCount.mockResolvedValue([[], 0]);
+    await service.list('1', 0, 10 ** 9);
+    expect(conversationRepo.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 0, take: MAX_PAGE_SIZE }),
+    );
   });
 
   it('get 会话不存在抛错', async () => {
