@@ -69,20 +69,42 @@ try {
 
   // 真实往返：runMigrations() 只证明 up() 能跑，「可回滚」是另一条断言——
   // migration.spec 用的是假 QueryRunner，验不了 TypeORM 在 none 模式下是否真的执行了 down()。
-  // 测试库是一次性的，这里直接撤销到最后（含初始化迁移）再重跑，把该前提钉成每次 e2e 都跑的事实。
-  for (let i = 0; i < 2; i++) {
+  // 测试库是一次性的，这里撤销到空库再重跑，把该前提钉成每次 e2e 都跑的事实。
+  // 撤销次数取自「刚跑完的迁移条数」，不写死数字：写死的话新增一条迁移就会让往返只覆盖最后 N 条，
+  // 注释所述的「撤销到最后（含初始化迁移）」会静默失效、护栏空转。
+  const applied = dataSource.migrations.length;
+  for (let i = 0; i < applied; i++) {
     await dataSource.undoLastMigration();
   }
   await dataSource.runMigrations();
 
+  // 断言关键结构重建成功：表 + keyset 索引（只断表的话，索引漏建/建坏都不会被发现）
   const rows = await dataSource.query<{ table_name: string | null }[]>(
     `SELECT to_regclass('public.users') AS table_name`,
   );
   if (!rows[0]?.table_name) {
     throw new Error('e2e 往返验证失败：撤销并重跑迁移后 users 表不存在');
   }
+  const indexes = await dataSource.query<{ name: string }[]>(
+    `SELECT c.relname AS name
+       FROM pg_index i
+       JOIN pg_class c ON c.oid = i.indexrelid
+      WHERE c.relname = ANY($1::text[])`,
+    [
+      [
+        'IDX_knowledge_bases_owner_created_id',
+        'IDX_knowledge_bases_visibility_created_id',
+        'IDX_knowledge_documents_kb_created_id',
+      ],
+    ],
+  );
+  if (indexes.length !== 3) {
+    throw new Error(
+      `e2e 往返验证失败：keyset 索引未重建（期望 3，实际 ${indexes.length}）`,
+    );
+  }
   console.log(
-    `[e2e] 测试库已就绪（含 migrate → revert ×2 → migrate 往返）：${E2E_DB_NAME}`,
+    `[e2e] 测试库已就绪（含 migrate → revert ×${applied} → migrate 往返 + 索引校验）：${E2E_DB_NAME}`,
   );
 } finally {
   await dataSource.destroy();
