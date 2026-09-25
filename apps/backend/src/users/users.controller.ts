@@ -1,14 +1,5 @@
-import { API_VERSION } from '@lucy/shared';
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Query,
-} from '@nestjs/common';
+import { API_VERSION, type components } from '@lucy/shared';
+import { Body, Controller, Delete, Get, Patch, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -20,6 +11,8 @@ import {
   type CurrentUserPayload,
 } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
+import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
+import { UUIDParam } from '../common/pipes/uuid-param.js';
 import { UserRole } from '../common/roles.js';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto.js';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
@@ -77,10 +70,7 @@ export class UsersController {
     description: '不能查看自己或同级/更高级别的账号',
   })
   @ApiResponse({ status: 404, description: '用户不存在' })
-  get(
-    @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  get(@CurrentUser() user: CurrentUserPayload, @UUIDParam('id') id: string) {
     return this.usersService.getDetail(
       { userId: user.userId, role: user.role },
       id,
@@ -88,6 +78,14 @@ export class UsersController {
   }
 
   @Patch(':id/status')
+  // status 严格三分：1→启用、0→禁用，其余（null/改名/契约变化）回中性兜底，
+  // 绝不把「取不到」判成「已禁用」误导用户。类型用共享契约替代手写断言。
+  @SuccessMessage((data) => {
+    const status = (data as components['schemas']['User'] | null)?.status;
+    if (status === 1) return '用户已启用';
+    if (status === 0) return '用户已禁用';
+    return '更新成功';
+  })
   @ApiOperation({
     summary: '启用/禁用用户',
     description:
@@ -101,7 +99,7 @@ export class UsersController {
   @ApiResponse({ status: 404, description: '用户不存在' })
   updateStatus(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
     @Body() dto: UpdateUserStatusDto,
   ) {
     return this.usersService.updateStatus(
@@ -113,6 +111,7 @@ export class UsersController {
 
   @Patch(':id/role')
   @Roles(UserRole.SuperAdmin)
+  @SuccessMessage('角色修改成功')
   @ApiOperation({
     summary: '修改用户角色',
     description:
@@ -127,7 +126,7 @@ export class UsersController {
   @ApiResponse({ status: 404, description: '用户不存在' })
   updateRole(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
     @Body() dto: UpdateUserRoleDto,
   ) {
     return this.usersService.updateRole(
@@ -138,6 +137,7 @@ export class UsersController {
   }
 
   @Delete(':id')
+  @SuccessMessage('用户已删除')
   @ApiOperation({
     summary: '删除用户',
     description:
@@ -148,10 +148,7 @@ export class UsersController {
     description: '不能删除自己或同级/更高级别的账号',
   })
   @ApiResponse({ status: 404, description: '用户不存在' })
-  remove(
-    @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  remove(@CurrentUser() user: CurrentUserPayload, @UUIDParam('id') id: string) {
     return this.usersService.remove(
       { userId: user.userId, role: user.role },
       id,

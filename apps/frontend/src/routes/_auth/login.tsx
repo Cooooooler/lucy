@@ -53,9 +53,9 @@ function LoginPageBlock() {
     try {
       const result = await loginMutation.mutateAsync(values);
       login(result.user);
-      // 长效 token 已写入 HttpOnly cookie，短效 access token 由登录直接返回
+      // 长效 token 已写入 HttpOnly cookie，短效 access token 由登录直接返回。
+      // 成功提示由后端 message 经全局 ApiMessageBridge 弹出，这里不再自己写文案。
       applyTokens(result.accessToken);
-      message.success('登录成功');
       navigate({ to: '/' });
     } catch (err) {
       message.error(err instanceof Error ? err.message : '登录失败');

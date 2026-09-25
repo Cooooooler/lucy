@@ -17,7 +17,12 @@ import type {
 
 // 创建/改名返回列表项同一份允许式契约（服务端不 populate messages，自然也不该出现在契约里）
 export function createConversationApi(input: CreateConversationRequest = {}) {
-  return http.post<ConversationItem>('ai/conversations', input).json();
+  // 首条消息无感创建会话（chat.tsx handleSubmit）：静默，不弹「会话创建成功」
+  return http
+    .post<ConversationItem>('ai/conversations', input, {
+      extra: { skipSuccessMessage: true },
+    })
+    .json();
 }
 
 // 会话列表为游标分页（按最近活跃倒序），列表项是允许式白名单 ConversationItem；
@@ -51,7 +56,8 @@ export function createStreamRequest(
     `ai/conversations/${conversationId}/messages`,
     input,
     {
-      extra: { skipAuthRefresh: true },
+      // SSE 流：不走 json 解包本就不会广播；双保险标记静默
+      extra: { skipAuthRefresh: true, skipSuccessMessage: true },
     },
   );
 }

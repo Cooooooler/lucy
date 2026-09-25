@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { AppLogger } from './app-logger.service.js';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
 import { ApiResponseInterceptor } from './interceptors/api-response.interceptor.js';
+import { RATE_LIMIT_MESSAGE } from './messages.js';
 import { RequestContextMiddleware } from './request-context.middleware.js';
 import { ShutdownService } from './shutdown.service.js';
 import { createValidationPipe } from './validation-pipe.js';
@@ -29,7 +30,12 @@ import { createValidationPipe } from './validation-pipe.js';
         },
       },
     }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60_000, limit: 100 }],
+      // 限流默认 message 是英文 `ThrottlerException: Too Many Requests`，
+      // 前端只展示后端文案，所以这里就给出可读中文（与 429 兜底同源）。
+      errorMessage: RATE_LIMIT_MESSAGE,
+    }),
   ],
   providers: [
     AppLogger,
@@ -46,7 +52,8 @@ import { createValidationPipe } from './validation-pipe.js';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     {
       provide: APP_PIPE,
-      // 配置在 createValidationPipe 里唯一定义（测试断言的是同一份配置下的行为）
+      // 配置在 createValidationPipe 里唯一定义（测试断言的是同一份配置下的行为）；
+      // 校验失败的中文文案（validationExceptionFactory）也收在该工厂里
       useValue: createValidationPipe(),
     },
   ],

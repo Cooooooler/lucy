@@ -9,6 +9,10 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ClsService } from 'nestjs-cls';
+import {
+  FRAMEWORK_DEFAULT_MESSAGES,
+  HTTP_STATUS_MESSAGES,
+} from '../messages.js';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -27,14 +31,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const body = exception.getResponse() as
         { code?: number; message?: string | string[] } | string;
       const code = typeof body === 'object' && body.code ? body.code : status;
-      let message: string | string[];
-      if (typeof body === 'object') {
-        message = Array.isArray(body.message)
-          ? body.message[0]
-          : (body.message ?? exception.message);
-      } else {
-        message = body;
-      }
+      const raw: string =
+        typeof body === 'object'
+          ? firstMessage(body.message, exception.message)
+          : body;
+      const message = readableErrorMessage(raw, status);
       if (status >= 500) {
         this.logger.error(
           `HttpException ${status}: ${message}`,
@@ -79,4 +80,37 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return null;
     }
   }
+}
+
+/**
+ * 取异常体的第一条 message：数组取首项（可能为空数组），缺失时回退
+ * exception 自身的 message。抽成独立函数，避免嵌套三元（S3358）。
+ */
+function firstMessage(
+  message: string | string[] | undefined,
+  fallback: string,
+): string {
+  if (Array.isArray(message)) return message[0] ?? '';
+  return message ?? fallback;
+}
+
+/**
+ * 失败原因统一可读化。业务中文文案原样透出；以下三种情况换成中文兜底：
+ * 1. message 为空 —— 直接给状态兜底，避免前端拿到空串无话可说；
+ * 2. 命中框架英文默认串（如 passport 的 `Unauthorized`、限流的 `Too Many Requests`）；
+ * 3. Nest 路由缺失的 `Cannot GET /x` —— 翻译成「请求的资源不存在」。
+ *
+ * 注意不拦截未收录的英文：那是业务代码自己写的英文，没有语境不敢乱改；
+ * 逐案发现、逐案在各 service 里改成中文即可。
+ */
+export function readableErrorMessage(raw: string, status: number): string {
+  const normalized = raw.trim();
+  if (!normalized) return HTTP_STATUS_MESSAGES[status] ?? '请求失败';
+  if (FRAMEWORK_DEFAULT_MESSAGES.has(normalized)) {
+    return HTTP_STATUS_MESSAGES[status] ?? '请求失败';
+  }
+  if (/^Cannot (GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) /.test(normalized)) {
+    return HTTP_STATUS_MESSAGES[404] ?? '请求的资源不存在';
+  }
+  return raw;
 }

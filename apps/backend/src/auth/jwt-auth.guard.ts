@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { ClsService } from 'nestjs-cls';
 import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator.js';
+import { resolveAuthFailure } from './auth-failure.js';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -29,6 +30,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   handleRequest<TUser>(
     ...args: [any, any, any, ExecutionContext, any?]
   ): TUser {
+    // 失败归一抽到 auth-failure.ts（纯函数、可单测）：守卫本体只剩
+    // 「成功写 CLS」的单一职责，认知复杂度不再超标。
+    // 参数签名须与 passport AuthGuard 兼容（any）：err 落 Error 联合，
+    // 非 Error 值由 resolveAuthFailure 统一收成中文 401。
+    const [err, user] = args as unknown as [Error | null | undefined, unknown];
+    if (err || !user) resolveAuthFailure(err);
     // super.handleRequest 返回 any：先落 unknown 再断言，避免 any 污染
     const raw: unknown = super.handleRequest(...args);
     const result = raw as TUser;

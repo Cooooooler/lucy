@@ -11,6 +11,7 @@ import type { Request, Response } from 'express';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
+import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
 import { User as UserEntity } from '../users/user.entity.js';
 import { AuthService } from './auth.service.js';
 import { LoginResultDto } from './dto/login-result.dto.js';
@@ -32,6 +33,7 @@ export class AuthController {
 
   @Public()
   @Post('register')
+  @SuccessMessage('注册成功')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: '注册', description: '创建新账号并返回用户信息' })
   @ApiResponse({ status: 201, description: '注册成功', type: UserEntity })
@@ -41,6 +43,7 @@ export class AuthController {
 
   @Public()
   @Post('login')
+  @SuccessMessage('登录成功')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
     summary: '登录',
@@ -61,6 +64,7 @@ export class AuthController {
 
   @Public()
   @Post('refresh')
+  @SuccessMessage('令牌已刷新')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
     summary: '刷新令牌',
@@ -90,6 +94,7 @@ export class AuthController {
 
   @ApiBearerAuth()
   @Post('logout')
+  @SuccessMessage('已退出登录')
   @ApiOperation({
     summary: '登出',
     description: '撤销当前会话整个家族并清除 cookie',

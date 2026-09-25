@@ -132,8 +132,8 @@ function KnowledgeComponent() {
     async (kb: KnowledgeBase) => {
       const next = kb.visibility === 'public' ? 'private' : 'public';
       try {
+        // 成功提示（「已设为公开/私有」）由后端 message 经全局桥弹出
         await updateBase({ id: kb.id, input: { visibility: next } });
-        message.success(next === 'public' ? '已设为公开' : '已设为私有');
       } catch (e) {
         message.error(errorMessageOf(e, '操作失败，请稍后重试'));
       }
@@ -151,9 +151,8 @@ function KnowledgeComponent() {
         cancelText: '取消',
         onOk: () =>
           deleteBase(kb.id).then(
-            () => {
-              message.success('知识库已删除');
-            },
+            // 成功提示（「知识库已删除」）由后端 message 经全局桥弹出
+            undefined,
             (e) => {
               message.error(errorMessageOf(e, '删除失败，请稍后重试'));
               throw e;

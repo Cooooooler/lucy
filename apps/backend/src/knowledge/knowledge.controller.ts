@@ -5,8 +5,6 @@ import {
   Controller,
   Delete,
   Get,
-  Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -25,6 +23,8 @@ import {
   CurrentUser,
   type CurrentUserPayload,
 } from '../common/decorators/current-user.decorator.js';
+import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
+import { UUIDParam } from '../common/pipes/uuid-param.js';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { DocumentListQueryDto } from './dto/document-list-query.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
@@ -36,6 +36,7 @@ import {
 } from './dto/knowledge-list-result.dto.js';
 import { LikeResultDto } from './dto/like-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
+import { KnowledgeBaseVisibility } from './entities/knowledge-base.entity.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 @ApiTags('knowledge')
@@ -49,6 +50,7 @@ export class KnowledgeController {
   constructor(private readonly knowledgeService: KnowledgeService) {}
 
   @Post()
+  @SuccessMessage('知识库创建成功')
   @ApiOperation({ summary: '创建知识库' })
   @ApiResponse({ status: 201, type: KnowledgeBaseItemDto })
   create(
@@ -77,48 +79,59 @@ export class KnowledgeController {
   @ApiResponse({ status: 404, description: '知识库不存在' })
   get(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
   ): Promise<KnowledgeBaseItemDto> {
     return this.knowledgeService.get(user.userId, id);
   }
 
   @Patch(':id')
+  // 可见性单独切换与整表单编辑走同一接口：请求体**仅含 visibility 单键**时才给
+  // 「已设为公开/私有」——编辑抽屉保存总会带上 visibility（含标题/描述同改时），
+  // 按值判定会把普通编辑误报成切换。其他一律「知识库更新成功」。
+  // 类型收窄到 UpdateKnowledgeBaseDto + 枚举比对：枚举改名时编译期即报错，
+  // 不会静默降级文案。注意 body 是 any，先断言再读，避免 any 污染。
+  @SuccessMessage((_data, req) => {
+    const body = req.body as Partial<UpdateKnowledgeBaseDto> | undefined;
+    if (body && Object.keys(body).length === 1) {
+      if (body.visibility === KnowledgeBaseVisibility.Public) {
+        return '已设为公开';
+      }
+      if (body.visibility === KnowledgeBaseVisibility.Private) {
+        return '已设为私有';
+      }
+    }
+    return '知识库更新成功';
+  })
   @ApiOperation({ summary: '更新知识库' })
   @ApiResponse({ status: 200, type: KnowledgeBaseItemDto })
   update(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('id') id: string,
     @Body() dto: UpdateKnowledgeBaseDto,
   ): Promise<KnowledgeBaseItemDto> {
     return this.knowledgeService.update(user.userId, id, dto);
   }
 
   @Delete(':id')
+  @SuccessMessage('知识库已删除')
   @ApiOperation({ summary: '删除知识库（级联清文档与文件）' })
-  remove(
-    @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  remove(@CurrentUser() user: CurrentUserPayload, @UUIDParam('id') id: string) {
     return this.knowledgeService.remove(user.userId, id);
   }
 
   @Post(':id/like')
+  @SuccessMessage('点赞成功')
   @ApiOperation({ summary: '点赞知识库' })
   @ApiResponse({ status: 200, type: LikeResultDto })
-  like(
-    @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  like(@CurrentUser() user: CurrentUserPayload, @UUIDParam('id') id: string) {
     return this.knowledgeService.like(user.userId, id);
   }
 
   @Delete(':id/like')
+  @SuccessMessage('已取消点赞')
   @ApiOperation({ summary: '取消点赞知识库' })
   @ApiResponse({ status: 200, type: LikeResultDto })
-  unlike(
-    @CurrentUser() user: CurrentUserPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  unlike(@CurrentUser() user: CurrentUserPayload, @UUIDParam('id') id: string) {
     return this.knowledgeService.unlike(user.userId, id);
   }
 
@@ -129,6 +142,7 @@ export class KnowledgeController {
     FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
   )
   @ApiConsumes('multipart/form-data')
+  @SuccessMessage('文档上传成功')
   @ApiOperation({
     summary: '上传文档',
     description: 'multipart/form-data，字段名 file',
@@ -136,7 +150,7 @@ export class KnowledgeController {
   @ApiResponse({ status: 201, type: KnowledgeDocumentDetailDto })
   addDocument(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('kbId', ParseUUIDPipe) kbId: string,
+    @UUIDParam('kbId') kbId: string,
     @UploadedFile() file: Express.Multer.File,
   ): Promise<KnowledgeDocumentDetailDto> {
     if (!file) throw new BadRequestException('缺少文件字段 file');
@@ -148,7 +162,7 @@ export class KnowledgeController {
   @ApiResponse({ status: 200, type: DocumentListResultDto })
   listDocuments(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('kbId', ParseUUIDPipe) kbId: string,
+    @UUIDParam('kbId') kbId: string,
     @Query() query: DocumentListQueryDto,
   ): Promise<DocumentListResultDto> {
     return this.knowledgeService.listDocuments(user.userId, kbId, query);
@@ -159,18 +173,19 @@ export class KnowledgeController {
   @ApiResponse({ status: 200, type: KnowledgeDocumentDetailDto })
   getDocument(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('kbId', ParseUUIDPipe) kbId: string,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('kbId') kbId: string,
+    @UUIDParam('id') id: string,
   ): Promise<KnowledgeDocumentDetailDto> {
     return this.knowledgeService.getDocument(user.userId, kbId, id);
   }
 
   @Delete(':kbId/documents/:id')
+  @SuccessMessage('文档已删除')
   @ApiOperation({ summary: '删除文档（连带清理文件）' })
   removeDocument(
     @CurrentUser() user: CurrentUserPayload,
-    @Param('kbId', ParseUUIDPipe) kbId: string,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UUIDParam('kbId') kbId: string,
+    @UUIDParam('id') id: string,
   ) {
     return this.knowledgeService.removeDocument(user.userId, kbId, id);
   }
