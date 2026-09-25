@@ -21,10 +21,13 @@ import type { CurrentUserPayload } from '../common/decorators/current-user.decor
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
 import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js';
-import { PageQueryDto } from '../common/pagination/dto/page-query.dto.js';
+import { CursorQueryDto } from '../common/pagination/dto/cursor-query.dto.js';
 import { UUIDParam } from '../common/pipes/uuid-param.js';
 import { AiService } from './ai.service.js';
-import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
+import {
+  ConversationItemDto,
+  ConversationListResultDto,
+} from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { RenameConversationDto } from './dto/rename-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
@@ -39,24 +42,37 @@ export class AiController {
   @Post('conversations')
   @SuccessMessage('会话创建成功')
   @ApiOperation({ summary: '创建会话', description: '新建一个 AI 对话会话' })
-  @ApiResponse({ status: 201, description: '创建成功', type: Conversation })
+  @ApiResponse({
+    status: 201,
+    description: '创建成功',
+    type: ConversationItemDto,
+  })
   create(
     @CurrentUser() user: CurrentUserPayload,
     @Body() dto: CreateConversationDto,
-  ): Promise<Conversation> {
+  ): Promise<ConversationItemDto> {
     return this.aiService.create(user.userId, dto);
   }
 
   @Get('conversations')
-  @ApiOperation({ summary: '会话列表', description: '按更新时间倒序分页' })
+  @ApiOperation({
+    summary: '会话列表',
+    description:
+      '按最近活跃倒序，游标分页。排序键是**可变列** updatedAt：翻页期间被更新的会话会被移到 ' +
+      '游标之前，本轮翻页取不到（不会重复，但需刷新或重拉首页才会出现）——客户端在写操作' +
+      '（发消息/改名）后应重置到首页；「空 list + nextCursor=null」才是真正的末页',
+  })
   @ApiResponse({
     status: 200,
     description: '返回分页会话列表',
     type: ConversationListResultDto,
   })
-  list(@CurrentUser() user: CurrentUserPayload, @Query() query: PageQueryDto) {
-    // 分页入参原样透传：默认值与边界策略由 AiService 归一化，避免两处各有一份默认值
-    return this.aiService.list(user.userId, query.page, query.pageSize);
+  list(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query() query: CursorQueryDto,
+  ) {
+    // 分页入参原样透传：默认值与边界策略由 KeysetPaginator 归一化，避免两处各有一份默认值
+    return this.aiService.list(user.userId, query.cursor, query.limit);
   }
 
   @Get('conversations/:id')
@@ -80,14 +96,14 @@ export class AiController {
   @ApiResponse({
     status: 200,
     description: '返回更新后会话',
-    type: Conversation,
+    type: ConversationItemDto,
   })
   @ApiResponse({ status: 404, description: '会话不存在' })
   rename(
     @CurrentUser() user: CurrentUserPayload,
     @UUIDParam('id') id: string,
     @Body() dto: RenameConversationDto,
-  ): Promise<Conversation> {
+  ): Promise<ConversationItemDto> {
     return this.aiService.rename(user.userId, id, dto.title);
   }
 

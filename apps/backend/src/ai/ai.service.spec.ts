@@ -6,10 +6,9 @@ import { lastValueFrom } from 'rxjs';
 import { toArray } from 'rxjs/operators';
 import { DataSource, IsNull } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
-import {
-  DEFAULT_PAGE_SIZE,
-  MAX_PAGE_SIZE,
-} from '../common/pagination/pagination.constants.js';
+import { encodeCursor } from '../common/pagination/cursor.js';
+import { DEFAULT_PAGE_SIZE } from '../common/pagination/pagination.constants.js';
+import { PaginationModule } from '../common/pagination/pagination.module.js';
 import { AiService } from './ai.service.js';
 import { ContextService } from './context.service.js';
 import { Conversation } from './entities/conversation.entity.js';
@@ -24,7 +23,7 @@ describe('AiService', () => {
   const conversationRepo = {
     findOne: vi.fn(),
     save: vi.fn(),
-    findAndCount: vi.fn(),
+    createQueryBuilder: vi.fn(),
     delete: vi.fn(),
     update: vi.fn(),
   };
@@ -55,15 +54,18 @@ describe('AiService', () => {
   let service: AiService;
 
   /**
-   * 经 DI 容器装配服务：`@InjectRepository`/`@InjectDataSource` 的 token 是否与生产一致
-   * 由容器判定。手工 `new AiService(...)` 时漏注入/错位只表现为运行时的 undefined，
-   * 且每新增一个构造依赖都要在每个手工构造点补位置参数（`as never` 还会把类型错误一起抹掉）。
+   * 经 DI 容器装配：`@InjectRepository`/`@InjectDataSource` 的 token 是否与生产一致由容器判定。
+   * 手工 `new AiService(...)` 时漏注入/错位只表现为运行时的 undefined，且每新增一个构造依赖
+   * 都要在每个手工构造点补位置参数（`as never` 还会把类型错误一起抹掉）。
+   *
+   * `KeysetPaginator` 与 `knowledge.service.spec.ts` 同法：刻意不在这里 provide，而是走
+   * `imports: [PaginationModule]` —— 与生产一致的模块路径才会验证 `PaginationModule` 真的
+   * exports 了它，在 providers 里再 provide 一份会把 `ai.module.ts` 的 imports 写错也变成绿灯。
    * @param configService 覆盖 ConfigService（空闲超时用例需要不同的 OLLAMA_TIMEOUT_MS）
    */
-  const buildService = async (
-    configService: ConfigService = config,
-  ): Promise<AiService> => {
-    const moduleRef = await Test.createTestingModule({
+  const buildModule = (configService: ConfigService = config) =>
+    Test.createTestingModule({
+      imports: [PaginationModule],
       providers: [
         AiService,
         { provide: AppLogger, useValue: logger },
@@ -77,7 +79,12 @@ describe('AiService', () => {
         { provide: ContextService, useValue: contextService },
         { provide: ConfigService, useValue: configService },
       ],
-    }).compile();
+    });
+
+  const buildService = async (
+    configService: ConfigService = config,
+  ): Promise<AiService> => {
+    const moduleRef = await buildModule(configService).compile();
     return moduleRef.get(AiService);
   };
 
@@ -94,43 +101,137 @@ describe('AiService', () => {
       model: null,
     });
 
-  it('create 保存会话', async () => {
-    conversationRepo.save.mockResolvedValue(conv());
-    await expect(service.create('1', {})).resolves.toBeInstanceOf(Conversation);
+  /** 带排序键时间戳的会话：真 paginator 会用 updatedAt 生成游标，所以必须给真实 Date */
+  const timedConv = (index: number): Conversation =>
+    Object.assign(conv(), {
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, 0, index)),
+      updatedAt: new Date(Date.UTC(2026, 5, 1, 0, 0, 0, index)),
+    });
+
+  /**
+   * 会话列表的 QueryBuilder stub：只实现 `KeysetPaginator` 用到的能力（链式排序/多取一条 +
+   * 「属性名 → 列名」的实体元数据解析）。容器里给的是真 paginator（走 `PaginationModule`），
+   * 所以列名解析写错就会拼出不存在的列 —— 这正是这里不拿 spy 顶替它的原因。
+   */
+  const makeListQueryBuilder = (rows: Conversation[]) => {
+    const columns: Record<string, string> = {
+      createdAt: 'created_at',
+      updatedAt: 'updated_at',
+      id: 'id',
+    };
+    const qb = {
+      expressionMap: {
+        mainAlias: {
+          name: 'c',
+          hasMetadata: true,
+          metadata: {
+            name: 'Conversation',
+            findColumnWithPropertyName: (property: string) =>
+              columns[property]
+                ? { databaseName: columns[property] }
+                : undefined,
+          },
+        },
+      },
+      where: vi.fn(),
+      orderBy: vi.fn(),
+      addOrderBy: vi.fn(),
+      andWhere: vi.fn(),
+      take: vi.fn(),
+      getMany: vi.fn().mockResolvedValue(rows),
+    };
+    qb.where.mockReturnValue(qb);
+    qb.orderBy.mockReturnValue(qb);
+    qb.addOrderBy.mockReturnValue(qb);
+    qb.andWhere.mockReturnValue(qb);
+    qb.take.mockReturnValue(qb);
+    return qb;
+  };
+
+  it('create 保存会话并返回允许式契约视图（与列表项同形）', async () => {
+    const saved = timedConv(1);
+    conversationRepo.save.mockResolvedValue(saved);
+    await expect(service.create('1', {})).resolves.toEqual({
+      id: saved.id,
+      title: saved.title,
+      model: saved.model,
+      createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt,
+    });
     expect(conversationRepo.save).toHaveBeenCalledWith({
       userId: '1',
       model: null,
     });
   });
 
-  it('list 返回分页结果', async () => {
-    conversationRepo.findAndCount.mockResolvedValue([[conv()], 1]);
-    await expect(service.list('1', 1, 20)).resolves.toEqual({
-      list: [expect.any(Conversation)],
-      total: 1,
-      page: 1,
-      pageSize: 20,
+  /** 列表项允许式白名单的键集（已排序，与 `Object.keys(...).sort()` 比对） */
+  const itemKeys = ['createdAt', 'id', 'model', 'title', 'updatedAt'];
+
+  it('list 走游标分页：过滤归属用户，按 updatedAt 排序，列表项走允许式白名单', async () => {
+    const row = Object.assign(timedConv(1), {
+      title: '会话标题',
+      model: 'qwen2.5:7b',
     });
+    const qb = makeListQueryBuilder([row]);
+    conversationRepo.createQueryBuilder.mockReturnValue(qb);
+
+    const page = await service.list('1', undefined, undefined);
+
+    expect(page.nextCursor).toBeNull();
+    // 期望值逐字段显式写出、不引用生产 mapper：否则映射器漏拷/错拷字段时这里会恒等通过
+    expect(page.list).toEqual([
+      {
+        id: row.id,
+        title: '会话标题',
+        model: 'qwen2.5:7b',
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      },
+    ]);
+    // 白名单：不含 userId 等实体字段（拿实体当契约等于「新增字段默认出网」）
+    expect(Object.keys(page.list[0]).sort()).toEqual(itemKeys);
+    expect(conversationRepo.createQueryBuilder).toHaveBeenCalledWith('c');
+    expect(qb.where).toHaveBeenCalledWith('c.userId = :userId', {
+      userId: '1',
+    });
+    // 排序键必须是 updated_at（最近活跃优先）；回落成 created_at 会变成「按创建时间」
+    expect(qb.orderBy).toHaveBeenCalledWith('c.updated_at', 'DESC');
+    expect(qb.addOrderBy).toHaveBeenCalledWith('c.id', 'DESC');
+    // 多取一条判下一页，避免额外的 COUNT
+    expect(qb.take).toHaveBeenCalledWith(DEFAULT_PAGE_SIZE + 1);
   });
 
-  it('list 缺省分页参数在服务层归一化（默认值与 DTO 契约同源）', async () => {
-    conversationRepo.findAndCount.mockResolvedValue([[], 0]);
-    await expect(service.list('1', undefined, undefined)).resolves.toEqual({
-      list: [],
-      total: 0,
-      page: 1,
-      pageSize: DEFAULT_PAGE_SIZE,
-    });
-    expect(conversationRepo.findAndCount).toHaveBeenCalledWith(
-      expect.objectContaining({ skip: 0, take: DEFAULT_PAGE_SIZE }),
+  it('list 带游标：追加行比较谓词，多取到一条时给出下一页游标', async () => {
+    const rows = [timedConv(1), timedConv(2), timedConv(3)];
+    const qb = makeListQueryBuilder(rows);
+    conversationRepo.createQueryBuilder.mockReturnValue(qb);
+    const last = timedConv(9);
+
+    const page = await service.list(
+      '1',
+      encodeCursor(last.updatedAt, last.id, 'updatedAt'),
+      2,
     );
-  });
 
-  it('list 越界分页参数在服务层归一化（内部调用方绕过 DTO 的 @Min/@Max）', async () => {
-    conversationRepo.findAndCount.mockResolvedValue([[], 0]);
-    await service.list('1', 0, 10 ** 9);
-    expect(conversationRepo.findAndCount).toHaveBeenCalledWith(
-      expect.objectContaining({ skip: 0, take: MAX_PAGE_SIZE }),
+    expect(qb.take).toHaveBeenCalledWith(3);
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      '(c.updated_at, c.id) < (:cursorTs, :cursorId)',
+      { cursorTs: last.updatedAt, cursorId: last.id },
+    );
+    expect(page.list).toHaveLength(2);
+    // 同上：逐字段写期望，且这条裁剪路径也要断言形状（此前没有）
+    expect(page.list[0]).toEqual({
+      id: rows[0].id,
+      title: rows[0].title,
+      model: rows[0].model,
+      createdAt: rows[0].createdAt,
+      updatedAt: rows[0].updatedAt,
+    });
+    expect(Object.keys(page.list[0]).sort()).toEqual(itemKeys);
+    expect(page.list.map((item) => item.id)).toEqual([rows[0].id, rows[1].id]);
+    expect(page.nextCursor).toBe(
+      encodeCursor(rows[1].updatedAt, rows[1].id, 'updatedAt'),
     );
   });
 
@@ -146,10 +247,17 @@ describe('AiService', () => {
     expect(res.messages).toEqual([]);
   });
 
-  it('rename 改名并返回', async () => {
+  it('rename 改名并返回允许式契约视图（与列表项同形）', async () => {
+    const saved = Object.assign(timedConv(1), { title: '新标题' });
     conversationRepo.findOne.mockResolvedValue(conv());
-    conversationRepo.save.mockResolvedValue(conv());
-    await service.rename('1', 'c1', '新标题');
+    conversationRepo.save.mockResolvedValue(saved);
+    await expect(service.rename('1', 'c1', '新标题')).resolves.toEqual({
+      id: saved.id,
+      title: '新标题',
+      model: saved.model,
+      createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt,
+    });
     expect(conversationRepo.save).toHaveBeenCalled();
   });
 

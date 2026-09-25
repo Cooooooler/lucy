@@ -1,8 +1,12 @@
-import type { AiStreamEvent } from '@lucy/shared';
+import type {
+  AiStreamEvent,
+  ConversationListQuery,
+  CursorPageResult,
+} from '@lucy/shared';
 import { http } from './client';
 import type {
   Conversation,
-  ConversationListResult,
+  ConversationItem,
   CreateConversationRequest,
   RenameConversationRequest,
   SendMessageRequest,
@@ -11,18 +15,21 @@ import type {
 // AI 会话/消息 REST 客户端：全部经 http 实例（自动附加 Bearer + 401 单飞刷新 + 信封解包）。
 // 流式发送标记 skipAuthRefresh：SSE 流中途不应触发 401 重放，否则会破坏流协议。
 
+// 创建/改名返回列表项同一份允许式契约（服务端不 populate messages，自然也不该出现在契约里）
 export function createConversationApi(input: CreateConversationRequest = {}) {
   // 首条消息无感创建会话（chat.tsx handleSubmit）：静默，不弹「会话创建成功」
   return http
-    .post<Conversation>('ai/conversations', input, {
+    .post<ConversationItem>('ai/conversations', input, {
       extra: { skipSuccessMessage: true },
     })
     .json();
 }
 
-export function listConversationsApi(page = 1, pageSize = 20) {
+// 会话列表为游标分页（按最近活跃倒序），列表项是允许式白名单 ConversationItem；
+// 响应结构复用共享 CursorPageResult<T>，查询参数类型由共享包从生成的 operations 派生
+export function listConversationsApi(query: ConversationListQuery = {}) {
   return http
-    .get<ConversationListResult>('ai/conversations', { page, pageSize })
+    .get<CursorPageResult<ConversationItem>>('ai/conversations', query)
     .json();
 }
 
@@ -34,7 +41,7 @@ export function renameConversationApi(
   id: string,
   input: RenameConversationRequest,
 ) {
-  return http.patch<Conversation>(`ai/conversations/${id}`, input).json();
+  return http.patch<ConversationItem>(`ai/conversations/${id}`, input).json();
 }
 
 export function deleteConversationApi(id: string) {

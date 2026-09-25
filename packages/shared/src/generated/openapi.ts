@@ -215,7 +215,7 @@ export interface paths {
         };
         /**
          * 会话列表
-         * @description 按更新时间倒序分页
+         * @description 按最近活跃倒序，游标分页。排序键是**可变列** updatedAt：翻页期间被更新的会话会被移到 游标之前，本轮翻页取不到（不会重复，但需刷新或重拉首页才会出现）——客户端在写操作（发消息/改名）后应重置到首页；「空 list + nextCursor=null」才是真正的末页
          */
         get: operations["AiController_list"];
         put?: never;
@@ -616,6 +616,30 @@ export interface components {
              */
             model?: string;
         };
+        ConversationItemDto: {
+            /** @description 会话 ID */
+            id: string;
+            /** @description 标题 */
+            title: string | null;
+            /** @description 会话默认模型 */
+            model: string | null;
+            /**
+             * Format: date-time
+             * @description 创建时间
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description 更新时间
+             */
+            updatedAt: string;
+        };
+        ConversationListResultDto: {
+            /** @description 会话列表 */
+            list: components["schemas"]["ConversationItemDto"][];
+            /** @description 下一页游标；null 表示已到末页 */
+            nextCursor: string | null;
+        };
         Message: {
             /** @description 消息 ID */
             id: string;
@@ -664,25 +688,6 @@ export interface components {
              * @description 更新时间
              */
             updatedAt: string;
-        };
-        ConversationListResultDto: {
-            /** @description 会话列表 */
-            list: components["schemas"]["Conversation"][];
-            /**
-             * @description 总条数
-             * @example 0
-             */
-            total: number;
-            /**
-             * @description 当前页码
-             * @example 1
-             */
-            page: number;
-            /**
-             * @description 每页条数
-             * @example 20
-             */
-            pageSize: number;
         };
         RenameConversationDto: {
             /** @description 新标题 */
@@ -1173,10 +1178,10 @@ export interface operations {
     AiController_list: {
         parameters: {
             query?: {
-                /** @description 页码 */
-                page?: number;
+                /** @description 分页游标（上一页返回的 nextCursor），省略表示第一页 */
+                cursor?: string;
                 /** @description 每页条数 */
-                pageSize?: number;
+                limit?: number;
             };
             header?: never;
             path?: never;
@@ -1214,7 +1219,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Conversation"];
+                    "application/json": components["schemas"]["ConversationItemDto"];
                 };
             };
         };
@@ -1296,7 +1301,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Conversation"];
+                    "application/json": components["schemas"]["ConversationItemDto"];
                 };
             };
             /** @description 会话不存在 */
