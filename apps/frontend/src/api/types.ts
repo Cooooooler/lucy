@@ -16,6 +16,9 @@ export type SendMessageRequest = components['schemas']['SendMessageDto'];
 export type RenameConversationRequest =
   components['schemas']['RenameConversationDto'];
 export type Conversation = components['schemas']['Conversation'];
+// 会话**列表项**契约（ConversationItemDto）：允许式白名单，刻意不含 userId 等实体字段，
+// 与详情契约 Conversation（实体）区分开
+export type ConversationItem = components['schemas']['ConversationItemDto'];
 export type Message = components['schemas']['Message'];
 export type MessageRole = Message['role'];
 export type MessageStatus = Message['status'];

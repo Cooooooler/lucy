@@ -49,7 +49,10 @@ export class AiController {
   @Get('conversations')
   @ApiOperation({
     summary: '会话列表',
-    description: '按最近活跃倒序，游标分页',
+    description:
+      '按最近活跃倒序，游标分页。排序键是**可变列** updatedAt：翻页期间被更新的会话会被移到 ' +
+      '游标之前，本轮翻页取不到（不会重复，但需刷新或重拉首页才会出现）——客户端在写操作' +
+      '（发消息/改名）后应重置到首页；「空 list + nextCursor=null」才是真正的末页',
   })
   @ApiResponse({
     status: 200,

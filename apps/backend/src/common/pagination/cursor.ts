@@ -2,9 +2,16 @@ import { BadRequestException } from '@nestjs/common';
 
 /**
  * 游标分页载荷：以 (排序键时间戳, 主键, 排序键) 作为 keyset 定位点。
- * 时间戳为 ISO 字符串（毫秒精度，JS Date 的固有精度）；数据库侧的时间列由实体的
- * 列默认值保证毫秒对齐（`date_trunc('milliseconds', now())`），因此可直接与原始列比较，
- * 无需在 SQL 里再做截断。
+ *
+ * 时间戳为 ISO 字符串（毫秒精度，JS Date 的固有精度），因此数据库侧的排序键列**必须**是
+ * 毫秒粒度：亚毫秒值会被游标向下截断，`(排序键, id) < (:cursorTs, :cursorId)` 会把同一
+ * 毫秒内的行整批跳过（静默漏数据）。落地方式按列的可变性选：
+ * - 会被 UPDATE 重写的列（如 `updated_at`）：把精度写进**列类型**（`timestamptz(3)`）——
+ *   列默认值只在 INSERT 生效，管不到 UPDATE（见 `Conversation` 实体）；
+ * - 只由 INSERT 写入的不可变列（如知识库的 `created_at`）：列默认值
+ *   `date_trunc('milliseconds', now())` 即可（见 `KnowledgeBase` 实体）。
+ *
+ * 两种方式下都可直接与原始列比较，无需在 SQL 里再做截断。
  */
 interface CursorPayload {
   t: string;
