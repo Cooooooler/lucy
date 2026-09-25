@@ -3,11 +3,11 @@ import {
   CallHandler,
   ExecutionContext,
   Injectable,
-  Logger,
   NestInterceptor,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { map } from 'rxjs/operators';
+import { AppLogger } from '../app-logger.service.js';
 import {
   SUCCESS_MESSAGE_KEY,
   type SuccessMessageResolver,
@@ -41,7 +41,9 @@ export function defaultSuccessMessage(method: string): string {
 
 @Injectable()
 export class ApiResponseInterceptor implements NestInterceptor {
-  private readonly logger = new Logger(ApiResponseInterceptor.name);
+  // 注入 AppLogger（而非 new Logger(...)）：pino 管道 + CLS 自动补 user=/reqId=，
+  // 这条 warn 是「文案静默出错」的唯一信号源，必须能按请求链路检索
+  constructor(private readonly logger: AppLogger) {}
 
   intercept(ctx: ExecutionContext, next: CallHandler) {
     const isSse = Boolean(Reflect.getMetadata(SSE_METADATA, ctx.getHandler()));
@@ -82,6 +84,7 @@ export class ApiResponseInterceptor implements NestInterceptor {
         this.logger.warn(
           `SuccessMessage 解析失败，回退方法兜底：${request.method} ${request.path} ` +
             `${err instanceof Error ? err.message : String(err)}`,
+          ApiResponseInterceptor.name,
         );
         return defaultSuccessMessage(request.method);
       }

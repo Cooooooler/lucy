@@ -13,9 +13,21 @@
  */
 export const RATE_LIMIT_MESSAGE = '请求过于频繁，请稍后再试';
 
+/**
+ * 400 兜底：HTTP 状态文案与校验工厂的「没有更具体的错误可报」兜底共用同一句，
+ * 改文案只改这里（同 RATE_LIMIT_MESSAGE 的理由，必须声明在 HTTP_STATUS_MESSAGES 之前）。
+ */
+export const BAD_REQUEST_MESSAGE = '请求参数有误';
+
+/**
+ * 路径参数（UUID）不合法：`UUIDParam` 的 `ParseUUIDPipe.exceptionFactory` 使用。
+ * 收进本模块而不是写在使用处，是为了让「错误侧文案只在这里定义」这条约定成立。
+ */
+export const INVALID_PATH_PARAM_MESSAGE = '链接地址不正确';
+
 /** 按 HTTP 状态的中文兜底：过滤器在 message 缺失或为框架英文默认串时使用 */
 export const HTTP_STATUS_MESSAGES: Partial<Record<number, string>> = {
-  400: '请求参数有误',
+  400: BAD_REQUEST_MESSAGE,
   401: '未登录或登录已过期',
   403: '无权限访问',
   404: '请求的资源不存在',
@@ -52,6 +64,9 @@ export const FRAMEWORK_DEFAULT_MESSAGES = new Set([
   'Unsupported Media Type',
   'Unprocessable Entity',
   'Too Many Requests',
+  // ThrottlerException 的默认 message 带类名前缀（不经过 ThrottlerModule.errorMessage
+  // 时出现，如路由级覆盖或配置项改名），漏掉它就会把英文原样透给用户
+  'ThrottlerException: Too Many Requests',
   'Internal Server Error',
   'Service Unavailable',
   // ParseUUIDPipe 默认异常

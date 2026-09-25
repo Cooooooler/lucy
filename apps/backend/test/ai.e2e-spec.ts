@@ -34,9 +34,11 @@ describe('AI conversation keyset pagination (e2e)', () => {
   /** 列表项允许式白名单（多一个字段就该让断言失败） */
   const itemKeys = ['createdAt', 'id', 'model', 'title', 'updatedAt'];
 
-  // 基准毫秒：5 条共享同一 updated_at（同毫秒并列，靠 id 决胜），另 4 条落在不同毫秒。
-  // 列类型是 timestamptz(3)，因此这些毫秒值落库后原样保留。
-  const tieTs = new Date('2026-06-06T06:06:06.600Z');
+  // 基准毫秒取「当前时间往前 10 分钟」，不写死日期：下面的「翻页途中改名」用例隐含依赖
+  // now > tieTs（改名后的 updated_at 要落在夹具之上才能顶到最前、并被在途游标跳过），
+  // 写死绝对时间会让断言在运行环境时钟早于该日期时以「与本次改动无关」的形态失败。
+  // 5 条共享同一个 Date 实例 → 同一毫秒，另 4 条各差 1 秒。
+  const tieTs = new Date(Date.now() - 10 * 60_000);
   const tieIds: string[] = [];
 
   const auth = () => ({ Authorization: `Bearer ${token}` });
@@ -187,7 +189,8 @@ describe('AI conversation keyset pagination (e2e)', () => {
     expect((fresh.list[0] as { id: string }).id).toBe(pending);
   });
 
-  // 放在最后：本用例会多造一条会话，前面的断言依赖初始的 9 条
+  // 本用例会多造一条会话，结束前自行删除：不依赖「它排在最后」这种隐式顺序，
+  // 之后追加的用例也不会被多出来的这条数据绊住
   it('创建/改名返回与列表项同一份允许式契约（不含 messages / userId）', async () => {
     const created = await request(server)
       .post('/v1/ai/conversations')
@@ -208,5 +211,10 @@ describe('AI conversation keyset pagination (e2e)', () => {
     const renamedItem = (renamed.body as ApiBody<Record<string, unknown>>).data;
     expect(Object.keys(renamedItem).sort()).toEqual(itemKeys);
     expect(renamedItem.title).toBe(`renamed-${suffix}`);
+
+    await request(server)
+      .delete(`/v1/ai/conversations/${createdItem.id as string}`)
+      .set(auth())
+      .expect(200);
   });
 });

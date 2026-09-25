@@ -24,10 +24,8 @@ import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js
 import { CursorQueryDto } from '../common/pagination/dto/cursor-query.dto.js';
 import { UUIDParam } from '../common/pipes/uuid-param.js';
 import { AiService } from './ai.service.js';
-import {
-  ConversationItemDto,
-  ConversationListResultDto,
-} from './dto/conversation-list-result.dto.js';
+import { ConversationItemDto } from './dto/conversation-item.dto.js';
+import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { RenameConversationDto } from './dto/rename-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
@@ -60,7 +58,8 @@ export class AiController {
     description:
       '按最近活跃倒序，游标分页。排序键是**可变列** updatedAt：翻页期间被更新的会话会被移到 ' +
       '游标之前，本轮翻页取不到（不会重复，但需刷新或重拉首页才会出现）——客户端在写操作' +
-      '（发消息/改名）后应重置到首页；「空 list + nextCursor=null」才是真正的末页',
+      '（发消息/改名）后应重置到首页。nextCursor 为 null 即末页（list 为空只能是' +
+      '「游标之后的行被更新/删除」的兜底情形，满页的末页不会给出下一次游标）',
   })
   @ApiResponse({
     status: 200,

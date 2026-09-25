@@ -54,6 +54,31 @@ async function generateOpenApi(): Promise<void> {
   writeFileSync(OUT, JSON.stringify(document, null, 2));
 }
 
+/** 本文件用到的文档形状（只声明 paths 一部分，免得每个用例各抄一份 cast） */
+interface PartialOpenApiDoc {
+  paths?: Record<
+    string,
+    Record<
+      string,
+      { responses?: Record<string, { content?: Record<string, unknown> }> }
+    >
+  >;
+}
+
+/** 断言某端点的成功响应确实带 schema（历史上 get/update 的 200 是 content?: never） */
+function hasSuccessSchema(
+  doc: PartialOpenApiDoc,
+  path: string,
+  method: string,
+  status: string,
+): void {
+  const content = doc.paths?.[path]?.[method]?.responses?.[status]?.content;
+  expect(
+    Object.keys(content ?? {}).length,
+    `${method.toUpperCase()} ${path} 的 ${status} 缺少响应 schema`,
+  ).toBeGreaterThan(0);
+}
+
 describe('gen-openapi', () => {
   it('写出 openapi.json 且包含 auth 路由与核心 schema', async () => {
     await generateOpenApi();
@@ -115,21 +140,40 @@ describe('gen-openapi', () => {
     // likeCount/isLiked 是必填：此前只有 get/list 附带，前端只能全声明成可选
     expect(itemSchema?.required?.sort()).toEqual(keys);
 
-    /** 断言某端点的成功响应确实带 schema（历史上 get/update 的 200 是 content?: never） */
-    const hasSuccessSchema = (path: string, method: string, status: string) => {
-      const content = doc.paths?.[path]?.[method]?.responses?.[status]?.content;
-      expect(
-        Object.keys(content ?? {}).length,
-        `${method.toUpperCase()} ${path} 的 ${status} 缺少响应 schema`,
-      ).toBeGreaterThan(0);
+    hasSuccessSchema(doc, '/knowledge', 'get', '200');
+    hasSuccessSchema(doc, '/knowledge', 'post', '201');
+    hasSuccessSchema(doc, '/knowledge/{id}', 'get', '200');
+    hasSuccessSchema(doc, '/knowledge/{id}', 'patch', '200');
+    hasSuccessSchema(doc, '/knowledge/{kbId}/documents', 'get', '200');
+    hasSuccessSchema(doc, '/knowledge/{kbId}/documents', 'post', '201');
+    hasSuccessSchema(doc, '/knowledge/{kbId}/documents/{id}', 'get', '200');
+  });
+
+  it('AI 会话契约：列表项/创建/改名共用同一份白名单，且三个端点都带响应 schema', async () => {
+    await generateOpenApi();
+    const doc = JSON.parse(readFileSync(OUT, 'utf8')) as PartialOpenApiDoc & {
+      components?: {
+        schemas?: Record<
+          string,
+          { properties?: Record<string, unknown>; required?: string[] }
+        >;
+      };
     };
-    hasSuccessSchema('/knowledge', 'get', '200');
-    hasSuccessSchema('/knowledge', 'post', '201');
-    hasSuccessSchema('/knowledge/{id}', 'get', '200');
-    hasSuccessSchema('/knowledge/{id}', 'patch', '200');
-    hasSuccessSchema('/knowledge/{kbId}/documents', 'get', '200');
-    hasSuccessSchema('/knowledge/{kbId}/documents', 'post', '201');
-    hasSuccessSchema('/knowledge/{kbId}/documents/{id}', 'get', '200');
+
+    // 允许式白名单：字段集固定（新增实体列不会自动进契约），且刻意不含 userId。
+    // 此前只有 list 用 DTO、create/rename 用实体，同一资源出现两种形状，
+    // 且实体上必填的 messages 在 create/rename 响应里永远不出现。
+    const itemSchema = doc.components?.schemas?.ConversationItemDto;
+    expect(itemSchema).toBeDefined();
+    const keys = Object.keys(itemSchema?.properties ?? {}).sort();
+    expect(keys).toEqual(
+      ['createdAt', 'id', 'model', 'title', 'updatedAt'].sort(),
+    );
+    expect(itemSchema?.required?.sort()).toEqual(keys);
+
+    hasSuccessSchema(doc, '/ai/conversations', 'get', '200');
+    hasSuccessSchema(doc, '/ai/conversations', 'post', '201');
+    hasSuccessSchema(doc, '/ai/conversations/{id}', 'patch', '200');
   });
 
   it('文档详情/列表契约字段集固定（含/不含解析全文 content）', async () => {
