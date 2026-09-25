@@ -134,9 +134,34 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  shared-tests:
+    name: Shared package tests with coverage
+    runs-on: tenki-standard-small-2c-4g
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Shared package tests with coverage
+        run: pnpm --filter @lucy/shared test:cov
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-coverage
+          path: packages/shared/coverage
+          if-no-files-found: error
+          retention-days: 1
+
   sonarqube:
     name: SonarCloud Scan
-    needs: [backend-tests, frontend-tests, redis-tests]
+    needs: [backend-tests, frontend-tests, redis-tests, shared-tests]
     runs-on: tenki-standard-small-2c-4g
     steps:
       - uses: actions/checkout@v7
@@ -157,6 +182,11 @@ jobs:
         with:
           name: redis-coverage
           path: packages/redis/coverage
+      - name: Download shared coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-coverage
+          path: packages/shared/coverage
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:

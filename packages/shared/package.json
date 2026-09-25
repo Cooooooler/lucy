@@ -18,6 +18,8 @@
     "build": "tsup src/index.ts --format esm --clean --dts --tsconfig tsconfig.build.json",
     "dev": "tsup src/index.ts --format esm --clean --dts --watch --tsconfig tsconfig.build.json",
     "lint": "eslint \"src/**/*.ts\" --fix",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "typegen": "openapi-typescript ../../apps/backend/openapi.json -o src/generated/openapi.ts && node scripts/ensure-eslint-disable.mjs"
   }
