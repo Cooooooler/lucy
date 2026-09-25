@@ -10,7 +10,10 @@ import { AppLogger } from '../common/app-logger.service.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import { toConversationItem } from './ai.mapper.js';
 import { ContextService } from './context.service.js';
-import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
+import {
+  ConversationListResultDto,
+  type ConversationItemDto,
+} from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
 import { Conversation } from './entities/conversation.entity.js';
@@ -52,9 +55,16 @@ export class AiService {
   // 同会话并发锁：key=conversationId，防止同会话并发生成（同时消除首条消息重复触发标题生成）
   private readonly inFlight = new Map<string, Promise<unknown>>();
 
-  /** AI：创建会话。 */
-  create(userId: string, dto: CreateConversationDto): Promise<Conversation> {
-    return this.conversationRepo.save({ userId, model: dto.model ?? null });
+  /** AI：创建会话（返回允许式契约视图，与列表项同形）。 */
+  async create(
+    userId: string,
+    dto: CreateConversationDto,
+  ): Promise<ConversationItemDto> {
+    const conversation = await this.conversationRepo.save({
+      userId,
+      model: dto.model ?? null,
+    });
+    return toConversationItem(conversation);
   }
 
   /**
@@ -98,18 +108,18 @@ export class AiService {
     return conversation;
   }
 
-  /** AI：重命名会话。 */
+  /** AI：重命名会话（返回允许式契约视图，与列表项同形）。 */
   async rename(
     userId: string,
     id: string,
     title: string,
-  ): Promise<Conversation> {
+  ): Promise<ConversationItemDto> {
     const conversation = await this.conversationRepo.findOne({
       where: { id, userId },
     });
     if (!conversation) throw new NotFoundException('会话不存在');
     conversation.title = title;
-    return this.conversationRepo.save(conversation);
+    return toConversationItem(await this.conversationRepo.save(conversation));
   }
 
   /** AI：删除会话（含消息级联）。 */
