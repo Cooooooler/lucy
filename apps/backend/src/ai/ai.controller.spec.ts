@@ -48,12 +48,12 @@ describe('AiController', () => {
     expect(aiService.create).toHaveBeenCalledWith('1', { model: 'qwen' });
   });
 
-  it('list 透传分页参数并转数字', async () => {
-    await controller.list(user, { page: 2, pageSize: 10 });
-    expect(aiService.list).toHaveBeenCalledWith('1', 2, 10);
+  it('list 透传游标与条数', async () => {
+    await controller.list(user, { cursor: 'abc', limit: 10 });
+    expect(aiService.list).toHaveBeenCalledWith('1', 'abc', 10);
   });
 
-  it('list 缺省分页参数原样透传（默认值由 AiService 归一化，避免两处各有一份）', async () => {
+  it('list 缺省分页参数原样透传（默认值与上界由 KeysetPaginator 归一化，避免两处各有一份）', async () => {
     await controller.list(user, {});
     expect(aiService.list).toHaveBeenCalledWith('1', undefined, undefined);
   });

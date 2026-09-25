@@ -1,15 +1,33 @@
 import { BadRequestException } from '@nestjs/common';
 
 /**
- * 游标分页载荷：以 (排序时间戳, 主键) 作为 keyset 定位点。
- * 时间戳为 ISO 字符串（毫秒精度，JS Date 的固有精度）；数据库侧的时间列由实体的
- * 列默认值保证毫秒对齐（`date_trunc('milliseconds', now())`），因此可直接与原始列比较，
- * 无需在 SQL 里再做截断。
+ * 游标分页载荷：以 (排序键时间戳, 主键, 排序键) 作为 keyset 定位点。
+ *
+ * 时间戳为 ISO 字符串（毫秒精度，JS Date 的固有精度），因此数据库侧的排序键列**必须**是
+ * 毫秒粒度：亚毫秒值会被游标向下截断，`(排序键, id) < (:cursorTs, :cursorId)` 会把同一
+ * 毫秒内的行整批跳过（静默漏数据）。落地方式按列的可变性选：
+ * - 会被 UPDATE 重写的列（如 `updated_at`）：把精度写进**列类型**（`timestamptz(3)`）——
+ *   列默认值只在 INSERT 生效，管不到 UPDATE（见 `Conversation` 实体）；
+ * - 只由 INSERT 写入的不可变列（如知识库的 `created_at`）：列默认值
+ *   `date_trunc('milliseconds', now())` 即可（见 `KnowledgeBase` 实体）。
+ *
+ * 两种方式下都可直接与原始列比较，无需在 SQL 里再做截断。
  */
 interface CursorPayload {
   t: string;
   i: string;
+  k: CursorSortKey;
 }
+
+/**
+ * 游标携带的排序键属性名。
+ *
+ * 为什么游标必须记住它指向哪一列：`KeysetPaginator` 支持 `createdAt` 与 `updatedAt` 两种排序键，
+ * 而游标只是一个不透明字符串 —— 不记录排序键时，知识库/文档列表（`created_at`）与会话列表
+ * （`updated_at`）的游标可以互换，解码照过，于是拿错列做行比较，**静默**返回错误或空的页
+ * （浏览器缓存的旧游标也落在这一类）。
+ */
+export type CursorSortKey = 'createdAt' | 'updatedAt';
 
 /**
  * 游标入参约束的**唯一定义处**（两个列表查询 DTO 的 `@MaxLength` / `@Matches` 都从这里取）：
@@ -29,16 +47,30 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** 将一条记录的排序键编码为不透明游标（base64url，URL 安全）。 */
-export function encodeCursor(timestamp: Date, id: string): string {
-  const payload: CursorPayload = { t: timestamp.toISOString(), i: id };
+export function encodeCursor(
+  timestamp: Date,
+  id: string,
+  sortKey: CursorSortKey,
+): string {
+  const payload: CursorPayload = {
+    t: timestamp.toISOString(),
+    i: id,
+    k: sortKey,
+  };
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 }
 
 /**
  * 解码游标；任何格式错误统一抛 400，避免把非法输入带进 SQL。
- * @throws BadRequestException 游标为空/非 base64/非 JSON/字段缺失/时间非法/id 非 UUID
+ *
+ * `k` 必须与调用方当前使用的排序键一致：不一致（含缺少 `k` 的旧游标）一律拒绝，
+ * 否则会拿另一列做行比较而静默返回错误/空的页。
+ * @throws BadRequestException 游标为空/非 base64/非 JSON/字段缺失/时间非法/id 非 UUID/排序键不匹配
  */
-export function decodeCursor(cursor: string): { timestamp: Date; id: string } {
+export function decodeCursor(
+  cursor: string,
+  sortKey: CursorSortKey,
+): { timestamp: Date; id: string } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
@@ -48,8 +80,13 @@ export function decodeCursor(cursor: string): { timestamp: Date; id: string } {
   if (parsed === null || typeof parsed !== 'object') {
     throw new BadRequestException('无效的分页游标');
   }
-  const { t, i } = parsed as Partial<CursorPayload>;
-  if (typeof t !== 'string' || typeof i !== 'string' || !UUID_PATTERN.test(i)) {
+  const { t, i, k } = parsed as Partial<CursorPayload>;
+  if (
+    typeof t !== 'string' ||
+    typeof i !== 'string' ||
+    !UUID_PATTERN.test(i) ||
+    k !== sortKey
+  ) {
     throw new BadRequestException('无效的分页游标');
   }
   const timestamp = new Date(t);

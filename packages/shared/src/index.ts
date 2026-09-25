@@ -72,6 +72,8 @@ export type KnowledgeListQuery =
   operations['KnowledgeController_list']['parameters']['query'];
 export type DocumentListQuery =
   operations['KnowledgeController_listDocuments']['parameters']['query'];
+export type ConversationListQuery =
+  operations['AiController_list']['parameters']['query'];
 
 /**
  * AI 流式接口 SSE 事件（OpenAI 风格 `data: <json>` 帧）。

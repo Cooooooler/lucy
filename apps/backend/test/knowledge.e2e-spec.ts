@@ -1,43 +1,19 @@
 import { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
-import cookieParser from 'cookie-parser';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { AppModule } from '../src/app.module.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
 } from '../src/knowledge/entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from '../src/knowledge/entities/knowledge-document.entity.js';
 import { KnowledgeService } from '../src/knowledge/knowledge.service.js';
-
-interface ApiBody<T> {
-  code: number;
-  message: string;
-  data: T;
-}
-
-interface LoginData {
-  accessToken: string;
-  user: { id: string; role: string };
-}
-
-async function registerAndLogin(
-  server: Server,
-  username: string,
-): Promise<LoginData> {
-  await request(server)
-    .post('/auth/register')
-    .send({ username, email: `${username}@test.com`, password: 'Password1!' })
-    .expect(201);
-  const res = await request(server)
-    .post('/auth/login')
-    .send({ account: username, password: 'Password1!' })
-    .expect(201);
-  return (res.body as ApiBody<LoginData>).data;
-}
+import {
+  type ApiBody,
+  createE2eApp,
+  registerAndLogin,
+} from './e2e-auth.helper.js';
 
 /**
  * 删除本用例造出的全部数据（含 likes / documents / files / 知识库 / 用户），
@@ -112,7 +88,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
       };
       if (cursor) query.cursor = cursor;
       const res = await request(server)
-        .get('/knowledge')
+        .get('/v1/knowledge')
         .query(query)
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
@@ -153,7 +129,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
       const query: Record<string, string> = { limit: String(limit) };
       if (cursor) query.cursor = cursor;
       const res = await request(server)
-        .get(`/knowledge/${docsPageKbId}/documents`)
+        .get(`/v1/knowledge/${docsPageKbId}/documents`)
         .query(query)
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
@@ -183,14 +159,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
   }
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-    app = moduleRef.createNestApplication();
-    app.use(cookieParser());
-    await app.init();
-    server = app.getHttpServer();
-    dataSource = app.get(DataSource);
+    ({ app, server, dataSource } = await createE2eApp());
 
     const login = await registerAndLogin(server, `e2e_kb_${suffix}`);
     token = login.accessToken;
@@ -332,25 +301,25 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
       'utf8',
     ).toString('base64url');
     await request(server)
-      .get('/knowledge')
+      .get('/v1/knowledge')
       .query({ limit: '2', cursor: nonUuidCursor })
       .set('Authorization', auth)
       .expect(400);
     // 非法字符集（base64url 之外）
     await request(server)
-      .get('/knowledge')
+      .get('/v1/knowledge')
       .query({ cursor: 'not-a-cursor!!' })
       .set('Authorization', auth)
       .expect(400);
     // 超长（> 512）
     await request(server)
-      .get('/knowledge')
+      .get('/v1/knowledge')
       .query({ cursor: 'a'.repeat(600) })
       .set('Authorization', auth)
       .expect(400);
     // 合法 base64url 字符集，但不是合法 JSON
     await request(server)
-      .get('/knowledge')
+      .get('/v1/knowledge')
       .query({ cursor: 'aaaaaaaa' })
       .set('Authorization', auth)
       .expect(400);
@@ -358,7 +327,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
 
   it('POST /knowledge 响应被序列化白名单过滤：不含 owner，字段集与契约一致', async () => {
     const res = await request(server)
-      .post('/knowledge')
+      .post('/v1/knowledge')
       .set('Authorization', `Bearer ${token}`)
       .send({ name: `${scopeToken}-created`, description: 'd' })
       .expect(201);
@@ -387,7 +356,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
     const auth = `Bearer ${token}`;
 
     const list = await request(server)
-      .get(`/knowledge/${docsKbId}/documents`)
+      .get(`/v1/knowledge/${docsKbId}/documents`)
       .set('Authorization', auth)
       .expect(200);
     const item = (list.body as ApiBody<{ list: Record<string, unknown>[] }>)
@@ -406,7 +375,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
     );
 
     const detail = await request(server)
-      .get(`/knowledge/${docsKbId}/documents/${docRowId}`)
+      .get(`/v1/knowledge/${docsKbId}/documents/${docRowId}`)
       .set('Authorization', auth)
       .expect(200);
     const detailItem = (detail.body as ApiBody<Record<string, unknown>>).data;
@@ -416,14 +385,14 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
   it('GET /knowledge/:id、PATCH /knowledge/:id 与列表项同形且不含 owner', async () => {
     const auth = `Bearer ${token}`;
     const created = await request(server)
-      .post('/knowledge')
+      .post('/v1/knowledge')
       .set('Authorization', auth)
       .send({ name: `${scopeToken}-get` })
       .expect(201);
     const id = (created.body as ApiBody<{ id: string }>).data.id;
 
     const detail = await request(server)
-      .get(`/knowledge/${id}`)
+      .get(`/v1/knowledge/${id}`)
       .set('Authorization', auth)
       .expect(200);
     const detailItem = (detail.body as ApiBody<Record<string, unknown>>).data;
@@ -431,7 +400,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
     expect(Object.keys(detailItem).sort()).toEqual(kbListKeys);
 
     const patched = await request(server)
-      .patch(`/knowledge/${id}`)
+      .patch(`/v1/knowledge/${id}`)
       .set('Authorization', auth)
       .send({ name: `${scopeToken}-get-patched` })
       .expect(200);
@@ -442,7 +411,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
 
     // 用 name 过滤把列表收敛到本用例自己的行（避免拉爆 395 行 dev 数据）
     const list = await request(server)
-      .get('/knowledge')
+      .get('/v1/knowledge')
       .query({ name: scopeToken })
       .set('Authorization', auth)
       .expect(200);
@@ -531,17 +500,9 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
   };
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    })
-      .overrideProvider(KnowledgeService)
-      .useValue(stub)
-      .compile();
-    app = moduleRef.createNestApplication();
-    app.use(cookieParser());
-    await app.init();
-    server = app.getHttpServer();
-    dataSource = app.get(DataSource);
+    ({ app, server, dataSource } = await createE2eApp((builder) =>
+      builder.overrideProvider(KnowledgeService).useValue(stub),
+    ));
 
     const login = await registerAndLogin(server, `e2e_ser_${suffix}`);
     token = login.accessToken;
@@ -557,7 +518,7 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
     const auth = `Bearer ${token}`;
 
     const list = await request(server)
-      .get('/knowledge')
+      .get('/v1/knowledge')
       .set('Authorization', auth)
       .expect(200);
     expect(JSON.stringify(list.body)).not.toContain('SENTINEL');
@@ -579,7 +540,7 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
     );
 
     const detail = await request(server)
-      .get(`/knowledge/${kbId}`)
+      .get(`/v1/knowledge/${kbId}`)
       .set('Authorization', auth)
       .expect(200);
     expect(JSON.stringify(detail.body)).not.toContain('SENTINEL');
@@ -588,7 +549,7 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
     ).not.toHaveProperty('owner');
 
     const created = await request(server)
-      .post('/knowledge')
+      .post('/v1/knowledge')
       .set('Authorization', auth)
       .send({ name: 'x' })
       .expect(201);
@@ -599,7 +560,7 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
     const auth = `Bearer ${token}`;
 
     const docs = await request(server)
-      .get(`/knowledge/${kbId}/documents`)
+      .get(`/v1/knowledge/${kbId}/documents`)
       .set('Authorization', auth)
       .expect(200);
     expect(JSON.stringify(docs.body)).not.toContain('SENTINEL');
@@ -621,7 +582,7 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
     );
 
     const detail = await request(server)
-      .get(`/knowledge/${kbId}/documents/${docId}`)
+      .get(`/v1/knowledge/${kbId}/documents/${docId}`)
       .set('Authorization', auth)
       .expect(200);
     expect(JSON.stringify(detail.body)).not.toContain('SENTINEL');
