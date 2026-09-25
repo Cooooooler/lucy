@@ -3,7 +3,6 @@ import {
   MiddlewareConsumer,
   Module,
   NestModule,
-  ValidationPipe,
 } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -15,7 +14,7 @@ import { ApiResponseInterceptor } from './interceptors/api-response.interceptor.
 import { RATE_LIMIT_MESSAGE } from './messages.js';
 import { RequestContextMiddleware } from './request-context.middleware.js';
 import { ShutdownService } from './shutdown.service.js';
-import { validationExceptionFactory } from './validation-exception-factory.js';
+import { createValidationPipe } from './validation-pipe.js';
 
 @Module({
   imports: [
@@ -53,13 +52,9 @@ import { validationExceptionFactory } from './validation-exception-factory.js';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     {
       provide: APP_PIPE,
-      useValue: new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-        // 校验失败的文案由后端统一转成可读中文（见 validation-exception-factory）
-        exceptionFactory: validationExceptionFactory,
-      }),
+      // 配置在 createValidationPipe 里唯一定义（测试断言的是同一份配置下的行为）；
+      // 校验失败的中文文案（validationExceptionFactory）也收在该工厂里
+      useValue: createValidationPipe(),
     },
   ],
   exports: [AppLogger, ShutdownService],

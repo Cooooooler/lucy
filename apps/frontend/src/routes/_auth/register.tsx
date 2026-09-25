@@ -1,4 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_RULES,
+  USERNAME_MAX_LENGTH,
+  USERNAME_MIN_LENGTH,
+  USERNAME_PATTERN,
+} from '@lucy/shared';
 import { useMutation } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { App } from 'antd';
@@ -32,22 +40,26 @@ const formSchema = z
     username: z
       .string()
       .trim()
-      .min(3, '用户名至少 3 个字符')
-      .max(50, '用户名最多 50 个字符')
-      .regex(/^[a-zA-Z0-9_-]+$/, '用户名仅支持字母数字下划线连字符'),
+      .min(USERNAME_MIN_LENGTH, `用户名至少 ${USERNAME_MIN_LENGTH} 个字符`)
+      .max(USERNAME_MAX_LENGTH, `用户名最多 ${USERNAME_MAX_LENGTH} 个字符`)
+      .regex(USERNAME_PATTERN, '用户名仅支持字母数字下划线连字符'),
     email: z
       .string()
       .trim()
       .min(1, '请输入邮箱')
       .pipe(z.email('请输入有效的邮箱地址')),
+    // 规则与后端 @lucy/shared 同源：此前这里是旧 ASCII 白名单，后端已放宽为符号判据，
+    // 于是 Str0ng-Pass 在前端就被拦下、根本到不了后端
     password: z
       .string()
-      .min(8, '密码至少 8 位')
-      .max(72, '密码最多 72 位')
-      .regex(/[A-Z]/, '需包含大写字母')
-      .regex(/[a-z]/, '需包含小写字母')
-      .regex(/\d/, '需包含数字')
-      .regex(/[!@#$%^&*(),.?":{}|<>]/, '需包含特殊字符'),
+      .min(PASSWORD_MIN_LENGTH, `密码至少 ${PASSWORD_MIN_LENGTH} 位`)
+      .max(PASSWORD_MAX_LENGTH, `密码最多 ${PASSWORD_MAX_LENGTH} 位`)
+      .regex(PASSWORD_RULES.uppercase, '需包含大写字母')
+      .regex(PASSWORD_RULES.lowercase, '需包含小写字母')
+      .regex(PASSWORD_RULES.digit, '需包含数字')
+      .regex(PASSWORD_RULES.symbol, '需包含符号或标点')
+      // 后端同样不 trim 而是直接拒绝首尾空白，先前置拦下以免用户到后端才被 400
+      .refine((v) => v === v.trim(), '密码首尾不能是空白字符'),
     confirmPassword: z.string(),
     agreeToTerms: z.boolean().refine((v) => v, '请阅读并同意条款'),
   })
@@ -96,11 +108,11 @@ function SignupPageBlock() {
   const agreeToTerms = watch('agreeToTerms');
 
   const validatePassword = (pwd: string): ValidationRules => ({
-    minLength: pwd.length >= 8,
-    hasUpperCase: /[A-Z]/.test(pwd),
-    hasLowerCase: /[a-z]/.test(pwd),
-    hasNumber: /\d/.test(pwd),
-    hasSpecial: /[!@#$%^&*(),.?":{}|<>]/.test(pwd),
+    minLength: pwd.length >= PASSWORD_MIN_LENGTH,
+    hasUpperCase: PASSWORD_RULES.uppercase.test(pwd),
+    hasLowerCase: PASSWORD_RULES.lowercase.test(pwd),
+    hasNumber: PASSWORD_RULES.digit.test(pwd),
+    hasSpecial: PASSWORD_RULES.symbol.test(pwd),
   });
 
   const validation = useMemo(() => validatePassword(password), [password]);
