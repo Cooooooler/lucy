@@ -11,6 +11,13 @@ name: PR Skill Review
 # 模型先只看到技能的 name + description，判断相关后才读 SKILL.md，再按需读
 # rules/*.md —— 和本地 CLI 里手动调用技能的行为一致。
 #
+# 触发策略：**刻意不订阅 synchronize**。每次 push 都跑一轮，会让同一 PR 堆出多条互相
+# 重叠、甚至前后矛盾的评论（实测 #53 五条、#55 四条；其中多数条目在 head 上早已修好、
+# 或已被后续提交取代，但评论不会自动关闭，于是散落的意见盖住了真正待改的几条）。
+# 现在：开 PR（非 draft）、draft 转 ready、reopen 时自动跑一轮；迭代修复后若要再评审，
+# 在 PR 里评论 `/skill-review` 手动触发（与 pr-agent.yml 的 `/review` 同风格），
+# 一轮修复只产出一次评审。
+#
 # 鉴权：官方 headless 登录是 OAuth（不适合 CI）。这里用仓库 owner 的 Command Code
 # 账号 API key（COMMAND_CODE_API_KEY，headless 下 CLI 据此登录），模型调用走该账号
 # 额度、经 Command Code 网关，不再走 BYOK：网关模型由 CLI 自带目录解析窗口与输出
@@ -18,26 +25,34 @@ name: PR Skill Review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, ready_for_review, reopened]
     paths:
       - 'apps/frontend/**'
       - 'apps/backend/**'
+  # 手动重跑入口。重要：GitHub 只在「默认分支」存在该工作流时才响应 issue_comment 事件，
+  # 因此这个入口要在本文件合并进 master 后才生效（与 pr-agent.yml 同理）。
+  issue_comment:
+    types: [created]
 
-# 同一 PR 只保留一个 run：反复 push 时取消旧 run，避免旧 run 的结果后发、与本轮评论交错
+# 同一 PR 只保留一个 run：反复触发时取消旧 run，避免旧 run 的结果后发、与本轮评论交错
 concurrency:
-  group: pr-skill-review-${{ github.event.pull_request.number }}
+  group: pr-skill-review-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: true
 
 # 读代码 + 发评论；本作业不会回推代码
 permissions:
   contents: read
+  issues: write
   pull-requests: write
 
 jobs:
   skill-review:
     name: Skill-based review
-    # fork PR：secrets 不可用、GITHUB_TOKEN 只读，既不能调模型也不能评论，直接跳过
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # 自动触发：仅同仓库分支（fork PR：secrets 不可用、GITHUB_TOKEN 只读），且非 draft；
+    # 手动触发：PR 上以 `/skill-review` 开头的评论，且发起者非 bot、有写权限
+    # （否则外部贡献者也能用一句评论消耗仓库 owner 的账号额度）
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft) || (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.sender.type != 'Bot' && startsWith(github.event.comment.body, '/skill-review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: tenki-standard-small-2c-4g
     timeout-minutes: 30
     env:
@@ -50,8 +65,31 @@ jobs:
       # 固定为 DeepSeek V4.1 Flash。
       SKILL_REVIEW_MODEL: deepseek/deepseek-v4.1-flash
     steps:
+      - name: Resolve review target
+        # issue_comment 的载荷里只有 issue.number，没有 base/head；统一在这里解析成后续
+        # 步骤共用的 outputs，让自动与手动两条触发路径走同一条下游流程。
+        # 用 actions/github-script（Node 动作）而非 shell 里的 gh/jq：不依赖自托管 runner
+        # 是否装了这些命令行工具。
+        id: target
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const number =
+              context.payload.pull_request?.number ?? context.payload.issue.number;
+            const { data: pr } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: number,
+            });
+            core.setOutput('number', String(number));
+            core.setOutput('base_ref', pr.base.ref);
+            core.setOutput('head_sha', pr.head.sha);
+
       - uses: actions/checkout@v7
         with:
+          # 显式检出 PR head：issue_comment 事件默认检出默认分支，不指定就会评错代码
+          ref: ${{ steps.target.outputs.head_sha }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v7
@@ -81,8 +119,8 @@ jobs:
         # 生成按目录切分的补丁，让每次评审只看到自己那半边的改动
         run: |
           set -euo pipefail
-          BASE="origin/${{ github.base_ref }}"
-          git fetch --no-tags origin "${{ github.base_ref }}"
+          BASE="origin/${{ steps.target.outputs.base_ref }}"
+          git fetch --no-tags origin "${{ steps.target.outputs.base_ref }}"
           mkdir -p .pr-skill-review
           # routeTree.gen.ts 是 TanStack Router 生成产物（AGENTS.md 明确禁止手改），排除
           git diff --unified=5 "$BASE"...HEAD -- apps/frontend \
@@ -160,7 +198,7 @@ jobs:
         # 只在一侧或两侧真的产出内容时才发评论，避免失败时空评论刷屏
         env:
           # 每次运行都新发一条评论，评论里带 commit/run 才能区分是哪一轮的评审
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ steps.target.outputs.head_sha }}
           RUN_ID: ${{ github.run_id }}
           REPO: ${{ github.repository }}
         run: |
@@ -217,7 +255,8 @@ jobs:
           script: |
             const fs = require('fs');
             const body = fs.readFileSync('.pr-skill-review/comment.md', 'utf8');
-            const issue_number = context.payload.pull_request.number;
+            const issue_number =
+              context.payload.pull_request?.number ?? context.issue.number;
             const { owner, repo } = context.repo;
             const { data } = await github.rest.issues.createComment({
               owner,
