@@ -1,5 +1,9 @@
 import { BadRequestException, type ValidationError } from '@nestjs/common';
-import { VALIDATION_MESSAGES, fieldLabel } from './messages.js';
+import {
+  BAD_REQUEST_MESSAGE,
+  VALIDATION_MESSAGES,
+  fieldLabel,
+} from './messages.js';
 
 const CHINESE_RE = /[\u4e00-\u9fa5]/;
 
@@ -55,5 +59,5 @@ export function validationExceptionFactory(
     const resolved = findFirst(error, '');
     if (resolved) return new BadRequestException(toReadableMessage(resolved));
   }
-  return new BadRequestException('请求参数有误');
+  return new BadRequestException(BAD_REQUEST_MESSAGE);
 }

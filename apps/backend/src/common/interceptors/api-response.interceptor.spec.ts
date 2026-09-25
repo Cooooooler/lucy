@@ -1,6 +1,7 @@
-import { Logger, type ExecutionContext } from '@nestjs/common';
+import { type ExecutionContext } from '@nestjs/common';
 import 'reflect-metadata';
 import { firstValueFrom, lastValueFrom, of } from 'rxjs';
+import { AppLogger } from '../app-logger.service.js';
 import {
   SUCCESS_MESSAGE_KEY,
   type SuccessMessageResolver,
@@ -26,7 +27,18 @@ function makeCtx(
 }
 
 describe('ApiResponseInterceptor', () => {
-  const interceptor = new ApiResponseInterceptor();
+  // 注入 AppLogger（拦截器构造依赖它）：warn 是「文案静默出错」的唯一信号源，
+  // 走 AppLogger 才能带上 CLS 的 user=/pino 的 reqId=。
+  // warn 单独持有引用再断言，避免写 `logger.warn`（unbound-method 规则）
+  const warn = vi.fn();
+  const logger = {
+    log: vi.fn(),
+    warn,
+    error: vi.fn(),
+    debug: vi.fn(),
+    verbose: vi.fn(),
+  } as unknown as AppLogger;
+  const interceptor = new ApiResponseInterceptor(logger);
   const next = { handle: () => of({ hello: 'world' }) } as never;
 
   it('未标注的 GET 裹为 {code:0, message:"ok", data}', async () => {
@@ -80,27 +92,21 @@ describe('ApiResponseInterceptor', () => {
   });
 
   it('解析器抛错时记 warn 并回退方法级兜底，不把成功变 500', async () => {
-    const warn = vi
-      .spyOn(Logger.prototype, 'warn')
-      .mockImplementation(() => {});
-    try {
-      const handler = () => {};
-      Reflect.defineMetadata(
-        SUCCESS_MESSAGE_KEY,
-        () => {
-          throw new Error('resolver boom');
-        },
-        handler,
-      );
-      const result = (await firstValueFrom(
-        interceptor.intercept(makeCtx(handler, 'DELETE'), next),
-      )) as { message: string };
-      expect(result.message).toBe('删除成功');
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(String(warn.mock.calls[0][0])).toContain('resolver boom');
-    } finally {
-      warn.mockRestore();
-    }
+    warn.mockClear();
+    const handler = () => {};
+    Reflect.defineMetadata(
+      SUCCESS_MESSAGE_KEY,
+      () => {
+        throw new Error('resolver boom');
+      },
+      handler,
+    );
+    const result = (await firstValueFrom(
+      interceptor.intercept(makeCtx(handler, 'DELETE'), next),
+    )) as { message: string };
+    expect(result.message).toBe('删除成功');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain('resolver boom');
   });
 
   it('SSE 路由不包裹信封，原样透传', async () => {

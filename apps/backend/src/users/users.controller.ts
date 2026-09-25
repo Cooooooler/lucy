@@ -78,13 +78,14 @@ export class UsersController {
   }
 
   @Patch(':id/status')
-  // status 严格三分：1→启用、0→禁用，其余（null/改名/契约变化）回中性兜底，
-  // 绝不把「取不到」判成「已禁用」误导用户。类型用共享契约替代手写断言。
+  // status 严格三分：1→启用、0→禁用；其余形状（返回体为 null / 字段改名 / 端点改走
+  // 允许式 DTO）**抛错**，由 ApiResponseInterceptor 记一条 warn 后回退方法级兜底 ——
+  // 对外文案仍是中性的「更新成功」，但契约漂移不再静默，也不会被误报成「已禁用」。
   @SuccessMessage((data) => {
     const status = (data as components['schemas']['User'] | null)?.status;
     if (status === 1) return '用户已启用';
     if (status === 0) return '用户已禁用';
-    return '更新成功';
+    throw new Error(`updateStatus 响应缺少 status：${String(status)}`);
   })
   @ApiOperation({
     summary: '启用/禁用用户',

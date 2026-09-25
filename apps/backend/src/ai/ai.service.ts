@@ -10,10 +10,8 @@ import { AppLogger } from '../common/app-logger.service.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import { toConversationItem } from './ai.mapper.js';
 import { ContextService } from './context.service.js';
-import {
-  ConversationListResultDto,
-  type ConversationItemDto,
-} from './dto/conversation-list-result.dto.js';
+import type { ConversationItemDto } from './dto/conversation-item.dto.js';
+import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
 import { Conversation } from './entities/conversation.entity.js';
