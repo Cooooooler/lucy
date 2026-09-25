@@ -64,6 +64,64 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 技能放在 `.github/skill-review/skills/`（入库；`.commandcode/` 与 `.claude/` 已被 gitignore，CI 用不了）。该目录已加入 `.prettierignore`，上游规则文件保持原样。更新技能直接替换目录内容即可。
 
+## PR 全流程协议（接到「提交 / 推送 / 创建 PR」时自动执行）
+
+**协作约定**：用户说「提交 / 推送 / 创建 PR」= 授权按本节跑完整循环**直到合并**，不必逐步确认。只有下列情况停下来汇报：CI 或质量门禁红、评审存在未决的阻塞项、需要产品/契约决策、或要执行不可逆操作（删分支、强推、改 CI 流水线本身）。
+
+### 0. 起手
+
+- 从最新 `origin/master` 切分支（`git fetch origin --no-tags` 后 `git checkout -b <type>/<slug> origin/master`），不要直接在 `master` 上改；一个分支只做一件事
+- 类型前缀与 commit type 对齐（`feat/` `fix/` `refactor/` `chore/` `ci/` …）
+
+### 1. 推送前先在本地验完
+
+推上去之后每一轮 push 都要付一次 CI + 评审的代价，本地跑一遍远比远端便宜：
+
+- **先 `pnpm --filter @lucy/shared build`**：消费方「运行/构建」走 `exports.import` → `dist`，忘了构建会读到过期 `dist`，出现「常量是 undefined」这类假失败（typecheck 读 `src` 不受影响，所以更容易误判）
+- `pnpm lint` / `pnpm typecheck` / `pnpm test`
+- 改了 `apps/backend/test/**` 或后端启动装配 → **`pnpm --filter @lucy/backend test:e2e`**（真 Postgres + Redis；**Build 工作流不跑 e2e**，本地不跑等于没验）
+- 改了 DTO/实体 → `pnpm typegen`，生成物一并提交（勿手改，见上文「不要改动生成文件」）
+- pre-commit 会跑 `typegen + lint-staged + typecheck + 全仓 test`，慢是正常的；**不要 `--no-verify`**
+- commit 信息用 Conventional Commits；**合并 master 的提交也要合规**（`merge master: …` 会被 commitlint 拒，改写 `chore: 并入 master，…`）；结尾带 `Co-authored-by: CommandCodeBot <noreply@commandcode.ai>`
+
+### 2. 推送 + 开 PR
+
+- `git push -u origin <branch>`、`gh pr create --base master`
+- 正文至少三节：**背景 / 改动 / 验证**；验证写实际跑过的命令与结果，不写「应该没问题」
+- 有契约变化时显式标注，并说明消费方是否已同步
+
+### 3. 监控（协议的核心，不能省）
+
+一次 PR 会并行产出三类反馈，用后台任务等它们落地（`gh run watch <id> --exit-status` + `shell_output wait:"exit"`），**不要 sleep 循环轮询**：
+
+| 反馈 | 位置 | 判读 |
+| --- | --- | --- |
+| CI（Build：lint / typecheck / 各包 test+coverage） | Actions `Build` | 全部 job 绿 |
+| Sonar 质量门禁 | SonarCloud 检查 / `get_project_quality_gate_status` | 本仓唯一会红的条件是 **new_coverage ≥ 80** |
+| 技能评审 | PR **会话评论**（不是行内 review thread） | `gh api repos/<owner>/<repo>/issues/<n>/comments --jq '.[-1].body'` 读**最新一条**，并核对其「评审 commit」是否等于当前 head |
+
+要点：
+
+- 评审评论**每次运行都新发一条、且不会自动关闭**，旧评论里的问题可能早已修好——以最新一条 + head 为准
+- 新增了**没有覆盖率上报**的包内源文件会让门禁红：`packages/redis`、`packages/shared` 的 lcov 已接（见 `sonar-project.properties`），`packages/file-nest` 尚未；碰这类包要留意
+- 用 `mergeable_state` 决定能否直接合：`clean` 可直接合；`dirty` 表示与 master 冲突，**在本地**合 master、解冲突、跑测试后再推；`unstable` 是检查未完成或失败
+
+### 4. 处置评审（一轮改完，不要边审边改）
+
+- 逐条给结论，只有三种：**修** / **转跟进**（另开 issue 或并入收口 PR，写明理由）/ **不采纳**（必须写理由——评审会来回摆动，例如「某条恰是上一轮评审明确要求的写法」；结论有事实错误时也在此列出，如「该规则在 JS 中不成立」）
+- **把要改的攒齐一次 push**：每次 push 都可能引出新一轮评审，逐条改逐条推会把 PR 淹没在重叠评论里
+- 需要再评审时：push **不会**自动触发（`pr-skill-review.yml` 只在 `opened`/`ready_for_review`/`reopened` 跑），改完后在 PR 里评论 **`/skill-review`** 手动要一轮
+- 评审轮次多、条目散时，补一条**处置表评论**（逐条：已修 / 转跟进 / 保留 + 理由，并指向跟进的 issue/PR），后来者不必翻评论历史
+
+### 5. 合并与收尾
+
+- 用 merge commit（与本仓历史一致）并**锁定 head SHA**：`merge_pull_request{merge_method:'merge', expectedHeadSha:<head>}`，避免合并窗口内被推新提交
+- 合并条件：CI 全绿 + 门禁 OK + 评审无未决阻塞项。master **没有分支保护**（无必需检查），纪律靠自觉，**别把红门禁合进去**
+- 栈式 PR：先合底层，再把上层 PR 的 `base` **手动 retarget 到 master**（GitHub 不会自动改），随后把新 master 合进上层分支（生成物常需重跑 `pnpm typegen`）
+- 合并后确认 master 的 `Build` 变绿（head SHA = 合并 commit）；**不删分支**（与既有历史一致）
+- 转跟进的小项：开一个收口 PR，正文逐条注明来源 PR；需要独立迁移/设计决策的另开 issue
+- Sonar 里处置过的误报/接受项要写明理由（`change_sonar_issue_status`）
+
 ## 架构
 
 ### apps/backend（NestJS）
