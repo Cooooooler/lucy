@@ -74,6 +74,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 - **tsx 仅用于 CLI 脚本**（typeorm 迁移）；esbuild 不输出 `design:paramtypes`，Nest 应用本体与 vitest 需经 SWC（`unplugin-swc`）转换。
 - **Auth**：JWT access（`JWT_EXPIRES_IN`，默认 15m）+ refresh（`REFRESH_TTL_SECONDS`）；`DenylistService` 用 RedisBloom（`BF.ADD`/`BF.EXISTS`）做登出/换发后的令牌撤销，含双布隆过滤器轮换。
 - 公共装饰器：`@Public()`（跳过 JWT 守卫）、`@CurrentUser()`；`AllExceptionsFilter` 统一异常为 `{code,message,data}` 信封；`ApiResponseInterceptor` 包裹成功响应。
+- **Swagger 文档不解析 class-validator**：`@nestjs/swagger` 不读取 `@Min`/`@Max`/`@MinLength`/`@MaxLength`/`@Matches` 等装饰器（CLI 插件未启用），校验边界只在**同时**手写进 `@ApiProperty`/`@ApiPropertyOptional` 的 `minimum`/`maximum`/`minLength`/`maxLength`/`pattern`/`default` 选项时才进 `openapi.json` 与前端契约。分页参数的这组声明收敛在 `common/pagination/dto/` 的基类（`CursorQueryDto`/`PageQueryDto`），各列表 DTO 继承；其余请求 DTO 新增/修改校验时两处必须同步写，否则文档与实现静默漂移。`scripts/gen-openapi.spec.ts` 的「校验边界同步写进 Swagger」用例钉住了分页参数与主要请求体的文档边界，删注解会挂 CI。
 
 #### 数据库（PostgreSQL + TypeORM）
 

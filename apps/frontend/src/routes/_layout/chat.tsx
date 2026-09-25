@@ -29,6 +29,7 @@ import {
 import XMarkdown from '@ant-design/x-markdown';
 import type { RoleType } from '@ant-design/x/es/bubble/interface';
 import type { ThinkProps } from '@ant-design/x/es/think/Think';
+import { CONVERSATION_TITLE_MAX_LENGTH } from '@lucy/shared';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useSelector } from '@tanstack/react-store';
 import { useBoolean } from 'ahooks';
@@ -260,7 +261,7 @@ function InlineRenameInput({
       onClick={(e) => e.stopPropagation()}
       size="small"
       className="w-full"
-      maxLength={100}
+      maxLength={CONVERSATION_TITLE_MAX_LENGTH}
     />
   );
 }
