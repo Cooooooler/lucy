@@ -9,6 +9,16 @@ import { AppLogger } from '../common/app-logger.service.js';
 import { decodeCursor, encodeCursor } from '../common/pagination/cursor.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
 import {
+  DOC_ID,
+  makeDoc,
+  makeDocQb,
+  makeKb,
+  makeStored,
+  OTHER_ID,
+  sqlOf,
+  uuid,
+} from '../test/knowledge.fixtures.js';
+import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
 } from './entities/knowledge-base.entity.js';
@@ -28,12 +38,6 @@ vi.mock('./content-extractor.js', () => ({
 
 import { extractContent } from './content-extractor.js';
 import { detectFileType } from './magic-bytes.js';
-
-/** 实体主键是 uuid 列：游标里的 id 必须是合法 UUID，否则解码即 400 */
-const KB_ID = '0f8fad5b-d9cb-469f-a165-70867728950e';
-const DOC_ID = '1b6f4a2c-3d5e-4f70-8a91-b2c3d4e5f607';
-/** 第二页游标里用的另一个合法 UUID */
-const OTHER_ID = '2c7a5b3d-4e6f-4081-9ba2-c3d4e5f60718';
 
 describe('KnowledgeDocumentService', () => {
   const kbRepo = {
@@ -75,92 +79,6 @@ describe('KnowledgeDocumentService', () => {
 
   let docService: KnowledgeDocumentService;
 
-  const stored = (over = {}) =>
-    Object.assign(
-      {
-        key: 'f1.pdf',
-        ext: '.pdf',
-        mime: 'application/pdf',
-        size: 4,
-        hash: 'abc',
-        storage: 'local',
-      },
-      over,
-    );
-
-  const kb = (over = {}) =>
-    Object.assign(new KnowledgeBase(), {
-      id: KB_ID,
-      ownerId: 'u1',
-      visibility: KnowledgeBaseVisibility.Private,
-      name: '产品文档',
-      description: null,
-      createdAt: new Date('2026-01-01T00:00:00.000Z'),
-      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-      ...over,
-    });
-
-  const doc = (over = {}) =>
-    Object.assign(new KnowledgeDocument(), {
-      id: DOC_ID,
-      knowledgeBaseId: 'kb1',
-      fileId: 'f1',
-      title: 'a',
-      content: null,
-      createdAt: new Date('2026-01-01T00:00:00.000Z'),
-      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-      ...over,
-    });
-
-  /**
-   * 主别名 + 实体元数据 stub：`KeysetPaginator` 从 QueryBuilder 自身解析别名与排序列名，
-   * 故 mock 的 QueryBuilder 要提供 `expressionMap.mainAlias`；列名映射与实体上的 `name:` 一致。
-   */
-  const aliasStub = (name: string) => ({
-    name,
-    hasMetadata: true,
-    metadata: {
-      name: `${name}Entity`,
-      findColumnWithPropertyName: (property: string) => ({
-        databaseName: property === 'createdAt' ? 'created_at' : 'id',
-      }),
-    },
-  });
-
-  // 可链式 QueryBuilder mock：供 listDocuments 用（docRepo）
-  const makeDocQb = () => {
-    const qb = {
-      expressionMap: { mainAlias: aliasStub('d') },
-      select: vi.fn(),
-      where: vi.fn(),
-      andWhere: vi.fn(),
-      orderBy: vi.fn(),
-      addOrderBy: vi.fn(),
-      take: vi.fn(),
-      getMany: vi.fn(),
-    };
-    qb.select.mockReturnValue(qb);
-    qb.where.mockReturnValue(qb);
-    qb.andWhere.mockReturnValue(qb);
-    qb.orderBy.mockReturnValue(qb);
-    qb.addOrderBy.mockReturnValue(qb);
-    qb.take.mockReturnValue(qb);
-    qb.getMany.mockResolvedValue([doc()]);
-    return qb;
-  };
-
-  /** 拼接 query builder 上记录到的 SQL 片段，用于断言整体性质（如「不再含 date_trunc」） */
-  const sqlOf = (...fns: { mock: { calls: unknown[][] } }[]) =>
-    fns
-      .flatMap((fn) => fn.mock.calls)
-      .flat()
-      .filter((arg): arg is string => typeof arg === 'string')
-      .join(' ');
-
-  /** 生成第 i 个合法 UUID（仅供断言使用，不要求真实版本位） */
-  const uuid = (i: number) =>
-    `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
-
   /**
    * 经 DI 容器装配服务：provider 是否注册、注入 token 是否正确由容器判定。
    * `KeysetPaginator` 刻意不在这里 provide，而是走 `imports: [PaginationModule]`：
@@ -190,7 +108,7 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('addDocument 校验非法扩展名', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     await expect(
       docService.addDocument('u1', 'kb1', {
         buffer: Buffer.from('x'),
@@ -203,7 +121,7 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('addDocument 超出大小限制', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     const big = Buffer.alloc(2048);
     await expect(
       docService.addDocument('u1', 'kb1', {
@@ -218,7 +136,7 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('addDocument pdf 魔数不匹配拒收', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     vi.mocked(detectFileType).mockResolvedValue({
       ext: 'png',
       mime: 'image/png',
@@ -236,12 +154,12 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('addDocument 解析失败回滚删除文件', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     vi.mocked(detectFileType).mockResolvedValue({
       ext: 'pdf',
       mime: 'application/pdf',
     });
-    fileService.save.mockResolvedValue(stored());
+    fileService.save.mockResolvedValue(makeStored());
     fileRepo.save.mockResolvedValue({ id: 'f1' });
     vi.mocked(extractContent).mockRejectedValue(new Error('parse fail'));
     await expect(
@@ -258,15 +176,15 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('addDocument 正常上传并入库', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     vi.mocked(detectFileType).mockResolvedValue({
       ext: 'pdf',
       mime: 'application/pdf',
     });
     vi.mocked(extractContent).mockResolvedValue('正文');
-    fileService.save.mockResolvedValue(stored());
+    fileService.save.mockResolvedValue(makeStored());
     fileRepo.save.mockResolvedValue({ id: 'f1' });
-    docRepo.save.mockResolvedValue(doc({ content: '正文' }));
+    docRepo.save.mockResolvedValue(makeDoc({ content: '正文' }));
     const uploaded = await docService.addDocument('u1', 'kb1', {
       buffer: Buffer.from('%PDF'),
       originalname: 'a.pdf',
@@ -308,11 +226,23 @@ describe('KnowledgeDocumentService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('addDocument 非属主抛 FORBIDDEN：鉴权先于落盘（不触发 fileService.save）', async () => {
+    kbRepo.findOne.mockResolvedValue(makeKb({ ownerId: 'u2' }));
+    await expect(
+      docService.addDocument('u1', 'kb1', {
+        buffer: Buffer.from('x'),
+        originalname: 'a.txt',
+        size: 1,
+      } as never),
+    ).rejects.toMatchObject({ status: HttpStatus.FORBIDDEN });
+    expect(fileService.save).not.toHaveBeenCalled();
+  });
+
   it('addDocument FILE_MAX_SIZE 非数字时回退默认上限（不静默禁用）', async () => {
     const svc = await buildService(
       new ConfigService({ FILE_MAX_SIZE: '10MB' }),
     );
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     const big = Buffer.alloc(20 * 1024 * 1024);
     await expect(
       svc.addDocument('u1', 'kb1', {
@@ -327,13 +257,13 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('addDocument 入库失败回滚删除文件', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     vi.mocked(detectFileType).mockResolvedValue({
       ext: 'pdf',
       mime: 'application/pdf',
     });
     vi.mocked(extractContent).mockResolvedValue('正文');
-    fileService.save.mockResolvedValue(stored());
+    fileService.save.mockResolvedValue(makeStored());
     fileRepo.save.mockResolvedValue({ id: 'f1' });
     docRepo.save.mockRejectedValue(new Error('db fail'));
     // DB 故障不是「内容不可处理」：原样上抛（不再被误报成 422），且仍清理已上传文件
@@ -348,13 +278,13 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('addDocument docx（非 pdf）跳过魔数校验正常入库', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     vi.mocked(extractContent).mockResolvedValue('正文');
     fileService.save.mockResolvedValue(
-      stored({ ext: '.docx', key: 'f1.docx' }),
+      makeStored({ ext: '.docx', key: 'f1.docx' }),
     );
     fileRepo.save.mockResolvedValue({ id: 'f1' });
-    docRepo.save.mockResolvedValue(doc());
+    docRepo.save.mockResolvedValue(makeDoc());
     await docService.addDocument('u1', 'kb1', {
       buffer: Buffer.from('zip'),
       originalname: 'a.docx',
@@ -368,7 +298,7 @@ describe('KnowledgeDocumentService', () => {
 
   it('listDocuments 公开库非属主可读', async () => {
     kbRepo.findOne.mockResolvedValue(
-      kb({ visibility: KnowledgeBaseVisibility.Public }),
+      makeKb({ visibility: KnowledgeBaseVisibility.Public }),
     );
     const qb = makeDocQb();
     docRepo.createQueryBuilder.mockReturnValue(qb);
@@ -384,7 +314,7 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('listDocuments 做列投影并剔除 content：列表不返回解析全文', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     const qb = makeDocQb();
     docRepo.createQueryBuilder.mockReturnValue(qb);
 
@@ -414,7 +344,7 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('listDocuments 带 cursor：解码为行比较 keyset 条件（排序键为 created_at）', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     const qb = makeDocQb();
     docRepo.createQueryBuilder.mockReturnValue(qb);
     const cursor = encodeCursor(
@@ -440,10 +370,10 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('listDocuments 结果多于 limit 时游标编码基于 createdAt', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     const qb = makeDocQb();
     const rows = Array.from({ length: 3 }, (_, i) =>
-      doc({ id: uuid(i), createdAt: new Date(2026, 0, 1, 0, 0, i) }),
+      makeDoc({ id: uuid(i), createdAt: new Date(2026, 0, 1, 0, 0, i) }),
     );
     qb.getMany.mockResolvedValue(rows);
     docRepo.createQueryBuilder.mockReturnValue(qb);
@@ -457,7 +387,7 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('listDocuments 带 keyword 追加 ILIKE 过滤', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     const qb = makeDocQb();
     docRepo.createQueryBuilder.mockReturnValue(qb);
     await docService.listDocuments('u1', 'kb1', { keyword: 'x' });
@@ -468,7 +398,7 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('listDocuments 私有库非属主抛 FORBIDDEN', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     await expect(
       docService.listDocuments('u2', 'kb1', {}),
     ).rejects.toMatchObject({
@@ -484,8 +414,8 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('getDocument 属主可读，返回详情契约视图（含 content，非实体）', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
-    docRepo.findOne.mockResolvedValue(doc({ content: '正文' }));
+    kbRepo.findOne.mockResolvedValue(makeKb());
+    docRepo.findOne.mockResolvedValue(makeDoc({ content: '正文' }));
     const result = await docService.getDocument('u1', 'kb1', 'd1');
 
     expect(result).toEqual({
@@ -503,7 +433,7 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('getDocument 文档不存在抛 404', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     docRepo.findOne.mockResolvedValue(null);
     await expect(
       docService.getDocument('u1', 'kb1', 'd1'),
@@ -518,7 +448,7 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('getDocument 私有库非属主抛 FORBIDDEN', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     await expect(
       docService.getDocument('u2', 'kb1', 'd1'),
     ).rejects.toMatchObject({
@@ -527,8 +457,8 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('removeDocument 删文档并清文件', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
-    docRepo.findOne.mockResolvedValue(doc());
+    kbRepo.findOne.mockResolvedValue(makeKb());
+    docRepo.findOne.mockResolvedValue(makeDoc());
     fileRepo.findOneBy.mockResolvedValue({ id: 'f1', key: 'f1.pdf' });
     docRepo.delete.mockResolvedValue({ affected: 1 });
     fileRepo.delete.mockResolvedValue({ affected: 1 });
@@ -549,7 +479,7 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('removeDocument 文档不存在抛 404', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     docRepo.findOne.mockResolvedValue(null);
     await expect(
       docService.removeDocument('u1', 'kb1', 'd1'),
@@ -557,8 +487,8 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('removeDocument file 为 null 仍删文档行', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
-    docRepo.findOne.mockResolvedValue(doc());
+    kbRepo.findOne.mockResolvedValue(makeKb());
+    docRepo.findOne.mockResolvedValue(makeDoc());
     fileRepo.findOneBy.mockResolvedValue(null);
     docRepo.delete.mockResolvedValue({ affected: 1 });
     await docService.removeDocument('u1', 'kb1', 'd1');
@@ -571,7 +501,7 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('removeDocument 非属主抛 FORBIDDEN', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     await expect(
       docService.removeDocument('u2', 'kb1', 'd1'),
     ).rejects.toMatchObject({
@@ -580,10 +510,10 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('removeAllForKnowledgeBase 级联删文档/文件/知识库行并清理底层文件', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     docRepo.find.mockResolvedValue([
-      doc({ fileId: 'f1' }),
-      doc({ id: 'd2', fileId: 'f2' }),
+      makeDoc({ fileId: 'f1' }),
+      makeDoc({ id: 'd2', fileId: 'f2' }),
     ]);
     // 一次 findBy 取回全部文件行：仅 f1 有文件行（f2 缺失）
     fileRepo.findBy.mockResolvedValue([{ id: 'f1', key: 'f1.pdf' }]);
@@ -602,6 +532,18 @@ describe('KnowledgeDocumentService', () => {
     expect(kbRepo.delete).toHaveBeenCalledWith({ id: 'kb1' });
   });
 
+  it('removeAllForKnowledgeBase 空文档库：不触发空条件的 findBy/delete', async () => {
+    kbRepo.findOne.mockResolvedValue(makeKb());
+    docRepo.find.mockResolvedValue([]);
+    kbRepo.delete.mockResolvedValue({ affected: 1 });
+    await docService.removeAllForKnowledgeBase('u1', 'kb1');
+    // `In([])` 会触发 TypeORM「Empty criteria(s) are not allowed」：空集必须短路
+    expect(fileRepo.findBy).not.toHaveBeenCalled();
+    expect(fileRepo.delete).not.toHaveBeenCalled();
+    expect(docRepo.delete).toHaveBeenCalledWith({ knowledgeBaseId: 'kb1' });
+    expect(kbRepo.delete).toHaveBeenCalledWith({ id: 'kb1' });
+  });
+
   it('removeAllForKnowledgeBase 知识库不存在抛 404', async () => {
     kbRepo.findOne.mockResolvedValue(null);
     await expect(
@@ -610,7 +552,7 @@ describe('KnowledgeDocumentService', () => {
   });
 
   it('removeAllForKnowledgeBase 非属主抛 FORBIDDEN', async () => {
-    kbRepo.findOne.mockResolvedValue(kb());
+    kbRepo.findOne.mockResolvedValue(makeKb());
     await expect(
       docService.removeAllForKnowledgeBase('u2', 'kb1'),
     ).rejects.toMatchObject({ status: HttpStatus.FORBIDDEN });
