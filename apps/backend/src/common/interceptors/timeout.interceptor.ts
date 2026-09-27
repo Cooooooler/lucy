@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Observable } from 'rxjs';
 import { TimeoutError, throwError } from 'rxjs';
 import { catchError, timeout } from 'rxjs/operators';
+import { AppLogger } from '../app-logger.service.js';
 import { SSE_METADATA } from '../sse-metadata.js';
 
 /**
@@ -27,10 +28,16 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * - 阈值取 `REQUEST_TIMEOUT_MS`（默认 120s）；`<=0` 视为禁用。
  * - 超时抛**不带 message** 的 `RequestTimeoutException`：文案由全局 `AllExceptionsFilter`
  *   按 408 归一（错误文案只在 `messages.ts` 定义，勿在拦截器里硬编码，否则与之互相架空）。
+ * - 超时前记一条 warn：408 不进 `AllExceptionsFilter` 的日志（它只记 >=500），且 rxjs 取消
+ *   订阅后处理器后续的真实错误会被静默丢弃——不记这条就分不清「卡住后超时」与「仍在挂起」，
+ *   根因（如 DB 报错）也无人可见。
  */
 @Injectable()
 export class TimeoutInterceptor implements NestInterceptor {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly logger: AppLogger,
+  ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     // SSE 显式放行（与 ApiResponseInterceptor 同一判据）：不能只依赖「SSE 端点是 POST」
@@ -39,23 +46,32 @@ export class TimeoutInterceptor implements NestInterceptor {
     const isSse = Boolean(
       Reflect.getMetadata(SSE_METADATA, context.getHandler()),
     );
-    const request = context.switchToHttp().getRequest<{ method?: string }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<{ method?: string; url?: string }>();
     if (isSse || !SAFE_METHODS.has(request.method ?? '')) {
       return next.handle();
     }
-    // 默认值只在 env schema 定义一次，此处用 getOrThrow（缺配置即失败，不重复兜底）；
-    // isFinite 分支仅作纯函数级防御（单测会直接构造本类，绕过 schema）
-    const ms = this.config.getOrThrow<number>('REQUEST_TIMEOUT_MS');
+    // getOrThrow 只保证键存在、不保证类型（ConfigService 可能是字符串），故显式 Number 归一；
+    // 默认值只在 env schema 定义一次，此处不重复兜底
+    const ms = Number(this.config.getOrThrow('REQUEST_TIMEOUT_MS'));
     if (!Number.isFinite(ms) || ms <= 0) {
       return next.handle();
     }
     return next.handle().pipe(
       timeout(ms),
-      catchError((err: unknown) =>
-        err instanceof TimeoutError
-          ? throwError(() => new RequestTimeoutException())
-          : throwError(() => err),
-      ),
+      catchError((err: unknown) => {
+        if (!(err instanceof TimeoutError)) {
+          return throwError(() => err);
+        }
+        // 路径只取 pathname：req.url 可能带 query string（其中或有凭证）
+        const pathname = (request.url ?? '-').split('?')[0];
+        this.logger.warn(
+          `请求处理超时（${ms}ms）：${request.method ?? '-'} ${pathname}`,
+          TimeoutInterceptor.name,
+        );
+        return throwError(() => new RequestTimeoutException());
+      }),
     );
   }
 }
