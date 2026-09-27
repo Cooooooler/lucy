@@ -239,19 +239,22 @@ export class KnowledgeDocumentService {
   /**
    * 级联删除某知识库及其全部文档、文件记录与底层文件（知识库级联清理的**唯一入口**）。
    *
-   * 由知识库服务在校验属主后调用；事务与文件清理都收在这里，调用方不必接触 EntityManager，
-   * 也不会拿到一个「无鉴权、可被任意调用方以任意 kbId 触发」的公开方法。
+   * 鉴权在方法**内部**完成（`resolveOwnedKb`）：不接受「由调用方先校验」这一口头约定，
+   * 任何调用方都无法以任意 `kbId` 触发破坏性删除——同模块将来多一个 consumer（管理端
+   * 清理、定时任务）也不会静默破防。调用方不必接触 EntityManager。
    *
    * - DB 删除放在**单个事务**里（文档行 + 文件行 + 知识库行），保持原子性；
    * - 取文档时只 select `id`/`fileId`：删除路径不需要 `content`（`text`，可达 MB 级），
    *   否则删一个含 N 篇文档的库等于把整库全文读进内存；
    * - 底层文件 I/O 回滚不了，放在**提交后** best-effort 清理，失败仅告警。
    */
-  async removeAllForKnowledgeBase(kbId: string): Promise<void> {
+  async removeAllForKnowledgeBase(userId: string, kbId: string): Promise<void> {
     const keys = await this.dataSource.transaction(async (manager) => {
       const docRepo = manager.getRepository(KnowledgeDocument);
       const fileRepo = manager.getRepository(BackendFileEntity);
       const kbRepo = manager.getRepository(KnowledgeBase);
+      // 属主校验与删除同一入口：不存在 404 / 非属主 403 无法被绕过
+      await resolveOwnedKb(kbRepo, kbId, userId);
 
       const docs = await docRepo.find({
         where: { knowledgeBaseId: kbId },

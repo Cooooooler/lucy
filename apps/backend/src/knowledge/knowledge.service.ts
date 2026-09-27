@@ -227,10 +227,9 @@ export class KnowledgeService {
    * @throws NotFoundException / ForbiddenException
    */
   async remove(userId: string, id: string): Promise<null> {
-    await resolveOwnedKb(this.kbRepo, id, userId);
-    // 级联清理（文档行 + 文件行 + 知识库行 + 底层文件）整体下沉到文档服务：
-    // 本方法只做属主校验后委托，事务与文件 I/O 都不必在此暴露
-    await this.documentService.removeAllForKnowledgeBase(id);
+    // 级联清理（文档行 + 文件行 + 知识库行 + 底层文件）整体下沉到文档服务，
+    // 属主校验也在该入口内完成（不再依赖调用方先校验这一约定）
+    await this.documentService.removeAllForKnowledgeBase(userId, id);
     this.logger.log(`kb remove kb=${id}`, KnowledgeService.name);
     return null;
   }
