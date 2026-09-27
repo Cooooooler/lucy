@@ -736,9 +736,16 @@ describe('AiService', () => {
 
       const sub = service.sendMessage('1', 'c1', { content: 'hi' }).subscribe();
       await vi.waitFor(() => expect(captured.signal).toBeDefined());
-      // 停机应中止在途流，使 SSE 连接尽快结束、app.close() 能在宽限期内返回
-      service.beforeApplicationShutdown();
+      // 停机应中止在途流，并等待其收尾（落库 aborted）后再返回
+      await service.beforeApplicationShutdown();
       expect(captured.signal?.aborted).toBe(true);
+      expect(messageRepo.save).toHaveBeenCalledWith({
+        conversationId: 'c1',
+        role: MessageRole.Ai,
+        content: '半截',
+        thinking: null,
+        status: MessageStatus.Aborted,
+      });
       sub.unsubscribe();
     });
 

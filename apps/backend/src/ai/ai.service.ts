@@ -195,11 +195,16 @@ export class AiService implements BeforeApplicationShutdown {
    * 尽快结束、`app.close()` 能在宽限期内自然返回。缺少这一步时，活跃流会使连接一直保持，
    * 停机只能等 main.ts 的兜底定时器强制退出——那会截断正在生成的回答。
    */
-  beforeApplicationShutdown(): void {
+  async beforeApplicationShutdown(): Promise<void> {
     for (const controller of this.activeControllers) {
       controller.abort(new Error('Server is shutting down'));
     }
     this.activeControllers.clear();
+    // 等被中止流的收尾完成（saveFailure 落库 + SSE res.end）再让 Nest 继续关停：
+    // 否则紧接着的 onApplicationShutdown（TypeORM dataSource.destroy）会与「写 aborted
+    // 状态」竞态，半截内容可能写不进去。inFlight 存的是含 .finally 的完整链条，settle
+    // 即代表落库已结束；宽限期内仍未 settle 则由 main.ts 的兜底定时器强制退出。
+    await Promise.allSettled([...this.inFlight.values()]);
   }
 
   private async runSend(

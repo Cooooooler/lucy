@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Observable } from 'rxjs';
 import { TimeoutError, throwError } from 'rxjs';
 import { catchError, timeout } from 'rxjs/operators';
+import { SSE_METADATA } from '../sse-metadata.js';
 
 /**
  * 只对读方法（HTTP 安全方法）设超时。写方法（POST/PUT/PATCH/DELETE）超时属于「半途失败」：
@@ -32,13 +33,19 @@ export class TimeoutInterceptor implements NestInterceptor {
   constructor(private readonly config: ConfigService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    // SSE 显式放行（与 ApiResponseInterceptor 同一判据）：不能只依赖「SSE 端点是 POST」
+    // 这一隐含前提——EventSource 只支持 GET，若流式端点改回 GET 或新增流式 GET，
+    // 超时会静默掐断长回答
+    const isSse = Boolean(
+      Reflect.getMetadata(SSE_METADATA, context.getHandler()),
+    );
     const request = context.switchToHttp().getRequest<{ method?: string }>();
-    if (!SAFE_METHODS.has(request.method ?? '')) {
+    if (isSse || !SAFE_METHODS.has(request.method ?? '')) {
       return next.handle();
     }
-    // 阈值经 env schema 校验（整数，可为 <=0 表示禁用）；isFinite 分支仅作纯函数级防御
-    // （单测会直接构造本类，绕过 schema）
-    const ms = Number(this.config.get('REQUEST_TIMEOUT_MS', 120000));
+    // 默认值只在 env schema 定义一次，此处用 getOrThrow（缺配置即失败，不重复兜底）；
+    // isFinite 分支仅作纯函数级防御（单测会直接构造本类，绕过 schema）
+    const ms = this.config.getOrThrow<number>('REQUEST_TIMEOUT_MS');
     if (!Number.isFinite(ms) || ms <= 0) {
       return next.handle();
     }
