@@ -14,6 +14,7 @@ import {
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
+import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 // ESM + SWC 下对 ES 导出命名空间 `vi.spyOn` 未必能拦截服务内部静态 import 绑定的同名导出
@@ -84,6 +85,7 @@ describe('KnowledgeService', () => {
   const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
 
   let service: KnowledgeService;
+  let docService: KnowledgeDocumentService;
 
   // 可链式 QueryBuilder mock：供 likeRepo 用（getRawMany）
   const makeLikeQb = () => {
@@ -115,13 +117,12 @@ describe('KnowledgeService', () => {
    * @param configService 覆盖 ConfigService（个别用例需要不同的 FILE_MAX_SIZE）
    * @returns 由 TestingModule 解析出的服务实例
    */
-  const buildService = async (
-    configService: ConfigService = config,
-  ): Promise<KnowledgeService> => {
-    const moduleRef = await Test.createTestingModule({
+  const buildModule = (configService: ConfigService) =>
+    Test.createTestingModule({
       imports: [PaginationModule],
       providers: [
         KnowledgeService,
+        KnowledgeDocumentService,
         { provide: AppLogger, useValue: logger },
         { provide: DataSource, useValue: dataSource },
         { provide: getRepositoryToken(KnowledgeBase), useValue: kbRepo },
@@ -130,9 +131,18 @@ describe('KnowledgeService', () => {
         { provide: FileService, useValue: fileService },
         { provide: ConfigService, useValue: configService },
       ],
-    }).compile();
-    return moduleRef.get(KnowledgeService);
-  };
+    });
+
+  const buildService = async (
+    configService: ConfigService = config,
+  ): Promise<KnowledgeService> =>
+    (await buildModule(configService).compile()).get(KnowledgeService);
+
+  // 文档处理已拆到 KnowledgeDocumentService：文档用例经它验证（同一模块装配，确保模块 provider 齐备）
+  const buildDocService = async (
+    configService: ConfigService = config,
+  ): Promise<KnowledgeDocumentService> =>
+    (await buildModule(configService).compile()).get(KnowledgeDocumentService);
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -140,6 +150,7 @@ describe('KnowledgeService', () => {
     // 避免依赖「上个用例遗留的 mockReturnValue」——clearAllMocks 只清调用记录不清实现
     likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
     service = await buildService();
+    docService = await buildDocService();
   });
 
   const stored = (over = {}) =>
@@ -374,7 +385,7 @@ describe('KnowledgeService', () => {
   it('addDocument 校验非法扩展名', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
     await expect(
-      service.addDocument('u1', 'kb1', {
+      docService.addDocument('u1', 'kb1', {
         buffer: Buffer.from('x'),
         originalname: 'a.exe',
         size: 1,
@@ -388,7 +399,7 @@ describe('KnowledgeService', () => {
     kbRepo.findOne.mockResolvedValue(kb());
     const big = Buffer.alloc(2048);
     await expect(
-      service.addDocument('u1', 'kb1', {
+      docService.addDocument('u1', 'kb1', {
         buffer: big,
         originalname: 'a.txt',
         size: big.length,
@@ -407,7 +418,7 @@ describe('KnowledgeService', () => {
     });
     fileService.save.mockResolvedValue({ id: 'f1' });
     await expect(
-      service.addDocument('u1', 'kb1', {
+      docService.addDocument('u1', 'kb1', {
         buffer: Buffer.from('notpdf'),
         originalname: 'a.pdf',
         size: 4,
@@ -427,7 +438,7 @@ describe('KnowledgeService', () => {
     fileRepo.save.mockResolvedValue({ id: 'f1' });
     vi.mocked(extractContent).mockRejectedValue(new Error('parse fail'));
     await expect(
-      service.addDocument('u1', 'kb1', {
+      docService.addDocument('u1', 'kb1', {
         buffer: Buffer.from('%PDF'),
         originalname: 'a.pdf',
         size: 4,
@@ -449,7 +460,7 @@ describe('KnowledgeService', () => {
     fileService.save.mockResolvedValue(stored());
     fileRepo.save.mockResolvedValue({ id: 'f1' });
     docRepo.save.mockResolvedValue(doc({ content: '正文' }));
-    const uploaded = await service.addDocument('u1', 'kb1', {
+    const uploaded = await docService.addDocument('u1', 'kb1', {
       buffer: Buffer.from('%PDF'),
       originalname: 'a.pdf',
       size: 4,
@@ -485,7 +496,7 @@ describe('KnowledgeService', () => {
     fileRepo.findOneBy.mockResolvedValue({ id: 'f1', key: 'f1.pdf' });
     docRepo.delete.mockResolvedValue({ affected: 1 });
     fileRepo.delete.mockResolvedValue({ affected: 1 });
-    await service.removeDocument('u1', 'kb1', 'd1');
+    await docService.removeDocument('u1', 'kb1', 'd1');
     expect(docRepo.delete).toHaveBeenCalledWith({
       id: 'd1',
       knowledgeBaseId: 'kb1',
@@ -668,7 +679,7 @@ describe('KnowledgeService', () => {
   it('addDocument 知识库不存在抛 404', async () => {
     kbRepo.findOne.mockResolvedValue(null);
     await expect(
-      service.addDocument('u1', 'kb1', {
+      docService.addDocument('u1', 'kb1', {
         buffer: Buffer.from('x'),
         originalname: 'a.txt',
         size: 1,
@@ -677,7 +688,7 @@ describe('KnowledgeService', () => {
   });
 
   it('addDocument FILE_MAX_SIZE 非数字时回退默认上限（不静默禁用）', async () => {
-    const svc = await buildService(
+    const svc = await buildDocService(
       new ConfigService({ FILE_MAX_SIZE: '10MB' }),
     );
     kbRepo.findOne.mockResolvedValue(kb());
@@ -705,7 +716,7 @@ describe('KnowledgeService', () => {
     fileRepo.save.mockResolvedValue({ id: 'f1' });
     docRepo.save.mockRejectedValue(new Error('db fail'));
     await expect(
-      service.addDocument('u1', 'kb1', {
+      docService.addDocument('u1', 'kb1', {
         buffer: Buffer.from('%PDF'),
         originalname: 'a.pdf',
         size: 4,
@@ -725,7 +736,7 @@ describe('KnowledgeService', () => {
     );
     fileRepo.save.mockResolvedValue({ id: 'f1' });
     docRepo.save.mockResolvedValue(doc());
-    await service.addDocument('u1', 'kb1', {
+    await docService.addDocument('u1', 'kb1', {
       buffer: Buffer.from('zip'),
       originalname: 'a.docx',
       size: 4,
@@ -742,7 +753,7 @@ describe('KnowledgeService', () => {
     );
     const qb = makeDocQb();
     docRepo.createQueryBuilder.mockReturnValue(qb);
-    const result = await service.listDocuments('u2', 'kb1', {});
+    const result = await docService.listDocuments('u2', 'kb1', {});
     expect(qb.where).toHaveBeenCalledWith('d.knowledgeBaseId = :kbId', {
       kbId: 'kb1',
     });
@@ -758,7 +769,7 @@ describe('KnowledgeService', () => {
     const qb = makeDocQb();
     docRepo.createQueryBuilder.mockReturnValue(qb);
 
-    const result = await service.listDocuments('u1', 'kb1', {});
+    const result = await docService.listDocuments('u1', 'kb1', {});
 
     // 显式列投影：content（text，可达 MB 级）不进 SELECT
     const selected = qb.select.mock.calls[0][0] as string[];
@@ -792,7 +803,7 @@ describe('KnowledgeService', () => {
       OTHER_ID,
       'createdAt',
     );
-    await service.listDocuments('u1', 'kb1', { cursor, limit: 5 });
+    await docService.listDocuments('u1', 'kb1', { cursor, limit: 5 });
     expect(qb.take).toHaveBeenCalledWith(6);
     expect(qb.orderBy).toHaveBeenCalledWith('d.created_at', 'DESC');
     expect(qb.addOrderBy).toHaveBeenCalledWith('d.id', 'DESC');
@@ -817,7 +828,7 @@ describe('KnowledgeService', () => {
     );
     qb.getMany.mockResolvedValue(rows);
     docRepo.createQueryBuilder.mockReturnValue(qb);
-    const result = await service.listDocuments('u1', 'kb1', { limit: 2 });
+    const result = await docService.listDocuments('u1', 'kb1', { limit: 2 });
     expect(result.list).toHaveLength(2);
     const decoded = decodeCursor(result.nextCursor!, 'createdAt');
     expect(decoded.id).toBe(uuid(1));
@@ -830,7 +841,7 @@ describe('KnowledgeService', () => {
     kbRepo.findOne.mockResolvedValue(kb());
     const qb = makeDocQb();
     docRepo.createQueryBuilder.mockReturnValue(qb);
-    await service.listDocuments('u1', 'kb1', { keyword: 'x' });
+    await docService.listDocuments('u1', 'kb1', { keyword: 'x' });
     expect(qb.andWhere).toHaveBeenCalledWith(
       '(d.title ILIKE :kw OR d.content ILIKE :kw)',
       { kw: '%x%' },
@@ -839,22 +850,24 @@ describe('KnowledgeService', () => {
 
   it('listDocuments 私有库非属主抛 FORBIDDEN', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
-    await expect(service.listDocuments('u2', 'kb1', {})).rejects.toMatchObject({
+    await expect(
+      docService.listDocuments('u2', 'kb1', {}),
+    ).rejects.toMatchObject({
       status: HttpStatus.FORBIDDEN,
     });
   });
 
   it('listDocuments 知识库不存在抛 404', async () => {
     kbRepo.findOne.mockResolvedValue(null);
-    await expect(service.listDocuments('u1', 'kb1', {})).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      docService.listDocuments('u1', 'kb1', {}),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('getDocument 属主可读，返回详情契约视图（含 content，非实体）', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
     docRepo.findOne.mockResolvedValue(doc({ content: '正文' }));
-    const result = await service.getDocument('u1', 'kb1', 'd1');
+    const result = await docService.getDocument('u1', 'kb1', 'd1');
 
     expect(result).toEqual({
       id: DOC_ID,
@@ -873,21 +886,23 @@ describe('KnowledgeService', () => {
   it('getDocument 文档不存在抛 404', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
     docRepo.findOne.mockResolvedValue(null);
-    await expect(service.getDocument('u1', 'kb1', 'd1')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      docService.getDocument('u1', 'kb1', 'd1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('getDocument 知识库不存在抛 404', async () => {
     kbRepo.findOne.mockResolvedValue(null);
-    await expect(service.getDocument('u1', 'kb1', 'd1')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      docService.getDocument('u1', 'kb1', 'd1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('getDocument 私有库非属主抛 FORBIDDEN', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
-    await expect(service.getDocument('u2', 'kb1', 'd1')).rejects.toMatchObject({
+    await expect(
+      docService.getDocument('u2', 'kb1', 'd1'),
+    ).rejects.toMatchObject({
       status: HttpStatus.FORBIDDEN,
     });
   });
@@ -895,7 +910,7 @@ describe('KnowledgeService', () => {
   it('removeDocument 知识库不存在抛 404', async () => {
     kbRepo.findOne.mockResolvedValue(null);
     await expect(
-      service.removeDocument('u1', 'kb1', 'd1'),
+      docService.removeDocument('u1', 'kb1', 'd1'),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -903,7 +918,7 @@ describe('KnowledgeService', () => {
     kbRepo.findOne.mockResolvedValue(kb());
     docRepo.findOne.mockResolvedValue(null);
     await expect(
-      service.removeDocument('u1', 'kb1', 'd1'),
+      docService.removeDocument('u1', 'kb1', 'd1'),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -912,7 +927,7 @@ describe('KnowledgeService', () => {
     docRepo.findOne.mockResolvedValue(doc());
     fileRepo.findOneBy.mockResolvedValue(null);
     docRepo.delete.mockResolvedValue({ affected: 1 });
-    await service.removeDocument('u1', 'kb1', 'd1');
+    await docService.removeDocument('u1', 'kb1', 'd1');
     expect(docRepo.delete).toHaveBeenCalledWith({
       id: 'd1',
       knowledgeBaseId: 'kb1',
@@ -924,7 +939,7 @@ describe('KnowledgeService', () => {
   it('removeDocument 非属主抛 FORBIDDEN', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
     await expect(
-      service.removeDocument('u2', 'kb1', 'd1'),
+      docService.removeDocument('u2', 'kb1', 'd1'),
     ).rejects.toMatchObject({
       status: HttpStatus.FORBIDDEN,
     });
