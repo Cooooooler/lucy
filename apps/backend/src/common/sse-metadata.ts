@@ -8,3 +8,12 @@
  * 另一个拦截器就得反向 import 它——两个职责无关的拦截器会因共享一个协议常量而互相耦合。
  */
 export const SSE_METADATA = '__sse__';
+
+/**
+ * 判定处理器是否标注为 SSE。两个拦截器（放行信封、放行超时）必须用**同一**判定，
+ * 否则「是否 SSE」会各写一份而漂移：新增/改回 GET 型流式端点时，若其一漏改，该端点会被
+ * 静默掐断（超时）或破坏流协议（包信封）。
+ */
+export function isSseHandler(handler: object): boolean {
+  return Boolean(Reflect.getMetadata(SSE_METADATA, handler));
+}

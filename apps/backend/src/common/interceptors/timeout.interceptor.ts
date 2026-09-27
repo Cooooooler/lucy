@@ -10,7 +10,7 @@ import type { Observable } from 'rxjs';
 import { TimeoutError, throwError } from 'rxjs';
 import { catchError, timeout } from 'rxjs/operators';
 import { AppLogger } from '../app-logger.service.js';
-import { SSE_METADATA } from '../sse-metadata.js';
+import { isSseHandler } from '../sse-metadata.js';
 
 /**
  * 只对读方法（HTTP 安全方法）设超时。写方法（POST/PUT/PATCH/DELETE）超时属于「半途失败」：
@@ -39,27 +39,32 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  */
 @Injectable()
 export class TimeoutInterceptor implements NestInterceptor {
+  /**
+   * 阈值在**构造期**解析一次：缺配置时在 DI 实例化（启动期）即失败，而不是拖到第一个请求
+   * 才抛（那会经 `AllExceptionsFilter` 归成 500，等于「所有读请求全挂」）。仍不复制默认值。
+   */
+  private readonly timeoutMs: number;
+
   constructor(
     private readonly config: ConfigService,
     private readonly logger: AppLogger,
-  ) {}
+  ) {
+    // getOrThrow 只保证键存在、不保证类型（ConfigService 可能是字符串），故显式 Number 归一
+    this.timeoutMs = Number(this.config.getOrThrow('REQUEST_TIMEOUT_MS'));
+  }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     // SSE 显式放行（与 ApiResponseInterceptor 同一判据）：不能只依赖「SSE 端点是 POST」
     // 这一隐含前提——EventSource 只支持 GET，若流式端点改回 GET 或新增流式 GET，
     // 超时会静默掐断长回答
-    const isSse = Boolean(
-      Reflect.getMetadata(SSE_METADATA, context.getHandler()),
-    );
+    const isSse = isSseHandler(context.getHandler());
     const request = context
       .switchToHttp()
       .getRequest<{ method?: string; url?: string }>();
     if (isSse || !SAFE_METHODS.has(request.method ?? '')) {
       return next.handle();
     }
-    // getOrThrow 只保证键存在、不保证类型（ConfigService 可能是字符串），故显式 Number 归一；
-    // 默认值只在 env schema 定义一次，此处不重复兜底
-    const ms = Number(this.config.getOrThrow('REQUEST_TIMEOUT_MS'));
+    const ms = this.timeoutMs;
     if (!Number.isFinite(ms) || ms <= 0) {
       return next.handle();
     }
