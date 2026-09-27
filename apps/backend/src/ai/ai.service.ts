@@ -1,6 +1,10 @@
 import { HumanMessage } from '@langchain/core/messages';
 import { AiStreamEvent, ErrorCode, type ErrorCodeValue } from '@lucy/shared';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  type BeforeApplicationShutdown,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
@@ -37,7 +41,7 @@ type Subscriber = {
 };
 
 @Injectable()
-export class AiService {
+export class AiService implements BeforeApplicationShutdown {
   constructor(
     private readonly logger: AppLogger,
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -53,6 +57,10 @@ export class AiService {
 
   // 同会话并发锁：key=conversationId，防止同会话并发生成（同时消除首条消息重复触发标题生成）
   private readonly inFlight = new Map<string, Promise<unknown>>();
+
+  // 活跃模型流的中止控制器集合：停机时集中 abort，使 in-flight SSE 连接能及时结束、
+  // app.close() 在宽限期内自然返回（否则只能等 main.ts 的兜底定时器强制退出，截断回答）
+  private readonly activeControllers = new Set<AbortController>();
 
   /** AI：创建会话（返回允许式契约视图，与列表项同形）。 */
   async create(
@@ -150,6 +158,7 @@ export class AiService {
       }
 
       const controller = new AbortController();
+      this.activeControllers.add(controller);
       const promise = this.runSend(
         subscriber,
         userId,
@@ -171,10 +180,26 @@ export class AiService {
         })
         .finally(() => {
           this.inFlight.delete(conversationId);
+          this.activeControllers.delete(controller);
         });
       this.inFlight.set(conversationId, promise);
-      return () => controller.abort();
+      return () => {
+        this.activeControllers.delete(controller);
+        controller.abort();
+      };
     });
+  }
+
+  /**
+   * 停机生命周期（先于 HTTP 服务器关闭连接执行）：中止所有在途模型流，让对应的 SSE 连接
+   * 尽快结束、`app.close()` 能在宽限期内自然返回。缺少这一步时，活跃流会使连接一直保持，
+   * 停机只能等 main.ts 的兜底定时器强制退出——那会截断正在生成的回答。
+   */
+  beforeApplicationShutdown(): void {
+    for (const controller of this.activeControllers) {
+      controller.abort(new Error('Server is shutting down'));
+    }
+    this.activeControllers.clear();
   }
 
   private async runSend(

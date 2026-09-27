@@ -9,35 +9,44 @@ import { ConfigService } from '@nestjs/config';
 import type { Observable } from 'rxjs';
 import { TimeoutError, throwError } from 'rxjs';
 import { catchError, timeout } from 'rxjs/operators';
-import { SSE_METADATA } from '../sse-metadata.js';
 
 /**
- * 请求处理超时：给非 SSE 的处理器套一层 rxjs `timeout`，避免单个卡死的处理器 / 下游依赖
- * 无限期占用连接。Node 的 `server.requestTimeout` 只覆盖请求头/体的读取，不覆盖处理器执行，
- * 缺少这层时「处理器自身挂起」没有任何上界。
+ * 只对读方法（HTTP 安全方法）设超时。写方法（POST/PUT/PATCH/DELETE）超时属于「半途失败」：
+ * rxjs `timeout` 只取消订阅，既不会取消正在执行的处理器，也不会回滚已开启的事务，客户端拿到
+ * 408 后重试可能重复落库/重复上传，而服务端这次执行仍会跑完。文件上传（POST）还会把 multipart
+ * 读体时间计入阈值而误杀，SSE 端点同样是 POST —— 都因不属安全方法而天然排除。
+ */
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * 读请求处理超时：给 GET/HEAD/OPTIONS 处理器套一层 rxjs `timeout`，避免卡死的查询无限期
+ * 占用连接。Node 的 `server.requestTimeout` 只覆盖请求头/体的读取，不覆盖处理器执行，缺少
+ * 这层时「读处理器自身挂起」没有任何上界。
  *
- * - SSE（带 `@SetMetadata(SSE_METADATA, true)` 的处理器）放行：它按设计长时间保持连接、
- *   分段流式输出，超时机制会误杀正常的长回答（与 `ApiResponseInterceptor` 的放行同一判据）。
- * - 阈值取 `REQUEST_TIMEOUT_MS`（默认 120s）；非有限值或 <= 0 视为禁用，便于按需关闭。
- * - 超时抛 `RequestTimeoutException`（408），文案由全局 `AllExceptionsFilter` 统一成中文信封。
+ * - 阈值取 `REQUEST_TIMEOUT_MS`（默认 120s）；`<=0` 视为禁用。
+ * - 超时抛**不带 message** 的 `RequestTimeoutException`：文案由全局 `AllExceptionsFilter`
+ *   按 408 归一（错误文案只在 `messages.ts` 定义，勿在拦截器里硬编码，否则与之互相架空）。
  */
 @Injectable()
 export class TimeoutInterceptor implements NestInterceptor {
   constructor(private readonly config: ConfigService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const isSse = Boolean(
-      Reflect.getMetadata(SSE_METADATA, context.getHandler()),
-    );
+    const request = context.switchToHttp().getRequest<{ method?: string }>();
+    if (!SAFE_METHODS.has(request.method ?? '')) {
+      return next.handle();
+    }
+    // 阈值经 env schema 校验（整数，可为 <=0 表示禁用）；isFinite 分支仅作纯函数级防御
+    // （单测会直接构造本类，绕过 schema）
     const ms = Number(this.config.get('REQUEST_TIMEOUT_MS', 120000));
-    if (isSse || !Number.isFinite(ms) || ms <= 0) {
+    if (!Number.isFinite(ms) || ms <= 0) {
       return next.handle();
     }
     return next.handle().pipe(
       timeout(ms),
       catchError((err: unknown) =>
         err instanceof TimeoutError
-          ? throwError(() => new RequestTimeoutException('请求处理超时'))
+          ? throwError(() => new RequestTimeoutException())
           : throwError(() => err),
       ),
     );

@@ -20,7 +20,8 @@ export const envValidationSchema = Joi.object({
   REFRESH_ROTATION_MS: Joi.number().integer().positive().default(600000),
   REUSE_GRACE_SECONDS: Joi.number().positive().default(10),
   // RedisBloom（登出/换发后的令牌撤销）
-  BLOOM_ERROR_RATE: Joi.number().greater(0).max(1).default(0.01),
+  // RedisBloom 误报率须满足 0 < rate < 1（BF.RESERVE 对 1 会拒绝；rate=1 还会让过滤器恒判「存在」）
+  BLOOM_ERROR_RATE: Joi.number().greater(0).less(1).default(0.01),
   BLOOM_CAPACITY: Joi.number().integer().positive().default(1000000),
   BLOOM_ROTATION_SECONDS: Joi.number().integer().positive().default(900),
   CORS_ORIGIN: Joi.string().allow('').optional(),
@@ -32,7 +33,9 @@ export const envValidationSchema = Joi.object({
   // 文件存储
   FILE_MAX_SIZE: Joi.number().default(10485760),
   UPLOAD_DIR: Joi.string().default('uploads'),
-  FILE_STORAGE: Joi.string().default('local'),
+  // 目前仅有本地驱动（@coool/file-nest 的 resolveStorageDriver 只认 local），
+  // 写成别的值只会在文件元数据里静默错配，故限定取值；将来真支持多驱动再放开
+  FILE_STORAGE: Joi.string().valid('local').default('local'),
   // 日志（见 logger-options.ts）：等级限 pino 的合法取值，非法值在启动期即失败
   LOG_LEVEL: Joi.string()
     .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')

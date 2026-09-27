@@ -50,11 +50,11 @@ async function bootstrap() {
   // 停机兜底：若 in-flight 请求/连接使 app.close() 长时间不返回，Nest 的 shutdown hook
   // 会一直等待，进程被 SIGTERM 后长期挂起（编排侧只能再补 SIGKILL，且日志里看不到卡在哪）。
   // 这里与 Nest 的信号监听并行注册一个定时器，超过宽限期即强制退出。
-  // 宽限期取自**已校验的配置**（Joi 保证为正整数，默认 15000ms）：默认值与边界只在
-  // env-validation.schema 定义一次，此处不再自行兜底（否则形成永不触发的死分支）。
-  const shutdownGraceMs = Number(
-    app.get(ConfigService).get<number>('SHUTDOWN_GRACE_MS', 15000),
-  );
+  // 宽限期取自**已校验的配置**（Joi 保证为正整数且带默认值）：默认值与边界只在
+  // env-validation.schema 定义一次，此处既不重复兜底、也不给 get 传缺省值。
+  const shutdownGraceMs = app
+    .get(ConfigService)
+    .getOrThrow<number>('SHUTDOWN_GRACE_MS');
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     process.on(signal, () => {
       // unref：正常停机完成时该定时器不阻止进程退出

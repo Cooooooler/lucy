@@ -1,11 +1,12 @@
 import { ExecutionContext, RequestTimeoutException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Observable, firstValueFrom, of } from 'rxjs';
-import { SSE_METADATA } from '../sse-metadata.js';
 import { TimeoutInterceptor } from './timeout.interceptor.js';
 
-function contextFor(handler: object): ExecutionContext {
-  return { getHandler: () => handler } as unknown as ExecutionContext;
+function contextFor(method: string): ExecutionContext {
+  return {
+    switchToHttp: () => ({ getRequest: () => ({ method }) }),
+  } as unknown as ExecutionContext;
 }
 
 const config = (ms?: number) =>
@@ -14,38 +15,40 @@ const config = (ms?: number) =>
 const neverEnding = () => new Observable<never>(() => {});
 
 describe('TimeoutInterceptor', () => {
-  it('阈值内正常响应原样透传', async () => {
+  it('读请求阈值内正常响应原样透传', async () => {
     const interceptor = new TimeoutInterceptor(config(1000));
     const next = { handle: () => of('ok') };
     await expect(
-      firstValueFrom(interceptor.intercept(contextFor({}), next)),
+      firstValueFrom(interceptor.intercept(contextFor('GET'), next)),
     ).resolves.toBe('ok');
   });
 
-  it('处理器挂起超时：抛 RequestTimeoutException（408）', async () => {
+  it('读请求处理器挂起超时：抛 RequestTimeoutException（408，不带 message）', async () => {
     const interceptor = new TimeoutInterceptor(config(5));
     const next = { handle: neverEnding };
-    await expect(
-      firstValueFrom(interceptor.intercept(contextFor({}), next)),
-    ).rejects.toBeInstanceOf(RequestTimeoutException);
+    const err = await firstValueFrom(
+      interceptor.intercept(contextFor('GET'), next),
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RequestTimeoutException);
+    // 不带自定义 message：由全局过滤器按 408 归一（消息只在 messages.ts 定义）
+    expect((err as RequestTimeoutException).message).toBe('Request Timeout');
   });
 
-  it('SSE 处理器跳过超时（长时间流式不误杀）', async () => {
-    const handler = {};
-    Reflect.defineMetadata(SSE_METADATA, true, handler);
+  it('写方法跳过超时（避免半途失败/重试重复写入，同时排除上传与 SSE）', async () => {
     const interceptor = new TimeoutInterceptor(config(5));
-    const result = firstValueFrom(
-      interceptor.intercept(contextFor(handler), { handle: neverEnding }),
-    );
-    // 若未跳过，5ms 后会 reject；跳过则应保持挂起
-    const outcome = await Promise.race([
-      result.then(
-        () => 'settled',
-        () => 'settled',
-      ),
-      new Promise((resolve) => setTimeout(() => resolve('pending'), 40)),
-    ]);
-    expect(outcome).toBe('pending');
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const result = firstValueFrom(
+        interceptor.intercept(contextFor(method), { handle: neverEnding }),
+      );
+      const outcome = await Promise.race([
+        result.then(
+          () => 'settled',
+          () => 'settled',
+        ),
+        new Promise((resolve) => setTimeout(() => resolve('pending'), 40)),
+      ]);
+      expect(outcome, `${method} 不应被套超时`).toBe('pending');
+    }
   });
 
   it('阈值为非有限值或 <=0 时禁用（视为未配置上限）', async () => {
@@ -53,7 +56,7 @@ describe('TimeoutInterceptor', () => {
       const interceptor = new TimeoutInterceptor(config(value));
       const next = { handle: () => of('ok') };
       await expect(
-        firstValueFrom(interceptor.intercept(contextFor({}), next)),
+        firstValueFrom(interceptor.intercept(contextFor('GET'), next)),
       ).resolves.toBe('ok');
     }
   });

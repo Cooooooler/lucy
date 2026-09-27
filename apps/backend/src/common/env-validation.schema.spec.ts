@@ -48,4 +48,10 @@ describe('envValidationSchema', () => {
     expect(validate({ SHUTDOWN_GRACE_MS: -1 }).error).toBeDefined();
     expect(validate({ BLOOM_CAPACITY: 'abc' }).error).toBeDefined();
   });
+
+  it('BLOOM_ERROR_RATE 须严格介于 0 与 1（BF.RESERVE 拒绝 1，rate=1 会恒判存在）', () => {
+    expect(validate({ BLOOM_ERROR_RATE: 0.01 }).error).toBeUndefined();
+    expect(validate({ BLOOM_ERROR_RATE: 1 }).error).toBeDefined();
+    expect(validate({ BLOOM_ERROR_RATE: 0 }).error).toBeDefined();
+  });
 });
