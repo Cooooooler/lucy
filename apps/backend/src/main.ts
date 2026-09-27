@@ -42,8 +42,10 @@ async function bootstrap() {
   });
 
   DocsModule.setup(app);
-  // 优雅停机：SIGTERM/SIGINT 到达时结束 in-flight 请求并释放 DB/Redis 连接
-  //（ShutdownService.onApplicationShutdown 先标记停机使健康检查返回 503）
+  // 优雅停机：SIGTERM/SIGINT 触发 Nest 关闭生命周期 —— 先 `beforeApplicationShutdown`
+  // （ShutdownService 置停机位使新请求被拒/健康检查 503，ChatStreamService 中止在途 SSE
+  // 并等待其落库收敛），再 dispose 服务器、释放 DB/Redis 连接。整个过程的**兜底强退**与
+  // 定时器撤销都在 ShutdownService 内，不在这里另起一份（否则成功停机也会被强退）。
   app.enableShutdownHooks();
   process.on('unhandledRejection', (reason) => {
     new NestLogger('Bootstrap').error(

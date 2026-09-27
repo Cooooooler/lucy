@@ -61,6 +61,17 @@ export function fileModuleOptions(config: ConfigService) {
         synchronize: false,
         uuidExtension: 'pgcrypto',
         installExtensions: false,
+        // DB 侧上界：客户端 TimeoutInterceptor 只能让**请求**超时返回，杀不掉仍在跑的查询
+        // （服务端早断、连接与数据被后台查询继续占用）。这两项交给 Postgres 自行中止，
+        // 与读超时同量级；0 表示不限。CLI 迁移连接（db/data-source.ts）刻意不设，避免长 ALTER 被中断。
+        extra: {
+          statement_timeout: Number(
+            config.getOrThrow<number>('DB_STATEMENT_TIMEOUT_MS'),
+          ),
+          idle_in_transaction_session_timeout: Number(
+            config.getOrThrow<number>('DB_IDLE_TX_TIMEOUT_MS'),
+          ),
+        },
       }),
     }),
     UsersModule,

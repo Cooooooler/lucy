@@ -6,6 +6,7 @@ import { lastValueFrom } from 'rxjs';
 import { toArray } from 'rxjs/operators';
 import { DataSource } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { ShutdownService } from '../common/shutdown.service.js';
 import { ChatStreamService } from './chat-stream.service.js';
 import { ContextService } from './context.service.js';
 import { ConversationTitleService } from './conversation-title.service.js';
@@ -45,7 +46,11 @@ describe('ChatStreamService', () => {
   const ollamaFactory = { getClient: vi.fn() };
   const contextService = { buildMessages: vi.fn() };
   const titleService = { generate: vi.fn() };
-  const config = new ConfigService({ OLLAMA_MODEL: 'default-model' });
+  const shutdown = { isShutdown: vi.fn(), startShutdown: vi.fn() };
+  const config = new ConfigService({
+    OLLAMA_MODEL: 'default-model',
+    SHUTDOWN_GRACE_MS: 15000,
+  });
   // 保留可断言的 mock 句柄（直接对 `logger.warn` 断言会触发 unbound-method）
   const loggerMock = { log: vi.fn(), warn: vi.fn() };
   const logger = loggerMock as unknown as AppLogger;
@@ -73,6 +78,7 @@ describe('ChatStreamService', () => {
         { provide: ContextService, useValue: contextService },
         // 标题生成已下沉到 ConversationTitleService，其行为在 conversation-title.service.spec.ts 覆盖
         { provide: ConversationTitleService, useValue: titleService },
+        { provide: ShutdownService, useValue: shutdown },
         { provide: ConfigService, useValue: configService },
       ],
     }).compile();
@@ -81,6 +87,8 @@ describe('ChatStreamService', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    // clearAllMocks 只清调用记录不清实现，但仍显式复位：停机位默认关闭
+    shutdown.isShutdown.mockReturnValue(false);
     service = await buildService();
   });
 
@@ -584,5 +592,57 @@ describe('ChatStreamService', () => {
     // 锁按 `userId:conversationId` 计：非属主请求不会撞上 BUSY（而是落到归属校验的 NOT_FOUND）
     expect([...inFlight.keys()]).toEqual(['1:c1']);
     sub.unsubscribe();
+  });
+
+  it('停机中：拒绝新流，且不触碰会话/模型', async () => {
+    shutdown.isShutdown.mockReturnValue(true);
+
+    const result = await events(
+      service.sendMessage('1', 'c1', { content: 'hi' }),
+    );
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        data: {
+          code: ErrorCode.AI_GENERATE_ABORTED,
+          message: '服务正在停机',
+        },
+      }),
+    ]);
+    expect(conversationRepo.findOne).not.toHaveBeenCalled();
+    expect(ollamaFactory.getClient).not.toHaveBeenCalled();
+  });
+
+  it('停机：中止在途流并等待其落库收敛（半截内容落 aborted）', async () => {
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.find.mockResolvedValue([]);
+    contextService.buildMessages.mockResolvedValue([]);
+    const captured: { signal?: AbortSignal } = {};
+    ollamaFactory.getClient.mockReturnValue(
+      fakeClient({
+        async *stream(_messages: Message[], opts?: { signal?: AbortSignal }) {
+          captured.signal = opts?.signal;
+          yield { content: '半截' };
+          if (!opts?.signal?.aborted) {
+            await new Promise<void>((resolve) =>
+              opts?.signal?.addEventListener('abort', () => resolve()),
+            );
+          }
+          throw new Error('aborted');
+        },
+      }),
+    );
+
+    service.sendMessage('1', 'c1', { content: 'hi' }).subscribe();
+    await vi.waitFor(() => expect(captured.signal).toBeDefined());
+
+    // 停机钩子应中止在途流并等它把半截内容按 aborted 落库，而不是硬掐在写入中间
+    await service.beforeApplicationShutdown();
+
+    expect(captured.signal?.aborted).toBe(true);
+    expect(messageRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ status: MessageStatus.Aborted }),
+    );
   });
 });
