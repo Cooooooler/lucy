@@ -77,9 +77,12 @@ export function useChatStream(conversationId: string | undefined) {
     onError: () => {},
   });
 
-  // useHookFetch 的 cancel 每次渲染重建（引用不稳定），用 ref 持有，卸载/切会话时安全调用
+  // useHookFetch 的 cancel 每次渲染重建（引用不稳定），用 ref 持有，卸载/切会话时安全调用。
+  // 同步写入放在 effect：渲染期写 ref 在并发渲染下可能写入未提交的值。
   const cancelRef = useRef(cancel);
-  cancelRef.current = cancel;
+  useEffect(() => {
+    cancelRef.current = cancel;
+  }, [cancel]);
 
   // 切换会话或卸载：中止在途流；若离开 live 所属会话则清空它
   useEffect(() => {
