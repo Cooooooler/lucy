@@ -256,15 +256,19 @@ const RippleDistortion = ({
   const configRef = useRef<WaveConfig>({} as WaveConfig);
   const uniformsRef = useRef<RippleUniforms | null>(null);
 
-  configRef.current = {
-    brushSize,
-    spread,
-    fade,
-    spacing,
-    clickStrength,
-    trigger,
-    enabled,
-  };
+  // 写入放在 effect 而非渲染期：渲染期写 ref 在并发渲染下可能写入未提交的值。
+  // 动画循环与指针处理器都在 rAF/事件中读取，effect 在挂载后、首次 rAF 之前同步即可。
+  useEffect(() => {
+    configRef.current = {
+      brushSize,
+      spread,
+      fade,
+      spacing,
+      clickStrength,
+      trigger,
+      enabled,
+    };
+  }, [brushSize, spread, fade, spacing, clickStrength, trigger, enabled]);
 
   useEffect(() => {
     const mount = mountRef.current;

@@ -27,6 +27,7 @@ import {
 import dayjs from 'dayjs';
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -214,11 +215,15 @@ function UsersPage() {
   const { data, isLoading } = useUserList(query);
   const rows = useMemo(() => data?.list ?? [], [data?.list]);
   // 删除确认框的 onOk 在闭包中执行：用 ref 读取最新页码与行数，
-  // 保证 handleDelete 不依赖 page/rows 而每轮重建（连带 columns memo 失效）
+  // 保证 handleDelete 不依赖 page/rows 而每轮重建（连带 columns memo 失效）。
+  // 写入放在 effect 而非渲染期：渲染期写 ref 在并发渲染/React Compiler 下可能写入
+  // 未提交的值，也会打断编译器对该组件的优化；onOk 在交互时执行，effect 早已同步。
   const pageRef = useRef(page);
-  pageRef.current = page;
   const rowsRef = useRef(rows);
-  rowsRef.current = rows;
+  useEffect(() => {
+    pageRef.current = page;
+    rowsRef.current = rows;
+  }, [page, rows]);
   // 解构稳定的 mutateAsync（react-query v5 中引用稳定），避免 useMutation 返回对象
   // 每轮重建导致回调与 columns memo 连带失效
   const { mutateAsync: updateStatus } = useUpdateUserStatus();
