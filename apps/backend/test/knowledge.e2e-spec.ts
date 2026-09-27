@@ -8,6 +8,7 @@ import {
   KnowledgeBaseVisibility,
 } from '../src/knowledge/entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from '../src/knowledge/entities/knowledge-document.entity.js';
+import { KnowledgeDocumentService } from '../src/knowledge/knowledge-document.service.js';
 import { KnowledgeService } from '../src/knowledge/knowledge.service.js';
 import {
   type ApiBody,
@@ -492,6 +493,10 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
     create: () => kbWithRelations,
     list: () => ({ list: [kbWithRelations], nextCursor: null }),
     get: () => kbWithRelations,
+  };
+
+  // 文档端点走独立服务 KnowledgeDocumentService，同样以桩返回「填充了内部关系」的实体
+  const docStub = {
     listDocuments: () => ({
       list: [docListItemWithRelations],
       nextCursor: null,
@@ -501,7 +506,11 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
 
   beforeAll(async () => {
     ({ app, server, dataSource } = await createE2eApp((builder) =>
-      builder.overrideProvider(KnowledgeService).useValue(stub),
+      builder
+        .overrideProvider(KnowledgeService)
+        .useValue(stub)
+        .overrideProvider(KnowledgeDocumentService)
+        .useValue(docStub),
     ));
 
     const login = await registerAndLogin(server, `e2e_ser_${suffix}`);

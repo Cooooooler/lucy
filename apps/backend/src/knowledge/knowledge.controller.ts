@@ -37,6 +37,7 @@ import {
 import { LikeResultDto } from './dto/like-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
 import { KnowledgeBaseVisibility } from './entities/knowledge-base.entity.js';
+import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 @ApiTags('knowledge')
@@ -47,7 +48,11 @@ import { KnowledgeService } from './knowledge.service.js';
 // 文档详情等仍直接返回实体，实体从任何控制器返回都受同一保护。
 @Controller({ path: 'knowledge', version: API_VERSION })
 export class KnowledgeController {
-  constructor(private readonly knowledgeService: KnowledgeService) {}
+  constructor(
+    private readonly knowledgeService: KnowledgeService,
+    // 文档端点走独立服务（上传解析/文件 I/O 与知识库元信息 CRUD 是两件事）
+    private readonly documentService: KnowledgeDocumentService,
+  ) {}
 
   @Post()
   @SuccessMessage('知识库创建成功')
@@ -154,7 +159,7 @@ export class KnowledgeController {
     @UploadedFile() file: Express.Multer.File,
   ): Promise<KnowledgeDocumentDetailDto> {
     if (!file) throw new BadRequestException('缺少文件字段 file');
-    return this.knowledgeService.addDocument(user.userId, kbId, file);
+    return this.documentService.addDocument(user.userId, kbId, file);
   }
 
   @Get(':kbId/documents')
@@ -165,7 +170,7 @@ export class KnowledgeController {
     @UUIDParam('kbId') kbId: string,
     @Query() query: DocumentListQueryDto,
   ): Promise<DocumentListResultDto> {
-    return this.knowledgeService.listDocuments(user.userId, kbId, query);
+    return this.documentService.listDocuments(user.userId, kbId, query);
   }
 
   @Get(':kbId/documents/:id')
@@ -176,7 +181,7 @@ export class KnowledgeController {
     @UUIDParam('kbId') kbId: string,
     @UUIDParam('id') id: string,
   ): Promise<KnowledgeDocumentDetailDto> {
-    return this.knowledgeService.getDocument(user.userId, kbId, id);
+    return this.documentService.getDocument(user.userId, kbId, id);
   }
 
   @Delete(':kbId/documents/:id')
@@ -187,6 +192,6 @@ export class KnowledgeController {
     @UUIDParam('kbId') kbId: string,
     @UUIDParam('id') id: string,
   ) {
-    return this.knowledgeService.removeDocument(user.userId, kbId, id);
+    return this.documentService.removeDocument(user.userId, kbId, id);
   }
 }

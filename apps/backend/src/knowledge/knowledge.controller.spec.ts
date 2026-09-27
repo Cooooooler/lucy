@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
+import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { KnowledgeController } from './knowledge.controller.js';
 import { KnowledgeService } from './knowledge.service.js';
 
@@ -14,6 +15,8 @@ describe('KnowledgeController', () => {
     remove: vi.fn(),
     like: vi.fn(),
     unlike: vi.fn(),
+  };
+  const documentService = {
     addDocument: vi.fn(),
     listDocuments: vi.fn(),
     getDocument: vi.fn(),
@@ -26,7 +29,10 @@ describe('KnowledgeController', () => {
     vi.clearAllMocks();
     const moduleRef = await Test.createTestingModule({
       controllers: [KnowledgeController],
-      providers: [{ provide: KnowledgeService, useValue: service }],
+      providers: [
+        { provide: KnowledgeService, useValue: service },
+        { provide: KnowledgeDocumentService, useValue: documentService },
+      ],
     }).compile();
     controller = moduleRef.get(KnowledgeController);
   });
@@ -59,33 +65,41 @@ describe('KnowledgeController', () => {
     expect(service.remove).toHaveBeenCalledWith('u1', 'kb1');
   });
 
-  it('addDocument 转发 userId、kbId、file', async () => {
+  it('addDocument 转发到 documentService', async () => {
     const file = { originalname: 'a.pdf' } as Express.Multer.File;
     await controller.addDocument(user, 'kb1', file);
-    expect(service.addDocument).toHaveBeenCalledWith('u1', 'kb1', file);
+    expect(documentService.addDocument).toHaveBeenCalledWith('u1', 'kb1', file);
   });
 
   it('addDocument 缺 file 抛 BadRequestException', () => {
     expect(() =>
       controller.addDocument(user, 'kb1', undefined as never),
     ).toThrow(BadRequestException);
-    expect(service.addDocument).not.toHaveBeenCalled();
+    expect(documentService.addDocument).not.toHaveBeenCalled();
   });
 
   it('listDocuments 转发 userId、kbId、query', async () => {
     const query = { keyword: 'x' };
     await controller.listDocuments(user, 'kb1', query);
-    expect(service.listDocuments).toHaveBeenCalledWith('u1', 'kb1', query);
+    expect(documentService.listDocuments).toHaveBeenCalledWith(
+      'u1',
+      'kb1',
+      query,
+    );
   });
 
   it('getDocument 转发 userId、kbId、id', async () => {
     await controller.getDocument(user, 'kb1', 'd1');
-    expect(service.getDocument).toHaveBeenCalledWith('u1', 'kb1', 'd1');
+    expect(documentService.getDocument).toHaveBeenCalledWith('u1', 'kb1', 'd1');
   });
 
   it('removeDocument 转发 userId、kbId、id', async () => {
     await controller.removeDocument(user, 'kb1', 'd1');
-    expect(service.removeDocument).toHaveBeenCalledWith('u1', 'kb1', 'd1');
+    expect(documentService.removeDocument).toHaveBeenCalledWith(
+      'u1',
+      'kb1',
+      'd1',
+    );
   });
 
   it('like 转发 userId 与 id', async () => {

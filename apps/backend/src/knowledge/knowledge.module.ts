@@ -6,6 +6,7 @@ import { BackendFileEntity } from './entities/backend-file.entity.js';
 import { KnowledgeBase } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
+import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { KnowledgeController } from './knowledge.controller.js';
 import { KnowledgeService } from './knowledge.service.js';
 
@@ -22,6 +23,7 @@ import { KnowledgeService } from './knowledge.service.js';
     ]),
   ],
   controllers: [KnowledgeController],
-  providers: [KnowledgeService],
+  // 知识库元信息（KnowledgeService）与文档处理（KnowledgeDocumentService）分属两个职责
+  providers: [KnowledgeService, KnowledgeDocumentService],
 })
 export class KnowledgeModule {}
