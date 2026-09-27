@@ -22,13 +22,11 @@ describe('envValidationSchema', () => {
     expect(value.FILE_STORAGE).toBeUndefined();
   });
 
-  it('REQUEST_TIMEOUT_MS 允许 <=0（「禁用」语义由 TimeoutInterceptor 判定，schema 不设下限）', () => {
-    for (const value of [0, -1, -1000]) {
-      expect(
-        validate({ REQUEST_TIMEOUT_MS: value }).error,
-        `REQUEST_TIMEOUT_MS=${value} 应通过校验`,
-      ).toBeUndefined();
-    }
+  it('REQUEST_TIMEOUT_MS 允许 0（禁用），拒绝负值/非整数/超上限', () => {
+    expect(validate({ REQUEST_TIMEOUT_MS: 0 }).error).toBeUndefined();
+    // 负值几乎必然是误配：启动期拒绝，而非当成「禁用」静默吞掉
+    expect(validate({ REQUEST_TIMEOUT_MS: -1 }).error).toBeDefined();
+    expect(validate({ REQUEST_TIMEOUT_MS: -1000 }).error).toBeDefined();
     // 非整数 / 非数值 / 超出 setTimeout 32 位上限仍失败
     expect(validate({ REQUEST_TIMEOUT_MS: 1.5 }).error).toBeDefined();
     expect(validate({ REQUEST_TIMEOUT_MS: 'abc' }).error).toBeDefined();

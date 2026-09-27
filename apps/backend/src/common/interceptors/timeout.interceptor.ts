@@ -29,8 +29,7 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * 连接池里的连接仍被占用——本拦截器不承诺「释放 DB 连接」。要保护连接池需另配 DB 侧上界
  * （如 Postgres `statement_timeout`）。
  *
- *
- * - 阈值取 `REQUEST_TIMEOUT_MS`（默认 120s）；`<=0` 视为禁用。
+ * - 阈值取 `REQUEST_TIMEOUT_MS`（默认 120s）；`0` 视为禁用（负值/超上限由 env schema 在启动期拒绝）。
  * - 超时抛**不带 message** 的 `RequestTimeoutException`：文案由全局 `AllExceptionsFilter`
  *   按 408 归一（错误文案只在 `messages.ts` 定义，勿在拦截器里硬编码，否则与之互相架空）。
  * - 超时前记一条 warn：408 不进 `AllExceptionsFilter` 的日志（它只记 >=500），且 rxjs 取消

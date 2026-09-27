@@ -32,10 +32,14 @@ export const envValidationSchema = Joi.object({
   BLOOM_CAPACITY: Joi.number().integer().positive().optional(),
   BLOOM_ROTATION_SECONDS: Joi.number().integer().positive().optional(),
   CORS_ORIGIN: Joi.string().allow('').optional(),
-  // 读请求处理超时（毫秒）：<=0 表示禁用，由 TimeoutInterceptor 判定，故不设下限
-  // （`.min(0)` 会拒绝 -1，与「<=0 禁用」矛盾）。上界取 setTimeout 的 32 位上限
-  // （2^31-1）：超过会触发 TimeoutOverflowWarning 并按 1ms 处理，导致每个读请求立即 408。
-  REQUEST_TIMEOUT_MS: Joi.number().integer().max(2_147_483_647).default(120000),
+  // 读请求处理超时（毫秒）：0 表示禁用（由 TimeoutInterceptor 判定）。下限 0 拒绝负值——
+  // -1 之类几乎必然是误配，应在启动期拦下，而不是被当成「禁用」静默吞掉；上界取 setTimeout
+  // 的 32 位上限（2^31-1），超过会触发 TimeoutOverflowWarning 并按 1ms 处理。
+  REQUEST_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(0)
+    .max(2_147_483_647)
+    .default(120000),
   // 文件存储
   FILE_MAX_SIZE: Joi.number().default(10485760),
   UPLOAD_DIR: Joi.string().default('uploads'),
