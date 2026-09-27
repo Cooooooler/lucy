@@ -4,7 +4,6 @@ import {
   VERSION_NEUTRAL,
   VersioningType,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
@@ -46,26 +45,6 @@ async function bootstrap() {
   // 优雅停机：SIGTERM/SIGINT 到达时结束 in-flight 请求并释放 DB/Redis 连接
   //（ShutdownService.onApplicationShutdown 先标记停机使健康检查返回 503）
   app.enableShutdownHooks();
-
-  // 停机兜底：若 in-flight 请求/连接使 app.close() 长时间不返回，Nest 的 shutdown hook
-  // 会一直等待，进程被 SIGTERM 后长期挂起（编排侧只能再补 SIGKILL，且日志里看不到卡在哪）。
-  // 这里与 Nest 的信号监听并行注册一个定时器，超过宽限期即强制退出。
-  // 宽限期取自**已校验的配置**（Joi 保证为正整数且带默认值）：默认值与边界只在
-  // env-validation.schema 定义一次，此处既不重复兜底、也不给 get 传缺省值。
-  const shutdownGraceMs = app
-    .get(ConfigService)
-    .getOrThrow<number>('SHUTDOWN_GRACE_MS');
-  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-    process.on(signal, () => {
-      // unref：正常停机完成时该定时器不阻止进程退出
-      setTimeout(() => {
-        new NestLogger('Bootstrap').error(
-          `优雅停机超过 ${shutdownGraceMs}ms，强制退出`,
-        );
-        process.exit(1);
-      }, shutdownGraceMs).unref();
-    });
-  }
   process.on('unhandledRejection', (reason) => {
     new NestLogger('Bootstrap').error(
       'Unhandled rejection',

@@ -1,6 +1,6 @@
 import { envValidationSchema } from './env-validation.schema.js';
 
-/** 最小合法 env：仅 JWT_SECRET 必填，其余走默认 */
+/** 最小合法 env：仅 JWT_SECRET 必填 */
 const BASE = { JWT_SECRET: 'x'.repeat(32) };
 
 const validate = (env: Record<string, unknown>) =>
@@ -10,13 +10,16 @@ const validate = (env: Record<string, unknown>) =>
   ) as { error?: Error; value: Record<string, unknown> };
 
 describe('envValidationSchema', () => {
-  it('仅需 JWT_SECRET，其余取默认值', () => {
+  it('仅需 JWT_SECRET；新增可选项不设默认值，默认由消费方持有', () => {
     const { error, value } = validate({});
     expect(error).toBeUndefined();
+    // 唯一带 default 的新增项（消费方用 getOrThrow，默认值只此一处）
     expect(value.REQUEST_TIMEOUT_MS).toBe(120000);
-    expect(value.SHUTDOWN_GRACE_MS).toBe(15000);
-    expect(value.LOG_LEVEL).toBe('info');
-    expect(value.OLLAMA_BASE_URL).toBe('http://localhost:11434');
+    // 其余只校验、不设默认：缺席即 undefined，避免与消费方 fallback 形成两份默认值
+    expect(value.LOG_LEVEL).toBeUndefined();
+    expect(value.OLLAMA_BASE_URL).toBeUndefined();
+    expect(value.BLOOM_ERROR_RATE).toBeUndefined();
+    expect(value.FILE_STORAGE).toBeUndefined();
   });
 
   it('REQUEST_TIMEOUT_MS 允许 <=0（「禁用」语义由 TimeoutInterceptor 判定，schema 不设下限）', () => {
@@ -43,15 +46,15 @@ describe('envValidationSchema', () => {
     expect(validate({ OLLAMA_BASE_URL: 'not a url' }).error).toBeDefined();
   });
 
-  it('停机宽限期 / Bloom 容量拒绝非正整数', () => {
-    expect(validate({ SHUTDOWN_GRACE_MS: 0 }).error).toBeDefined();
-    expect(validate({ SHUTDOWN_GRACE_MS: -1 }).error).toBeDefined();
-    expect(validate({ BLOOM_CAPACITY: 'abc' }).error).toBeDefined();
-  });
-
   it('BLOOM_ERROR_RATE 须严格介于 0 与 1（BF.RESERVE 拒绝 1，rate=1 会恒判存在）', () => {
     expect(validate({ BLOOM_ERROR_RATE: 0.01 }).error).toBeUndefined();
     expect(validate({ BLOOM_ERROR_RATE: 1 }).error).toBeDefined();
     expect(validate({ BLOOM_ERROR_RATE: 0 }).error).toBeDefined();
+  });
+
+  it('BLOOM_CAPACITY 拒绝非整数；FILE_STORAGE 仅接受 local', () => {
+    expect(validate({ BLOOM_CAPACITY: 'abc' }).error).toBeDefined();
+    expect(validate({ FILE_STORAGE: 'local' }).error).toBeUndefined();
+    expect(validate({ FILE_STORAGE: 's3' }).error).toBeDefined();
   });
 });

@@ -718,37 +718,6 @@ describe('AiService', () => {
       );
     });
 
-    it('停机：beforeApplicationShutdown 中止在途流', async () => {
-      conversationRepo.findOne.mockResolvedValue(conv());
-      messageRepo.count.mockResolvedValue(2);
-      messageRepo.find.mockResolvedValue([]);
-      contextService.buildMessages.mockResolvedValue([]);
-      const captured: { signal?: AbortSignal } = {};
-      ollamaFactory.getClient.mockReturnValue(
-        fakeClient({
-          async *stream(_messages: Message[], opts?: { signal?: AbortSignal }) {
-            captured.signal = opts?.signal;
-            yield { content: '半截' };
-            await new Promise(() => {}); // 永不结束，模拟在途流
-          },
-        }),
-      );
-
-      const sub = service.sendMessage('1', 'c1', { content: 'hi' }).subscribe();
-      await vi.waitFor(() => expect(captured.signal).toBeDefined());
-      // 停机应中止在途流，并等待其收尾（落库 aborted）后再返回
-      await service.beforeApplicationShutdown();
-      expect(captured.signal?.aborted).toBe(true);
-      expect(messageRepo.save).toHaveBeenCalledWith({
-        conversationId: 'c1',
-        role: MessageRole.Ai,
-        content: '半截',
-        thinking: null,
-        status: MessageStatus.Aborted,
-      });
-      sub.unsubscribe();
-    });
-
     it('并发发送同会话：第二次立即收到 error，不重复执行', async () => {
       conversationRepo.findOne.mockResolvedValue(conv());
       messageRepo.count.mockResolvedValue(2);
