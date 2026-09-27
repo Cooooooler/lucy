@@ -51,9 +51,10 @@ function isProd(config: ConfigService): boolean {
   return config.get<string>('NODE_ENV', 'development') === 'production';
 }
 
-/** 是否在控制台输出 pino-pretty 美化日志（开发或显式开启） */
+/** 是否在控制台输出 pino-pretty 美化日志（开发或显式开启；'1'/'true' 均视为开启） */
 function usePretty(config: ConfigService): boolean {
-  return config.get<string>('LOG_PRETTY') === '1' || !isProd(config);
+  const flag = config.get<string>('LOG_PRETTY');
+  return flag === '1' || flag === 'true' || !isProd(config);
 }
 
 /**

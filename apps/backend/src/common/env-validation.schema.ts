@@ -52,7 +52,8 @@ export const envValidationSchema = Joi.object({
     .optional(),
   LOG_DIR: Joi.string().allow('').optional(),
   LOG_FILE_RETENTION_DAYS: Joi.number().integer().positive().optional(),
-  LOG_PRETTY: Joi.string().valid('0', '1').optional(),
+  // 接受常见真值写法（'1'/'true'），避免把一直可用的 LOG_PRETTY=true 升级成启动失败
+  LOG_PRETTY: Joi.string().valid('0', '1', 'true', 'false').optional(),
   // Ollama / LangChain AI 对话
   OLLAMA_BASE_URL: Joi.string().uri().optional(),
   // 非空：消费者用 `config.get('OLLAMA_MODEL', '默认')`，而空串 != undefined，`??` 不会回退，

@@ -74,6 +74,11 @@ describe('loggerModuleOptions', () => {
     expect(pinoHttp.stream).toBeDefined();
   });
 
+  it("LOG_PRETTY='true' 同样视为开启（兼容既有写法）", () => {
+    const pinoHttp = pinoHttpOf({ NODE_ENV: 'production', LOG_PRETTY: 'true' });
+    expect(pinoHttp.stream).toBeDefined();
+  });
+
   it('production 且未设 LOG_PRETTY 时仍走 stream（纯 JSON 输出）', () => {
     const pinoHttp = pinoHttpOf({ NODE_ENV: 'production' });
     expect(pinoHttp.transport).toBeUndefined();

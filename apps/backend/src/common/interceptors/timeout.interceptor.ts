@@ -80,7 +80,10 @@ export class TimeoutInterceptor implements NestInterceptor {
     // 掩盖真实错误类型。`with` 里同时完成 warn 与 408 构造。
     return next.handle().pipe(
       timeout({
+        // 同时兜首个值与后续每个值：rxjs 的 `first` 只在首个值到达前计时，若处理器返回
+        // 多值/长驻 Observable，仅 `first` 会在首个值之后静默失去上界，故一并给 `each`
         first: this.timeoutMs,
+        each: this.timeoutMs,
         with: () => {
           // 路径只取 pathname：req.url 可能带 query string（其中或有凭证）
           const pathname = (request.url ?? '-').split('?')[0];

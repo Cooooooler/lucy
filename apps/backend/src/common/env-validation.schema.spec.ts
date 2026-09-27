@@ -46,6 +46,13 @@ describe('envValidationSchema', () => {
     expect(validate({ LOG_LEVEL: 'verbose' }).error).toBeDefined();
   });
 
+  it('LOG_PRETTY 接受 0/1/true/false（兼容一直可用的写法），其余拒绝', () => {
+    for (const value of ['0', '1', 'true', 'false']) {
+      expect(validate({ LOG_PRETTY: value }).error).toBeUndefined();
+    }
+    expect(validate({ LOG_PRETTY: 'yes' }).error).toBeDefined();
+  });
+
   it('OLLAMA_BASE_URL 必须是合法 URI', () => {
     expect(
       validate({ OLLAMA_BASE_URL: 'http://localhost:11434' }).error,
