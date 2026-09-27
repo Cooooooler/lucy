@@ -9,7 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { basename, extname } from 'node:path';
-import { DataSource, In, Repository, type EntityManager } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import {
@@ -24,7 +24,7 @@ import type {
 import { BackendFileEntity } from './entities/backend-file.entity.js';
 import { KnowledgeBase } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
-import { assertOwner, assertReadable } from './knowledge-access.js';
+import { resolveOwnedKb, resolveReadableKb } from './knowledge-access.js';
 import { toDocumentDetail, toDocumentListItem } from './knowledge.mapper.js';
 import { detectFileType } from './magic-bytes.js';
 
@@ -61,9 +61,7 @@ export class KnowledgeDocumentService {
     kbId: string,
     file: Express.Multer.File,
   ): Promise<KnowledgeDocumentDetailDto> {
-    const kb = await this.kbRepo.findOne({ where: { id: kbId } });
-    if (!kb) throw new NotFoundException('知识库不存在');
-    assertOwner(kb, userId);
+    await resolveOwnedKb(this.kbRepo, kbId, userId);
 
     const origExt = extname(file.originalname).toLowerCase();
     if (!SUPPORTED_DOCUMENT_EXTS.includes(origExt)) {
@@ -161,9 +159,7 @@ export class KnowledgeDocumentService {
     kbId: string,
     query: DocumentListQueryDto,
   ): Promise<DocumentListResultDto> {
-    const kb = await this.kbRepo.findOne({ where: { id: kbId } });
-    if (!kb) throw new NotFoundException('知识库不存在');
-    assertReadable(kb, userId);
+    await resolveReadableKb(this.kbRepo, kbId, userId);
 
     const qb = this.docRepo
       .createQueryBuilder('d')
@@ -199,9 +195,7 @@ export class KnowledgeDocumentService {
     kbId: string,
     id: string,
   ): Promise<KnowledgeDocumentDetailDto> {
-    const kb = await this.kbRepo.findOne({ where: { id: kbId } });
-    if (!kb) throw new NotFoundException('知识库不存在');
-    assertReadable(kb, userId);
+    await resolveReadableKb(this.kbRepo, kbId, userId);
     const doc = await this.docRepo.findOne({
       where: { id, knowledgeBaseId: kbId },
     });
@@ -218,9 +212,7 @@ export class KnowledgeDocumentService {
     kbId: string,
     id: string,
   ): Promise<null> {
-    const kb = await this.kbRepo.findOne({ where: { id: kbId } });
-    if (!kb) throw new NotFoundException('知识库不存在');
-    assertOwner(kb, userId);
+    await resolveOwnedKb(this.kbRepo, kbId, userId);
     const doc = await this.docRepo.findOne({
       where: { id, knowledgeBaseId: kbId },
     });
@@ -245,29 +237,40 @@ export class KnowledgeDocumentService {
   }
 
   /**
-   * 在调用方给定的事务内删除某知识库的**全部**文档与文件记录（不触碰底层存储），
-   * 返回待清理的存储 key。供知识库级联删除复用：DB 操作留在调用方的事务里保持原子性，
-   * 文件 I/O 由调用方在提交后 best-effort 执行。
+   * 级联删除某知识库及其全部文档、文件记录与底层文件（知识库级联清理的**唯一入口**）。
    *
-   * 一次 `findBy` 取回全部文件行 + 一次 `delete`：避免「每个文档一次查询/一次删除」的 N+1。
+   * 由知识库服务在校验属主后调用；事务与文件清理都收在这里，调用方不必接触 EntityManager，
+   * 也不会拿到一个「无鉴权、可被任意调用方以任意 kbId 触发」的公开方法。
+   *
+   * - DB 删除放在**单个事务**里（文档行 + 文件行 + 知识库行），保持原子性；
+   * - 取文档时只 select `id`/`fileId`：删除路径不需要 `content`（`text`，可达 MB 级），
+   *   否则删一个含 N 篇文档的库等于把整库全文读进内存；
+   * - 底层文件 I/O 回滚不了，放在**提交后** best-effort 清理，失败仅告警。
    */
-  async deleteDocsInTransaction(
-    manager: EntityManager,
-    kbId: string,
-  ): Promise<string[]> {
-    const docRepo = manager.getRepository(KnowledgeDocument);
-    const fileRepo = manager.getRepository(BackendFileEntity);
-    const docs = await docRepo.find({ where: { knowledgeBaseId: kbId } });
-    const fileIds = docs.map((d) => d.fileId);
-    if (fileIds.length === 0) return [];
-    const files = await fileRepo.findBy({ id: In(fileIds) });
-    await fileRepo.delete({ id: In(fileIds) });
-    await docRepo.delete({ knowledgeBaseId: kbId });
-    return files.map((f) => f.key);
+  async removeAllForKnowledgeBase(kbId: string): Promise<void> {
+    const keys = await this.dataSource.transaction(async (manager) => {
+      const docRepo = manager.getRepository(KnowledgeDocument);
+      const fileRepo = manager.getRepository(BackendFileEntity);
+      const kbRepo = manager.getRepository(KnowledgeBase);
+
+      const docs = await docRepo.find({
+        where: { knowledgeBaseId: kbId },
+        select: { id: true, fileId: true },
+      });
+      const fileIds = docs.map((d) => d.fileId);
+      const files = fileIds.length
+        ? await fileRepo.findBy({ id: In(fileIds) })
+        : [];
+      if (fileIds.length) await fileRepo.delete({ id: In(fileIds) });
+      await docRepo.delete({ knowledgeBaseId: kbId });
+      await kbRepo.delete({ id: kbId });
+      return files.map((f) => f.key);
+    });
+    await this.removeStoredQuietly(keys);
   }
 
   /** best-effort 清理底层文件：失败仅告警，绝不顶替调用方的原始错误。 */
-  async removeStoredQuietly(keys: string[]): Promise<void> {
+  private async removeStoredQuietly(keys: string[]): Promise<void> {
     for (const key of keys) {
       try {
         await this.fileService.remove(key);

@@ -667,9 +667,15 @@ describe('KnowledgeService', () => {
     fileRepo.findBy.mockResolvedValue([{ id: 'f1', key: 'f1.pdf' }]);
     kbRepo.delete.mockResolvedValue({ affected: 1 });
     await service.remove('u1', 'kb1');
+    // 删除路径只取 id/fileId：不带 text 的 content（可达 MB 级）
+    expect(docRepo.find).toHaveBeenCalledWith({
+      where: { knowledgeBaseId: 'kb1' },
+      select: { id: true, fileId: true },
+    });
     // 不再逐文档 findOneBy，而是一次 findBy + 一次 delete（避免 N+1）
     expect(fileRepo.findBy).toHaveBeenCalledWith({ id: In(['f1', 'f2']) });
     expect(fileRepo.delete).toHaveBeenCalledWith({ id: In(['f1', 'f2']) });
+    expect(docRepo.delete).toHaveBeenCalledWith({ knowledgeBaseId: 'kb1' });
     expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
     expect(kbRepo.delete).toHaveBeenCalledWith({ id: 'kb1' });
   });

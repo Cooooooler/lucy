@@ -1,10 +1,6 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { ConflictException, Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
@@ -19,7 +15,7 @@ import {
   KnowledgeBaseVisibility,
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
-import { assertOwner, assertReadable } from './knowledge-access.js';
+import { resolveOwnedKb, resolveReadableKb } from './knowledge-access.js';
 import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { toKnowledgeBaseItem } from './knowledge.mapper.js';
 
@@ -34,7 +30,6 @@ import { toKnowledgeBaseItem } from './knowledge.mapper.js';
 export class KnowledgeService {
   constructor(
     private readonly logger: AppLogger,
-    @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(KnowledgeBase)
     private readonly kbRepo: Repository<KnowledgeBase>,
     @InjectRepository(KnowledgeLike)
@@ -117,9 +112,7 @@ export class KnowledgeService {
    * @throws ForbiddenException 用户无权访问（既非属主，也非公开）
    */
   async get(userId: string, id: string): Promise<KnowledgeBaseItemDto> {
-    const kb = await this.kbRepo.findOne({ where: { id } });
-    if (!kb) throw new NotFoundException('知识库不存在');
-    assertReadable(kb, userId);
+    const kb = await resolveReadableKb(this.kbRepo, id, userId);
     await this.fillLikeInfo(userId, [kb]);
     return toKnowledgeBaseItem(kb);
   }
@@ -135,9 +128,7 @@ export class KnowledgeService {
     userId: string,
     id: string,
   ): Promise<{ likeCount: number; isLiked: true }> {
-    const kb = await this.kbRepo.findOne({ where: { id } });
-    if (!kb) throw new NotFoundException('知识库不存在');
-    assertReadable(kb, userId);
+    await resolveReadableKb(this.kbRepo, id, userId);
     const existing = await this.likeRepo.findOneBy({
       knowledgeBaseId: id,
       userId,
@@ -168,9 +159,7 @@ export class KnowledgeService {
     userId: string,
     id: string,
   ): Promise<{ likeCount: number; isLiked: false }> {
-    const kb = await this.kbRepo.findOne({ where: { id } });
-    if (!kb) throw new NotFoundException('知识库不存在');
-    assertReadable(kb, userId);
+    await resolveReadableKb(this.kbRepo, id, userId);
     await this.likeRepo.delete({ knowledgeBaseId: id, userId });
     const likeCount = await this.likeRepo.count({
       where: { knowledgeBaseId: id },
@@ -221,9 +210,7 @@ export class KnowledgeService {
     id: string,
     dto: UpdateKnowledgeBaseDto,
   ): Promise<KnowledgeBaseItemDto> {
-    const kb = await this.kbRepo.findOne({ where: { id } });
-    if (!kb) throw new NotFoundException('知识库不存在');
-    assertOwner(kb, userId);
+    const kb = await resolveOwnedKb(this.kbRepo, id, userId);
     if (dto.name !== undefined) kb.name = dto.name;
     if (dto.description !== undefined) kb.description = dto.description;
     if (dto.visibility !== undefined) kb.visibility = dto.visibility;
@@ -240,22 +227,10 @@ export class KnowledgeService {
    * @throws NotFoundException / ForbiddenException
    */
   async remove(userId: string, id: string): Promise<null> {
-    const kb = await this.kbRepo.findOne({ where: { id } });
-    if (!kb) throw new NotFoundException('知识库不存在');
-    assertOwner(kb, userId);
-    // 事务内只做 DB 删除（文档行、文件行、知识库行）：文档/文件的删除逻辑委托给
-    // KnowledgeDocumentService（一次 findBy + 一次 delete，避免逐文档查询的 N+1）；
-    // 底层文件 I/O 在提交后 best-effort 清理（外部 I/O 回滚不了，不放进事务）。
-    const keys = await this.dataSource.transaction(async (manager) => {
-      const kbRepo = manager.getRepository(KnowledgeBase);
-      const keys = await this.documentService.deleteDocsInTransaction(
-        manager,
-        id,
-      );
-      await kbRepo.delete({ id });
-      return keys;
-    });
-    await this.documentService.removeStoredQuietly(keys);
+    await resolveOwnedKb(this.kbRepo, id, userId);
+    // 级联清理（文档行 + 文件行 + 知识库行 + 底层文件）整体下沉到文档服务：
+    // 本方法只做属主校验后委托，事务与文件 I/O 都不必在此暴露
+    await this.documentService.removeAllForKnowledgeBase(id);
     this.logger.log(`kb remove kb=${id}`, KnowledgeService.name);
     return null;
   }
