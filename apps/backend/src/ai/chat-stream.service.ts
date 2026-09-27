@@ -62,7 +62,10 @@ export class ChatStreamService {
   ): Observable<AiStreamEvent> {
     return new Observable<AiStreamEvent>((subscriber) => {
       const requestId = randomUUID();
-      if (this.inFlight.has(conversationId)) {
+      // 锁 key 带 userId：并发检查发生在归属校验之前，若只按 conversationId，非属主对
+      // 「正在生成的他人会话」会得到 BUSY 而非 NOT_FOUND，形成存在性/活跃度探测面
+      const lockKey = `${userId}:${conversationId}`;
+      if (this.inFlight.has(lockKey)) {
         subscriber.next({
           type: 'error',
           requestId,
@@ -85,20 +88,24 @@ export class ChatStreamService {
         requestId,
       )
         .catch((err) => {
+          // 对外固定文案：这里逃逸出的错误来自 DB/事务/模型客户端，message 可能含主机端口、
+          // SQL 等基础设施细节（如 `connect ECONNREFUSED 127.0.0.1:5432`），不得出网；
+          // 原始错误只进日志（与 saveFailure 的固定文案保持一致）
+          this.logger.warn(
+            `sendMessage failed conversation=${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
+            ChatStreamService.name,
+          );
           subscriber.next({
             type: 'error',
             requestId,
-            data: {
-              code: ErrorCode.AI_GENERATE_FAILED,
-              message: err instanceof Error ? err.message : '生成失败',
-            },
+            data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
           });
           subscriber.complete();
         })
         .finally(() => {
-          this.inFlight.delete(conversationId);
+          this.inFlight.delete(lockKey);
         });
-      this.inFlight.set(conversationId, promise);
+      this.inFlight.set(lockKey, promise);
       return () => controller.abort();
     });
   }
@@ -118,6 +125,7 @@ export class ChatStreamService {
       conversationId,
       dto,
       requestId,
+      signal,
     );
     // 会话不存在时 prepareRun 已发 error 帧，直接结束
     if (!prepared) return;
@@ -194,6 +202,7 @@ export class ChatStreamService {
     conversationId: string,
     dto: SendMessageDto,
     requestId: string,
+    signal: AbortSignal,
   ): Promise<{ history: Message[]; model: string } | null> {
     const conversation = await this.conversationRepo.findOne({
       where: { id: conversationId, userId },
@@ -237,7 +246,7 @@ export class ChatStreamService {
     const count = await this.messageRepo.count({ where: { conversationId } });
     if (count === 1) {
       try {
-        await this.generateTitle(conversation);
+        await this.generateTitle(conversation, signal);
       } catch (err) {
         // 标题生成失败不影响正文问答，仅记录日志
         this.logger.warn(
@@ -423,30 +432,60 @@ export class ChatStreamService {
     return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };
   }
 
-  private async generateTitle(conversation: Conversation): Promise<void> {
+  private async generateTitle(
+    conversation: Conversation,
+    signal: AbortSignal,
+  ): Promise<void> {
     const first = await this.messageRepo.findOne({
       where: { conversationId: conversation.id, role: MessageRole.User },
       order: { createdAt: 'ASC' },
     });
     if (!first) return;
-    const client = this.ollamaFactory.getClient(
-      conversation.model ?? undefined,
-    );
     const prompt = this.config.get<string>(
       'AI_TITLE_PROMPT',
       '为这段对话生成一个不超过20字的简短标题，只输出标题本身：',
     );
-    const res = await client.invoke([
-      new HumanMessage(`${prompt}${first.content}`),
-    ]);
-    const raw = res.content;
-    const text = typeof raw === 'string' ? raw : '';
-    const title = text.trim().slice(0, 50);
+    const title = await this.invokeTitle(
+      `${prompt}${first.content}`,
+      conversation.model,
+      signal,
+    );
     if (title) {
       await this.conversationRepo.update(
         { id: conversation.id, title: IsNull() },
         { title },
       );
+    }
+  }
+
+  /**
+   * 标题生成调用。它在首条消息路径上被 `await`，若模型侧挂起，正文流会迟迟不开始、客户端
+   * 断开也不会中断它——故这里既传入调用方 `signal`（SSE 断线可中止），又有独立超时兜底。
+   * 失败由 `prepareRun` 的 catch 记录日志，不影响正文流。
+   */
+  private async invokeTitle(
+    prompt: string,
+    model: string | null,
+    signal: AbortSignal,
+  ): Promise<string> {
+    const client = this.ollamaFactory.getClient(model ?? undefined);
+    const timeoutMs = Number(this.config.get('OLLAMA_TIMEOUT_MS', 120000));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('标题生成超时')), timeoutMs);
+      // 超时定时器不阻止进程退出
+      timer.unref?.();
+    });
+    try {
+      const res = (await Promise.race([
+        client.invoke([new HumanMessage(prompt)], { signal }),
+        this.createAbortPromise(signal),
+        timeout,
+      ])) as { content: unknown };
+      const raw = res.content;
+      return typeof raw === 'string' ? raw.trim().slice(0, 50) : '';
+    } finally {
+      clearTimeout(timer);
     }
   }
 }

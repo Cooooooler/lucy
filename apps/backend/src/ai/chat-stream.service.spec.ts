@@ -44,7 +44,9 @@ describe('ChatStreamService', () => {
   const ollamaFactory = { getClient: vi.fn() };
   const contextService = { buildMessages: vi.fn() };
   const config = new ConfigService({ OLLAMA_MODEL: 'default-model' });
-  const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
+  // 保留可断言的 mock 句柄（直接对 `logger.warn` 断言会触发 unbound-method）
+  const loggerMock = { log: vi.fn(), warn: vi.fn() };
+  const logger = loggerMock as unknown as AppLogger;
 
   let service: ChatStreamService;
 
@@ -516,7 +518,7 @@ describe('ChatStreamService', () => {
     const inFlight = (service as unknown as { inFlight: Map<string, unknown> })
       .inFlight;
     const sub = service.sendMessage('1', 'c1', { content: 'hi' }).subscribe();
-    expect(inFlight.has('c1')).toBe(true);
+    expect(inFlight.has('1:c1')).toBe(true);
 
     const result = await events(
       service.sendMessage('1', 'c1', { content: 'hi2' }),
@@ -550,10 +552,48 @@ describe('ChatStreamService', () => {
     );
     expect(first.map((e) => e.type)).toEqual(['delta', 'delta', 'done']);
     // finally 在 observable 完成后微任务中删除锁，等锁清空再发第二次
-    await vi.waitFor(() => expect(inFlight.has('c1')).toBe(false));
+    await vi.waitFor(() => expect(inFlight.has('1:c1')).toBe(false));
     const second = await events(
       service.sendMessage('1', 'c1', { content: 'hi2' }),
     );
     expect(second.map((e) => e.type)).toEqual(['delta', 'delta', 'done']);
+  });
+
+  it('提前阶段失败（DB 故障）：error 帧用固定文案，原始细节只进日志', async () => {
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.find.mockRejectedValue(
+      new Error('connect ECONNREFUSED 127.0.0.1:5432'),
+    );
+    const result = await events(
+      service.sendMessage('1', 'c1', { content: 'hi' }),
+    );
+    expect(result.at(-1)).toMatchObject({
+      type: 'error',
+      data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+    });
+    // 基础设施细节（主机/端口/SQL 等）不得随 error 帧出网
+    expect(JSON.stringify(result)).not.toContain('ECONNREFUSED');
+    expect(loggerMock.warn).toHaveBeenCalled();
+  });
+
+  it('并发锁 key 含 userId：属主在途时其它用户不共享该锁', () => {
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.count.mockResolvedValue(2);
+    messageRepo.find.mockResolvedValue([]);
+    contextService.buildMessages.mockResolvedValue([]);
+    ollamaFactory.getClient.mockReturnValue(
+      fakeClient({
+        async *stream() {
+          yield { content: 'x' };
+          await new Promise(() => {});
+        },
+      }),
+    );
+    const sub = service.sendMessage('1', 'c1', { content: 'hi' }).subscribe();
+    const inFlight = (service as unknown as { inFlight: Map<string, unknown> })
+      .inFlight;
+    // 锁按 `userId:conversationId` 计：非属主请求不会撞上 BUSY（而是落到归属校验的 NOT_FOUND）
+    expect([...inFlight.keys()]).toEqual(['1:c1']);
+    sub.unsubscribe();
   });
 });
