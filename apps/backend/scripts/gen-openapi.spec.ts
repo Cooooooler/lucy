@@ -105,6 +105,10 @@ describe('gen-openapi', () => {
     expect(
       doc.components?.schemas?.UserListItemDto?.properties?.passwordHash,
     ).toBeUndefined();
+    // 反向断言：User 实体已从契约中消失。只做正向断言（UserListItemDto 存在）时，
+    // 若有人把实体重新挂回 @ApiResponse({ type: User })，本用例仍会通过——
+    // 反向断言才能钉住「实体不再作为响应契约」这一本次迁移的目标。
+    expect(doc.components?.schemas?.User).toBeUndefined();
   });
 
   it('知识库端点全部带 200/201 schema 且契约字段集一致', async () => {
@@ -206,6 +210,11 @@ describe('gen-openapi', () => {
         'createdAt',
       ].sort(),
     );
+
+    // 反向断言：Conversation / Message 实体已从契约中消失（会话端点全部走允许式 DTO）。
+    // 只断言 DTO 存在不足以拦住「实体被重新挂回响应类型」的回归。
+    expect(doc.components?.schemas?.Conversation).toBeUndefined();
+    expect(doc.components?.schemas?.Message).toBeUndefined();
   });
 
   it('文档详情/列表契约字段集固定（含/不含解析全文 content）', async () => {

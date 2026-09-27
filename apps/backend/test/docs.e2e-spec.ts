@@ -89,6 +89,9 @@ describe('Scalar docs (dev)', () => {
     expect(
       doc.components?.schemas?.UserListItemDto?.properties?.passwordHash,
     ).toBeUndefined();
+    // 反向断言：User 实体已不再作为响应契约出现（若被重新挂回 @ApiResponse({ type: User })，
+    // 这里会红，避免「实体重新出网」的回归静默通过）
+    expect(doc.components?.schemas?.User).toBeUndefined();
   });
 });
 
