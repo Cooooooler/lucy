@@ -23,56 +23,54 @@ export const OTHER_ID = '2c7a5b3d-4e6f-4081-9ba2-c3d4e5f60718';
 
 const EPOCH = new Date('2026-01-01T00:00:00.000Z');
 
-export const makeKb = (over = {}) =>
-  Object.assign(new KnowledgeBase(), {
-    id: KB_ID,
-    ownerId: 'u1',
-    visibility: KnowledgeBaseVisibility.Private,
-    name: '产品文档',
-    description: null,
-    createdAt: EPOCH,
-    updatedAt: EPOCH,
-    ...over,
-  });
+export const makeKb = (over = {}): KnowledgeBase => ({
+  id: KB_ID,
+  ownerId: 'u1',
+  visibility: KnowledgeBaseVisibility.Private,
+  name: '产品文档',
+  description: null,
+  createdAt: EPOCH,
+  updatedAt: EPOCH,
+  ...over,
+});
 
-export const makeDoc = (over = {}) =>
-  Object.assign(new KnowledgeDocument(), {
-    id: DOC_ID,
-    knowledgeBaseId: 'kb1',
-    fileId: 'f1',
-    title: 'a',
-    content: null,
-    createdAt: EPOCH,
-    updatedAt: EPOCH,
-    ...over,
-  });
+export const makeDoc = (over = {}): KnowledgeDocument => ({
+  id: DOC_ID,
+  knowledgeBaseId: 'kb1',
+  fileId: 'f1',
+  title: 'a',
+  content: null,
+  createdAt: EPOCH,
+  updatedAt: EPOCH,
+  ...over,
+});
 
 /** `FileService.save` 的返回形状（存储后的文件描述） */
-export const makeStored = (over = {}) =>
-  Object.assign(
-    {
-      key: 'f1.pdf',
-      ext: '.pdf',
-      mime: 'application/pdf',
-      size: 4,
-      hash: 'abc',
-      storage: 'local',
-    },
-    over,
-  );
+export const makeStored = (over = {}) => ({
+  key: 'f1.pdf',
+  ext: '.pdf',
+  mime: 'application/pdf',
+  size: 4,
+  hash: 'abc',
+  storage: 'local',
+  ...over,
+});
 
-/** 知识库对外契约视图（KnowledgeBaseItemDto）：服务层所有返回知识库的端点都必须是这个形状 */
+/**
+ * 知识库对外契约视图（KnowledgeBaseItemDto）的字段集：服务层所有返回知识库的端点都必须是这个形状。
+ * 按默认 `sort()` 的字典序**预排好**（不调用 `.sort()`：无比较函数的排序不可靠，Sonar 会判缺陷）。
+ */
 export const KB_ITEM_KEYS = [
-  'id',
-  'ownerId',
-  'visibility',
-  'name',
-  'description',
   'createdAt',
-  'updatedAt',
-  'likeCount',
+  'description',
+  'id',
   'isLiked',
-].sort();
+  'likeCount',
+  'name',
+  'ownerId',
+  'updatedAt',
+  'visibility',
+];
 
 export const makeKbItem = (over = {}) => ({
   id: KB_ID,
