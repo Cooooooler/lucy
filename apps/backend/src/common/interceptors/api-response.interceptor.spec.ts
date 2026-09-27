@@ -6,9 +6,9 @@ import {
   SUCCESS_MESSAGE_KEY,
   type SuccessMessageResolver,
 } from '../decorators/success-message.decorator.js';
+import { SSE_METADATA } from '../sse-metadata.js';
 import {
   ApiResponseInterceptor,
-  SSE_METADATA,
   defaultSuccessMessage,
 } from './api-response.interceptor.js';
 

@@ -1,7 +1,8 @@
+import { ConfigService } from '@nestjs/config';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   genReqId,
   loggerModuleOptions,
@@ -9,11 +10,35 @@ import {
   resolveLogDir,
 } from './logger-options.js';
 
-const ORIGINAL_ENV = process.env;
+/**
+ * `ConfigService.get` 在内部配置取不到键时会**回退读 process.env**；若不隔离宿主环境，
+ * 「默认值」断言（level=info、默认日志目录）只在宿主未导出这些键时才成立（本机
+ * `export LOG_LEVEL=debug` 即红，CI 干净所以不暴露）。测试前清空、结束后还原。
+ */
+const LEAKY_KEYS = [
+  'NODE_ENV',
+  'LOG_LEVEL',
+  'LOG_PRETTY',
+  'LOG_DIR',
+  'LOG_FILE_RETENTION_DAYS',
+] as const;
+const SAVED_ENV = Object.fromEntries(
+  LEAKY_KEYS.map((key) => [key, process.env[key]]),
+);
 
-function setEnv(overrides: Record<string, string | undefined>) {
-  process.env = { ...ORIGINAL_ENV, ...overrides };
-}
+beforeEach(() => {
+  for (const key of LEAKY_KEYS) delete process.env[key];
+});
+
+afterAll(() => {
+  for (const key of LEAKY_KEYS) {
+    const value = SAVED_ENV[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
+
+const cfg = (env: Record<string, unknown> = {}) => new ConfigService(env);
 
 function mockRes() {
   const headers = new Map<string, string>();
@@ -27,8 +52,8 @@ function mockReq(headers?: Record<string, string>) {
   return { headers: headers ?? {} };
 }
 
-function pinoHttpOf() {
-  return loggerModuleOptions().pinoHttp as {
+function pinoHttpOf(env: Record<string, unknown> = {}) {
+  return loggerModuleOptions(cfg(env)).pinoHttp as {
     stream?: unknown;
     transport?: unknown;
     level?: string;
@@ -36,37 +61,33 @@ function pinoHttpOf() {
   };
 }
 
-afterEach(() => {
-  process.env = ORIGINAL_ENV;
-});
-
 describe('loggerModuleOptions', () => {
   it('开发环境（非 production）通过 multistream 输出，不再使用单 transport', () => {
-    setEnv({ NODE_ENV: 'development', LOG_PRETTY: undefined });
-    const pinoHttp = pinoHttpOf();
+    const pinoHttp = pinoHttpOf({ NODE_ENV: 'development' });
     expect(pinoHttp.transport).toBeUndefined();
     expect(pinoHttp.stream).toBeDefined();
   });
 
   it('LOG_PRETTY=1 即使在 production 也走 multistream（非单 transport）', () => {
-    setEnv({ NODE_ENV: 'production', LOG_PRETTY: '1' });
-    const pinoHttp = pinoHttpOf();
+    const pinoHttp = pinoHttpOf({ NODE_ENV: 'production', LOG_PRETTY: '1' });
     expect(pinoHttp.transport).toBeUndefined();
+    expect(pinoHttp.stream).toBeDefined();
+  });
+
+  it("LOG_PRETTY='true' 同样视为开启（兼容既有写法）", () => {
+    const pinoHttp = pinoHttpOf({ NODE_ENV: 'production', LOG_PRETTY: 'true' });
     expect(pinoHttp.stream).toBeDefined();
   });
 
   it('production 且未设 LOG_PRETTY 时仍走 stream（纯 JSON 输出）', () => {
-    setEnv({ NODE_ENV: 'production', LOG_PRETTY: undefined });
-    const pinoHttp = pinoHttpOf();
+    const pinoHttp = pinoHttpOf({ NODE_ENV: 'production' });
     expect(pinoHttp.transport).toBeUndefined();
     expect(pinoHttp.stream).toBeDefined();
   });
 
-  it('LOG_LEVEL 生效，默认 info', () => {
-    setEnv({ LOG_LEVEL: 'debug' });
-    expect(pinoHttpOf().level).toBe('debug');
-    setEnv({ LOG_LEVEL: undefined });
-    expect(pinoHttpOf().level).toBe('info');
+  it('LOG_LEVEL 生效，默认 info（经 ConfigService，不再直读 process.env）', () => {
+    expect(pinoHttpOf({ LOG_LEVEL: 'debug' }).level).toBe('debug');
+    expect(pinoHttpOf({}).level).toBe('info');
   });
 
   it('genReqId 透传请求头 x-request-id 并回写响应头', () => {
@@ -121,8 +142,7 @@ describe('loggerModuleOptions', () => {
   });
 
   it('redact 脱敏敏感路径，renameContext 为 context', () => {
-    setEnv({ NODE_ENV: 'production' });
-    const opts = loggerModuleOptions();
+    const opts = loggerModuleOptions(cfg({ NODE_ENV: 'production' }));
     expect(opts.pinoHttp).toMatchObject({
       redact: {
         censor: '[REDACTED]',
@@ -138,12 +158,12 @@ describe('loggerModuleOptions', () => {
   });
 
   it('resolveLogDir 默认指向 apps/backend/logs，可用 LOG_DIR 覆盖', () => {
-    setEnv({ LOG_DIR: undefined });
-    expect(resolveLogDir()).toMatch(
+    expect(resolveLogDir(cfg({}))).toMatch(
       /apps.backend.logs|apps[/\\]backend[/\\]logs/,
     );
-    setEnv({ LOG_DIR: '/tmp/custom-logs' });
-    expect(resolveLogDir()).toBe('/tmp/custom-logs');
+    expect(resolveLogDir(cfg({ LOG_DIR: '/tmp/custom-logs' }))).toBe(
+      '/tmp/custom-logs',
+    );
   });
 
   it('pruneOldLogs 只删除超期日志文件，保留近期与非日志文件', () => {

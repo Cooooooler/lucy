@@ -38,7 +38,12 @@ export function fileModuleOptions(config: ConfigService) {
       isGlobal: true,
       validationSchema: envValidationSchema,
     }),
-    LoggerModule.forRoot(loggerModuleOptions()),
+    // 经 forRootAsync 延迟到 DI 期用 ConfigService 构建：日志配置与 env schema 的校验同源，
+    // 不再依赖「ConfigModule 先被求值并把校验结果写回 process.env」这一隐式顺序
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => loggerModuleOptions(config),
+    }),
     CommonModule,
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],

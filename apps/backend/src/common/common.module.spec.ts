@@ -6,6 +6,7 @@ import { AppLogger } from './app-logger.service.js';
 import { CommonModule } from './common.module.js';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
 import { ApiResponseInterceptor } from './interceptors/api-response.interceptor.js';
+import { TimeoutInterceptor } from './interceptors/timeout.interceptor.js';
 import { ShutdownService } from './shutdown.service.js';
 
 describe('CommonModule', () => {
@@ -40,17 +41,19 @@ describe('CommonModule', () => {
     });
   });
 
-  it('全局注册 ClassSerializerInterceptor，且排在信封拦截器之后（先序列化再包信封）', () => {
+  it('全局注册信封/序列化/超时拦截器，且顺序固定', () => {
     const providers = (Reflect.getMetadata('providers', CommonModule) ??
       []) as Array<{ provide?: unknown; useClass?: unknown }>;
     const interceptorClasses = providers
       .filter((p) => p.provide === APP_INTERCEPTOR)
       .map((p) => p.useClass);
     // 顺序即拦截器链顺序：后注册者的响应 map 先执行，
-    // 因此序列化必须排在 ApiResponseInterceptor 之后，否则它看到的已是 {code,message,data} 信封
+    // 因此序列化必须排在 ApiResponseInterceptor 之后，否则它看到的已是 {code,message,data} 信封；
+    // TimeoutInterceptor 排在最后，超时作用于未包信封的处理器结果。
     expect(interceptorClasses).toEqual([
       ApiResponseInterceptor,
       ClassSerializerInterceptor,
+      TimeoutInterceptor,
     ]);
   });
 
