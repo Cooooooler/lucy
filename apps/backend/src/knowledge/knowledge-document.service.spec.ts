@@ -31,10 +31,13 @@ import { KnowledgeDocumentService } from './knowledge-document.service.js';
 vi.mock('./magic-bytes.js', () => ({
   detectFileType: vi.fn(),
 }));
-vi.mock('./content-extractor.js', () => ({
-  SUPPORTED_DOCUMENT_EXTS: ['.txt', '.md', '.pdf', '.docx'],
-  extractContent: vi.fn(),
-}));
+// 只打桩解析函数，保留**真实的** SUPPORTED_DOCUMENT_EXTS：白名单是安全相关的入参校验，
+// 在 mock 里复制一份会让「生产白名单增删扩展名」没有任何用例失败
+vi.mock('./content-extractor.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('./content-extractor.js')>();
+  return { ...actual, extractContent: vi.fn() };
+});
 
 import { extractContent } from './content-extractor.js';
 import { detectFileType } from './magic-bytes.js';
@@ -372,7 +375,9 @@ describe('KnowledgeDocumentService', () => {
     expect(selected).not.toContain('d.content');
     // 响应同样不含 content，只剩列表页需要的字段
     expect(result.list[0]).not.toHaveProperty('content');
-    expect(Object.keys(result.list[0]).sort()).toEqual([
+    expect(
+      Object.keys(result.list[0]).sort((a, b) => a.localeCompare(b)),
+    ).toEqual([
       'createdAt',
       'fileId',
       'id',

@@ -125,9 +125,10 @@ describe('KnowledgeService', () => {
       list: listed.list[0],
       update: updated,
     })) {
-      expect(Object.keys(item).sort(), `${endpoint} 的字段集不一致`).toEqual(
-        KB_ITEM_KEYS,
-      );
+      expect(
+        Object.keys(item).sort((a, b) => a.localeCompare(b)),
+        `${endpoint} 的字段集不一致`,
+      ).toEqual(KB_ITEM_KEYS);
     }
   });
 

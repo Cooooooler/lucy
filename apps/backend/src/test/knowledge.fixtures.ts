@@ -23,7 +23,7 @@ export const OTHER_ID = '2c7a5b3d-4e6f-4081-9ba2-c3d4e5f60718';
 
 const EPOCH = new Date('2026-01-01T00:00:00.000Z');
 
-export const makeKb = (over = {}): KnowledgeBase => ({
+export const makeKb = (over: Partial<KnowledgeBase> = {}): KnowledgeBase => ({
   id: KB_ID,
   ownerId: 'u1',
   visibility: KnowledgeBaseVisibility.Private,
@@ -34,7 +34,9 @@ export const makeKb = (over = {}): KnowledgeBase => ({
   ...over,
 });
 
-export const makeDoc = (over = {}): KnowledgeDocument => ({
+export const makeDoc = (
+  over: Partial<KnowledgeDocument> = {},
+): KnowledgeDocument => ({
   id: DOC_ID,
   knowledgeBaseId: 'kb1',
   fileId: 'f1',
@@ -46,7 +48,16 @@ export const makeDoc = (over = {}): KnowledgeDocument => ({
 });
 
 /** `FileService.save` 的返回形状（存储后的文件描述） */
-export const makeStored = (over = {}) => ({
+export type StoredFile = {
+  key: string;
+  ext: string;
+  mime: string;
+  size: number;
+  hash: string;
+  storage: string;
+};
+
+export const makeStored = (over: Partial<StoredFile> = {}): StoredFile => ({
   key: 'f1.pdf',
   ext: '.pdf',
   mime: 'application/pdf',
@@ -72,7 +83,20 @@ export const KB_ITEM_KEYS = [
   'visibility',
 ];
 
-export const makeKbItem = (over = {}) => ({
+/** 知识库对外契约视图（KnowledgeBaseItemDto）的形状 */
+export type KbItem = {
+  id: string;
+  ownerId: string;
+  visibility: KnowledgeBaseVisibility;
+  name: string;
+  description: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  likeCount: number;
+  isLiked: boolean;
+};
+
+export const makeKbItem = (over: Partial<KbItem> = {}): KbItem => ({
   id: KB_ID,
   ownerId: 'u1',
   visibility: KnowledgeBaseVisibility.Private,
