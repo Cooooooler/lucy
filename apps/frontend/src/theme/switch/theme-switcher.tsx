@@ -1,4 +1,5 @@
-import { type ThemeMode, useTheme } from '@/theme';
+import type { ThemeMode } from '@/theme/ThemeProvider';
+import { useTheme } from '@/theme/ThemeProvider';
 import { MonitorOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons';
 import { Button, Dropdown } from 'antd';
 import type { FC, ReactNode } from 'react';

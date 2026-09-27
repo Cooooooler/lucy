@@ -2,7 +2,7 @@ import { logoutApi } from '@/api/auth.ts';
 import { hasMinRole } from '@/auth/roles.ts';
 import { resetClientCaches } from '@/reset-client-caches.ts';
 import { authStore, logout } from '@/stores/auth.ts';
-import { ThemeSwitcher } from '@/theme';
+import { ThemeSwitcher } from '@/theme/switch/theme-switcher';
 import {
   DatabaseOutlined,
   HomeOutlined,

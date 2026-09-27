@@ -19,7 +19,14 @@ export default defineConfig(({ command }) => {
   }
   return {
     plugins: [
-      tanstackRouter({ routeFileIgnorePattern: '.*\\.test\\.tsx$' }),
+      // autoCodeSplitting：把每个路由组件的 component/pendingComponent 等非关键选项
+      // 拆成独立 chunk，首屏只加载入口 + 当前路由（beforeLoad 守卫等关键选项仍随路由文件
+      // 同步加载，登录态判定不会被推迟）。此前全部路由静态引入，重依赖（ogl/gsap/antd-x/
+      // pro-components）全落进单一入口 chunk（实测 gzip 破 1MB）。
+      tanstackRouter({
+        routeFileIgnorePattern: '.*\\.test\\.tsx$',
+        autoCodeSplitting: true,
+      }),
       react(),
       babel({
         presets: [reactCompilerPreset()],

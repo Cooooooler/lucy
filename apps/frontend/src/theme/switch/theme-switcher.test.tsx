@@ -33,8 +33,8 @@ const { setModeMock, useThemeState } = vi.hoisted(() => ({
   useThemeState: { mode: 'light', resolvedTheme: 'light' as 'light' | 'dark' },
 }));
 
-vi.mock('@/theme', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/theme')>();
+vi.mock('@/theme/ThemeProvider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/theme/ThemeProvider')>();
   return {
     ...actual,
     useTheme: () => ({

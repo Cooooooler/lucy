@@ -1,4 +1,4 @@
-import { RippleDistortion } from '@/backgrounds/index.ts';
+import RippleDistortion from '@/backgrounds/RippleDistortion';
 import FoldText from '@/components/bits/fold-text.tsx';
 import { createFileRoute, Outlet, redirect } from '@tanstack/react-router';
 

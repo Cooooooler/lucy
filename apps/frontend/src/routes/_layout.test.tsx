@@ -27,8 +27,8 @@ vi.mock('@ant-design/pro-components', () => ({
 }));
 
 // ThemeSwitcher 经 useTheme 读 ThemeContext，未包 ThemeProvider 会抛错；
-// 本文件只关心登出接线，直接桩掉视觉组件
-vi.mock('@/theme', () => ({
+// 本文件只关心登出接线，直接桩掉视觉组件（按组件真实导入路径 mock，避免桶文件）
+vi.mock('@/theme/switch/theme-switcher', () => ({
   ThemeSwitcher: () => <button type="button" aria-label="切换主题" />,
 }));
 
