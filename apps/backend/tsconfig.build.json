@@ -7,6 +7,7 @@
   "exclude": [
     "node_modules",
     "test",
+    "src/test",
     "dist",
     "scripts",
     "**/*spec.ts",
