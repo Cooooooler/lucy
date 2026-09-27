@@ -50,7 +50,15 @@ export class TimeoutInterceptor implements NestInterceptor {
     private readonly logger: AppLogger,
   ) {
     // getOrThrow 只保证键存在、不保证类型（ConfigService 可能是字符串），故显式 Number 归一
-    this.timeoutMs = Number(this.config.getOrThrow('REQUEST_TIMEOUT_MS'));
+    const raw: unknown = this.config.getOrThrow('REQUEST_TIMEOUT_MS');
+    this.timeoutMs = Number(raw);
+    // 禁用状态要可观测：否则把 REQUEST_TIMEOUT_MS=0 随模板带进生产，只有读请求真挂住才发现
+    if (!(this.timeoutMs > 0)) {
+      this.logger.warn(
+        `读请求超时已禁用：REQUEST_TIMEOUT_MS=${String(raw)}`,
+        TimeoutInterceptor.name,
+      );
+    }
   }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -64,10 +72,11 @@ export class TimeoutInterceptor implements NestInterceptor {
     if (isSse || !SAFE_METHODS.has(request.method ?? '')) {
       return next.handle();
     }
-    const ms = this.timeoutMs;
-    if (!Number.isFinite(ms) || ms <= 0) {
+    // 用 `!(ms > 0)` 而非 `ms <= 0`：NaN（配置漂移）也归入禁用，避免 setTimeout(NaN) 按 0 处理
+    if (!(this.timeoutMs > 0)) {
       return next.handle();
     }
+    const ms = this.timeoutMs;
     return next.handle().pipe(
       timeout(ms),
       catchError((err: unknown) => {

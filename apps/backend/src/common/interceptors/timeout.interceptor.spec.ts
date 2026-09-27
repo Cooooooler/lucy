@@ -1,6 +1,10 @@
-import { ExecutionContext, RequestTimeoutException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  NotFoundException,
+  RequestTimeoutException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Observable, firstValueFrom, of } from 'rxjs';
+import { Observable, firstValueFrom, of, throwError } from 'rxjs';
 import { AppLogger } from '../app-logger.service.js';
 import { SSE_METADATA } from '../sse-metadata.js';
 import { TimeoutInterceptor } from './timeout.interceptor.js';
@@ -96,13 +100,28 @@ describe('TimeoutInterceptor', () => {
     ).toBe('pending');
   });
 
-  it('阈值为非有限值或 <=0 时禁用（视为未配置上限）', async () => {
+  it('处理器自身抛出非超时错误：原样重抛，不吞成 408、不记超时 warn', async () => {
+    const { interceptor, warn } = make(1000);
+    const boom = new NotFoundException('会话不存在');
+    const next = { handle: () => throwError(() => boom) };
+    const err = await firstValueFrom(
+      interceptor.intercept(contextFor('GET'), next),
+    ).catch((e: unknown) => e);
+    // 若误删 `instanceof TimeoutError` 判断，业务错误会被记成「请求处理超时」并回 408
+    expect(err).toBe(boom);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('阈值为非有限值或 <=0 时禁用（视为未配置上限），并在构造期记 warn', async () => {
     for (const value of [0, -1, Number.NaN]) {
-      const { interceptor } = make(value);
+      const { interceptor, warn } = make(value);
       const next = { handle: () => of('ok') };
       await expect(
         firstValueFrom(interceptor.intercept(contextFor('GET'), next)),
       ).resolves.toBe('ok');
+      // 禁用必须可观测，否则把 0 带进生产只有读请求真挂住才发现
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain('已禁用');
     }
   });
 });

@@ -52,7 +52,12 @@ export const envValidationSchema = Joi.object({
   // Ollama / LangChain AI 对话
   OLLAMA_BASE_URL: Joi.string().uri().optional(),
   OLLAMA_MODEL: Joi.string().optional(),
-  OLLAMA_TIMEOUT_MS: Joi.number().integer().positive().optional(),
+  // 上界与 REQUEST_TIMEOUT_MS 同口径：都要喂给 setTimeout，超过 2^31-1 会按 1ms 处理
+  OLLAMA_TIMEOUT_MS: Joi.number()
+    .integer()
+    .positive()
+    .max(2_147_483_647)
+    .optional(),
   AI_OUTPUT_MAX_TOKENS: Joi.number().integer().positive().optional(),
   AI_CONTEXT_TOKEN_LIMIT: Joi.number().integer().positive().optional(),
   AI_CONTEXT_SAFETY_MARGIN: Joi.number().integer().min(0).optional(),
