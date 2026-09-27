@@ -43,9 +43,8 @@ export default defineConfig({
         'src/components/bits/**',
         'src/backgrounds/**',
         'src/test/**',
-        // 纯类型文件与目录索引（仅 re-export，无运行时逻辑）
+        // 纯类型文件（仅类型声明，无运行时逻辑）
         'src/api/types.ts',
-        'src/theme/index.ts',
         'src/**/*.{test,spec}.{ts,tsx}',
         '**/*.d.ts',
       ],
