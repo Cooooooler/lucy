@@ -10,6 +10,9 @@ import { DenylistService } from '../redis/denylist.service.js';
 import { toSharedUser, type SharedUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
 
+/** 令牌摘要（sha256 hex）。标称类型，见 AuthService.digest */
+type TokenDigest = string & { readonly __brand: 'TokenDigest' };
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -52,14 +55,22 @@ export class AuthService {
     return { userId: value.slice(0, sep), family: value.slice(sep + 1) };
   }
 
+  /**
+   * 令牌摘要。标称类型：`digest()` 的产物与明文令牌都是 string，若无品牌化，
+   * `*Of()` 误收明文会**静默**生成查不到的 key，从而绕过撤销/复用检测（注释防不住，类型能）。
+   */
   // 令牌只以 sha256 摘要落 Redis（原文仅存在于客户端 cookie）：即便 Redis 快照/备份泄露，
   // 也无法直接拿去换 access token。family 集合的成员同样只存摘要，故 family 路径用 `*Of(digest)`：
   // 对摘要再哈希会算错 key，撤销家族时必须走这一组。
-  private digest(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
+  //
+  // 迁移语义：本次切换后，存量「明文 key」的记录查不到（用户需重新登录一次，见 PR 说明）；
+  // 但这些 key 自带 TTL（≤ REFRESH_TTL_SECONDS）会自然过期，且旧 family 集合成员是明文令牌，
+  // `refreshKeyOf(明文)` 恰好拼回旧 key，故对旧会话执行登出/家族撤销仍然正确，无需兼容分支。
+  private digest(token: string): TokenDigest {
+    return createHash('sha256').update(token).digest('hex') as TokenDigest;
   }
 
-  private refreshKeyOf(digest: string): string {
+  private refreshKeyOf(digest: TokenDigest): string {
     return `auth:refresh:${digest}`;
   }
 
@@ -72,7 +83,7 @@ export class AuthService {
     return `auth:refresh:family:${family}`;
   }
 
-  private reuseKeyOf(digest: string): string {
+  private reuseKeyOf(digest: TokenDigest): string {
     return `auth:refresh:reuse:${digest}`;
   }
 
@@ -80,7 +91,7 @@ export class AuthService {
     return this.reuseKeyOf(this.digest(token));
   }
 
-  private activeAtKeyOf(digest: string): string {
+  private activeAtKeyOf(digest: TokenDigest): string {
     return `auth:refresh:at:${digest}`;
   }
 
@@ -88,7 +99,7 @@ export class AuthService {
     return this.activeAtKeyOf(this.digest(token));
   }
 
-  private reuseAtKeyOf(digest: string): string {
+  private reuseAtKeyOf(digest: TokenDigest): string {
     return `auth:refresh:reuse-at:${digest}`;
   }
 
@@ -171,13 +182,15 @@ export class AuthService {
     }
     // 每个成员四条 key 删除 + family key 删除并入单事务，保证整个家族的撤销原子完成
     const tx = this.redis.raw.multi();
-    // 集合成员是摘要（见 digest），故直接用 `*Of` 构造 key，不能再哈希一次
+    // 集合成员是摘要（见 digest），故直接用 `*Of` 构造 key，不能再哈希一次；
+    // smembers 的静态类型是 string，此处断言表达「成员按构造即摘要」这一不变量
     for (const member of members) {
+      const digest = member as TokenDigest;
       tx.del(
-        this.refreshKeyOf(member),
-        this.activeAtKeyOf(member),
-        this.reuseKeyOf(member),
-        this.reuseAtKeyOf(member),
+        this.refreshKeyOf(digest),
+        this.activeAtKeyOf(digest),
+        this.reuseKeyOf(digest),
+        this.reuseAtKeyOf(digest),
       );
     }
     tx.del(this.familyKey(family));
