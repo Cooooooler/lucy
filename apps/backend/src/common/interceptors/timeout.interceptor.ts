@@ -7,8 +7,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Observable } from 'rxjs';
-import { TimeoutError, throwError } from 'rxjs';
-import { catchError, timeout } from 'rxjs/operators';
+import { throwError } from 'rxjs';
+import { timeout } from 'rxjs/operators';
 import { AppLogger } from '../app-logger.service.js';
 import { isSseHandler } from '../sse-metadata.js';
 
@@ -76,20 +76,21 @@ export class TimeoutInterceptor implements NestInterceptor {
     if (!(this.timeoutMs > 0)) {
       return next.handle();
     }
-    const ms = this.timeoutMs;
+    // 用 `timeout({ with })` 由本拦截器**自己**产生超时错误，而非用 `instanceof TimeoutError`
+    // 反查：后者会把内层业务代码自己用 rxjs `timeout` 抛出的 TimeoutError 一并吞成 408，
+    // 掩盖真实错误类型。`with` 里同时完成 warn 与 408 构造。
     return next.handle().pipe(
-      timeout(ms),
-      catchError((err: unknown) => {
-        if (!(err instanceof TimeoutError)) {
-          return throwError(() => err);
-        }
-        // 路径只取 pathname：req.url 可能带 query string（其中或有凭证）
-        const pathname = (request.url ?? '-').split('?')[0];
-        this.logger.warn(
-          `请求处理超时（${ms}ms）：${request.method ?? '-'} ${pathname}`,
-          TimeoutInterceptor.name,
-        );
-        return throwError(() => new RequestTimeoutException());
+      timeout({
+        first: this.timeoutMs,
+        with: () => {
+          // 路径只取 pathname：req.url 可能带 query string（其中或有凭证）
+          const pathname = (request.url ?? '-').split('?')[0];
+          this.logger.warn(
+            `请求处理超时（${this.timeoutMs}ms）：${request.method ?? '-'} ${pathname}`,
+            TimeoutInterceptor.name,
+          );
+          return throwError(() => new RequestTimeoutException());
+        },
       }),
     );
   }

@@ -1,3 +1,4 @@
+import { ConfigService } from '@nestjs/config';
 import type { Params } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
@@ -10,15 +11,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * 本地日志目录：固定为 apps/backend/logs（相对本文件定位，不随启动 cwd 漂移），
- * 可用 LOG_DIR 环境变量覆盖。根 .gitignore 已忽略 logs/ 与 *.log。
+ * 可用 LOG_DIR 覆盖（经 ConfigService 读取，默认值与校验同源）。根 .gitignore 已忽略 logs/ 与 *.log。
  */
-export function resolveLogDir(): string {
-  return process.env.LOG_DIR || join(__dirname, '..', '..', 'logs');
+export function resolveLogDir(config: ConfigService): string {
+  return config.get<string>('LOG_DIR') || join(__dirname, '..', '..', 'logs');
 }
 
 /** 本地日志保留天数（默认 7），非法值回退默认 */
-function logRetentionDays(): number {
-  const v = Number(process.env.LOG_FILE_RETENTION_DAYS ?? 7);
+function logRetentionDays(config: ConfigService): number {
+  const v = Number(config.get<number>('LOG_FILE_RETENTION_DAYS', 7));
   return Number.isFinite(v) && v > 0 ? Math.floor(v) : 7;
 }
 
@@ -46,13 +47,13 @@ export function pruneOldLogs(dir: string, keepDays: number): void {
   }
 }
 
-function isProd() {
-  return process.env.NODE_ENV === 'production';
+function isProd(config: ConfigService): boolean {
+  return config.get<string>('NODE_ENV', 'development') === 'production';
 }
 
 /** 是否在控制台输出 pino-pretty 美化日志（开发或显式开启） */
-function usePretty() {
-  return process.env.LOG_PRETTY === '1' || !isProd();
+function usePretty(config: ConfigService): boolean {
+  return config.get<string>('LOG_PRETTY') === '1' || !isProd(config);
 }
 
 /**
@@ -83,7 +84,7 @@ export function genReqId(
 }
 
 /**
- * 构建 nestjs-pino 全局 Logger 配置：
+ * 构建 nestjs-pino 全局 Logger 配置（经 `ConfigService` 读取 LOG_*，默认值与校验同源）：
  * - 控制台：pino-pretty 美化输出（开发），多行展示错误堆栈，保证报错清晰易读；
  *   生产未开 LOG_PRETTY 时输出纯 JSON 便于采集。
  * - 等级：LOG_LEVEL（默认 info）同时控制控制台与落盘流。
@@ -92,11 +93,15 @@ export function genReqId(
  *   （默认 7 天）在启动时清理；production 不落盘，只走 stdout JSON。
  * - 每条含 req.id（traceId），可通过 traceId 检索单条请求的完整链路。
  * - 敏感字段脱敏（authorization / cookie / password / token 等），遵循安全加固要求。
+ *
+ * 由 `AppModule` 的 `LoggerModule.forRootAsync({ inject: [ConfigService] })` 调用：
+ * 改用 ConfigService（而非直读 process.env）后，取值/默认值与 env schema 的校验同源，
+ * 不再依赖「ConfigModule 恰好先于 LoggerModule 求值并把校验结果写回 process.env」这一隐式顺序。
  */
-export function loggerModuleOptions(): Params {
-  const level = (process.env.LOG_LEVEL ?? 'info') as pino.Level;
+export function loggerModuleOptions(config: ConfigService): Params {
+  const level = config.get<string>('LOG_LEVEL', 'info') as pino.Level;
   const streams: pino.StreamEntry[] = [
-    usePretty()
+    usePretty(config)
       ? {
           level,
           stream: pretty({
@@ -109,11 +114,11 @@ export function loggerModuleOptions(): Params {
       : { level, stream: process.stdout },
   ];
 
-  if (!isProd()) {
-    const dir = resolveLogDir();
+  if (!isProd(config)) {
+    const dir = resolveLogDir(config);
     try {
       mkdirSync(dir, { recursive: true });
-      pruneOldLogs(dir, logRetentionDays());
+      pruneOldLogs(dir, logRetentionDays(config));
     } catch {
       // 目录不可写时跳过落盘，控制台流仍可用
     }
