@@ -45,6 +45,24 @@ async function bootstrap() {
   // 优雅停机：SIGTERM/SIGINT 到达时结束 in-flight 请求并释放 DB/Redis 连接
   //（ShutdownService.onApplicationShutdown 先标记停机使健康检查返回 503）
   app.enableShutdownHooks();
+
+  // 停机兜底：若 in-flight 请求/连接使 app.close() 长时间不返回，Nest 的 shutdown hook
+  // 会一直等待，进程被 SIGTERM 后长期挂起（编排侧只能再补 SIGKILL，且日志里看不到卡在哪）。
+  // 这里与 Nest 的信号监听并行注册一个定时器，超过宽限期即强制退出。
+  const graceParsed = Number(process.env.SHUTDOWN_GRACE_MS ?? 15000);
+  const shutdownGraceMs =
+    Number.isFinite(graceParsed) && graceParsed > 0 ? graceParsed : 15000;
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(signal, () => {
+      // unref：正常停机完成时该定时器不阻止进程退出
+      setTimeout(() => {
+        new NestLogger('Bootstrap').error(
+          `优雅停机超过 ${shutdownGraceMs}ms，强制退出`,
+        );
+        process.exit(1);
+      }, shutdownGraceMs).unref();
+    });
+  }
   process.on('unhandledRejection', (reason) => {
     new NestLogger('Bootstrap').error(
       'Unhandled rejection',

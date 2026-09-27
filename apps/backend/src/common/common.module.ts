@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { AppLogger } from './app-logger.service.js';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
 import { ApiResponseInterceptor } from './interceptors/api-response.interceptor.js';
+import { TimeoutInterceptor } from './interceptors/timeout.interceptor.js';
 import { RATE_LIMIT_MESSAGE } from './messages.js';
 import { RequestContextMiddleware } from './request-context.middleware.js';
 import { ShutdownService } from './shutdown.service.js';
@@ -47,6 +48,9 @@ import { createValidationPipe } from './validation-pipe.js';
     // 注册顺序在 ApiResponseInterceptor 之后：响应阶段后注册者的 map 先跑，
     // 于是先按 @Exclude 序列化原始返回值，再被信封包裹。
     { provide: APP_INTERCEPTOR, useClass: ClassSerializerInterceptor },
+    // 请求处理超时兜底（非 SSE）：处理器自身挂起时给一个上界，超时 408；
+    // 阈值与禁用条件见 TimeoutInterceptor
+    { provide: APP_INTERCEPTOR, useClass: TimeoutInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     // 全局限流守卫先于业务守卫执行（CommonModule 先于 AuthModule 导入）
     { provide: APP_GUARD, useClass: ThrottlerGuard },
