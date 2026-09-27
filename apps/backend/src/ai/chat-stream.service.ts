@@ -1,11 +1,12 @@
 import { AiStreamEvent, ErrorCode, type ErrorCodeValue } from '@lucy/shared';
-import { Injectable } from '@nestjs/common';
+import { Injectable, type BeforeApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { ShutdownService } from '../common/shutdown.service.js';
 import { ContextService } from './context.service.js';
 import { ConversationTitleService } from './conversation-title.service.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
@@ -38,7 +39,10 @@ type Subscriber = {
  * 控制器据此分别注入：CRUD 走 `AiService`，SSE 走本服务。
  */
 @Injectable()
-export class ChatStreamService {
+export class ChatStreamService implements BeforeApplicationShutdown {
+  // 留给「服务器 dispose + DB/Redis 连接释放」的余量（毫秒），见 beforeApplicationShutdown
+  private static readonly DISPOSE_RESERVE_MS = 1000;
+
   constructor(
     private readonly logger: AppLogger,
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -50,12 +54,16 @@ export class ChatStreamService {
     private readonly contextService: ContextService,
     private readonly config: ConfigService,
     private readonly titleService: ConversationTitleService,
+    private readonly shutdown: ShutdownService,
   ) {}
 
   // 同会话并发锁：key=`userId:conversationId`，防止同会话并发生成（同时消除首条消息重复触发标题生成）。
   // 必须带 userId：并发检查发生在归属校验之前，只按会话 id 会让非属主对「他人正在生成的会话」
   // 得到 BUSY 而非 NOT_FOUND，形成存在性/活跃度探测面。
   private readonly inFlight = new Map<string, Promise<unknown>>();
+
+  // 在途流的取消句柄：停机时统一 abort，让半截内容落 aborted 而不是被硬掐在写入中间
+  private readonly activeControllers = new Set<AbortController>();
 
   /** 发送消息并以 SSE 事件流返回模型输出。 */
   sendMessage(
@@ -68,6 +76,19 @@ export class ChatStreamService {
       // 锁 key 带 userId：并发检查发生在归属校验之前，若只按 conversationId，非属主对
       // 「正在生成的他人会话」会得到 BUSY 而非 NOT_FOUND，形成存在性/活跃度探测面
       const lockKey = `${userId}:${conversationId}`;
+      // 停机窗口：不再接受新流（服务器即将 dispose，接下来的流只会被中途掐断）
+      if (this.shutdown.isShutdown()) {
+        subscriber.next({
+          type: 'error',
+          requestId,
+          data: {
+            code: ErrorCode.AI_GENERATE_ABORTED,
+            message: '服务正在停机',
+          },
+        });
+        subscriber.complete();
+        return;
+      }
       if (this.inFlight.has(lockKey)) {
         subscriber.next({
           type: 'error',
@@ -82,6 +103,7 @@ export class ChatStreamService {
       }
 
       const controller = new AbortController();
+      this.activeControllers.add(controller);
       const promise = this.runSend(
         subscriber,
         userId,
@@ -107,9 +129,48 @@ export class ChatStreamService {
         })
         .finally(() => {
           this.inFlight.delete(lockKey);
+          this.activeControllers.delete(controller);
         });
       this.inFlight.set(lockKey, promise);
       return () => controller.abort();
+    });
+  }
+
+  /**
+   * 停机协议第一步：拒绝新流（`sendMessage` 的停机位检查）、中止在途流，并等待其落库收敛。
+   *
+   * 由 `ShutdownService` 在 `beforeApplicationShutdown` 阶段先置停机位（CommonModule 早于
+   * AiModule 装配，故其钩子先跑），本方法随后执行；等待**有界**（`SHUTDOWN_GRACE_MS`），
+   * 超时不再无限拖延，由 ShutdownService 的兜底强退收场。
+   */
+  async beforeApplicationShutdown(): Promise<void> {
+    this.abortActiveStreams();
+    const graceMs = Number(this.config.getOrThrow<number>('SHUTDOWN_GRACE_MS'));
+    // 内层预算必须**严格小于** ShutdownService 的兜底强退窗口（其钩子先跑、定时器先武装）：
+    // 两者等长时，兜底会在 Nest 尚未 dispose 服务器、未释放 DB/Redis 连接前触发硬退，
+    // 「优雅」就退化成硬退。这里留出余量给后续 dispose 与资源释放。
+    const waitMs = Math.max(0, graceMs - ChatStreamService.DISPOSE_RESERVE_MS);
+    await Promise.race([
+      Promise.allSettled([...this.inFlight.values()]),
+      this.delay(waitMs),
+    ]);
+    // 等待期间仍可能注册了新的流（在停机位置起前越过检查的极小窗口），再中止一次
+    this.abortActiveStreams();
+  }
+
+  // 中止全部在途流：置 aborted 让 saveFailure 把半截内容落库（而非被硬掐在写入中间）
+  private abortActiveStreams(): void {
+    for (const controller of this.activeControllers) {
+      controller.abort(new Error('Server is shutting down'));
+    }
+    this.activeControllers.clear();
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      // 等待本身不阻止进程退出
+      timer.unref?.();
     });
   }
 

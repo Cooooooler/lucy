@@ -10,16 +10,41 @@ const validate = (env: Record<string, unknown>) =>
   ) as { error?: Error; value: Record<string, unknown> };
 
 describe('envValidationSchema', () => {
-  it('仅需 JWT_SECRET；新增可选项不设默认值，默认由消费方持有', () => {
+  it('仅需 JWT_SECRET；带 default 的项消费方用 getOrThrow，其余默认由消费方持有', () => {
     const { error, value } = validate({});
     expect(error).toBeUndefined();
-    // 唯一带 default 的新增项（消费方用 getOrThrow，默认值只此一处）
+    // 消费方用 getOrThrow 的项：默认值只此一处（否则会与消费方 fallback 形成两份）
     expect(value.REQUEST_TIMEOUT_MS).toBe(120000);
+    expect(value.SHUTDOWN_GRACE_MS).toBe(15000);
+    expect(value.DB_STATEMENT_TIMEOUT_MS).toBe(30000);
+    expect(value.DB_IDLE_TX_TIMEOUT_MS).toBe(60000);
     // 其余只校验、不设默认：缺席即 undefined，避免与消费方 fallback 形成两份默认值
     expect(value.LOG_LEVEL).toBeUndefined();
     expect(value.OLLAMA_BASE_URL).toBeUndefined();
     expect(value.BLOOM_ERROR_RATE).toBeUndefined();
     expect(value.FILE_STORAGE).toBeUndefined();
+  });
+
+  it('停机宽限期须为正；DB 上界允许 0（不限）但拒绝负值', () => {
+    expect(validate({ SHUTDOWN_GRACE_MS: 5000 }).error).toBeUndefined();
+    // 0 会让兜底强退立刻触发，等于没有优雅停机：启动期拦下
+    expect(validate({ SHUTDOWN_GRACE_MS: 0 }).error).toBeDefined();
+    expect(validate({ SHUTDOWN_GRACE_MS: -1 }).error).toBeDefined();
+    // 0 是 Postgres 的「不限」语义
+    expect(validate({ DB_STATEMENT_TIMEOUT_MS: 0 }).error).toBeUndefined();
+    expect(validate({ DB_STATEMENT_TIMEOUT_MS: -1 }).error).toBeDefined();
+    expect(validate({ DB_IDLE_TX_TIMEOUT_MS: 0 }).error).toBeUndefined();
+    expect(validate({ DB_IDLE_TX_TIMEOUT_MS: -1 }).error).toBeDefined();
+  });
+
+  it('停机宽限期与 DB 上界拒绝超 int32：setTimeout 会按 1ms 处理、Postgres 在建连时报错', () => {
+    expect(validate({ SHUTDOWN_GRACE_MS: 2_147_483_648 }).error).toBeDefined();
+    expect(
+      validate({ DB_STATEMENT_TIMEOUT_MS: 2_147_483_648 }).error,
+    ).toBeDefined();
+    expect(
+      validate({ DB_IDLE_TX_TIMEOUT_MS: 2_147_483_648 }).error,
+    ).toBeDefined();
   });
 
   it('REQUEST_TIMEOUT_MS 允许 0（禁用），拒绝负值/非整数/超上限', () => {

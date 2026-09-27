@@ -16,8 +16,8 @@ export const envValidationSchema = Joi.object({
   JWT_EXPIRES_IN: Joi.string().default('15m'),
   USER_STATUS_CACHE_TTL_SECONDS: Joi.number().default(30),
   // 本次**新增**的可选项只做类型/取值校验、不设 default：默认值由各消费方（config.get 的第二参）
-  // 持有，schema 再写一份会让两处默认值各自漂移。新增项里只有 REQUEST_TIMEOUT_MS 带 default
-  // （其消费方 TimeoutInterceptor 用 getOrThrow，默认值只此一处）。
+  // 持有，schema 再写一份会让两处默认值各自漂移。带 default 的只有消费方用 `getOrThrow` 的几项
+  // （REQUEST_TIMEOUT_MS / SHUTDOWN_GRACE_MS / DB_*），默认值只此一处。
   // 注：FILE_MAX_SIZE / UPLOAD_DIR / USER_STATUS_CACHE_TTL_SECONDS 等既有项的 default 属历史遗留，
   // 本次不动以缩小改动面；后续可单独收敛为单一来源。
   // 刷新令牌轮换（见 AuthService）
@@ -40,6 +40,28 @@ export const envValidationSchema = Joi.object({
     .min(0)
     .max(2_147_483_647)
     .default(120000),
+  // 停机宽限期（毫秒）：超过仍未停机完成则强制退出（见 ShutdownService）
+  // 上界同 setTimeout 的 32 位上限：超出会被按 1ms 处理（TimeoutOverflowWarning），
+  // 于是停机一开始就强退，等于没有优雅停机 —— 必须在启动期拦下
+  SHUTDOWN_GRACE_MS: Joi.number()
+    .integer()
+    .positive()
+    .max(2_147_483_647)
+    .default(15000),
+  // Postgres 语句 / 空闲事务上界（毫秒）：0 表示不限（Postgres 语义）。落在运行时连接上
+  // （app.module 的 TypeORM extra），给「挂住的查询」一个 DB 侧上界；CLI 迁移连接不设，避免长 ALTER 被中断
+  // 上界是这两个 GUC 的合法范围（int32）：超出会在**建连时**报 outside the valid range，
+  // 表现为运行期连不上库而不是启动期拦下
+  DB_STATEMENT_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(0)
+    .max(2_147_483_647)
+    .default(30000),
+  DB_IDLE_TX_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(0)
+    .max(2_147_483_647)
+    .default(60000),
   // 文件存储
   FILE_MAX_SIZE: Joi.number().default(10485760),
   UPLOAD_DIR: Joi.string().default('uploads'),
