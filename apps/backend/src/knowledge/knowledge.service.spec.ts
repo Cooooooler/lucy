@@ -3,7 +3,7 @@ import { HttpStatus, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
 import { decodeCursor, encodeCursor } from '../common/pagination/cursor.js';
@@ -54,6 +54,7 @@ describe('KnowledgeService', () => {
   };
   const fileRepo = {
     findOneBy: vi.fn(),
+    findBy: vi.fn(),
     save: vi.fn(),
     delete: vi.fn(),
   };
@@ -114,8 +115,11 @@ describe('KnowledgeService', () => {
    * `KeysetPaginator` 刻意不在这里 provide，而是走 `imports: [PaginationModule]`：
    * 与生产一致的模块路径才会验证 `PaginationModule` 真的 exports 了它，
    * 在这里再 provide 一份会把 exports 漏写也变成绿灯。
+   *
+   * 同时装配 `KnowledgeService` 与 `KnowledgeDocumentService`：文档用例经后者验证，
+   * 由 `resolveServices` 一次 compile 后各取一个实例。
    * @param configService 覆盖 ConfigService（个别用例需要不同的 FILE_MAX_SIZE）
-   * @returns 由 TestingModule 解析出的服务实例
+   * @returns 待 compile 的 TestingModule
    */
   const buildModule = (configService: ConfigService) =>
     Test.createTestingModule({
@@ -133,24 +137,24 @@ describe('KnowledgeService', () => {
       ],
     });
 
-  const buildService = async (
-    configService: ConfigService = config,
-  ): Promise<KnowledgeService> =>
-    (await buildModule(configService).compile()).get(KnowledgeService);
-
-  // 文档处理已拆到 KnowledgeDocumentService：文档用例经它验证（同一模块装配，确保模块 provider 齐备）
-  const buildDocService = async (
-    configService: ConfigService = config,
-  ): Promise<KnowledgeDocumentService> =>
-    (await buildModule(configService).compile()).get(KnowledgeDocumentService);
+  /**
+   * 一次 compile 取两个服务（同一测试模块）：既验证模块装配把两个 provider 都提供齐，
+   * 也避免每个用例重复 compile 两遍。
+   */
+  const resolveServices = async (configService: ConfigService = config) => {
+    const moduleRef = await buildModule(configService).compile();
+    return {
+      service: moduleRef.get(KnowledgeService),
+      docService: moduleRef.get(KnowledgeDocumentService),
+    };
+  };
 
   beforeEach(async () => {
     vi.clearAllMocks();
     // 点赞态回填（fillLikeInfo）被 get/list/update 共用：默认给一个空结果的可链式 stub，
     // 避免依赖「上个用例遗留的 mockReturnValue」——clearAllMocks 只清调用记录不清实现
     likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
-    service = await buildService();
-    docService = await buildDocService();
+    ({ service, docService } = await resolveServices());
   });
 
   const stored = (over = {}) =>
@@ -653,19 +657,20 @@ describe('KnowledgeService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('remove 删除知识库并清理底层文件（含文件缺失分支）', async () => {
+  it('remove 级联删除文档/文件行并清理底层文件（f2 无文件行）', async () => {
     kbRepo.findOne.mockResolvedValue(kb());
     docRepo.find.mockResolvedValue([
       doc({ fileId: 'f1' }),
       doc({ id: 'd2', fileId: 'f2' }),
     ]);
-    fileRepo.findOneBy
-      .mockResolvedValueOnce({ id: 'f1', key: 'f1.pdf' })
-      .mockResolvedValueOnce(null);
+    // 一次 findBy 取回全部文件行：仅 f1 有文件行（f2 缺失）
+    fileRepo.findBy.mockResolvedValue([{ id: 'f1', key: 'f1.pdf' }]);
     kbRepo.delete.mockResolvedValue({ affected: 1 });
     await service.remove('u1', 'kb1');
+    // 不再逐文档 findOneBy，而是一次 findBy + 一次 delete（避免 N+1）
+    expect(fileRepo.findBy).toHaveBeenCalledWith({ id: In(['f1', 'f2']) });
+    expect(fileRepo.delete).toHaveBeenCalledWith({ id: In(['f1', 'f2']) });
     expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
-    expect(fileRepo.delete).toHaveBeenCalledWith({ id: 'f1' });
     expect(kbRepo.delete).toHaveBeenCalledWith({ id: 'kb1' });
   });
 
@@ -688,7 +693,7 @@ describe('KnowledgeService', () => {
   });
 
   it('addDocument FILE_MAX_SIZE 非数字时回退默认上限（不静默禁用）', async () => {
-    const svc = await buildDocService(
+    const { docService: svc } = await resolveServices(
       new ConfigService({ FILE_MAX_SIZE: '10MB' }),
     );
     kbRepo.findOne.mockResolvedValue(kb());
@@ -715,15 +720,14 @@ describe('KnowledgeService', () => {
     fileService.save.mockResolvedValue(stored());
     fileRepo.save.mockResolvedValue({ id: 'f1' });
     docRepo.save.mockRejectedValue(new Error('db fail'));
+    // DB 故障不是「内容不可处理」：原样上抛（不再被误报成 422），且仍清理已上传文件
     await expect(
       docService.addDocument('u1', 'kb1', {
         buffer: Buffer.from('%PDF'),
         originalname: 'a.pdf',
         size: 4,
       } as never),
-    ).rejects.toMatchObject({
-      response: { statusCode: 422 },
-    });
+    ).rejects.toThrow('db fail');
     // 事务回滚后只需清理底层文件（数据库记录已自动回滚）
     expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
   });

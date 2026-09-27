@@ -9,7 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { basename, extname } from 'node:path';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository, type EntityManager } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import {
@@ -90,7 +90,22 @@ export class KnowledgeDocumentService {
       mime: file.mimetype,
     });
 
-    // 事务：保存文件记录 + 文档记录，任一步失败自动回滚
+    // 解析放在事务外并单独 catch：只有「解析失败」才是内容不可处理（422）；
+    // DB 约束/连接等基础设施故障不应被误报成 422，下面原样上抛。
+    let content: string;
+    try {
+      content = await extractContent(file.buffer, origExt);
+    } catch (err) {
+      await this.removeStoredQuietly([stored.key]);
+      this.logger.warn(
+        `doc parse failed kb=${kbId} file=${file.originalname}: ${err instanceof Error ? err.message : String(err)}`,
+        KnowledgeDocumentService.name,
+      );
+      throw new UnprocessableEntityException('文档解析失败');
+    }
+    const title = basename(file.originalname, extname(file.originalname));
+
+    // 事务只做 DB 写入（文件记录 + 文档记录），不含外部存储 I/O
     let doc: KnowledgeDocument;
     try {
       doc = await this.dataSource.transaction(async (manager) => {
@@ -108,9 +123,6 @@ export class KnowledgeDocumentService {
           storage: stored.storage,
         });
 
-        const content = await extractContent(file.buffer, origExt);
-        const title = basename(file.originalname, extname(file.originalname));
-
         return docRepo.save({
           knowledgeBaseId: kbId,
           fileId: fileEntity.id,
@@ -119,15 +131,12 @@ export class KnowledgeDocumentService {
         });
       });
     } catch (err) {
-      // 事务回滚后清理已上传的底层文件
-      await this.fileService.remove(stored.key);
+      // DB 失败：清理已上传的底层文件（best-effort），原始错误原样上抛
+      await this.removeStoredQuietly([stored.key]);
       this.logger.warn(
         `doc upload failed kb=${kbId} file=${file.originalname}: ${err instanceof Error ? err.message : String(err)}`,
         KnowledgeDocumentService.name,
       );
-      if (err instanceof Error) {
-        throw new UnprocessableEntityException('文档解析失败');
-      }
       throw err;
     }
     this.logger.log(
@@ -216,20 +225,58 @@ export class KnowledgeDocumentService {
       where: { id, knowledgeBaseId: kbId },
     });
     if (!doc) throw new NotFoundException('文档不存在');
-    // 事务：删除文档 + 关联文件记录，保证原子性
-    await this.dataSource.transaction(async (manager) => {
+    // 事务内只做 DB 删除并取回待清理的存储 key；底层对象在**提交后** best-effort 清理。
+    // 外部存储 I/O 回滚不了：若留在事务内，后续步骤失败时会留下「行回滚了、文件已删」的脏行。
+    const key = await this.dataSource.transaction(async (manager) => {
       const docRepoTx = manager.getRepository(KnowledgeDocument);
       const fileRepo = manager.getRepository(BackendFileEntity);
 
       await docRepoTx.delete({ id, knowledgeBaseId: kbId });
       const file = await fileRepo.findOneBy({ id: doc.fileId });
-      if (file) await this.fileService.remove(file.key);
       await fileRepo.delete({ id: doc.fileId });
+      return file?.key ?? null;
     });
+    if (key) await this.removeStoredQuietly([key]);
     this.logger.log(
       `doc remove kb=${kbId} doc=${id}`,
       KnowledgeDocumentService.name,
     );
     return null;
+  }
+
+  /**
+   * 在调用方给定的事务内删除某知识库的**全部**文档与文件记录（不触碰底层存储），
+   * 返回待清理的存储 key。供知识库级联删除复用：DB 操作留在调用方的事务里保持原子性，
+   * 文件 I/O 由调用方在提交后 best-effort 执行。
+   *
+   * 一次 `findBy` 取回全部文件行 + 一次 `delete`：避免「每个文档一次查询/一次删除」的 N+1。
+   */
+  async deleteDocsInTransaction(
+    manager: EntityManager,
+    kbId: string,
+  ): Promise<string[]> {
+    const docRepo = manager.getRepository(KnowledgeDocument);
+    const fileRepo = manager.getRepository(BackendFileEntity);
+    const docs = await docRepo.find({ where: { knowledgeBaseId: kbId } });
+    const fileIds = docs.map((d) => d.fileId);
+    if (fileIds.length === 0) return [];
+    const files = await fileRepo.findBy({ id: In(fileIds) });
+    await fileRepo.delete({ id: In(fileIds) });
+    await docRepo.delete({ knowledgeBaseId: kbId });
+    return files.map((f) => f.key);
+  }
+
+  /** best-effort 清理底层文件：失败仅告警，绝不顶替调用方的原始错误。 */
+  async removeStoredQuietly(keys: string[]): Promise<void> {
+    for (const key of keys) {
+      try {
+        await this.fileService.remove(key);
+      } catch (err) {
+        this.logger.warn(
+          `删除底层文件失败 key=${key}: ${err instanceof Error ? err.message : String(err)}`,
+          KnowledgeDocumentService.name,
+        );
+      }
+    }
   }
 }

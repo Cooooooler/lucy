@@ -1,4 +1,3 @@
-import { FileService } from '@coool/file-nest';
 import {
   ConflictException,
   Injectable,
@@ -15,14 +14,13 @@ import type {
   KnowledgeListResultDto,
 } from './dto/knowledge-list-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
-import { BackendFileEntity } from './entities/backend-file.entity.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
 } from './entities/knowledge-base.entity.js';
-import { KnowledgeDocument } from './entities/knowledge-document.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
 import { assertOwner, assertReadable } from './knowledge-access.js';
+import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { toKnowledgeBaseItem } from './knowledge.mapper.js';
 
 /**
@@ -41,8 +39,9 @@ export class KnowledgeService {
     private readonly kbRepo: Repository<KnowledgeBase>,
     @InjectRepository(KnowledgeLike)
     private readonly likeRepo: Repository<KnowledgeLike>,
-    private readonly fileService: FileService,
     private readonly paginator: KeysetPaginator,
+    // 级联删除知识库时复用文档/文件的清理逻辑（底层文件 I/O 收在文档服务里）
+    private readonly documentService: KnowledgeDocumentService,
   ) {}
 
   /**
@@ -244,22 +243,19 @@ export class KnowledgeService {
     const kb = await this.kbRepo.findOne({ where: { id } });
     if (!kb) throw new NotFoundException('知识库不存在');
     assertOwner(kb, userId);
-    // 事务：级联删除文档及其关联的文件记录，保证原子性
-    await this.dataSource.transaction(async (manager) => {
-      const docRepo = manager.getRepository(KnowledgeDocument);
-      const fileRepo = manager.getRepository(BackendFileEntity);
+    // 事务内只做 DB 删除（文档行、文件行、知识库行）：文档/文件的删除逻辑委托给
+    // KnowledgeDocumentService（一次 findBy + 一次 delete，避免逐文档查询的 N+1）；
+    // 底层文件 I/O 在提交后 best-effort 清理（外部 I/O 回滚不了，不放进事务）。
+    const keys = await this.dataSource.transaction(async (manager) => {
       const kbRepo = manager.getRepository(KnowledgeBase);
-
-      const docs = await docRepo.find({ where: { knowledgeBaseId: id } });
-      for (const d of docs) {
-        const file = await fileRepo.findOneBy({ id: d.fileId });
-        if (file) {
-          await this.fileService.remove(file.key);
-          await fileRepo.delete({ id: file.id });
-        }
-      }
+      const keys = await this.documentService.deleteDocsInTransaction(
+        manager,
+        id,
+      );
       await kbRepo.delete({ id });
+      return keys;
     });
+    await this.documentService.removeStoredQuietly(keys);
     this.logger.log(`kb remove kb=${id}`, KnowledgeService.name);
     return null;
   }
