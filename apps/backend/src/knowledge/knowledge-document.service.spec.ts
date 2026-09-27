@@ -75,7 +75,9 @@ describe('KnowledgeDocumentService', () => {
     remove: vi.fn(),
   };
   const config = new ConfigService({ FILE_MAX_SIZE: 1024 });
-  const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
+  // 保留可断言的 mock 句柄（直接对 `logger.warn` 断言会触发 unbound-method）
+  const loggerMock = { log: vi.fn(), warn: vi.fn() };
+  const logger = loggerMock as unknown as AppLogger;
 
   let docService: KnowledgeDocumentService;
 
@@ -275,6 +277,43 @@ describe('KnowledgeDocumentService', () => {
       } as never),
     ).rejects.toThrow('db fail');
     expect(fileService.remove).toHaveBeenCalledWith('f1.pdf');
+  });
+
+  it('addDocument 解析失败且清理文件也失败：原始 422 照常返回（清理只告警）', async () => {
+    kbRepo.findOne.mockResolvedValue(makeKb());
+    fileService.save.mockResolvedValue(makeStored());
+    vi.mocked(extractContent).mockRejectedValue(new Error('parse fail'));
+    fileService.remove.mockRejectedValue(new Error('storage down'));
+    await expect(
+      docService.addDocument('u1', 'kb1', {
+        buffer: Buffer.from('%PDF'),
+        originalname: 'a.txt',
+        size: 4,
+      } as never),
+    ).rejects.toMatchObject({ response: { statusCode: 422 } });
+    // best-effort：清理失败不得顶替调用方的原始错误（否则 422 会变成 500）
+    expect(loggerMock.warn).toHaveBeenCalled();
+  });
+
+  it('addDocument 入库失败且清理也失败：原始错误照常上抛（清理只告警）', async () => {
+    kbRepo.findOne.mockResolvedValue(makeKb());
+    vi.mocked(detectFileType).mockResolvedValue({
+      ext: 'pdf',
+      mime: 'application/pdf',
+    });
+    vi.mocked(extractContent).mockResolvedValue('正文');
+    fileService.save.mockResolvedValue(makeStored());
+    fileRepo.save.mockResolvedValue({ id: 'f1' });
+    docRepo.save.mockRejectedValue(new Error('db fail'));
+    fileService.remove.mockRejectedValue(new Error('storage down'));
+    await expect(
+      docService.addDocument('u1', 'kb1', {
+        buffer: Buffer.from('%PDF'),
+        originalname: 'a.pdf',
+        size: 4,
+      } as never),
+    ).rejects.toThrow('db fail');
+    expect(loggerMock.warn).toHaveBeenCalled();
   });
 
   it('addDocument docx（非 pdf）跳过魔数校验正常入库', async () => {
