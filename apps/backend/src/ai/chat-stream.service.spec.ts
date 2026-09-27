@@ -4,10 +4,11 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { lastValueFrom } from 'rxjs';
 import { toArray } from 'rxjs/operators';
-import { DataSource, IsNull } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { ChatStreamService } from './chat-stream.service.js';
 import { ContextService } from './context.service.js';
+import { ConversationTitleService } from './conversation-title.service.js';
 import { Conversation } from './entities/conversation.entity.js';
 import {
   Message,
@@ -43,6 +44,7 @@ describe('ChatStreamService', () => {
   } as unknown as DataSource;
   const ollamaFactory = { getClient: vi.fn() };
   const contextService = { buildMessages: vi.fn() };
+  const titleService = { generate: vi.fn() };
   const config = new ConfigService({ OLLAMA_MODEL: 'default-model' });
   // 保留可断言的 mock 句柄（直接对 `logger.warn` 断言会触发 unbound-method）
   const loggerMock = { log: vi.fn(), warn: vi.fn() };
@@ -69,6 +71,8 @@ describe('ChatStreamService', () => {
         { provide: getRepositoryToken(Message), useValue: messageRepo },
         { provide: OllamaFactory, useValue: ollamaFactory },
         { provide: ContextService, useValue: contextService },
+        // 标题生成已下沉到 ConversationTitleService，其行为在 conversation-title.service.spec.ts 覆盖
+        { provide: ConversationTitleService, useValue: titleService },
         { provide: ConfigService, useValue: configService },
       ],
     }).compile();
@@ -298,26 +302,23 @@ describe('ChatStreamService', () => {
     expect(messageRepo.save).not.toHaveBeenCalled();
   });
 
-  it('首条消息触发标题生成', async () => {
+  it('仅首条消息（history 为空）委托标题生成，非首条不调用', async () => {
     conversationRepo.findOne.mockResolvedValue(conv());
-    messageRepo.count.mockResolvedValue(1);
-    messageRepo.find.mockResolvedValue([]);
-    messageRepo.findOne.mockResolvedValue(
-      Object.assign(new Message(), {
-        conversationId: 'c1',
-        role: MessageRole.User,
-        content: 'hi',
-      }),
-    );
     contextService.buildMessages.mockResolvedValue([]);
     ollamaFactory.getClient.mockReturnValue(fakeClient());
 
+    messageRepo.find.mockResolvedValue([]);
     await events(service.sendMessage('1', 'c1', { content: 'hi' }));
-    await vi.waitFor(() => expect(conversationRepo.update).toHaveBeenCalled());
-    expect(conversationRepo.update).toHaveBeenCalledWith(
-      { id: 'c1', title: IsNull() },
-      { title: '标题' },
+    expect(titleService.generate).toHaveBeenCalledTimes(1);
+    expect(titleService.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'c1' }),
+      expect.anything(),
     );
+
+    titleService.generate.mockClear();
+    messageRepo.find.mockResolvedValue([Object.assign(new Message(), {})]);
+    await events(service.sendMessage('1', 'c1', { content: 'hi' }));
+    expect(titleService.generate).not.toHaveBeenCalled();
   });
 
   it('请求级 model 覆盖会话默认', async () => {

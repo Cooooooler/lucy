@@ -1,13 +1,13 @@
-import { HumanMessage } from '@langchain/core/messages';
 import { AiStreamEvent, ErrorCode, type ErrorCodeValue } from '@lucy/shared';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { ContextService } from './context.service.js';
+import { ConversationTitleService } from './conversation-title.service.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
 import { Conversation } from './entities/conversation.entity.js';
 import {
@@ -49,9 +49,12 @@ export class ChatStreamService {
     private readonly ollamaFactory: OllamaFactory,
     private readonly contextService: ContextService,
     private readonly config: ConfigService,
+    private readonly titleService: ConversationTitleService,
   ) {}
 
-  // 同会话并发锁：key=conversationId，防止同会话并发生成（同时消除首条消息重复触发标题生成）
+  // 同会话并发锁：key=`userId:conversationId`，防止同会话并发生成（同时消除首条消息重复触发标题生成）。
+  // 必须带 userId：并发检查发生在归属校验之前，只按会话 id 会让非属主对「他人正在生成的会话」
+  // 得到 BUSY 而非 NOT_FOUND，形成存在性/活跃度探测面。
   private readonly inFlight = new Map<string, Promise<unknown>>();
 
   /** 发送消息并以 SSE 事件流返回模型输出。 */
@@ -242,11 +245,11 @@ export class ChatStreamService {
       await conversationRepo.save(conversation);
     });
 
-    // 首条消息：先同步生成标题再开始回答，保证回答流结束时标题已就绪（前端拉列表时不再缺失）
-    const count = await this.messageRepo.count({ where: { conversationId } });
-    if (count === 1) {
+    // 首条消息：先同步生成标题再开始回答，保证回答流结束时标题已就绪（前端拉列表时不再缺失）。
+    // history 在插入本次用户消息**之前**读取，故 history 为空即「本次是首条」，无需再 count 一次
+    if (history.length === 0) {
       try {
-        await this.generateTitle(conversation, signal);
+        await this.titleService.generate(conversation, signal);
       } catch (err) {
         // 标题生成失败不影响正文问答，仅记录日志
         this.logger.warn(
@@ -430,62 +433,5 @@ export class ChatStreamService {
       return { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' };
     }
     return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };
-  }
-
-  private async generateTitle(
-    conversation: Conversation,
-    signal: AbortSignal,
-  ): Promise<void> {
-    const first = await this.messageRepo.findOne({
-      where: { conversationId: conversation.id, role: MessageRole.User },
-      order: { createdAt: 'ASC' },
-    });
-    if (!first) return;
-    const prompt = this.config.get<string>(
-      'AI_TITLE_PROMPT',
-      '为这段对话生成一个不超过20字的简短标题，只输出标题本身：',
-    );
-    const title = await this.invokeTitle(
-      `${prompt}${first.content}`,
-      conversation.model,
-      signal,
-    );
-    if (title) {
-      await this.conversationRepo.update(
-        { id: conversation.id, title: IsNull() },
-        { title },
-      );
-    }
-  }
-
-  /**
-   * 标题生成调用。它在首条消息路径上被 `await`，若模型侧挂起，正文流会迟迟不开始、客户端
-   * 断开也不会中断它——故这里既传入调用方 `signal`（SSE 断线可中止），又有独立超时兜底。
-   * 失败由 `prepareRun` 的 catch 记录日志，不影响正文流。
-   */
-  private async invokeTitle(
-    prompt: string,
-    model: string | null,
-    signal: AbortSignal,
-  ): Promise<string> {
-    const client = this.ollamaFactory.getClient(model ?? undefined);
-    const timeoutMs = Number(this.config.get('OLLAMA_TIMEOUT_MS', 120000));
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('标题生成超时')), timeoutMs);
-      // 超时定时器不阻止进程退出
-      timer.unref?.();
-    });
-    try {
-      const res = (await Promise.race([
-        client.invoke([new HumanMessage(prompt)], { signal }),
-        this.createAbortPromise(signal),
-        timeout,
-      ])) as { content: unknown };
-      const raw = res.content;
-      return typeof raw === 'string' ? raw.trim().slice(0, 50) : '';
-    } finally {
-      clearTimeout(timer);
-    }
   }
 }
