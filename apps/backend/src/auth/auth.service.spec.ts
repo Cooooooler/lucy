@@ -3,6 +3,7 @@ import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
+import { createHash } from 'node:crypto';
 import { AppLogger } from '../common/app-logger.service.js';
 import { UserRole } from '../common/roles.js';
 import { PasswordService } from '../password/password.service.js';
@@ -55,6 +56,19 @@ describe('AuthService', () => {
   };
   const activeVal = `${user.id}:family-1`;
 
+  /**
+   * Redis 只存 sha256 摘要（明文令牌仅在 cookie 里）。期望 key 用**独立实现**算出——
+   * 不引用生产的私有方法，仍能钉死 key 格式，同时把「明文不出现在 Redis key/成员中」变成断言。
+   */
+  const digest = (token: string) =>
+    createHash('sha256').update(token).digest('hex');
+  const refreshKey = (token: string) => `auth:refresh:${digest(token)}`;
+  const refreshAtKey = (token: string) => `auth:refresh:at:${digest(token)}`;
+  const reuseKey = (token: string) => `auth:refresh:reuse:${digest(token)}`;
+  const reuseAtKey = (token: string) =>
+    `auth:refresh:reuse-at:${digest(token)}`;
+  const familyKey = (family: string) => `auth:refresh:family:${family}`;
+
   beforeEach(async () => {
     vi.clearAllMocks();
     const module = await Test.createTestingModule({
@@ -83,18 +97,29 @@ describe('AuthService', () => {
       (result.user as { passwordHash?: string }).passwordHash,
     ).toBeUndefined();
     expect(multi.set).toHaveBeenCalledWith(
-      `auth:refresh:${result.refreshToken}`,
+      refreshKey(result.refreshToken),
       expect.stringMatching(/^u1:/),
       'EX',
       expect.any(Number),
     );
     expect(multi.set).toHaveBeenCalledWith(
-      `auth:refresh:at:${result.refreshToken}`,
+      refreshAtKey(result.refreshToken),
       expect.any(String),
       'EX',
       expect.any(Number),
     );
-    expect(multi.sadd).toHaveBeenCalled();
+    // 家族集合的成员同样只存摘要
+    expect(multi.sadd).toHaveBeenCalledWith(
+      expect.stringMatching(/^auth:refresh:family:/),
+      digest(result.refreshToken),
+    );
+    // 明文令牌不得出现在任何写入 Redis 的 key/值中
+    const written = multi.set.mock.calls
+      .flat()
+      .filter((arg): arg is string => typeof arg === 'string');
+    expect(written.some((arg) => arg.includes(result.refreshToken))).toBe(
+      false,
+    );
     expect(multi.expire).toHaveBeenCalled();
     expect(multi.exec).toHaveBeenCalled();
   });
@@ -181,8 +206,8 @@ describe('AuthService', () => {
 
   it('refresh 未到轮换年龄时不轮换，返回同一 refresh token', async () => {
     mockGet({
-      'auth:refresh:old': activeVal,
-      'auth:refresh:at:old': String(Date.now()),
+      [refreshKey('old')]: activeVal,
+      [refreshAtKey('old')]: String(Date.now()),
     });
     usersService.findById.mockResolvedValue(user);
     const result = await service.refresh('old');
@@ -194,33 +219,34 @@ describe('AuthService', () => {
   it('refresh 超过轮换年龄时轮换：删旧 key、srem、写复用标记、同家族新增', async () => {
     const now = Date.now();
     mockGet({
-      'auth:refresh:old': activeVal,
-      'auth:refresh:at:old': String(now - 600001),
+      [refreshKey('old')]: activeVal,
+      [refreshAtKey('old')]: String(now - 600001),
     });
     usersService.findById.mockResolvedValue(user);
     const result = await service.refresh('old');
     expect(multi.del).toHaveBeenCalledWith(
-      'auth:refresh:old',
-      'auth:refresh:at:old',
+      refreshKey('old'),
+      refreshAtKey('old'),
     );
+    // srem 的成员是摘要，不是明文令牌
     expect(multi.srem).toHaveBeenCalledWith(
-      'auth:refresh:family:family-1',
-      'old',
+      familyKey('family-1'),
+      digest('old'),
     );
     expect(multi.set).toHaveBeenCalledWith(
-      'auth:refresh:reuse:old',
+      reuseKey('old'),
       activeVal,
       'EX',
       expect.any(Number),
     );
     expect(multi.set).toHaveBeenCalledWith(
-      'auth:refresh:reuse-at:old',
+      reuseAtKey('old'),
       expect.any(String),
       'EX',
       expect.any(Number),
     );
     expect(multi.set).toHaveBeenCalledWith(
-      `auth:refresh:${result.refreshToken}`,
+      refreshKey(result.refreshToken),
       activeVal,
       'EX',
       expect.any(Number),
@@ -232,9 +258,9 @@ describe('AuthService', () => {
   it('refresh 复用 token 但在宽限期内视为良性，不吊销家族', async () => {
     const now = Date.now();
     mockGet({
-      'auth:refresh:old': null,
-      'auth:refresh:reuse:old': activeVal,
-      'auth:refresh:reuse-at:old': String(now - 5000),
+      [refreshKey('old')]: null,
+      [reuseKey('old')]: activeVal,
+      [reuseAtKey('old')]: String(now - 5000),
     });
     await expect(service.refresh('old')).rejects.toThrow(UnauthorizedException);
     expect(redisService.smembers).not.toHaveBeenCalled();
@@ -244,34 +270,31 @@ describe('AuthService', () => {
   it('refresh 复用 token 且超过宽限期判定泄露，吊销整个家族', async () => {
     const now = Date.now();
     mockGet({
-      'auth:refresh:old': null,
-      'auth:refresh:reuse:old': activeVal,
-      'auth:refresh:reuse-at:old': String(now - 20000),
+      [refreshKey('old')]: null,
+      [reuseKey('old')]: activeVal,
+      [reuseAtKey('old')]: String(now - 20000),
     });
-    redisService.smembers.mockResolvedValue(['t1', 't2']);
+    // 家族成员存的就是摘要
+    redisService.smembers.mockResolvedValue([digest('t1'), digest('t2')]);
     await expectUnauthorized(service.refresh('old'));
-    expect(redisService.smembers).toHaveBeenCalledWith(
-      'auth:refresh:family:family-1',
-    );
+    expect(redisService.smembers).toHaveBeenCalledWith(familyKey('family-1'));
     expect(multi.del).toHaveBeenCalledWith(
-      'auth:refresh:t1',
-      'auth:refresh:at:t1',
-      'auth:refresh:reuse:t1',
-      'auth:refresh:reuse-at:t1',
+      refreshKey('t1'),
+      refreshAtKey('t1'),
+      reuseKey('t1'),
+      reuseAtKey('t1'),
     );
   });
 
   it('refresh 复用记录存在但 reuse-at 缺失时 fail-closed 吊销家族', async () => {
     mockGet({
-      'auth:refresh:old': null,
-      'auth:refresh:reuse:old': activeVal,
-      'auth:refresh:reuse-at:old': null,
+      [refreshKey('old')]: null,
+      [reuseKey('old')]: activeVal,
+      [reuseAtKey('old')]: null,
     });
-    redisService.smembers.mockResolvedValue(['t1']);
+    redisService.smembers.mockResolvedValue([digest('t1')]);
     await expectUnauthorized(service.refresh('old'));
-    expect(redisService.smembers).toHaveBeenCalledWith(
-      'auth:refresh:family:family-1',
-    );
+    expect(redisService.smembers).toHaveBeenCalledWith(familyKey('family-1'));
   });
 
   it('refresh 无效 token（非复用）抛 Unauthorized', async () => {
@@ -281,25 +304,25 @@ describe('AuthService', () => {
   });
 
   it('refresh 遇到旧格式（无 family）的 active 值视为无效并清理', async () => {
-    mockGet({ 'auth:refresh:old': 'u1' }); // 旧格式：只有 userId
+    mockGet({ [refreshKey('old')]: 'u1' }); // 旧格式：只有 userId
     await expect(service.refresh('old')).rejects.toThrow(UnauthorizedException);
     expect(redisService.del).toHaveBeenCalledWith(
-      'auth:refresh:old',
-      'auth:refresh:at:old',
-      'auth:refresh:reuse:old',
-      'auth:refresh:reuse-at:old',
+      refreshKey('old'),
+      refreshAtKey('old'),
+      reuseKey('old'),
+      reuseAtKey('old'),
     );
     expect(redisService.sadd).not.toHaveBeenCalled();
   });
 
   it('refresh 用户不存在抛 Unauthorized', async () => {
-    mockGet({ 'auth:refresh:t': activeVal });
+    mockGet({ [refreshKey('t')]: activeVal });
     usersService.findById.mockResolvedValue(null);
     await expect(service.refresh('t')).rejects.toThrow(UnauthorizedException);
   });
 
   it('refresh 用户已禁用抛 Unauthorized', async () => {
-    mockGet({ 'auth:refresh:t': activeVal });
+    mockGet({ [refreshKey('t')]: activeVal });
     usersService.findById.mockResolvedValue({ ...user, status: 0 });
     await expect(service.refresh('t')).rejects.toThrow(UnauthorizedException);
   });
@@ -317,17 +340,15 @@ describe('AuthService', () => {
   });
 
   it('logout 带有效 refreshToken 吊销整个家族', async () => {
-    mockGet({ 'auth:refresh:r': activeVal });
-    redisService.smembers.mockResolvedValue(['t1']);
+    mockGet({ [refreshKey('r')]: activeVal });
+    redisService.smembers.mockResolvedValue([digest('t1')]);
     await service.logout('jti-1', 'r');
-    expect(redisService.smembers).toHaveBeenCalledWith(
-      'auth:refresh:family:family-1',
-    );
+    expect(redisService.smembers).toHaveBeenCalledWith(familyKey('family-1'));
     expect(multi.del).toHaveBeenCalledWith(
-      'auth:refresh:t1',
-      'auth:refresh:at:t1',
-      'auth:refresh:reuse:t1',
-      'auth:refresh:reuse-at:t1',
+      refreshKey('t1'),
+      refreshAtKey('t1'),
+      reuseKey('t1'),
+      reuseAtKey('t1'),
     );
     expect(denylist.add).toHaveBeenCalledWith('jti-1');
   });
@@ -340,14 +361,12 @@ describe('AuthService', () => {
 
   it('logout 带已轮换 token 时从 reuse 解析 family 并撤销整个家族', async () => {
     mockGet({
-      'auth:refresh:r': null,
-      'auth:refresh:reuse:r': activeVal,
+      [refreshKey('r')]: null,
+      [reuseKey('r')]: activeVal,
     });
-    redisService.smembers.mockResolvedValue(['t1']);
+    redisService.smembers.mockResolvedValue([digest('t1')]);
     await service.logout('jti-1', 'r');
-    expect(redisService.smembers).toHaveBeenCalledWith(
-      'auth:refresh:family:family-1',
-    );
+    expect(redisService.smembers).toHaveBeenCalledWith(familyKey('family-1'));
     expect(denylist.add).toHaveBeenCalledWith('jti-1');
   });
 
