@@ -9,7 +9,7 @@ import { ApiMessageBridge } from './components/ApiMessageBridge';
 import './index.css';
 import { queryClient } from './queryClient';
 import { router } from './router';
-import { ThemeProvider } from './theme';
+import { ThemeProvider } from './theme/ThemeProvider';
 
 // Provider 嵌套：Theme（antd 主题）→ AntdApp（antd 全局 context + ApiMessageBridge
 // 订阅后端 success message）→ QueryClient（服务端缓存）
