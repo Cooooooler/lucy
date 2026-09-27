@@ -24,6 +24,7 @@ import { CursorQueryDto } from '../common/pagination/dto/cursor-query.dto.js';
 import { UUIDParam } from '../common/pipes/uuid-param.js';
 import { SSE_METADATA } from '../common/sse-metadata.js';
 import { AiService } from './ai.service.js';
+import { ChatStreamService } from './chat-stream.service.js';
 import { ConversationDetailDto } from './dto/conversation-detail.dto.js';
 import { ConversationItemDto } from './dto/conversation-item.dto.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
@@ -35,7 +36,11 @@ import { SendMessageDto } from './dto/send-message.dto.js';
 @ApiBearerAuth()
 @Controller({ path: 'ai', version: API_VERSION })
 export class AiController {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    // SSE 端点走独立的流式服务（会话 CRUD 与「流式生成 + 中断/超时 + 落库状态机」是两件事）
+    private readonly chatStream: ChatStreamService,
+  ) {}
 
   @Post('conversations')
   @SuccessMessage('会话创建成功')
@@ -152,7 +157,7 @@ export class AiController {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
-    const subscription = this.aiService
+    const subscription = this.chatStream
       .sendMessage(user.userId, id, dto)
       .subscribe({
         next: (event) => {

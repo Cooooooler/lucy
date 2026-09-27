@@ -9,13 +9,14 @@ describe('AiController', () => {
     get: vi.fn(),
     rename: vi.fn(),
     remove: vi.fn(),
-    sendMessage: vi.fn(),
   };
+  // SSE 端点已改走 ChatStreamService
+  const chatStream = { sendMessage: vi.fn() };
   let controller: AiController;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    controller = new AiController(aiService as never);
+    controller = new AiController(aiService as never, chatStream as never);
   });
 
   const user = { userId: '1', jti: 'j', role: 'user' };
@@ -83,7 +84,7 @@ describe('AiController', () => {
         data: { finish_reason: 'stop' },
       },
     ];
-    aiService.sendMessage.mockReturnValue(
+    chatStream.sendMessage.mockReturnValue(
       new Observable<AiStreamEvent>((sub) => {
         events.forEach((e) => sub.next(e));
         sub.complete();
@@ -92,7 +93,7 @@ describe('AiController', () => {
 
     controller.send(res as never, user, 'c1', { content: 'hi' });
 
-    expect(aiService.sendMessage).toHaveBeenCalledWith('1', 'c1', {
+    expect(chatStream.sendMessage).toHaveBeenCalledWith('1', 'c1', {
       content: 'hi',
     });
     expect(headers['Content-Type']).toBe('text/event-stream');
@@ -107,7 +108,7 @@ describe('AiController', () => {
   it('sendMessage 客户端断开时取消订阅', () => {
     const { res, getCloseHandler } = mockRes();
     const unsubscribe = vi.fn();
-    aiService.sendMessage.mockReturnValue({
+    chatStream.sendMessage.mockReturnValue({
       subscribe: () => ({ unsubscribe }),
     });
 
