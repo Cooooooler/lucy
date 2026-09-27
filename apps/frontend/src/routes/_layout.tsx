@@ -23,7 +23,7 @@ import { useSelector } from '@tanstack/react-store';
 import { Avatar, Button, Divider, Dropdown, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { pinyin } from 'pinyin-pro';
-import { type ReactNode } from 'react';
+import { type ReactNode, useMemo } from 'react';
 
 const { Text } = Typography;
 
@@ -55,10 +55,13 @@ function renderMenuItem(
   return item.children ? dom : <Link to={item.path ?? '/'}>{dom}</Link>;
 }
 
+// CJK 判断用模块级常量，避免每次调用重建正则（js-hoist-regexp）
+const CJK_CHAR = /[\u4e00-\u9fa5]/;
+
 function getAvatarLetter(username?: string): string {
   const first = username?.trim().charAt(0);
   if (!first) return '';
-  if (/[\u4e00-\u9fa5]/.test(first)) {
+  if (CJK_CHAR.test(first)) {
     return pinyin(first, { pattern: 'first' }).toUpperCase();
   }
   return first.toUpperCase();
@@ -68,6 +71,12 @@ function LayoutComponent() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const user = useSelector(authStore, (s) => s.user);
+  // 头像首字母：用户下拉与顶栏两处头像共用同一次计算，避免重复跑 pinyin
+  // （js-cache-function-results）；依赖 username，导航等无关重渲染不再重算。
+  const avatarLetter = useMemo(
+    () => getAvatarLetter(user?.username),
+    [user?.username],
+  );
 
   const handleLogout = async () => {
     await logoutApi().catch(() => undefined);
@@ -89,7 +98,7 @@ function LayoutComponent() {
           size={44}
           gap={4}
         >
-          {getAvatarLetter(user?.username)}
+          {avatarLetter}
         </Avatar>
         <div className="flex min-w-0 flex-col">
           <Text strong ellipsis>
@@ -145,7 +154,7 @@ function LayoutComponent() {
               size="middle"
               gap={4}
             >
-              {getAvatarLetter(user?.username)}
+              {avatarLetter}
             </Avatar>
           </Button>
         </Dropdown>,
