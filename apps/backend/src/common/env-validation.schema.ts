@@ -24,21 +24,24 @@ export const envValidationSchema = Joi.object({
   BLOOM_CAPACITY: Joi.number().integer().positive().default(1000000),
   BLOOM_ROTATION_SECONDS: Joi.number().integer().positive().default(900),
   CORS_ORIGIN: Joi.string().allow('').optional(),
-  // 请求处理超时（毫秒，<=0 视为禁用；见 TimeoutInterceptor）
-  REQUEST_TIMEOUT_MS: Joi.number().integer().min(0).default(120000),
+  // 请求处理超时（毫秒）。只校验整数：<=0 表示禁用，由 TimeoutInterceptor 判定，
+  // 故此处不设下限（`.min(0)` 会拒绝 -1，与「<=0 禁用」的文档矛盾）
+  REQUEST_TIMEOUT_MS: Joi.number().integer().default(120000),
   // 优雅停机宽限期（毫秒）：超时后强制退出（见 main.ts）
   SHUTDOWN_GRACE_MS: Joi.number().integer().positive().default(15000),
   // 文件存储
   FILE_MAX_SIZE: Joi.number().default(10485760),
   UPLOAD_DIR: Joi.string().default('uploads'),
   FILE_STORAGE: Joi.string().default('local'),
-  // 日志（见 logger-options.ts）
-  LOG_LEVEL: Joi.string().default('info'),
+  // 日志（见 logger-options.ts）：等级限 pino 的合法取值，非法值在启动期即失败
+  LOG_LEVEL: Joi.string()
+    .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')
+    .default('info'),
   LOG_DIR: Joi.string().allow('').optional(),
   LOG_FILE_RETENTION_DAYS: Joi.number().integer().positive().default(7),
   LOG_PRETTY: Joi.string().valid('0', '1').optional(),
   // Ollama / LangChain AI 对话
-  OLLAMA_BASE_URL: Joi.string().default('http://localhost:11434'),
+  OLLAMA_BASE_URL: Joi.string().uri().default('http://localhost:11434'),
   OLLAMA_MODEL: Joi.string().default('qwen2.5:7b'),
   OLLAMA_TIMEOUT_MS: Joi.number().integer().positive().default(120000),
   AI_OUTPUT_MAX_TOKENS: Joi.number().integer().positive().default(32768),

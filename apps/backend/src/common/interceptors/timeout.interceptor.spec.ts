@@ -1,7 +1,7 @@
 import { ExecutionContext, RequestTimeoutException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Observable, firstValueFrom, of } from 'rxjs';
-import { SSE_METADATA } from './api-response.interceptor.js';
+import { SSE_METADATA } from '../sse-metadata.js';
 import { TimeoutInterceptor } from './timeout.interceptor.js';
 
 function contextFor(handler: object): ExecutionContext {

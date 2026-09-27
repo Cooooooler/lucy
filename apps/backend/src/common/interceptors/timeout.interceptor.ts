@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Observable } from 'rxjs';
 import { TimeoutError, throwError } from 'rxjs';
 import { catchError, timeout } from 'rxjs/operators';
-import { SSE_METADATA } from './api-response.interceptor.js';
+import { SSE_METADATA } from '../sse-metadata.js';
 
 /**
  * 请求处理超时：给非 SSE 的处理器套一层 rxjs `timeout`，避免单个卡死的处理器 / 下游依赖
