@@ -12,8 +12,8 @@ import { ApiProperty } from '@nestjs/swagger';
  *
  * 归属独立文件而不是挂在 `conversation-list-result.dto.ts` 下：它同时是列表项、
  * 创建响应与改名响应三种语义共用的契约，放在「列表结果」里会让契约归属含糊。
- * 唯一仍以实体出网的是详情端点（`GET /ai/conversations/:id`，它确实 populate 了
- * `messages`），其出网集合由 `entity-serialization.spec.ts` 的允许清单守卫。
+ * 详情端点（`GET /ai/conversations/:id`）的契约见 `ConversationDetailDto`（本 DTO 的超集，
+ * 多一个消息列表）；会话相关的所有端点均不再以实体出网。
  */
 export class ConversationItemDto {
   @ApiProperty({ description: '会话 ID' })

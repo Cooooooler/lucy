@@ -504,48 +504,6 @@ export interface components {
              */
             pageSize: number;
         };
-        User: {
-            /** @description 用户 ID */
-            id: string;
-            /**
-             * @description 用户名
-             * @example lucy
-             */
-            username: string;
-            /**
-             * @description 邮箱
-             * @example lucy@example.com
-             */
-            email: string;
-            /**
-             * @description 昵称
-             * @example Lucy
-             */
-            nickname: string | null;
-            /**
-             * @description 状态：1 正常
-             * @example 1
-             */
-            status: number;
-            /**
-             * @description 角色：user 普通用户，admin 管理员，superadmin 超级管理员
-             * @default user
-             * @enum {string}
-             */
-            role: "user" | "admin" | "superadmin";
-            /**
-             * Format: date-time
-             * @description 创建时间
-             * @example 2026-08-08T00:00:00.000Z
-             */
-            createdAt: string;
-            /**
-             * Format: date-time
-             * @description 更新时间
-             * @example 2026-08-08T00:00:00.000Z
-             */
-            updatedAt: string;
-        };
         UpdateUserStatusDto: {
             /**
              * @description 状态：1 正常，0 禁用
@@ -601,7 +559,7 @@ export interface components {
             /** @description 短效访问令牌 */
             accessToken: string;
             /** @description 当前用户信息 */
-            user: components["schemas"]["User"];
+            user: components["schemas"]["UserListItemDto"];
         };
         RefreshResultDto: {
             /**
@@ -641,7 +599,7 @@ export interface components {
             /** @description 下一页游标；null 表示已到末页 */
             nextCursor: string | null;
         };
-        Message: {
+        MessageItemDto: {
             /** @description 消息 ID */
             id: string;
             /** @description 所属会话 ID */
@@ -654,31 +612,27 @@ export interface components {
             /** @description 内容 */
             content: string;
             /** @description 思考过程（深度思考模型，可空） */
-            thinking?: string | null;
+            thinking: string | null;
             /**
              * @description 生成状态
              * @enum {string|null}
              */
             status: "complete" | "aborted" | "failed" | null;
             /** @description 是否被长度截断（done_reason=length，可空） */
-            truncated?: boolean | null;
+            truncated: boolean | null;
             /**
              * Format: date-time
              * @description 创建时间
              */
             createdAt: string;
         };
-        Conversation: {
+        ConversationDetailDto: {
             /** @description 会话 ID */
             id: string;
-            /** @description 归属用户 ID */
-            userId: string;
             /** @description 标题 */
             title: string | null;
             /** @description 会话默认模型 */
             model: string | null;
-            /** @description 消息列表 */
-            messages: components["schemas"]["Message"][];
             /**
              * Format: date-time
              * @description 创建时间
@@ -689,6 +643,8 @@ export interface components {
              * @description 更新时间
              */
             updatedAt: string;
+            /** @description 消息列表（时间正序） */
+            messages: components["schemas"]["MessageItemDto"][];
         };
         RenameConversationDto: {
             /** @description 新标题 */
@@ -918,7 +874,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["User"];
+                    "application/json": components["schemas"]["UserListItemDto"];
                 };
             };
             /** @description 不能查看自己或同级/更高级别的账号 */
@@ -984,7 +940,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["User"];
+                    "application/json": components["schemas"]["UserListItemDto"];
                 };
             };
             /** @description 不能操作自己或同级/更高级别的账号 */
@@ -1023,7 +979,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["User"];
+                    "application/json": components["schemas"]["UserListItemDto"];
                 };
             };
             /** @description 仅 superadmin 可调用；不能修改自己、同级/更高级别账号，或授予同级/更高级别角色 */
@@ -1061,7 +1017,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["User"];
+                    "application/json": components["schemas"]["UserListItemDto"];
                 };
             };
         };
@@ -1164,7 +1120,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["User"];
+                    "application/json": components["schemas"]["UserListItemDto"];
                 };
             };
             /** @description 未登录或令牌失效 */
@@ -1242,7 +1198,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Conversation"];
+                    "application/json": components["schemas"]["ConversationDetailDto"];
                 };
             };
             /** @description 会话不存在 */

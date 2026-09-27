@@ -29,7 +29,11 @@ export class Conversation {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ApiProperty({ description: '归属用户 ID' })
+  // 内部字段：会话相关端点全部返回允许式 DTO（ConversationItemDto / ConversationDetailDto），
+  // 实体已不再作为响应出网。仍标 @Exclude 作纵深防御——若将来有人误把实体当契约返回，
+  // 归属关系不会随之泄漏（由 entity-serialization.spec 的出网白名单把关）。
+  @ApiHideProperty()
+  @Exclude()
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
@@ -49,7 +53,10 @@ export class Conversation {
   @Column({ type: 'varchar', nullable: true })
   model: string | null;
 
-  @ApiProperty({ description: '消息列表', type: () => [Message] })
+  // 关系对象：详情端点经 toConversationDetail 从 DTO 输出消息，不再读取实体的 messages；
+  // 标 @Exclude 作纵深防御（理由同上），避免 populate 后整条消息带着实体字段出网
+  @ApiHideProperty()
+  @Exclude()
   @OneToMany(() => Message, (m) => m.conversation)
   messages: Message[];
 

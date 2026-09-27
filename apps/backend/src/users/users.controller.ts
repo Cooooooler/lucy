@@ -21,7 +21,6 @@ import {
   UserListItemDto,
   UserListResultDto,
 } from './dto/user-list-result.dto.js';
-import { User } from './user.entity.js';
 import { UsersService } from './users.service.js';
 
 /**
@@ -64,7 +63,7 @@ export class UsersController {
     description:
       '仅可查看级别严格低于自己的账号（与列表及变更操作同层级限制），不能查看自己、同级或更高级别的账号',
   })
-  @ApiResponse({ status: 200, type: User })
+  @ApiResponse({ status: 200, type: UserListItemDto })
   @ApiResponse({
     status: 403,
     description: '不能查看自己或同级/更高级别的账号',
@@ -82,7 +81,8 @@ export class UsersController {
   // 允许式 DTO）**抛错**，由 ApiResponseInterceptor 记一条 warn 后回退方法级兜底 ——
   // 对外文案仍是中性的「更新成功」，但契约漂移不再静默，也不会被误报成「已禁用」。
   @SuccessMessage((data) => {
-    const status = (data as components['schemas']['User'] | null)?.status;
+    const status = (data as components['schemas']['UserListItemDto'] | null)
+      ?.status;
     if (status === 1) return '用户已启用';
     if (status === 0) return '用户已禁用';
     throw new Error(`updateStatus 响应缺少 status：${String(status)}`);
@@ -92,7 +92,7 @@ export class UsersController {
     description:
       '禁用后该用户已签发的令牌立即不可用；仅可操作级别低于自己的账号（admin 只能操作普通用户，superadmin 可操作管理员），不能操作自己',
   })
-  @ApiResponse({ status: 200, type: User })
+  @ApiResponse({ status: 200, type: UserListItemDto })
   @ApiResponse({
     status: 403,
     description: '不能操作自己或同级/更高级别的账号',
@@ -118,7 +118,7 @@ export class UsersController {
     description:
       '仅 superadmin 可调用，在 user / admin 之间调整；superadmin 不经接口授予，不能修改自己',
   })
-  @ApiResponse({ status: 200, type: User })
+  @ApiResponse({ status: 200, type: UserListItemDto })
   @ApiResponse({
     status: 403,
     description:

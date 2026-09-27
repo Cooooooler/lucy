@@ -96,9 +96,19 @@ describe('gen-openapi', () => {
         doc.components?.schemas?.LoginResultDto?.properties ?? {},
       ).sort(),
     ).toEqual(['accessToken', 'user']);
+    // 用户契约现由允许式 DTO 承载（auth 注册/登录/me 与 users 各端点共用 UserListItemDto）；
+    // 断言资料字段可见、passwordHash 不进契约。User 实体已不再作为任何响应类型出网，
+    // 故不能再断言 `schemas.User`（该 schema 已不存在，可选链会恒为 undefined 造成空跑）。
     expect(
-      doc.components?.schemas?.User?.properties?.passwordHash,
+      doc.components?.schemas?.UserListItemDto?.properties?.username,
+    ).toBeDefined();
+    expect(
+      doc.components?.schemas?.UserListItemDto?.properties?.passwordHash,
     ).toBeUndefined();
+    // 反向断言：User 实体已从契约中消失。只做正向断言（UserListItemDto 存在）时，
+    // 若有人把实体重新挂回 @ApiResponse({ type: User })，本用例仍会通过——
+    // 反向断言才能钉住「实体不再作为响应契约」这一本次迁移的目标。
+    expect(doc.components?.schemas?.User).toBeUndefined();
   });
 
   it('知识库端点全部带 200/201 schema 且契约字段集一致', async () => {
@@ -149,7 +159,7 @@ describe('gen-openapi', () => {
     hasSuccessSchema(doc, '/knowledge/{kbId}/documents/{id}', 'get', '200');
   });
 
-  it('AI 会话契约：列表项/创建/改名共用同一份白名单，且三个端点都带响应 schema', async () => {
+  it('AI 会话契约：列表项/创建/改名/详情共用同一份白名单，且各端点都带响应 schema', async () => {
     await generateOpenApi();
     const doc = JSON.parse(readFileSync(OUT, 'utf8')) as PartialOpenApiDoc & {
       components?: {
@@ -174,6 +184,37 @@ describe('gen-openapi', () => {
     hasSuccessSchema(doc, '/ai/conversations', 'get', '200');
     hasSuccessSchema(doc, '/ai/conversations', 'post', '201');
     hasSuccessSchema(doc, '/ai/conversations/{id}', 'patch', '200');
+
+    // 详情端点：此前直接返回 Conversation 实体（带 userId、populate 的 messages），
+    // 本次改为允许式 ConversationDetailDto = 列表项白名单 + 消息列表；补断言把
+    // 「会话相关端点不再以实体出网」钉进 CI。
+    hasSuccessSchema(doc, '/ai/conversations/{id}', 'get', '200');
+    const detailSchema = doc.components?.schemas?.ConversationDetailDto;
+    expect(detailSchema).toBeDefined();
+    const detailKeys = Object.keys(detailSchema?.properties ?? {}).sort();
+    expect(detailKeys).toEqual([...keys, 'messages'].sort());
+    expect(detailSchema?.required?.sort()).toEqual(detailKeys);
+
+    // 消息项同样是允许式白名单：不含内部关系对象 conversation，也不含其它实体字段
+    const messageSchema = doc.components?.schemas?.MessageItemDto;
+    expect(messageSchema).toBeDefined();
+    expect(Object.keys(messageSchema?.properties ?? {}).sort()).toEqual(
+      [
+        'id',
+        'conversationId',
+        'role',
+        'content',
+        'thinking',
+        'status',
+        'truncated',
+        'createdAt',
+      ].sort(),
+    );
+
+    // 反向断言：Conversation / Message 实体已从契约中消失（会话端点全部走允许式 DTO）。
+    // 只断言 DTO 存在不足以拦住「实体被重新挂回响应类型」的回归。
+    expect(doc.components?.schemas?.Conversation).toBeUndefined();
+    expect(doc.components?.schemas?.Message).toBeUndefined();
   });
 
   it('文档详情/列表契约字段集固定（含/不含解析全文 content）', async () => {

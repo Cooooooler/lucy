@@ -240,11 +240,42 @@ describe('AiService', () => {
     await expect(service.get('1', 'x')).rejects.toThrow('会话不存在');
   });
 
-  it('get 返回会话及消息', async () => {
-    conversationRepo.findOne.mockResolvedValue(conv());
-    messageRepo.find.mockResolvedValue([]);
+  it('get 返回会话及消息：允许式契约（不含 userId，消息走白名单形状）', async () => {
+    conversationRepo.findOne.mockResolvedValue(timedConv(1));
+    messageRepo.find.mockResolvedValue([
+      Object.assign(new Message(), {
+        id: '00000000-0000-4000-8000-0000000000aa',
+        conversationId: 'c1',
+        role: MessageRole.User,
+        content: 'hi',
+        thinking: null,
+        status: null,
+        truncated: null,
+        createdAt: new Date(Date.UTC(2026, 0, 1)),
+      }),
+    ]);
     const res = await service.get('1', 'c1');
-    expect(res.messages).toEqual([]);
+    // 详情契约 = 会话项白名单 + messages；userId 等实体字段不得出现
+    expect(res.messages).toHaveLength(1);
+    expect(Object.keys(res).sort()).toEqual([
+      'createdAt',
+      'id',
+      'messages',
+      'model',
+      'title',
+      'updatedAt',
+    ]);
+    expect(res).not.toHaveProperty('userId');
+    expect(Object.keys(res.messages[0]).sort()).toEqual([
+      'content',
+      'conversationId',
+      'createdAt',
+      'id',
+      'role',
+      'status',
+      'thinking',
+      'truncated',
+    ]);
   });
 
   it('rename 改名并返回允许式契约视图（与列表项同形）', async () => {
