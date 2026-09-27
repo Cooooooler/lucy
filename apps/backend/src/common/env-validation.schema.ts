@@ -15,8 +15,10 @@ export const envValidationSchema = Joi.object({
   JWT_SECRET: Joi.string().min(32).required(),
   JWT_EXPIRES_IN: Joi.string().default('15m'),
   USER_STATUS_CACHE_TTL_SECONDS: Joi.number().default(30),
-  // 本次**新增**的可选项只做类型/取值校验、不设 default：默认值由各消费方（config.get 第二参）
-  // 持有，schema 再写一份会让两处默认值各自漂移。新增项里只有 REQUEST_TIMEOUT_MS 带 default
+  // 本次**新增**的可选项只做类型/取值校验、不设 default：默认值由各消费方持有，schema 再写一份
+  // 会让两处默认值各自漂移。消费方取默认的位置并不统一——多数用 config.get 的第二参；LOG_* 则由
+  // logger-options 直接读 process.env 并在本地兜底（依赖 ConfigModule 把校验结果写回 process.env
+  // 这一隐式耦合，收敛到 ConfigService 是另一件事）。新增项里只有 REQUEST_TIMEOUT_MS 带 default
   // （其消费方 TimeoutInterceptor 用 getOrThrow，默认值只此一处）。
   // 注：FILE_MAX_SIZE / UPLOAD_DIR / USER_STATUS_CACHE_TTL_SECONDS 等既有项的 default 属历史遗留，
   // 本次不动以缩小改动面；后续可单独收敛为单一来源。
