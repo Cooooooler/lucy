@@ -4,6 +4,7 @@ import { CommonModule } from '../common/common.module.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
 import { AiController } from './ai.controller.js';
 import { AiService } from './ai.service.js';
+import { ChatStreamService } from './chat-stream.service.js';
 import { ContextService } from './context.service.js';
 import { Conversation } from './entities/conversation.entity.js';
 import { Message } from './entities/message.entity.js';
@@ -18,6 +19,13 @@ import { TokenizerService } from './tokenizer.service.js';
     TypeOrmModule.forFeature([Conversation, Message]),
   ],
   controllers: [AiController],
-  providers: [AiService, OllamaFactory, TokenizerService, ContextService],
+  // 会话元信息（AiService）与流式生成（ChatStreamService）分属两个职责
+  providers: [
+    AiService,
+    ChatStreamService,
+    OllamaFactory,
+    TokenizerService,
+    ContextService,
+  ],
 })
 export class AiModule {}
