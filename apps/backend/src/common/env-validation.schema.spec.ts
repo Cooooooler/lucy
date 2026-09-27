@@ -29,9 +29,18 @@ describe('envValidationSchema', () => {
         `REQUEST_TIMEOUT_MS=${value} 应通过校验`,
       ).toBeUndefined();
     }
-    // 非整数 / 非数值仍失败
+    // 非整数 / 非数值 / 超出 setTimeout 32 位上限仍失败
     expect(validate({ REQUEST_TIMEOUT_MS: 1.5 }).error).toBeDefined();
     expect(validate({ REQUEST_TIMEOUT_MS: 'abc' }).error).toBeDefined();
+    expect(validate({ REQUEST_TIMEOUT_MS: 2_147_483_648 }).error).toBeDefined();
+  });
+
+  it('轮换/宽限期允许 0（0 有明确语义：每次轮换 / 无宽限期）', () => {
+    expect(validate({ REFRESH_ROTATION_MS: 0 }).error).toBeUndefined();
+    expect(validate({ REUSE_GRACE_SECONDS: 0 }).error).toBeUndefined();
+    // 负值仍失败
+    expect(validate({ REFRESH_ROTATION_MS: -1 }).error).toBeDefined();
+    expect(validate({ REUSE_GRACE_SECONDS: -1 }).error).toBeDefined();
   });
 
   it('LOG_LEVEL 限制为 pino 合法等级（非法值启动即失败）', () => {

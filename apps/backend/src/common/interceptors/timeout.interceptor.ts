@@ -21,9 +21,14 @@ import { SSE_METADATA } from '../sse-metadata.js';
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
- * 读请求处理超时：给 GET/HEAD/OPTIONS 处理器套一层 rxjs `timeout`，避免卡死的查询无限期
- * 占用连接。Node 的 `server.requestTimeout` 只覆盖请求头/体的读取，不覆盖处理器执行，缺少
- * 这层时「读处理器自身挂起」没有任何上界。
+ * 读请求处理超时：给 GET/HEAD/OPTIONS 处理器一个**客户端可见**的处理上界（Node 的
+ * `server.requestTimeout` 只覆盖请求头/体的读取，不覆盖处理器执行，缺少这层时读处理器
+ * 自身挂起没有任何上界）。
+ *
+ * 注意收益边界：rxjs `timeout` 只取消订阅，**不会**终止仍在执行的处理器与已开启的查询，
+ * 连接池里的连接仍被占用——本拦截器不承诺「释放 DB 连接」。要保护连接池需另配 DB 侧上界
+ * （如 Postgres `statement_timeout`）。
+ *
  *
  * - 阈值取 `REQUEST_TIMEOUT_MS`（默认 120s）；`<=0` 视为禁用。
  * - 超时抛**不带 message** 的 `RequestTimeoutException`：文案由全局 `AllExceptionsFilter`

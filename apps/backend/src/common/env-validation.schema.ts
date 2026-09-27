@@ -20,8 +20,10 @@ export const envValidationSchema = Joi.object({
   // （其消费方 TimeoutInterceptor 用 getOrThrow，默认值只此一处）。
   // 刷新令牌轮换（见 AuthService）
   REFRESH_TTL_SECONDS: Joi.number().integer().positive().optional(),
-  REFRESH_ROTATION_MS: Joi.number().integer().positive().optional(),
-  REUSE_GRACE_SECONDS: Joi.number().positive().optional(),
+  // 0 = 每次刷新都轮换（AuthService.rotationMs 的 `< rotationMs()` 判定），故允许 0
+  REFRESH_ROTATION_MS: Joi.number().integer().min(0).optional(),
+  // 0 = 无复用宽限期（AuthService.reuseGraceSeconds 的 `< grace*1000` 判定），故允许 0
+  REUSE_GRACE_SECONDS: Joi.number().min(0).optional(),
   // RedisBloom（登出/换发后的令牌撤销）：误报率须严格 0 < rate < 1
   // （BF.RESERVE 拒绝 1；rate=1 还会让过滤器恒判「存在」，令牌撤销退化为全部拒绝）
   BLOOM_ERROR_RATE: Joi.number().greater(0).less(1).optional(),
@@ -29,8 +31,9 @@ export const envValidationSchema = Joi.object({
   BLOOM_ROTATION_SECONDS: Joi.number().integer().positive().optional(),
   CORS_ORIGIN: Joi.string().allow('').optional(),
   // 读请求处理超时（毫秒）：<=0 表示禁用，由 TimeoutInterceptor 判定，故不设下限
-  // （`.min(0)` 会拒绝 -1，与「<=0 禁用」矛盾）。
-  REQUEST_TIMEOUT_MS: Joi.number().integer().default(120000),
+  // （`.min(0)` 会拒绝 -1，与「<=0 禁用」矛盾）。上界取 setTimeout 的 32 位上限
+  // （2^31-1）：超过会触发 TimeoutOverflowWarning 并按 1ms 处理，导致每个读请求立即 408。
+  REQUEST_TIMEOUT_MS: Joi.number().integer().max(2_147_483_647).default(120000),
   // 文件存储
   FILE_MAX_SIZE: Joi.number().default(10485760),
   UPLOAD_DIR: Joi.string().default('uploads'),
