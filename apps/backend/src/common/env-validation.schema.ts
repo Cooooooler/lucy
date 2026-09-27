@@ -41,11 +41,27 @@ export const envValidationSchema = Joi.object({
     .max(2_147_483_647)
     .default(120000),
   // 停机宽限期（毫秒）：超过仍未停机完成则强制退出（见 ShutdownService）
-  SHUTDOWN_GRACE_MS: Joi.number().integer().positive().default(15000),
+  // 上界同 setTimeout 的 32 位上限：超出会被按 1ms 处理（TimeoutOverflowWarning），
+  // 于是停机一开始就强退，等于没有优雅停机 —— 必须在启动期拦下
+  SHUTDOWN_GRACE_MS: Joi.number()
+    .integer()
+    .positive()
+    .max(2_147_483_647)
+    .default(15000),
   // Postgres 语句 / 空闲事务上界（毫秒）：0 表示不限（Postgres 语义）。落在运行时连接上
   // （app.module 的 TypeORM extra），给「挂住的查询」一个 DB 侧上界；CLI 迁移连接不设，避免长 ALTER 被中断
-  DB_STATEMENT_TIMEOUT_MS: Joi.number().integer().min(0).default(30000),
-  DB_IDLE_TX_TIMEOUT_MS: Joi.number().integer().min(0).default(60000),
+  // 上界是这两个 GUC 的合法范围（int32）：超出会在**建连时**报 outside the valid range，
+  // 表现为运行期连不上库而不是启动期拦下
+  DB_STATEMENT_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(0)
+    .max(2_147_483_647)
+    .default(30000),
+  DB_IDLE_TX_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(0)
+    .max(2_147_483_647)
+    .default(60000),
   // 文件存储
   FILE_MAX_SIZE: Joi.number().default(10485760),
   UPLOAD_DIR: Joi.string().default('uploads'),

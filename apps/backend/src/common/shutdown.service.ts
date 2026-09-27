@@ -52,8 +52,10 @@ export class ShutdownService
   private armForceExit(): void {
     const graceMs = Number(this.config.getOrThrow<number>('SHUTDOWN_GRACE_MS'));
     this.forceExitTimer = setTimeout(() => {
+      // error(message, trace?, context?)：服务名进 context，而不是被塞进 trace 位
       this.logger.error(
         `优雅停机超过 ${graceMs}ms 仍未完成，强制退出`,
+        undefined,
         ShutdownService.name,
       );
       process.exit(1);

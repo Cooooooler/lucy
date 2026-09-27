@@ -37,6 +37,16 @@ describe('envValidationSchema', () => {
     expect(validate({ DB_IDLE_TX_TIMEOUT_MS: -1 }).error).toBeDefined();
   });
 
+  it('停机宽限期与 DB 上界拒绝超 int32：setTimeout 会按 1ms 处理、Postgres 在建连时报错', () => {
+    expect(validate({ SHUTDOWN_GRACE_MS: 2_147_483_648 }).error).toBeDefined();
+    expect(
+      validate({ DB_STATEMENT_TIMEOUT_MS: 2_147_483_648 }).error,
+    ).toBeDefined();
+    expect(
+      validate({ DB_IDLE_TX_TIMEOUT_MS: 2_147_483_648 }).error,
+    ).toBeDefined();
+  });
+
   it('REQUEST_TIMEOUT_MS 允许 0（禁用），拒绝负值/非整数/超上限', () => {
     expect(validate({ REQUEST_TIMEOUT_MS: 0 }).error).toBeUndefined();
     // 负值几乎必然是误配：启动期拒绝，而非当成「禁用」静默吞掉

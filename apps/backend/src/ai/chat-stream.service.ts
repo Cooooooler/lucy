@@ -40,6 +40,9 @@ type Subscriber = {
  */
 @Injectable()
 export class ChatStreamService implements BeforeApplicationShutdown {
+  // 留给「服务器 dispose + DB/Redis 连接释放」的余量（毫秒），见 beforeApplicationShutdown
+  private static readonly DISPOSE_RESERVE_MS = 1000;
+
   constructor(
     private readonly logger: AppLogger,
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -143,9 +146,13 @@ export class ChatStreamService implements BeforeApplicationShutdown {
   async beforeApplicationShutdown(): Promise<void> {
     this.abortActiveStreams();
     const graceMs = Number(this.config.getOrThrow<number>('SHUTDOWN_GRACE_MS'));
+    // 内层预算必须**严格小于** ShutdownService 的兜底强退窗口（其钩子先跑、定时器先武装）：
+    // 两者等长时，兜底会在 Nest 尚未 dispose 服务器、未释放 DB/Redis 连接前触发硬退，
+    // 「优雅」就退化成硬退。这里留出余量给后续 dispose 与资源释放。
+    const waitMs = Math.max(0, graceMs - ChatStreamService.DISPOSE_RESERVE_MS);
     await Promise.race([
       Promise.allSettled([...this.inFlight.values()]),
-      this.delay(graceMs),
+      this.delay(waitMs),
     ]);
     // 等待期间仍可能注册了新的流（在停机位置起前越过检查的极小窗口），再中止一次
     this.abortActiveStreams();
