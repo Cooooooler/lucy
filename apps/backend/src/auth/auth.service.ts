@@ -3,7 +3,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { ChainableCommander } from 'ioredis';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { AppLogger } from '../common/app-logger.service.js';
 import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
@@ -52,24 +52,48 @@ export class AuthService {
     return { userId: value.slice(0, sep), family: value.slice(sep + 1) };
   }
 
-  private refreshKey(token: string): string {
-    return `auth:refresh:${token}`;
+  // 令牌只以 sha256 摘要落 Redis（原文仅存在于客户端 cookie）：即便 Redis 快照/备份泄露，
+  // 也无法直接拿去换 access token。family 集合的成员同样只存摘要，故 family 路径用 `*Of(digest)`：
+  // 对摘要再哈希会算错 key，撤销家族时必须走这一组。
+  private digest(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
   }
 
+  private refreshKeyOf(digest: string): string {
+    return `auth:refresh:${digest}`;
+  }
+
+  private refreshKey(token: string): string {
+    return this.refreshKeyOf(this.digest(token));
+  }
+
+  // family 本身是随机 UUID（命名空间，不是凭据），无需摘要
   private familyKey(family: string): string {
     return `auth:refresh:family:${family}`;
   }
 
+  private reuseKeyOf(digest: string): string {
+    return `auth:refresh:reuse:${digest}`;
+  }
+
   private reuseKey(token: string): string {
-    return `auth:refresh:reuse:${token}`;
+    return this.reuseKeyOf(this.digest(token));
+  }
+
+  private activeAtKeyOf(digest: string): string {
+    return `auth:refresh:at:${digest}`;
   }
 
   private activeAtKey(token: string): string {
-    return `auth:refresh:at:${token}`;
+    return this.activeAtKeyOf(this.digest(token));
+  }
+
+  private reuseAtKeyOf(digest: string): string {
+    return `auth:refresh:reuse-at:${digest}`;
   }
 
   private reuseAtKey(token: string): string {
-    return `auth:refresh:reuse-at:${token}`;
+    return this.reuseAtKeyOf(this.digest(token));
   }
 
   /** 认证服务：注册。 */
@@ -133,7 +157,7 @@ export class AuthService {
         .multi()
         .set(this.refreshKey(token), `${userId}:${family}`, 'EX', ttl)
         .set(this.activeAtKey(token), String(Date.now()), 'EX', ttl)
-        .sadd(this.familyKey(family), token)
+        .sadd(this.familyKey(family), this.digest(token))
         .expire(this.familyKey(family), ttl),
     );
     return token;
@@ -147,12 +171,13 @@ export class AuthService {
     }
     // 每个成员四条 key 删除 + family key 删除并入单事务，保证整个家族的撤销原子完成
     const tx = this.redis.raw.multi();
-    for (const t of members) {
+    // 集合成员是摘要（见 digest），故直接用 `*Of` 构造 key，不能再哈希一次
+    for (const member of members) {
       tx.del(
-        this.refreshKey(t),
-        this.activeAtKey(t),
-        this.reuseKey(t),
-        this.reuseAtKey(t),
+        this.refreshKeyOf(member),
+        this.activeAtKeyOf(member),
+        this.reuseKeyOf(member),
+        this.reuseAtKeyOf(member),
       );
     }
     tx.del(this.familyKey(family));
@@ -271,7 +296,7 @@ export class AuthService {
       this.redis.raw
         .multi()
         .del(this.refreshKey(refreshToken), this.activeAtKey(refreshToken))
-        .srem(this.familyKey(family), refreshToken)
+        .srem(this.familyKey(family), this.digest(refreshToken))
         .set(this.reuseKey(refreshToken), active, 'EX', ttl)
         .set(this.reuseAtKey(refreshToken), String(Date.now()), 'EX', ttl),
     );
