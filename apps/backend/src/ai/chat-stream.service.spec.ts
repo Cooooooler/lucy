@@ -1,4 +1,4 @@
-import { ErrorCode } from '@lucy/shared';
+import { ErrorCode, type ErrorCodeValue } from '@lucy/shared';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -166,7 +166,15 @@ describe('ChatStreamService', () => {
     });
   });
 
-  it('中途抛错：落库 failed（含半截内容）', async () => {
+  /**
+   * 流中途抛错的公共断言：给定抛出的错误与期望错误码，校验 error 帧与 failed 落库。
+   * 抽出来避免「中途抛错 / 模型超时」两条用例各写一份 23 行（Sonar CPD 会判新代码重复）。
+   */
+  async function expectStreamError(
+    thrown: Error,
+    code: ErrorCodeValue,
+    message: string,
+  ): Promise<void> {
     conversationRepo.findOne.mockResolvedValue(conv());
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
@@ -175,7 +183,7 @@ describe('ChatStreamService', () => {
       fakeClient({
         *stream() {
           yield { content: '半截' };
-          throw new Error('boom');
+          throw thrown;
         },
       }),
     );
@@ -184,10 +192,7 @@ describe('ChatStreamService', () => {
       service.sendMessage('1', 'c1', { content: 'hi' }),
     );
     expect(result.map((e) => e.type)).toEqual(['delta', 'error']);
-    expect(result[1]).toMatchObject({
-      type: 'error',
-      data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
-    });
+    expect(result[1]).toMatchObject({ type: 'error', data: { code, message } });
     expect(messageRepo.save).toHaveBeenCalledWith({
       conversationId: 'c1',
       role: MessageRole.Ai,
@@ -195,38 +200,21 @@ describe('ChatStreamService', () => {
       thinking: null,
       status: MessageStatus.Failed,
     });
-  });
+  }
 
-  it('模型超时：发超时错误码，落库 failed', async () => {
-    conversationRepo.findOne.mockResolvedValue(conv());
-    messageRepo.count.mockResolvedValue(2);
-    messageRepo.find.mockResolvedValue([]);
-    contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(
-      fakeClient({
-        *stream() {
-          yield { content: '半截' };
-          throw new Error('request timed out');
-        },
-      }),
-    );
+  it('中途抛错：落库 failed（含半截内容）', () =>
+    expectStreamError(
+      new Error('boom'),
+      ErrorCode.AI_GENERATE_FAILED,
+      '生成失败',
+    ));
 
-    const result = await events(
-      service.sendMessage('1', 'c1', { content: 'hi' }),
-    );
-    expect(result.map((e) => e.type)).toEqual(['delta', 'error']);
-    expect(result[1]).toMatchObject({
-      type: 'error',
-      data: { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' },
-    });
-    expect(messageRepo.save).toHaveBeenCalledWith({
-      conversationId: 'c1',
-      role: MessageRole.Ai,
-      content: '半截',
-      thinking: null,
-      status: MessageStatus.Failed,
-    });
-  });
+  it('模型超时：发超时错误码，落库 failed', () =>
+    expectStreamError(
+      new Error('request timed out'),
+      ErrorCode.AI_GENERATE_TIMEOUT,
+      '模型调用超时',
+    ));
 
   it('空闲超时：无输出触发超时错误码并落库 failed', async () => {
     vi.useFakeTimers();
