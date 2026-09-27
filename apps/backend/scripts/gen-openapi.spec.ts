@@ -96,8 +96,14 @@ describe('gen-openapi', () => {
         doc.components?.schemas?.LoginResultDto?.properties ?? {},
       ).sort(),
     ).toEqual(['accessToken', 'user']);
+    // 用户契约现由允许式 DTO 承载（auth 注册/登录/me 与 users 各端点共用 UserListItemDto）；
+    // 断言资料字段可见、passwordHash 不进契约。User 实体已不再作为任何响应类型出网，
+    // 故不能再断言 `schemas.User`（该 schema 已不存在，可选链会恒为 undefined 造成空跑）。
     expect(
-      doc.components?.schemas?.User?.properties?.passwordHash,
+      doc.components?.schemas?.UserListItemDto?.properties?.username,
+    ).toBeDefined();
+    expect(
+      doc.components?.schemas?.UserListItemDto?.properties?.passwordHash,
     ).toBeUndefined();
   });
 
@@ -149,7 +155,7 @@ describe('gen-openapi', () => {
     hasSuccessSchema(doc, '/knowledge/{kbId}/documents/{id}', 'get', '200');
   });
 
-  it('AI 会话契约：列表项/创建/改名共用同一份白名单，且三个端点都带响应 schema', async () => {
+  it('AI 会话契约：列表项/创建/改名/详情共用同一份白名单，且各端点都带响应 schema', async () => {
     await generateOpenApi();
     const doc = JSON.parse(readFileSync(OUT, 'utf8')) as PartialOpenApiDoc & {
       components?: {
@@ -174,6 +180,32 @@ describe('gen-openapi', () => {
     hasSuccessSchema(doc, '/ai/conversations', 'get', '200');
     hasSuccessSchema(doc, '/ai/conversations', 'post', '201');
     hasSuccessSchema(doc, '/ai/conversations/{id}', 'patch', '200');
+
+    // 详情端点：此前直接返回 Conversation 实体（带 userId、populate 的 messages），
+    // 本次改为允许式 ConversationDetailDto = 列表项白名单 + 消息列表；补断言把
+    // 「会话相关端点不再以实体出网」钉进 CI。
+    hasSuccessSchema(doc, '/ai/conversations/{id}', 'get', '200');
+    const detailSchema = doc.components?.schemas?.ConversationDetailDto;
+    expect(detailSchema).toBeDefined();
+    const detailKeys = Object.keys(detailSchema?.properties ?? {}).sort();
+    expect(detailKeys).toEqual([...keys, 'messages'].sort());
+    expect(detailSchema?.required?.sort()).toEqual(detailKeys);
+
+    // 消息项同样是允许式白名单：不含内部关系对象 conversation，也不含其它实体字段
+    const messageSchema = doc.components?.schemas?.MessageItemDto;
+    expect(messageSchema).toBeDefined();
+    expect(Object.keys(messageSchema?.properties ?? {}).sort()).toEqual(
+      [
+        'id',
+        'conversationId',
+        'role',
+        'content',
+        'thinking',
+        'status',
+        'truncated',
+        'createdAt',
+      ].sort(),
+    );
   });
 
   it('文档详情/列表契约字段集固定（含/不含解析全文 content）', async () => {
