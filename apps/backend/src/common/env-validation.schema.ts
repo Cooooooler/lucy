@@ -51,7 +51,9 @@ export const envValidationSchema = Joi.object({
   LOG_PRETTY: Joi.string().valid('0', '1').optional(),
   // Ollama / LangChain AI 对话
   OLLAMA_BASE_URL: Joi.string().uri().optional(),
-  OLLAMA_MODEL: Joi.string().optional(),
+  // 非空：消费者用 `config.get('OLLAMA_MODEL', '默认')`，而空串 != undefined，`??` 不会回退，
+  // 空模型名会让 AI 对话在运行期失败——须在启动期拦下
+  OLLAMA_MODEL: Joi.string().min(1).optional(),
   // 上界与 REQUEST_TIMEOUT_MS 同口径：都要喂给 setTimeout，超过 2^31-1 会按 1ms 处理
   OLLAMA_TIMEOUT_MS: Joi.number()
     .integer()
@@ -62,6 +64,8 @@ export const envValidationSchema = Joi.object({
   AI_CONTEXT_TOKEN_LIMIT: Joi.number().integer().positive().optional(),
   AI_CONTEXT_SAFETY_MARGIN: Joi.number().integer().min(0).optional(),
   AI_TOKENIZER_CACHE_SIZE: Joi.number().integer().positive().optional(),
+  // 系统提示可留空（= 不注入系统提示）
   AI_SYSTEM_PROMPT: Joi.string().allow('').optional(),
-  AI_TITLE_PROMPT: Joi.string().allow('').optional(),
+  // 标题提示非空：空串同样不会触发 `??` 回退，标题生成会失去指令
+  AI_TITLE_PROMPT: Joi.string().min(1).optional(),
 });

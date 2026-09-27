@@ -66,4 +66,12 @@ describe('envValidationSchema', () => {
     expect(validate({ FILE_STORAGE: 'local' }).error).toBeUndefined();
     expect(validate({ FILE_STORAGE: 's3' }).error).toBeDefined();
   });
+
+  it('非空字符串项拒绝空串（空串 != undefined，不会触发消费方的 ?? 回退）', () => {
+    expect(validate({ OLLAMA_MODEL: '' }).error).toBeDefined();
+    expect(validate({ OLLAMA_MODEL: 'qwen2.5:7b' }).error).toBeUndefined();
+    expect(validate({ AI_TITLE_PROMPT: '' }).error).toBeDefined();
+    // 系统提示允许留空（= 不注入系统提示）
+    expect(validate({ AI_SYSTEM_PROMPT: '' }).error).toBeUndefined();
+  });
 });
