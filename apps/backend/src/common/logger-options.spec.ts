@@ -2,13 +2,41 @@ import { ConfigService } from '@nestjs/config';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   genReqId,
   loggerModuleOptions,
   pruneOldLogs,
   resolveLogDir,
 } from './logger-options.js';
+
+/**
+ * `ConfigService.get` 在内部配置取不到键时会**回退读 process.env**；若不隔离宿主环境，
+ * 「默认值」断言（level=info、默认日志目录）只在宿主未导出这些键时才成立（本机
+ * `export LOG_LEVEL=debug` 即红，CI 干净所以不暴露）。测试前清空、结束后还原。
+ */
+const LEAKY_KEYS = [
+  'NODE_ENV',
+  'LOG_LEVEL',
+  'LOG_PRETTY',
+  'LOG_DIR',
+  'LOG_FILE_RETENTION_DAYS',
+] as const;
+const SAVED_ENV = Object.fromEntries(
+  LEAKY_KEYS.map((key) => [key, process.env[key]]),
+);
+
+beforeEach(() => {
+  for (const key of LEAKY_KEYS) delete process.env[key];
+});
+
+afterAll(() => {
+  for (const key of LEAKY_KEYS) {
+    const value = SAVED_ENV[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
 
 const cfg = (env: Record<string, unknown> = {}) => new ConfigService(env);
 
