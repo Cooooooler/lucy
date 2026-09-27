@@ -26,7 +26,6 @@ vi.mock('@/api/ai', () => api);
 function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
     id: 'c1',
-    userId: '1',
     title: null,
     model: null,
     messages: [],

@@ -8,8 +8,9 @@ import { Observable } from 'rxjs';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
-import { toConversationItem } from './ai.mapper.js';
+import { toConversationDetail, toConversationItem } from './ai.mapper.js';
 import { ContextService } from './context.service.js';
+import type { ConversationDetailDto } from './dto/conversation-detail.dto.js';
 import type { ConversationItemDto } from './dto/conversation-item.dto.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
@@ -93,17 +94,17 @@ export class AiService {
     };
   }
 
-  /** AI：拉取单会话（带消息）。 */
-  async get(userId: string, id: string): Promise<Conversation> {
+  /** AI：拉取单会话（带消息），返回允许式详情契约视图。 */
+  async get(userId: string, id: string): Promise<ConversationDetailDto> {
     const conversation = await this.conversationRepo.findOne({
       where: { id, userId },
     });
     if (!conversation) throw new NotFoundException('会话不存在');
-    conversation.messages = await this.messageRepo.find({
+    const messages = await this.messageRepo.find({
       where: { conversationId: id },
       order: { createdAt: 'ASC' },
     });
-    return conversation;
+    return toConversationDetail(conversation, messages);
   }
 
   /** AI：重命名会话（返回允许式契约视图，与列表项同形）。 */

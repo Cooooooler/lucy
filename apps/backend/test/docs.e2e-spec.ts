@@ -81,9 +81,13 @@ describe('Scalar docs (dev)', () => {
         doc.components?.schemas?.LoginResultDto?.properties ?? {},
       ).sort(),
     ).toEqual(['accessToken', 'user']);
-    expect(doc.components?.schemas?.User?.properties?.username).toBeDefined();
+    // 用户契约现由允许式 DTO `UserListItemDto` 承载（auth 注册/登录/me 与 users 各端点共用），
+    // 不再拿持久化实体 `User` 当响应类型：资料字段可见，passwordHash 不进契约。
     expect(
-      doc.components?.schemas?.User?.properties?.passwordHash,
+      doc.components?.schemas?.UserListItemDto?.properties?.username,
+    ).toBeDefined();
+    expect(
+      doc.components?.schemas?.UserListItemDto?.properties?.passwordHash,
     ).toBeUndefined();
   });
 });

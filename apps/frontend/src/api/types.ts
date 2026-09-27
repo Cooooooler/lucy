@@ -1,7 +1,9 @@
 import type { components } from '@lucy/shared';
 
-// API 契约类型：从后端 Swagger 生成的 components.schemas 派生，勿手改字段
-export type User = components['schemas']['User'];
+// API 契约类型：从后端 Swagger 生成的 components.schemas 派生，勿手改字段。
+// User 现映射到后端允许式契约 UserListItemDto（auth 注册/登录/me 与 users 各端点共用），
+// 不再指向已不再作为响应类型出网的 User 实体（其 passwordHash 不应进入契约）。
+export type User = components['schemas']['UserListItemDto'];
 export type UpdateUserStatusRequest =
   components['schemas']['UpdateUserStatusDto'];
 export type UpdateUserRoleRequest = components['schemas']['UpdateUserRoleDto'];
@@ -15,11 +17,13 @@ export type CreateConversationRequest =
 export type SendMessageRequest = components['schemas']['SendMessageDto'];
 export type RenameConversationRequest =
   components['schemas']['RenameConversationDto'];
-export type Conversation = components['schemas']['Conversation'];
+// 会话**详情**契约（ConversationDetailDto）：会话项字段 + messages，后端已不再返回实体
+export type Conversation = components['schemas']['ConversationDetailDto'];
 // 会话**列表项**契约（ConversationItemDto）：允许式白名单，刻意不含 userId 等实体字段，
-// 与详情契约 Conversation（实体）区分开
+// 与详情契约 Conversation（ConversationDetailDto）区分开
 export type ConversationItem = components['schemas']['ConversationItemDto'];
-export type Message = components['schemas']['Message'];
+// 消息项契约（MessageItemDto）：后端详情/流式落库后返回的消息白名单，不再指向 Message 实体
+export type Message = components['schemas']['MessageItemDto'];
 export type MessageRole = Message['role'];
 export type MessageStatus = Message['status'];
 

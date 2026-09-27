@@ -12,7 +12,7 @@ import type { CurrentUserPayload } from '../common/decorators/current-user.decor
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
-import { User as UserEntity } from '../users/user.entity.js';
+import { UserListItemDto } from '../users/dto/user-list-result.dto.js';
 import { AuthService } from './auth.service.js';
 import { LoginResultDto } from './dto/login-result.dto.js';
 import { LoginDto } from './dto/login.dto.js';
@@ -21,8 +21,8 @@ import { RegisterDto } from './dto/register.dto.js';
 
 const REFRESH_COOKIE = 'refreshToken';
 
-// API 契约类型由 Swagger 生成的 components.schemas 派生
-type User = components['schemas']['User'];
+// API 契约类型由 Swagger 生成的 components.schemas 派生（允许式契约 UserListItemDto）
+type User = components['schemas']['UserListItemDto'];
 
 @ApiTags('auth')
 @Controller({ path: 'auth', version: API_VERSION })
@@ -36,7 +36,7 @@ export class AuthController {
   @SuccessMessage('注册成功')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: '注册', description: '创建新账号并返回用户信息' })
-  @ApiResponse({ status: 201, description: '注册成功', type: UserEntity })
+  @ApiResponse({ status: 201, description: '注册成功', type: UserListItemDto })
   register(@Body() dto: RegisterDto): Promise<User> {
     return this.authService.register(dto);
   }
@@ -118,7 +118,7 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: '返回当前登录用户',
-    type: UserEntity,
+    type: UserListItemDto,
   })
   @ApiResponse({ status: 401, description: '未登录或令牌失效' })
   me(@CurrentUser() user: CurrentUserPayload): Promise<User> {

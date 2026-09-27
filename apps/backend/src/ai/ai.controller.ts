@@ -24,12 +24,12 @@ import { SSE_METADATA } from '../common/interceptors/api-response.interceptor.js
 import { CursorQueryDto } from '../common/pagination/dto/cursor-query.dto.js';
 import { UUIDParam } from '../common/pipes/uuid-param.js';
 import { AiService } from './ai.service.js';
+import { ConversationDetailDto } from './dto/conversation-detail.dto.js';
 import { ConversationItemDto } from './dto/conversation-item.dto.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { RenameConversationDto } from './dto/rename-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
-import { Conversation } from './entities/conversation.entity.js';
 
 @ApiTags('ai')
 @ApiBearerAuth()
@@ -79,13 +79,13 @@ export class AiController {
   @ApiResponse({
     status: 200,
     description: '返回会话及消息',
-    type: Conversation,
+    type: ConversationDetailDto,
   })
   @ApiResponse({ status: 404, description: '会话不存在' })
   get(
     @CurrentUser() user: CurrentUserPayload,
     @UUIDParam('id') id: string,
-  ): Promise<Conversation> {
+  ): Promise<ConversationDetailDto> {
     return this.aiService.get(user.userId, id);
   }
 
