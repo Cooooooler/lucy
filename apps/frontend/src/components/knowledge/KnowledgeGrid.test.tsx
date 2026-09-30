@@ -1,4 +1,5 @@
 import type { KnowledgeBase } from '@/api/types';
+import { GRID_TOP_GAP } from '@/components/knowledge/grid-layout';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
@@ -116,6 +117,11 @@ describe('KnowledgeGrid', () => {
       expect(skeleton.style.width).toContain('32px');
       expect(skeleton.style.width).not.toContain('96px');
     }
+
+    // 顶部留白与虚拟网格同源（scrollMargin: GRID_TOP_GAP）：少了这段，
+    // 冷加载完成那一刻整个网格会整体上移，第一行卡片贴上工具栏
+    const grid = skeletons[0].parentElement as HTMLElement;
+    expect(grid.style.paddingTop).toBe(`${GRID_TOP_GAP}px`);
   });
 
   it('失败时渲染错误态并可重试（展示服务端业务文案）', async () => {

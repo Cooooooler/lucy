@@ -6,7 +6,14 @@ import {
   GRID_GAP,
   GRID_MAX_COLUMNS,
   GRID_MIN_COLUMN_WIDTH,
+  GRID_TOP_GAP,
 } from './grid-layout';
+
+describe('GRID_TOP_GAP', () => {
+  it('顶部留白让第一行卡片不贴着工具栏', () => {
+    expect(GRID_TOP_GAP).toBeGreaterThan(0);
+  });
+});
 
 describe('columnWidthOperand', () => {
   it('扣掉 2·padding 与 (columns−1)·gap，得到列宽算式主体', () => {

@@ -1,6 +1,7 @@
 import {
   CARD_ESTIMATED_HEIGHT,
   GRID_GAP,
+  GRID_TOP_GAP,
 } from '@/components/knowledge/grid-layout';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -207,6 +208,23 @@ describe('useVirtualGrid', () => {
     };
     expect(options.estimateSize()).toBe(CARD_ESTIMATED_HEIGHT + GRID_GAP);
     expect(options).not.toHaveProperty('measureElement');
+  });
+
+  it('用 scrollMargin 给网格留出顶部空白（绝对定位不吃容器的 padding-top）', () => {
+    renderHook(() =>
+      useVirtualGrid({
+        scrollElement: null,
+        count: 1,
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        fetchNextPage: vi.fn(),
+      }),
+    );
+    const options = useVirtualizerMock.mock.calls[0][0] as {
+      scrollMargin: number;
+    };
+    // 首行卡片的 start 会整体下移这一段；库在 getTotalSize 里减回去，总高度不变
+    expect(options.scrollMargin).toBe(GRID_TOP_GAP);
   });
 
   it('通过 onChange 上报首可见项索引', () => {
