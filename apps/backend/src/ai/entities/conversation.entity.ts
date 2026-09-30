@@ -7,15 +7,18 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
-  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { User } from '../../users/user.entity.js';
-import { Message } from './message.entity.js';
 
 /**
- * AI 对话会话：归属用户 + 默认模型 + 标题，一对多持有 Message。
+ * AI 对话会话：归属用户 + 默认模型 + 标题。
+ *
+ * 刻意不声明 `messages` 反向关系（`@OneToMany`）：会话侧从不 populate 消息，服务一律按
+ * `conversationId` 单独查询；反向关系还会让本实体与 `Message` 互相 import 成环，踩中 tsc
+ * `emitDecoratorMetadata` 的 TDZ（详见 `Message.conversation`）。`@OneToMany` 本就不产生
+ * 任何 DB schema，故删除它不影响迁移。
  *
  * `(user_id, updated_at, id)` 同时服务两件事：按用户查询（前缀即 `user_id`，故不再单独
  * 建 `user_id` 索引，避免冗余索引），以及会话列表的 keyset 分页
@@ -52,13 +55,6 @@ export class Conversation {
   @ApiProperty({ description: '会话默认模型', type: String, nullable: true })
   @Column({ type: 'varchar', nullable: true })
   model: string | null;
-
-  // 关系对象：详情端点经 toConversationDetail 从 DTO 输出消息，不再读取实体的 messages；
-  // 标 @Exclude 作纵深防御（理由同上），避免 populate 后整条消息带着实体字段出网
-  @ApiHideProperty()
-  @Exclude()
-  @OneToMany(() => Message, (m) => m.conversation)
-  messages: Message[];
 
   @ApiProperty({ description: '创建时间' })
   // 毫秒精度靠**列类型**保证（`timestamptz(3)`），不靠列默认值：DEFAULT 只在 INSERT 生效，

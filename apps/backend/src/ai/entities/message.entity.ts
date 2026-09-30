@@ -12,7 +12,6 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
-  type Relation,
 } from 'typeorm';
 import { Conversation } from './conversation.entity.js';
 
@@ -43,14 +42,15 @@ export class Message {
   @ApiHideProperty()
   // 关系对象：出网与否由全局序列化拦截器依据 @Exclude 决定（@ApiHideProperty 只管 Swagger）
   @Exclude()
-  @ManyToOne(() => Conversation, (c) => c.messages, { onDelete: 'CASCADE' })
+  // 单向多对一：`conversation_id` 的 FK 与 ON DELETE CASCADE 由本关系产生（删除会话时级联
+  // 删消息靠它）。刻意只保留本侧、**不写反向 @OneToMany**：反向侧会让两个实体互相 import
+  // 成环，踩中 tsc emitDecoratorMetadata 的 TDZ——属性类型会被编译成急切求值的
+  // `__metadata("design:type", Conversation)`，在 conversation.entity 先被加载时求值到
+  // 尚处 TDZ 的 Conversation，报 `Cannot access 'Conversation' before initialization`
+  // （见 conversation.entity 类注释；vitest 走的 SWC 会带 typeof 守卫，故单测不复现）。
+  @ManyToOne(() => Conversation, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'conversation_id' })
-  // 用 Relation<T> 而非裸 Conversation：Message 与 Conversation 互相导入形成环，
-  // tsc 的 emitDecoratorMetadata 会把**属性类型**写成 `__metadata("design:type", Conversation)`
-  // 并在模块求值时求值该引用——当 conversation.entity 先被加载时，Conversation 尚在 TDZ，
-  // 报 `Cannot access 'Conversation' before initialization`。Relation<T> 是类型别名（=`T`），
-  // 元数据退化为 Object，环上的急切引用随之消失（TypeORM 官方对循环关系的推荐写法）。
-  conversation?: Relation<Conversation>;
+  conversation?: Conversation;
 
   @ApiProperty({ description: '角色', enum: MessageRole })
   @Column({ type: 'enum', enum: MessageRole })
