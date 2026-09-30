@@ -12,6 +12,7 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  type Relation,
 } from 'typeorm';
 import { Conversation } from './conversation.entity.js';
 
@@ -44,7 +45,12 @@ export class Message {
   @Exclude()
   @ManyToOne(() => Conversation, (c) => c.messages, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'conversation_id' })
-  conversation?: Conversation;
+  // 用 Relation<T> 而非裸 Conversation：Message 与 Conversation 互相导入形成环，
+  // tsc 的 emitDecoratorMetadata 会把**属性类型**写成 `__metadata("design:type", Conversation)`
+  // 并在模块求值时求值该引用——当 conversation.entity 先被加载时，Conversation 尚在 TDZ，
+  // 报 `Cannot access 'Conversation' before initialization`。Relation<T> 是类型别名（=`T`），
+  // 元数据退化为 Object，环上的急切引用随之消失（TypeORM 官方对循环关系的推荐写法）。
+  conversation?: Relation<Conversation>;
 
   @ApiProperty({ description: '角色', enum: MessageRole })
   @Column({ type: 'enum', enum: MessageRole })
