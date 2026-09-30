@@ -4,6 +4,7 @@ import { KnowledgeCard } from '@/components/knowledge/KnowledgeCard.tsx';
 import {
   CARD_ESTIMATED_HEIGHT,
   columnWidthOperand,
+  GRID_TOP_GAP,
 } from '@/components/knowledge/grid-layout';
 import { useGridBreakpoints, useVirtualGrid } from '@/hooks/use-virtual-grid';
 import { Button, Empty, Result, Spin } from 'antd';
@@ -65,7 +66,12 @@ const KnowledgeGridLoading: FC<{ scrollElement: HTMLElement | null }> = ({
   return (
     <div
       className="flex flex-wrap"
-      style={{ paddingLeft: padding, paddingRight: padding, gap }}
+      style={{
+        paddingLeft: padding,
+        paddingRight: padding,
+        paddingTop: GRID_TOP_GAP,
+        gap,
+      }}
     >
       {SKELETON_KEYS.map((key) => (
         <div

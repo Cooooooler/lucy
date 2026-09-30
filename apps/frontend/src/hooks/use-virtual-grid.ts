@@ -2,6 +2,7 @@ import {
   CARD_ESTIMATED_HEIGHT,
   computeGridLayout,
   GRID_GAP,
+  GRID_TOP_GAP,
 } from '@/components/knowledge/grid-layout';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
@@ -161,6 +162,12 @@ export function useVirtualGrid({
     // 卡片等高后这趟渲染纯属浪费；行高与真实高度的一致性由 CARD_ESTIMATED_HEIGHT 的注释约束。
     estimateSize,
     lanes: layout.columns,
+    // 网格顶部留白：虚拟列表用绝对定位，容器的 padding-top 对绝对定位子元素不生效，
+    // 只能靠虚拟化自己的 paddingStart 把所有 item 的 start 整体下移。
+    // 不能用 scrollMargin：它被加到 start 上却在 getTotalSize 里被减掉，
+    // 容器会少 16px，末行卡片自带的下间距被吃掉；且写法隐含依赖
+    // GRID_TOP_GAP ≤ GRID_GAP，一旦调大就压到页脚上。
+    paddingStart: GRID_TOP_GAP,
     // overscan 的单位是「条目」而非行：从 3 降到 1 只少挂 4 张卡片（实测），并非少挂 3 行。
     // 取 1（库默认值）保留一行左右的缓冲，兼顾滚动流畅与首屏渲染量。
     overscan: 1,
