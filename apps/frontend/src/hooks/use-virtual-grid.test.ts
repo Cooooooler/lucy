@@ -210,7 +210,7 @@ describe('useVirtualGrid', () => {
     expect(options).not.toHaveProperty('measureElement');
   });
 
-  it('用 scrollMargin 给网格留出顶部空白（绝对定位不吃容器的 padding-top）', () => {
+  it('用 paddingStart 给网格留出顶部空白（绝对定位不吃容器的 padding-top）', () => {
     renderHook(() =>
       useVirtualGrid({
         scrollElement: null,
@@ -221,10 +221,26 @@ describe('useVirtualGrid', () => {
       }),
     );
     const options = useVirtualizerMock.mock.calls[0][0] as {
-      scrollMargin: number;
+      paddingStart: number;
     };
-    // 首行卡片的 start 会整体下移这一段；库在 getTotalSize 里减回去，总高度不变
-    expect(options.scrollMargin).toBe(GRID_TOP_GAP);
+    // paddingStart 计入 getTotalSize，容器高度等于真实内容高度
+    expect(options.paddingStart).toBe(GRID_TOP_GAP);
+  });
+
+  it('不用 scrollMargin 留白：它被 getTotalSize 减掉，末行卡片会被页脚压住', () => {
+    renderHook(() =>
+      useVirtualGrid({
+        scrollElement: null,
+        count: 1,
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        fetchNextPage: vi.fn(),
+      }),
+    );
+    const options = useVirtualizerMock.mock.calls[0][0] as {
+      scrollMargin?: number;
+    };
+    expect(options.scrollMargin).toBeUndefined();
   });
 
   it('通过 onChange 上报首可见项索引', () => {
