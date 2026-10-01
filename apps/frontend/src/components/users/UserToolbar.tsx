@@ -1,3 +1,4 @@
+import { FullBleedBar } from '@/components/full-bleed-bar';
 import { Input, Select } from 'antd';
 import type { FC } from 'react';
 
@@ -21,7 +22,8 @@ export const UserToolbar: FC<UserToolbarProps> = ({
   onSearch,
 }) => {
   return (
-    <div className="sticky top-0 z-10 flex w-full items-center justify-between gap-4 bg-(--ant-color-bg-container) px-4 py-6 shadow-lg sm:px-6 md:px-8">
+    // 工具条已在 PageShell 内容盒内，内层不再补 padding（补了会与 PageShell 叠加）
+    <FullBleedBar className="sticky top-0 z-10 shrink-0 py-6 shadow-lg">
       <Select<StatusFilter>
         className="w-32"
         options={STATUS_OPTIONS}
@@ -35,6 +37,6 @@ export const UserToolbar: FC<UserToolbarProps> = ({
           onSearch={(value) => onSearch(value.trim())}
         />
       </div>
-    </div>
+    </FullBleedBar>
   );
 };

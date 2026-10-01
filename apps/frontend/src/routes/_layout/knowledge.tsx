@@ -9,6 +9,7 @@ import {
   KnowledgeToolbar,
   type VisibilityFilter,
 } from '@/components/knowledge/KnowledgeToolbar.tsx';
+import { PageShell } from '@/components/page-shell';
 import { useKnowledgeViewState } from '@/hooks/use-knowledge-view-state.ts';
 import {
   type KnowledgeListFilter,
@@ -193,7 +194,7 @@ function KnowledgeComponent() {
   );
 
   return (
-    <div className="flex h-full flex-col">
+    <>
       <KnowledgeToolbar
         visibility={visibility}
         onVisibilityChange={handleVisibilityChange}
@@ -201,36 +202,38 @@ function KnowledgeComponent() {
         defaultKeyword={initialFilter.name ?? ''}
         onCreate={handleCreate}
       />
-      <div ref={setScrollElement} className="min-h-0 flex-1 overflow-y-auto">
-        <KnowledgeGrid
-          scrollElement={scrollElement}
-          items={items}
-          isLoading={query.isLoading}
-          isError={query.isError}
-          error={query.error}
-          hasNextPage={query.hasNextPage}
-          isFetchingNextPage={query.isFetchingNextPage}
-          isFetchNextPageError={query.isFetchNextPageError}
-          isPlaceholderData={query.isPlaceholderData}
-          fetchNextPage={query.fetchNextPage}
-          refetch={query.refetch}
-          hasFilter={Boolean(filter.name || filter.visibility)}
-          onEdit={handleEdit}
-          onToggleLike={handleToggleLike}
-          onToggleVisibility={handleToggleVisibility}
-          onDelete={handleDelete}
-          pendingIds={pendingIds}
-          initialRestoreIndex={restoreIndex}
-          onRestoreDone={handleRestoreDone}
-          onFirstVisibleItemChange={saveFirstVisibleIndex}
+      <PageShell height="fill">
+        <div ref={setScrollElement} className="min-h-0 flex-1 overflow-y-auto">
+          <KnowledgeGrid
+            scrollElement={scrollElement}
+            items={items}
+            isLoading={query.isLoading}
+            isError={query.isError}
+            error={query.error}
+            hasNextPage={query.hasNextPage}
+            isFetchingNextPage={query.isFetchingNextPage}
+            isFetchNextPageError={query.isFetchNextPageError}
+            isPlaceholderData={query.isPlaceholderData}
+            fetchNextPage={query.fetchNextPage}
+            refetch={query.refetch}
+            hasFilter={Boolean(filter.name || filter.visibility)}
+            onEdit={handleEdit}
+            onToggleLike={handleToggleLike}
+            onToggleVisibility={handleToggleVisibility}
+            onDelete={handleDelete}
+            pendingIds={pendingIds}
+            initialRestoreIndex={restoreIndex}
+            onRestoreDone={handleRestoreDone}
+            onFirstVisibleItemChange={saveFirstVisibleIndex}
+          />
+        </div>
+        <KnowledgeFormDrawer
+          open={!!formTarget}
+          mode={formTarget?.mode ?? 'create'}
+          kb={formTarget?.mode === 'edit' ? formTarget.kb : undefined}
+          onClose={() => setFormTarget(null)}
         />
-      </div>
-      <KnowledgeFormDrawer
-        open={!!formTarget}
-        mode={formTarget?.mode ?? 'create'}
-        kb={formTarget?.mode === 'edit' ? formTarget.kb : undefined}
-        onClose={() => setFormTarget(null)}
-      />
-    </div>
+      </PageShell>
+    </>
   );
 }

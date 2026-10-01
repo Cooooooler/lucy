@@ -46,17 +46,16 @@ type UseVirtualGridOptions = {
   onRestoreDone?: () => void;
 };
 
-/** 随宽度「分档」变化的几何量：列数与左右内边距。卡片宽度由 CSS 计算（见 KnowledgeGridVirtual） */
+/** 随宽度「分档」变化的几何量：列数与列间距。卡片宽度由 CSS 计算（见 KnowledgeGridVirtual） */
 export type GridBreakpoints = {
   columns: number;
-  padding: number;
   gap: number;
 };
 
 /** 取宽度对应的分档几何（列宽等连续量此处用不到，由 CSS 表达） */
 function toBreakpoints(width: number): GridBreakpoints {
-  const { columns, padding, gap } = computeGridLayout(width);
-  return { columns, padding, gap };
+  const { columns, gap } = computeGridLayout(width);
+  return { columns, gap };
 }
 
 /** 容器宽度未知时（首个 commit 之前）按 0 宽度分档，与旧行为一致 */
@@ -109,7 +108,7 @@ export function useGridBreakpoints(
     }
     const next = toBreakpoints(widthRef.current);
     const cached = breakpointsRef.current;
-    if (cached.columns === next.columns && cached.padding === next.padding) {
+    if (cached.columns === next.columns) {
       return cached;
     }
     breakpointsRef.current = next;

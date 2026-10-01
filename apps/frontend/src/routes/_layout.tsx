@@ -4,6 +4,7 @@ import { resetClientCaches } from '@/reset-client-caches.ts';
 import { authStore, logout } from '@/stores/auth.ts';
 import { ThemeSwitcher } from '@/theme/switch/theme-switcher';
 import {
+  ApiOutlined,
   DatabaseOutlined,
   HomeOutlined,
   InfoCircleOutlined,
@@ -37,6 +38,9 @@ export const Route = createFileRoute('/_layout')({
   component: LayoutComponent,
 });
 
+// 声明式两层菜单：某项有 routes → mix 布局在左侧渲染它的副菜单；
+// 没有 routes → 侧栏整体不渲染（ProLayout 内部 flexDirection 退回纵向，页面占满宽度）。
+// 因此「有没有副菜单」不需要额外开关，写成树就生效。
 const menuData = {
   path: '/',
   routes: [
@@ -44,6 +48,17 @@ const menuData = {
     { path: '/about', name: '关于', icon: <InfoCircleOutlined /> },
     { path: '/knowledge', name: '知识库', icon: <DatabaseOutlined /> },
     { path: '/chat', name: '聊天机器人', icon: <OllamaFilled /> },
+    {
+      path: '/integration',
+      name: '集成',
+      icon: <ApiOutlined />,
+      routes: [
+        {
+          path: '/integration/model-provider',
+          name: '模型供应商',
+        },
+      ],
+    },
     { path: '/users', name: '用户管理', icon: <TeamOutlined /> },
   ],
 };
@@ -135,7 +150,8 @@ function LayoutComponent() {
       className={'h-full'}
       title="Lucy"
       logo={<img src="/favicon.svg" alt="Lucy" />}
-      layout="top"
+      layout="mix"
+      splitMenus
       fixedHeader
       menu={{ locale: false }}
       location={{ pathname }}

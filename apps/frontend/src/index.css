@@ -15,6 +15,27 @@
   display: none !important;
 }
 
+/* 通栏工具条底色（见 components/full-bleed-bar.tsx）。
+   PageShell 有 max-w + mx-auto，宽屏下两侧留白；工具条用伪元素把底色铺到 100vw，
+   而自身不参与布局——用负 margin 或 width:100vw 真去撑开元素会让元素变满宽，
+   居中偏移随即归零、控件被推到视口左缘与下方卡片错位。
+
+   注意：底色所属的层叠上下文由组件上的 `isolate` utility 建立（Tailwind 的
+   `isolation: isolate`），不写在这里——`position: relative` + `z-index: auto`
+   **不**形成层叠上下文，::before 的 z-index:-1 会向上冒泡到最近祖先的负层，
+   被祖先自身的不透明背景盖住（实测给工具条父级加背景色后底色整条不可见）。
+   约束写在组件里，才能被单测断言；这里的 CSS 只负责铺色。 */
+.lucy-full-bleed-bar::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  background: var(--ant-color-bg-container);
+  z-index: -1;
+}
+
 #root {
   width: 100vw;
   height: 100vh;
@@ -40,9 +61,10 @@
   }
 
   /* 让 PageContainer 内容铺满去掉头部后的剩余高度。
-                   .ant-pro-layout-content 本身已撑满视口，但 .ant-pro-page-container 这一串默认
-                   flex: 0 1 auto 只按内容定高，不向下传递高度，导致子页 h-full 塌陷。
-                   flex: 1 1 auto 保证短内容铺满、长内容仍能随内容生长触发页面滚动。 */
+                   这四级是嵌套的 flex 链：每一级默认都是 flex: 0 1 auto（只按自身内容定高），
+                   高度不会向下传递，断掉任意一环整条链就塌（实测中和任意一级，
+                   子页 h-full 都从 978px 掉到 222px）。flex: 1 1 auto 让每一级都占满父级。
+                   display: flex + min-height: 0 则让长内容在该层内部消化、不撑大外层。 */
 
   .ant-pro-page-container,
   .ant-pro-page-container > .ant-pro-grid-content,
@@ -59,7 +81,6 @@
     min-height: 0;
     padding-inline: 0;
     padding-block-end: 0;
-    overflow-y: auto;
   }
 
   /* 布局壳固定为视口高度，防止子页内容把整页撑出滚动条；
@@ -67,6 +88,15 @@
 
   .ant-pro-layout > .ant-layout {
     height: 100%;
+  }
+
+  /* .ant-pro-layout-container 是 .ant-layout 的唯一 flex 子项，但 ProComponents
+     只给了它 width:100% + display:flex，没给 flex-grow，默认 flex: 0 1 auto 只按内容
+     定高 —— 子页的 h-full 会因此塌陷（实测 mix 布局下容器只有 288px，top 布局下满高
+     1044px；上一组规则生效的前提就是这里先把容器撑满）。
+     flex-basis:0 让剩余空间全部分配给它，顶栏以外的内容区正好铺满。 */
+  .ant-pro-layout > .ant-layout > .ant-pro-layout-container {
+    flex: 1 1 0;
   }
 }
 
