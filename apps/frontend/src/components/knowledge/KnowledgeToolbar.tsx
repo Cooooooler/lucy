@@ -1,3 +1,4 @@
+import { FullBleedBar } from '@/components/full-bleed-bar';
 import { Button, Input, Segmented } from 'antd';
 import type { FC } from 'react';
 
@@ -27,7 +28,9 @@ export const KnowledgeToolbar: FC<KnowledgeToolbarProps> = ({
   defaultKeyword,
   onCreate,
 }) => (
-  <div className="z-10 flex w-full shrink-0 items-center justify-between gap-4 bg-(--ant-color-bg-container) px-4 py-6 shadow-lg sm:px-6 md:px-8">
+  // 工具条本身已在 PageShell 的内容盒内（限宽 + px 都由 PageShell 提供），
+  // 故内层不再补 padding——补了会与 PageShell 叠加、控件右移一个档位。
+  <FullBleedBar className="shrink-0 py-6 shadow-lg">
     <Segmented<VisibilityFilter>
       options={VISIBILITY_OPTIONS}
       value={visibility}
@@ -44,5 +47,5 @@ export const KnowledgeToolbar: FC<KnowledgeToolbarProps> = ({
         />
       </div>
     </div>
-  </div>
+  </FullBleedBar>
 );

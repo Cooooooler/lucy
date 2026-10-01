@@ -171,16 +171,25 @@ describe('KnowledgeGrid', () => {
   });
 
   it('卡片宽度与位置交给 CSS calc（拖拽窗口不再逐像素重渲染）', () => {
-    const items = [makeKb('kb1', '知识库 A')];
+    const items = [makeKb('kb1', '知识库 A'), makeKb('kb2', '知识库 B')];
     makeFirstItemVisible();
+    // 两个不同列：验证非首列的偏移仍走 calc
+    virtualizerStub.getVirtualItems.mockReturnValue([
+      { index: 0, start: 0, size: 200, lane: 0, key: 0 },
+      { index: 1, start: 0, size: 200, lane: 1, key: 1 },
+    ]);
     const { container } = renderGrid({ items, hasNextPage: false });
 
-    const wrapper = container.querySelector(
-      '[data-index]',
-    ) as HTMLElement | null;
-    expect(wrapper).not.toBeNull();
-    expect(wrapper?.style.width).toContain('calc(');
-    expect(wrapper?.style.left).toContain('calc(');
+    const wrappers = container.querySelectorAll('[data-index]');
+    const first = wrappers[0] as HTMLElement;
+    const second = wrappers[1] as HTMLElement;
+    // 列宽始终是 calc 算式（随容器宽度重排，不经过 React）
+    expect(first.style.width).toContain('calc(');
+    expect(second.style.width).toContain('calc(');
+    // 首列贴齐内容盒左缘（内边距由 PageShell 提供，此处不重复补）
+    expect(first.style.left).toBe('0px');
+    // 非首列按「列宽 + 列间距」用 calc 偏移
+    expect(second.style.left).toContain('calc(');
   });
 
   it('接近末尾时触发预取，且不显示已加载全部', async () => {

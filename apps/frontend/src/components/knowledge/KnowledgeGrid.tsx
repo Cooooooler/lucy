@@ -60,15 +60,13 @@ const SKELETON_KEYS = ['sk-1', 'sk-2', 'sk-3', 'sk-4', 'sk-5', 'sk-6'];
 const KnowledgeGridLoading: FC<{ scrollElement: HTMLElement | null }> = ({
   scrollElement,
 }) => {
-  const { columns, padding, gap } = useGridBreakpoints(scrollElement);
-  // 容器的 padding 由 flex 容器承担，卡片的 `100%` 已经是内容盒宽度 → 算式里传 padding: 0
-  const width = `calc(${columnWidthOperand(columns, gap, 0)})`;
+  const { columns, gap } = useGridBreakpoints(scrollElement);
+  // 满宽即可：卡片 `100%` 解析到滚动容器的内容盒，PageShell 的内边距已被排除在外
+  const width = `calc(${columnWidthOperand(columns, gap)})`;
   return (
     <div
       className="flex flex-wrap"
       style={{
-        paddingLeft: padding,
-        paddingRight: padding,
         paddingTop: GRID_TOP_GAP,
         gap,
       }}
@@ -186,14 +184,11 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
     onFirstVisibleItemChange,
   });
 
-  // 列宽与卡片位置全部交给 CSS calc：内容宽度 = 容器宽度 − 左右内边距，再按列数均分。
+  // 列宽与卡片位置全部交给 CSS calc：内容宽度 = 容器宽度，按列数均分。
   // 这样拖拽窗口时列宽由浏览器重排，不必逐像素经过 React（见 use-virtual-grid 的快照说明）。
-  // 表达式与加载骨架共用 grid-layout 的同一份几何（包含块不同，故此处传真实 padding）。
-  const columnWidth = columnWidthOperand(
-    layout.columns,
-    layout.gap,
-    layout.padding,
-  );
+  // 表达式与加载骨架共用 grid-layout 的同一份几何。内边距由 PageShell 提供，
+  // 虚拟卡片的包含块已是内容盒，故这里不再补 padding（补了会与 PageShell 叠加）。
+  const columnWidth = columnWidthOperand(layout.columns, layout.gap);
 
   return (
     <>
@@ -214,7 +209,10 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
                   style={{
                     position: 'absolute',
                     top: 0,
-                    left: `calc(${layout.padding}px + ${virtualItem.lane ?? 0} * (${columnWidth} + ${layout.gap}px))`,
+                    left:
+                      virtualItem.lane === 0
+                        ? '0'
+                        : `calc(${(virtualItem.lane ?? 0) * layout.gap}px + ${virtualItem.lane} * (${columnWidth}))`,
                     width: `calc(${columnWidth})`,
                     transform: `translateY(${virtualItem.start}px)`,
                     paddingBottom: layout.gap,

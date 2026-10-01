@@ -1,4 +1,5 @@
 import { errorStatusOf } from '@/api/client';
+import { PageShell } from '@/components/page-shell';
 import {
   useConversationList,
   useCreateConversation,
@@ -185,34 +186,36 @@ function ChatPage() {
   });
 
   return (
-    <Splitter className="h-full" collapsible={{ motion: true }}>
-      <Splitter.Panel defaultSize="15%" min="15%" max="40%">
-        <Conversations
-          menu={menuConfig}
-          items={items}
-          activeKey={id}
-          onActiveChange={(key) =>
-            navigate({ to: '/chat', search: { id: key }, replace: true })
-          }
-          creation={{
-            label: <Text ellipsis>新建会话</Text>,
-            icon: <PlusOutlined />,
-            onClick: () =>
-              navigate({
-                to: '/chat',
-                search: { id: undefined },
-                replace: true,
-              }),
-          }}
-        />
-      </Splitter.Panel>
-      <Splitter.Panel>
-        <ChatMessagesArea id={id} />
-      </Splitter.Panel>
-      <Splitter.Panel collapsible defaultSize="0%" min="15%" max="40%">
-        <ThoughtChainPlaceholder />
-      </Splitter.Panel>
-    </Splitter>
+    <PageShell height="fill" bleed>
+      <Splitter className="h-full" collapsible={{ motion: true }}>
+        <Splitter.Panel defaultSize="15%" min="15%" max="40%">
+          <Conversations
+            menu={menuConfig}
+            items={items}
+            activeKey={id}
+            onActiveChange={(key) =>
+              navigate({ to: '/chat', search: { id: key }, replace: true })
+            }
+            creation={{
+              label: <Text ellipsis>新建会话</Text>,
+              icon: <PlusOutlined />,
+              onClick: () =>
+                navigate({
+                  to: '/chat',
+                  search: { id: undefined },
+                  replace: true,
+                }),
+            }}
+          />
+        </Splitter.Panel>
+        <Splitter.Panel>
+          <ChatMessagesArea id={id} />
+        </Splitter.Panel>
+        <Splitter.Panel collapsible defaultSize="0%" min="15%" max="40%">
+          <ThoughtChainPlaceholder />
+        </Splitter.Panel>
+      </Splitter>
+    </PageShell>
   );
 }
 

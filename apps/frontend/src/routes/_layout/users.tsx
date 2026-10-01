@@ -2,6 +2,7 @@ import { errorMessageOf } from '@/api/client';
 import type { User } from '@/api/types';
 import type { UserListQuery } from '@/api/users';
 import { hasMinRole } from '@/auth/roles';
+import { PageShell } from '@/components/page-shell';
 import { UserToolbar, type StatusFilter } from '@/components/users/UserToolbar';
 import {
   useDeleteUser,
@@ -403,7 +404,7 @@ function UsersPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <PageShell height="fill">
       <UserToolbar
         status={status}
         onStatusChange={(value) => {
@@ -415,7 +416,7 @@ function UsersPage() {
           setPage(1);
         }}
       />
-      <div className="min-h-0 flex-1 px-4 py-4 sm:px-6 md:px-8">{content}</div>
+      <div className="min-h-0 flex-1 py-4">{content}</div>
       <UserDetailModal
         user={detailUser}
         open={detailUser !== null}
@@ -426,6 +427,6 @@ function UsersPage() {
         open={roleUser !== null}
         onClose={() => setRoleUser(null)}
       />
-    </div>
+    </PageShell>
   );
 }
