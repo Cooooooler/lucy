@@ -11,12 +11,27 @@ name: PR Skill Review
 # 模型先只看到技能的 name + description，判断相关后才读 SKILL.md，再按需读
 # rules/*.md —— 和本地 CLI 里手动调用技能的行为一致。
 #
-# 触发策略：**刻意不订阅 synchronize**。每次 push 都跑一轮，会让同一 PR 堆出多条互相
-# 重叠、甚至前后矛盾的评论（实测 #53 五条、#55 四条；其中多数条目在 head 上早已修好、
-# 或已被后续提交取代，但评论不会自动关闭，于是散落的意见盖住了真正待改的几条）。
-# 现在：开 PR（非 draft）、draft 转 ready、reopen 时自动跑一轮；迭代修复后若要再评审，
-# 在 PR 里评论 `/skill-review` 手动触发（与 pr-agent.yml 的 `/review` 同风格），
-# 一轮修复只产出一次评审。
+# 触发策略：**只在手动评论时评审**（PR 上评论 `/skill-review`）。
+#
+# 原先同时订阅 `pull_request`（opened/ready_for_review/reopened）自动跑一轮，实测 #80
+# 撞上竞态导致零产出：
+#   14:17:26  pull_request run 启动，评审要跑 4~5 分钟
+#   14:21:00  SonarCloud 机器人在 PR 上发质量门禁评论 → 触发 issue_comment 事件
+#             → 落进同一个 concurrency group → 新 run 排队并把正在跑的评审取消
+#   结果：评审跑满 4 分多钟后被机器人评论打断，PR 上没有任何评审产出。
+#
+# 为什么当时没改 `if` 而是删掉自动触发：`if` 拦不住。job 级 `if` 在**排队之后**才求值，
+# 而 concurrency 取消发生在排队那一刻——机器人那条 run 先取消了在跑的评审，
+# 然后才被 `if` 判成 `skipped`（#80 的 run 36875641369 就是 skipped）。
+# 「跳过」不等于「不参与竞争」。
+#
+# 为什么这个时间窗是稳定复现的：Sonar 的评论稳定在 PR 创建后 3~4 分钟到达，
+# 而一轮评审要 4~5 分钟，两者高度重叠——等于每个改动 apps/** 的 PR 都会撞上。
+# #79 侥幸躲过（评审先跑完），#80 没躲过。竞态问题平时不会暴露，但代价是整轮评审白跑。
+#
+# 现在只保留手动入口：一次修复对应一次评审，触发时机由人决定（跑完 CI、看完 diff 再评），
+# 也不再消耗自动触发的额度。`cancel-in-progress: true` 保留——同一 PR 连续评论两次时
+# 后一次顶掉前一次，符合预期（两次针对同一 head 时结果相同，只留一轮即可）。
 #
 # 鉴权：官方 headless 登录是 OAuth（不适合 CI）。这里用仓库 owner 的 Command Code
 # 账号 API key（COMMAND_CODE_API_KEY，headless 下 CLI 据此登录），模型调用走该账号
@@ -24,19 +39,16 @@ name: PR Skill Review
 # 上限，不需要在 providers.json 里手工声明。
 
 on:
-  pull_request:
-    types: [opened, ready_for_review, reopened]
-    paths:
-      - 'apps/frontend/**'
-      - 'apps/backend/**'
-  # 手动重跑入口。重要：GitHub 只在「默认分支」存在该工作流时才响应 issue_comment 事件，
+  # 重要：GitHub 只在「默认分支」存在该工作流时才响应 issue_comment 事件，
   # 因此这个入口要在本文件合并进 master 后才生效（与 pr-agent.yml 同理）。
   issue_comment:
     types: [created]
 
-# 同一 PR 只保留一个 run：反复触发时取消旧 run，避免旧 run 的结果后发、与本轮评论交错
+# 同一 PR 的评审串行执行，反复触发时只保留最新一轮。
+# 此时并发组里只有「手动 /skill-review」一种触发源，不再有机器人评论混进来
+# 自动触发被删后曾出现过的「机器人评论取消在跑评审」竞态不复存在。
 concurrency:
-  group: pr-skill-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: pr-skill-review-${{ github.event.issue.number }}
   cancel-in-progress: true
 
 # 读代码 + 发评论；本作业不会回推代码
@@ -48,11 +60,13 @@ permissions:
 jobs:
   skill-review:
     name: Skill-based review
-    # 自动触发：仅同仓库分支（fork PR：secrets 不可用、GITHUB_TOKEN 只读），且非 draft；
-    # 手动触发：PR 上以 `/skill-review` 开头的评论，且发起者非 bot、有写权限
-    # （否则外部贡献者也能用一句评论消耗仓库 owner 的账号额度）
+    # 只保留手动入口后，触发条件收敛成一件事：PR 上以 `/skill-review` 开头的评论，
+    # 且发起者非 bot、有写权限——否则外部贡献者也能用一句评论消耗仓库 owner 的账号额度。
+    # （原先的 `pull_request` 分支同仓库/非 draft 判定已随自动触发一起移除；
+    # fork PR 的 secrets 限制由下方 author_association 白名单一并挡住：
+    # fork 贡献者身份是 CONTRIBUTOR，不在名单内。）
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft) || (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.sender.type != 'Bot' && startsWith(github.event.comment.body, '/skill-review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+      github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.sender.type != 'Bot' && startsWith(github.event.comment.body, '/skill-review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: tenki-standard-small-2c-4g
     timeout-minutes: 30
     env:
