@@ -18,7 +18,13 @@
 /* 通栏工具条底色（见 components/full-bleed-bar.tsx）。
    PageShell 有 max-w + mx-auto，宽屏下两侧留白；工具条用伪元素把底色铺到 100vw，
    而自身不参与布局——用负 margin 或 width:100vw 真去撑开元素会让元素变满宽，
-   居中偏移随即归零、控件被推到视口左缘与下方卡片错位。 */
+   居中偏移随即归零、控件被推到视口左缘与下方卡片错位。
+
+   注意：底色所属的层叠上下文由组件上的 `isolate` utility 建立（Tailwind 的
+   `isolation: isolate`），不写在这里——`position: relative` + `z-index: auto`
+   **不**形成层叠上下文，::before 的 z-index:-1 会向上冒泡到最近祖先的负层，
+   被祖先自身的不透明背景盖住（实测给工具条父级加背景色后底色整条不可见）。
+   约束写在组件里，才能被单测断言；这里的 CSS 只负责铺色。 */
 .lucy-full-bleed-bar::before {
   content: '';
   position: absolute;

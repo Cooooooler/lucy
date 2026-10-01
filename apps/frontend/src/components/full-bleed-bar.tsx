@@ -21,6 +21,13 @@ export type FullBleedBarProps = {
  * 已知边界：`100vw` 含页面级滚动条宽度。本仓 `#root` 是 `overflow: hidden`、长内容在内部
  * 容器滚动，没有页面级滚动条，故 `100vw` 恰等于可见宽度。若将来放开页面级滚动，
  * 需给伪元素补 `max-width: 100%` 收口。
+ *
+ * `isolate`（`isolation: isolate`）**不可省**：底色靠 `::before` 的 `z-index: -1` 铺设，
+ * 而 `position: relative` + `z-index: auto` 不形成层叠上下文，该负层会向上冒泡到最近祖先
+ * 的层叠上下文，于是被祖先自身的不透明背景盖住、底色整条不可见（实测给父级加背景色后
+ * 工具条区域只剩父级背景）。建立自身层叠上下文后伪元素被约束在工具条内部。
+ * 用 `isolate` 而非 `z-10`：后者会把整个工具条抬到兄弟元素之上（`UserToolbar` 因 sticky
+ * 需要那个），而这里只需约束自己的伪元素，不该改变元素之间的 z序。
  */
 export const FullBleedBar = ({
   children,
@@ -28,7 +35,7 @@ export const FullBleedBar = ({
   innerClassName,
 }: FullBleedBarProps) => {
   return (
-    <div className={cn('lucy-full-bleed-bar relative', className)}>
+    <div className={cn('lucy-full-bleed-bar relative isolate', className)}>
       <div
         className={cn(
           'flex items-center justify-between gap-4',
