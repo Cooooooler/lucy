@@ -28,9 +28,7 @@ export const KnowledgeToolbar: FC<KnowledgeToolbarProps> = ({
   defaultKeyword,
   onCreate,
 }) => (
-  // 工具条本身已在 PageShell 的内容盒内（限宽 + px 都由 PageShell 提供），
-  // 故内层不再补 padding——补了会与 PageShell 叠加、控件右移一个档位。
-  <FullBleedBar className="shrink-0 py-6 shadow-lg">
+  <FullBleedBar className="lucy-page-gutter shrink-0 py-6 shadow-lg">
     <Segmented<VisibilityFilter>
       options={VISIBILITY_OPTIONS}
       value={visibility}
