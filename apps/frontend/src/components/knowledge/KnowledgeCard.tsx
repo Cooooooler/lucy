@@ -86,7 +86,7 @@ export const KnowledgeCard = ({
           aria-label={kb.isLiked ? '取消点赞' : '点赞'}
           disabled={isLikePending}
           onClick={() => onToggleLike(kb)}
-          className="flex flex-1 cursor-pointer items-center justify-center gap-1 text-gray-400 transition-colors hover:text-[#ff6b6b] disabled:opacity-50"
+          className="flex flex-1 cursor-pointer items-center justify-center gap-1 text-gray-400 transition-colors hover:text-[#ff6b6b] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {kb.isLiked ? (
             <HeartFilled style={{ color: '#ff6b6b' }} />
@@ -103,7 +103,7 @@ export const KnowledgeCard = ({
           aria-label={kb.visibility === 'public' ? '设为私有' : '设为公开'}
           disabled={isUpdatePending}
           onClick={() => onToggleVisibility(kb)}
-          className="flex flex-1 cursor-pointer items-center justify-center text-gray-400 transition-colors hover:text-[#4ecdc4] disabled:opacity-50"
+          className="flex flex-1 cursor-pointer items-center justify-center text-gray-400 transition-colors hover:text-[#4ecdc4] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {kb.visibility === 'public' ? (
             <UnlockOutlined style={{ color: '#4ecdc4' }} />
@@ -126,7 +126,7 @@ export const KnowledgeCard = ({
           aria-label="删除知识库"
           disabled={isDeletePending}
           onClick={() => onDelete(kb)}
-          className="flex flex-1 cursor-pointer items-center justify-center text-gray-400 transition-colors hover:text-[#ff6b6b] disabled:opacity-50"
+          className="flex flex-1 cursor-pointer items-center justify-center text-gray-400 transition-colors hover:text-[#ff6b6b] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <DeleteOutlined style={{ color: '#ff6b6b' }} />
         </button>
