@@ -147,6 +147,25 @@ describe('KnowledgeCard', () => {
     expect(props.onToggleVisibility).toHaveBeenCalledWith(kb);
   });
 
+  it('公私角标形状与配色双重区分（私有：锁 + 灰底；公开：地球 + 青底）', () => {
+    const shape = (button: Element) =>
+      button.querySelector('svg path')?.getAttribute('d');
+
+    const { unmount } = renderCard();
+    const privateBadge = screen.getByRole('button', { name: '设为公开' });
+    expect(privateBadge.className).toContain('bg-[#8c8c8c]');
+    const privateShape = shape(privateBadge);
+    unmount();
+
+    renderCard({ kb: { ...baseKb, visibility: 'public' as const } });
+    const publicBadge = screen.getByRole('button', { name: '设为私有' });
+    expect(publicBadge.className).toContain('bg-[#4ecdc4]');
+
+    // 形状必须真的不同：lock/unlock 的锁梁开口在 14px 白字下分辨不出，颜色只是第二重保险
+    expect(privateShape).not.toBeNull();
+    expect(shape(publicBadge)).not.toBe(privateShape);
+  });
+
   it('删除按钮只上报意图：确认对话框由路由持有，卡片内不再弹窗', async () => {
     const { props } = renderCard();
 

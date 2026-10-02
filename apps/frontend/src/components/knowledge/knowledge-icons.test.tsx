@@ -4,10 +4,10 @@ import { describe, expect, it } from 'vitest';
 import {
   DeleteOutlined,
   EditOutlined,
+  GlobalOutlined,
   HeartFilled,
   HeartOutlined,
   LockOutlined,
-  UnlockOutlined,
 } from './knowledge-icons';
 
 /**
@@ -161,7 +161,7 @@ const ICONS = [
   ['HeartFilled', HeartFilled],
   ['HeartOutlined', HeartOutlined],
   ['LockOutlined', LockOutlined],
-  ['UnlockOutlined', UnlockOutlined],
+  ['GlobalOutlined', GlobalOutlined],
   ['EditOutlined', EditOutlined],
   ['DeleteOutlined', DeleteOutlined],
 ] as const;
