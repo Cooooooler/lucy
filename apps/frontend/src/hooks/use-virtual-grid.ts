@@ -72,8 +72,8 @@ const INITIAL_BREAKPOINTS = toBreakpoints(0);
 function contentWidthOf(element: HTMLElement): number {
   const style = getComputedStyle(element);
   const padding =
-    (parseFloat(style.paddingLeft) || 0) +
-    (parseFloat(style.paddingRight) || 0);
+    (Number.parseFloat(style.paddingLeft) || 0) +
+    (Number.parseFloat(style.paddingRight) || 0);
   return Math.max(0, element.clientWidth - padding);
 }
 
