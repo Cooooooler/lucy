@@ -15,8 +15,34 @@
   display: none !important;
 }
 
+/* 页面限宽（见 components/page-shell.tsx）：用「居中内边距」表达等价于
+   `max-width: 1600px; margin-inline: auto` 的限宽，但容器自身保持满宽（w-full）。
+
+   为什么不直接用 max-w + mx-auto：容器自身会收窄到 1600px，同理滚动容器的滚动条
+   也只能停在限宽盒内缘。改成居中内边距后容器满宽，滚动条可贴到内容区右缘，
+   而内容盒宽度不变——仍是 min(100%, 1600px) - 2*gutter。
+
+   内边距 = max(gutter, 超出 1600px 部分的一半 + gutter)：窄屏时就是普通 gutter，
+   宽屏时把两侧留白并进内边距，容器因此不必收窄。gutter 分档对齐 Tailwind 的
+   sm(640) / md(768)，值与其他地方用的 px-4 / sm:px-6 / md:px-8 一致。 */
+.lucy-page-gutter {
+  padding-inline: max(1rem, calc((100% - 1600px) / 2 + 1rem));
+}
+
+@media (min-width: 640px) {
+  .lucy-page-gutter {
+    padding-inline: max(1.5rem, calc((100% - 1600px) / 2 + 1.5rem));
+  }
+}
+
+@media (min-width: 768px) {
+  .lucy-page-gutter {
+    padding-inline: max(2rem, calc((100% - 1600px) / 2 + 2rem));
+  }
+}
+
 /* 通栏工具条底色（见 components/full-bleed-bar.tsx）。
-   PageShell 有 max-w + mx-auto，宽屏下两侧留白；工具条用伪元素把底色铺到 100vw，
+   PageShell 的限宽以居中内边距实现，宽屏下内容盒两侧仍有留白；工具条用伪元素把底色铺到 100vw，
    而自身不参与布局——用负 margin 或 width:100vw 真去撑开元素会让元素变满宽，
    居中偏移随即归零、控件被推到视口左缘与下方卡片错位。
 

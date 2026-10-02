@@ -202,31 +202,30 @@ function KnowledgeComponent() {
         defaultKeyword={initialFilter.name ?? ''}
         onCreate={handleCreate}
       />
-      <PageShell height="fill">
-        <div ref={setScrollElement} className="min-h-0 flex-1 overflow-y-auto">
-          <KnowledgeGrid
-            scrollElement={scrollElement}
-            items={items}
-            isLoading={query.isLoading}
-            isError={query.isError}
-            error={query.error}
-            hasNextPage={query.hasNextPage}
-            isFetchingNextPage={query.isFetchingNextPage}
-            isFetchNextPageError={query.isFetchNextPageError}
-            isPlaceholderData={query.isPlaceholderData}
-            fetchNextPage={query.fetchNextPage}
-            refetch={query.refetch}
-            hasFilter={Boolean(filter.name || filter.visibility)}
-            onEdit={handleEdit}
-            onToggleLike={handleToggleLike}
-            onToggleVisibility={handleToggleVisibility}
-            onDelete={handleDelete}
-            pendingIds={pendingIds}
-            initialRestoreIndex={restoreIndex}
-            onRestoreDone={handleRestoreDone}
-            onFirstVisibleItemChange={saveFirstVisibleIndex}
-          />
-        </div>
+      {/* 滚动交给 PageShell 自身：滚动条贴限宽容器右缘，而不是被内边距推离 */}
+      <PageShell scrollable ref={setScrollElement}>
+        <KnowledgeGrid
+          scrollElement={scrollElement}
+          items={items}
+          isLoading={query.isLoading}
+          isError={query.isError}
+          error={query.error}
+          hasNextPage={query.hasNextPage}
+          isFetchingNextPage={query.isFetchingNextPage}
+          isFetchNextPageError={query.isFetchNextPageError}
+          isPlaceholderData={query.isPlaceholderData}
+          fetchNextPage={query.fetchNextPage}
+          refetch={query.refetch}
+          hasFilter={Boolean(filter.name || filter.visibility)}
+          onEdit={handleEdit}
+          onToggleLike={handleToggleLike}
+          onToggleVisibility={handleToggleVisibility}
+          onDelete={handleDelete}
+          pendingIds={pendingIds}
+          initialRestoreIndex={restoreIndex}
+          onRestoreDone={handleRestoreDone}
+          onFirstVisibleItemChange={saveFirstVisibleIndex}
+        />
         <KnowledgeFormDrawer
           open={!!formTarget}
           mode={formTarget?.mode ?? 'create'}

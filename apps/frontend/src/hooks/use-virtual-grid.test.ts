@@ -527,6 +527,28 @@ describe('useVirtualGrid', () => {
     }
   });
 
+  it('按内容盒宽度分档：扣掉滚动容器的左右内边距，临界宽度上不会多算一列', () => {
+    const { element: scrollElement } = makeSizedScrollElement(1280);
+    // 滚动容器是 PageShell 时自带 px（md 档两侧各 32px）：内边距盒 1280 → 4 列，内容盒 1216 → 3 列
+    scrollElement.style.paddingLeft = '32px';
+    scrollElement.style.paddingRight = '32px';
+
+    renderHook(() =>
+      useVirtualGrid({
+        scrollElement,
+        count: 20,
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        fetchNextPage: vi.fn(),
+      }),
+    );
+
+    const lanes = (
+      useVirtualizerMock.mock.calls.at(-1)?.[0] as { lanes: number }
+    ).lanes;
+    expect(lanes).toBe(3);
+  });
+
   it('同一分档内的宽度变化不重渲染（快照返回同一引用）', () => {
     const { element: scrollElement } = makeSizedScrollElement(1200);
     // 1200 与 1100 都是 3 列档（computeGridLayout(1200).columns === 3）

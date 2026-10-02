@@ -10,7 +10,8 @@ export type FullBleedBarProps = {
 /**
  * 通栏工具条：底色铺满整个视口宽度，内容仍与 PageShell 的限宽容器同一左缘。
  *
- * PageShell 有 `max-w-[1600px] + mx-auto`，宽屏下两侧会留出空白。工具条若跟着限宽，
+ * PageShell 的内容盒限宽 1600px（以居中内边距实现，见 index.css 的 `.lucy-page-gutter`），
+ * 宽屏下内容盒两侧会留出空白。工具条若跟着限宽，
  * 底色就只覆盖中间一段（实测 2195px 视口下只有中间 1600px，两侧各空 298px）。
  *
  * 做法：**不动布局**，靠 `.lucy-full-bleed-bar::before`（见 index.css）把底色铺到 `100vw`。

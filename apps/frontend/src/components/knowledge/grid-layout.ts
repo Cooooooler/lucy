@@ -34,8 +34,8 @@ export interface GridLayout {
  * 根据滚动容器宽度计算网格几何：列数与列宽。
  * 等价于 `repeat(auto-fill, minmax(300px, 1fr))`，但列数可提前算出以驱动虚拟化的 lanes。
  *
- * 宽度按**满宽**参与计算（不再扣内边距）：左右内边距由 PageShell 以 Tailwind
- * `px-4 sm:px-6 md:px-8` 提供，而虚拟列表用绝对定位、其包含块就是滚动容器的内容盒——
+ * 宽度按**满宽**参与计算（不再扣内边距）：左右内边距由 PageShell 的
+ * `.lucy-page-gutter`（见 index.css）提供，而虚拟列表用绝对定位、其包含块就是内容盒——
  * 内容盒已经把 PageShell 的内边距排除在外，再扣一次就会双倍留白（且卡片会比工具条右移一段）。
  * 同一份内边距曾在此用 JS 复刻断点，现已随 PageShell 收敛到单一来源。
  */
