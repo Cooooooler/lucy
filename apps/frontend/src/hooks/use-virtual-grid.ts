@@ -61,6 +61,22 @@ function toBreakpoints(width: number): GridBreakpoints {
 /** 容器宽度未知时（首个 commit 之前）按 0 宽度分档，与旧行为一致 */
 const INITIAL_BREAKPOINTS = toBreakpoints(0);
 
+/**
+ * 容器的**内容盒**宽度：即卡片 `100%` 实际解析到的宽度（包含块是内容盒）。
+ *
+ * 滚动容器是 PageShell 时它自带居中内边距（`.lucy-page-gutter`，见 index.css），`clientWidth`
+ * 量到的是内边距盒，比内容盒宽出一个 paddingLeft + paddingRight——直接拿来分档会在
+ * 临界宽度上多算一列（实测 1280px 容器 + 两侧各 32px 时按内边距盒得 4 列、按内容盒
+ * 只有 3 列）。扣掉内边距后与 ResizeObserver 的 `contentRect`（本就是内容盒）口径一致。
+ */
+function contentWidthOf(element: HTMLElement): number {
+  const style = getComputedStyle(element);
+  const padding =
+    (Number.parseFloat(style.paddingLeft) || 0) +
+    (Number.parseFloat(style.paddingRight) || 0);
+  return Math.max(0, element.clientWidth - padding);
+}
+
 // 固定行高是纯常量函数（忽略入参），提到模块级：useVirtualizer 每次渲染都用新 options
 // 调 setOptions，内联闭包会造成无谓的引用抖动。getScrollElement 闭包了 scrollElement，
 // 不能提升，保持内联。
@@ -71,7 +87,7 @@ const estimateSize = () => CARD_ESTIMATED_HEIGHT + GRID_GAP;
  * 共用同一分档口径：骨架若按视口断点（md/lg/xl）分列、真实网格按容器宽度分列，
  * 冷加载完成那一刻会整格跳列。
  *
- * 读 `clientWidth` 的时机是这里的关键：React 在渲染期与**每次提交后**都会重读快照，
+ * 读内容盒宽度的时机是这里的关键：React 在渲染期与**每次提交后**都会重读快照，
  * 而提交那一刻正是 React 刚把卡片内联样式写进 DOM 的时候——每次都读布局属性会强制同步重排
  * （滚动时每帧一次）。因此只在「容器换了」与 ResizeObserver 回调里读，快照本身只读 ref。
  * 首个 commit 那次读取必须保留：容器就绪的那一帧就得拿到真实列数，否则恢复滚动位置会按
@@ -104,7 +120,7 @@ export function useGridBreakpoints(
   const getSnapshot = useCallback(() => {
     if (measuredElementRef.current !== scrollElement) {
       measuredElementRef.current = scrollElement;
-      widthRef.current = scrollElement?.clientWidth ?? 0;
+      widthRef.current = scrollElement ? contentWidthOf(scrollElement) : 0;
     }
     const next = toBreakpoints(widthRef.current);
     const cached = breakpointsRef.current;

@@ -33,8 +33,8 @@ describe('KnowledgeCard', () => {
 
     const titleRow = screen.getByTitle('产品文档');
     expect(titleRow).toBeInTheDocument();
-    // 标题行固定高度（h-[46px]）是卡片等高（CARD_ESTIMATED_HEIGHT=210）的前提
-    expect(titleRow).toHaveClass('h-[46px]');
+    // 标题行固定高度（h-11.5 = 46px）是卡片等高（CARD_ESTIMATED_HEIGHT=210）的前提
+    expect(titleRow).toHaveClass('h-11.5');
 
     const nameSpan = titleRow.querySelector('span');
     expect(nameSpan).toHaveTextContent('产品文档');

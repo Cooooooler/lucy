@@ -39,7 +39,7 @@ type KnowledgeCardProps = {
  * ⚠️ 高度硬约束：整卡固定 `h-[210px]`，与 `grid-layout.ts` 的 `CARD_ESTIMATED_HEIGHT`（210）
  * 一一对应。改动高度必须同步改常量，否则虚拟化行高与真实高度不一致会导致滚动位置整体偏移。
  */
-export function KnowledgeCard({
+export const KnowledgeCard = ({
   kb,
   onEdit,
   onToggleLike,
@@ -48,12 +48,12 @@ export function KnowledgeCard({
   isLikePending,
   isUpdatePending,
   isDeletePending,
-}: KnowledgeCardProps) {
+}: KnowledgeCardProps) => {
   return (
-    <div className="flex h-[210px] flex-col overflow-hidden rounded-lg bg-(--ant-color-bg-container) transition-shadow hover:shadow-md">
+    <div className="flex h-52.5 flex-col overflow-hidden rounded-lg bg-(--ant-color-bg-container) transition-shadow hover:shadow-md">
       {/* 标题固定一行并省略；原生 title 提供全名查看。行高固定是卡片等高的前提 */}
       <div
-        className="flex h-[46px] shrink-0 items-center px-4 text-base font-semibold"
+        className="flex h-11.5 shrink-0 items-center px-4 text-base font-semibold"
         title={kb.name}
       >
         <span className="block truncate">{kb.name}</span>
@@ -79,7 +79,7 @@ export function KnowledgeCard({
         </div>
       </div>
 
-      <div className="flex h-[46px] shrink-0 items-stretch divide-x divide-(--ant-color-split) border-t border-(--ant-color-split)">
+      <div className="flex h-11.5 shrink-0 items-stretch divide-x divide-(--ant-color-split) border-t border-(--ant-color-split)">
         <button
           type="button"
           title={kb.isLiked ? '取消点赞' : '点赞'}
@@ -133,4 +133,4 @@ export function KnowledgeCard({
       </div>
     </div>
   );
-}
+};
