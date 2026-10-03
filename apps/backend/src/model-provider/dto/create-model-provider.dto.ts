@@ -6,7 +6,7 @@ import {
   MODEL_PROVIDER_NAME_MAX_LENGTH,
 } from '@lucy/shared';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsEnum,
   IsInt,
@@ -33,9 +33,15 @@ import {
 export class CreateModelProviderDto {
   @ApiProperty({
     description: '模型名称',
+    minLength: 1,
     maxLength: MODEL_PROVIDER_NAME_MAX_LENGTH,
   })
+  // trim 后再校验：纯空白串会被 @MinLength(1) 拦下，避免存出显示为空的「幽灵」模型
+  @Transform(({ value }): unknown =>
+    typeof value === 'string' ? value.trim() : (value as unknown),
+  )
   @IsString()
+  @MinLength(1)
   @MaxLength(MODEL_PROVIDER_NAME_MAX_LENGTH)
   name: string;
 

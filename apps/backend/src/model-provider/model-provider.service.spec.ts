@@ -202,6 +202,16 @@ describe('ModelProviderService', () => {
     expect(selected).not.toContain('m.apiKeyEncrypted');
   });
 
+  it('list 转义 name 里的 ILIKE 通配符（% / _ 不当通配符）', async () => {
+    const qb = makeModelQb();
+    repo.createQueryBuilder.mockReturnValue(qb);
+    await service.list('u1', { name: '50%_off' });
+
+    expect(qb.andWhere).toHaveBeenCalledWith('m.name ILIKE :name', {
+      name: '%50\\%\\_off%',
+    });
+  });
+
   it('get 属主返回契约视图', async () => {
     repo.findOne.mockResolvedValue(makeModelProvider());
     await expect(service.get('u1', MODEL_ID)).resolves.toEqual(makeModelItem());

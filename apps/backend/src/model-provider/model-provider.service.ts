@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import { assertBaseUrlHostAllowed } from './base-url-guard.js';
@@ -100,7 +101,9 @@ export class ModelProviderService {
       qb.andWhere('m.type = :type', { type: query.type });
     }
     if (query.name) {
-      qb.andWhere('m.name ILIKE :name', { name: `%${query.name}%` });
+      qb.andWhere('m.name ILIKE :name', {
+        name: `%${escapeLikePattern(query.name)}%`,
+      });
     }
     const page = await this.paginator.fetchPage(qb, query.cursor, query.limit);
     return {

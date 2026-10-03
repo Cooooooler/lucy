@@ -8,6 +8,7 @@ import {
   MESSAGE_CONTENT_MIN_LENGTH,
   MODEL_API_KEY_MAX_LENGTH,
   MODEL_NAME_MAX_LENGTH,
+  MODEL_PROVIDER_NAME_MAX_LENGTH,
   NICKNAME_MAX_LENGTH,
   NICKNAME_MIN_LENGTH,
   PASSWORD_MAX_LENGTH,
@@ -360,6 +361,11 @@ describe('gen-openapi', () => {
     expect(propOf('CreateModelProviderDto', 'apiKey')).toMatchObject({
       minLength: 1,
       maxLength: MODEL_API_KEY_MAX_LENGTH,
+    });
+    // 模型名称：trim 后非空（@MinLength(1) 同样要同步进文档）
+    expect(propOf('CreateModelProviderDto', 'name')).toMatchObject({
+      minLength: 1,
+      maxLength: MODEL_PROVIDER_NAME_MAX_LENGTH,
     });
   });
 

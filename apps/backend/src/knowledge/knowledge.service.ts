@@ -2,6 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
@@ -95,7 +96,9 @@ export class KnowledgeService {
       });
     }
     if (query.name) {
-      qb.andWhere('kb.name ILIKE :name', { name: `%${query.name}%` });
+      qb.andWhere('kb.name ILIKE :name', {
+        name: `%${escapeLikePattern(query.name)}%`,
+      });
     }
     const page = await this.paginator.fetchPage(qb, query.cursor, query.limit);
     // 批量回写 likeCount / isLiked，单次聚合查询，避免 N+1

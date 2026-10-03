@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { escapeLikePattern } from '../common/like-pattern.js';
 import { UserRole } from '../common/roles.js';
 import { User } from './user.entity.js';
 
@@ -67,7 +68,7 @@ export class UsersRepository {
     if (params.keyword) {
       qb.andWhere(
         '(u.username ILIKE :kw OR u.email ILIKE :kw OR u.nickname ILIKE :kw)',
-        { kw: `%${params.keyword}%` },
+        { kw: `%${escapeLikePattern(params.keyword)}%` },
       );
     }
     qb.skip((params.page - 1) * params.pageSize).take(params.pageSize);

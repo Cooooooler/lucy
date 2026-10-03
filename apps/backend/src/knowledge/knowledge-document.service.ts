@@ -11,6 +11,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { basename, extname } from 'node:path';
 import { DataSource, In, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import {
   extractContent,
@@ -176,7 +177,7 @@ export class KnowledgeDocumentService {
       .where('d.knowledgeBaseId = :kbId', { kbId });
     if (query.keyword) {
       qb.andWhere('(d.title ILIKE :kw OR d.content ILIKE :kw)', {
-        kw: `%${query.keyword}%`,
+        kw: `%${escapeLikePattern(query.keyword)}%`,
       });
     }
     const page = await this.paginator.fetchPage(qb, query.cursor, query.limit);
