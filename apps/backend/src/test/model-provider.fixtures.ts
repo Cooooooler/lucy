@@ -95,6 +95,7 @@ export const modelAliasStub = (name: string) => ({
 
 type ModelQb = {
   expressionMap: { mainAlias: ReturnType<typeof modelAliasStub> };
+  select: Mock;
   where: Mock;
   andWhere: Mock;
   orderBy: Mock;
@@ -109,6 +110,7 @@ export const makeModelQb = (
 ): ModelQb => {
   const qb = {
     expressionMap: { mainAlias: modelAliasStub('m') },
+    select: vi.fn(),
     where: vi.fn(),
     andWhere: vi.fn(),
     orderBy: vi.fn(),
@@ -116,6 +118,7 @@ export const makeModelQb = (
     take: vi.fn(),
     getMany: vi.fn(),
   };
+  qb.select.mockReturnValue(qb);
   qb.where.mockReturnValue(qb);
   qb.andWhere.mockReturnValue(qb);
   qb.orderBy.mockReturnValue(qb);

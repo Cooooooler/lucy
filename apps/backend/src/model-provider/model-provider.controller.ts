@@ -16,6 +16,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import {
   CurrentUser,
   type CurrentUserPayload,
@@ -108,6 +109,10 @@ export class ModelProviderController {
   @Post(':id/test-connection')
   // 「测试」是只读语义的动作而非资源创建：显式 200，避免 Nest 对 POST 默认返回 201
   @HttpCode(HttpStatus.OK)
+  // 端点级收紧：每次测试都会向用户配置的地址真实发起一次外呼（默认最长 15s）。
+  // 全局 100/分钟对「外呼放大器」过宽——认证用户高频触发即可做资源消耗/端口探测，
+  // 故按与 auth 端点相同的口径收到 5/分钟。
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   // 不设 @SuccessMessage：结果（成功/失败）由前端据 ok 自行提示，避免与全局成功桥重复
   @ApiOperation({
     summary: '测试连接',

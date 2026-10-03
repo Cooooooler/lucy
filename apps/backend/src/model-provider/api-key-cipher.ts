@@ -64,11 +64,12 @@ export function decryptApiKey(payload: string, key: Buffer): string {
 }
 
 /**
- * 取明文末尾 4 位用于脱敏回显。短于 4 位时原样返回（避免暴露「极少位」的错觉，
- * 这类 Key 本身无效，仅用于展示）。
+ * 取明文末尾 4 位用于脱敏回显。明文不足 5 位时返回空串：此时「末 4 位」几乎就是整把
+ * Key，落库（`api_key_last4`）与回显（如 4 位 Key 显示成 `••••••abcd`）都会把明文全泄露。
+ * 这类短串本就不足以作为凭据，宁可不展示。
  */
 export function apiKeyLast4(plain: string): string {
-  return plain.slice(-4);
+  return plain.length > 4 ? plain.slice(-4) : '';
 }
 
 /** 由尾号生成脱敏展示串（永远不含明文前缀） */

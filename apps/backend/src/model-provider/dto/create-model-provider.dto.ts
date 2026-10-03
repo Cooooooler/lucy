@@ -92,6 +92,7 @@ export class CreateModelProviderDto {
   // （class-validator 的 @IsOptional 只放行 undefined/null，空串仍会被 @MinLength 拦下）
   @ApiPropertyOptional({
     description: 'API Key（明文传入，服务端加密存储）；ollama 可省略',
+    minLength: 1,
     maxLength: MODEL_API_KEY_MAX_LENGTH,
   })
   @IsOptional()

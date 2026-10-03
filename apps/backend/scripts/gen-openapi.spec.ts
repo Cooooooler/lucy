@@ -6,6 +6,7 @@ import {
   LOGIN_ACCOUNT_MAX_LENGTH,
   MESSAGE_CONTENT_MAX_LENGTH,
   MESSAGE_CONTENT_MIN_LENGTH,
+  MODEL_API_KEY_MAX_LENGTH,
   MODEL_NAME_MAX_LENGTH,
   NICKNAME_MAX_LENGTH,
   NICKNAME_MIN_LENGTH,
@@ -353,6 +354,12 @@ describe('gen-openapi', () => {
     expect(propOf('RegisterDto', 'email')).toMatchObject({
       format: 'email',
       maxLength: EMAIL_MAX_LENGTH,
+    });
+    // 模型供应商 API Key：ollama 可省略，但一旦提供即非空。@MinLength(1) 必须同步进文档，
+    // 否则契约会把空串标为合法，与运行时的 400 相悖
+    expect(propOf('CreateModelProviderDto', 'apiKey')).toMatchObject({
+      minLength: 1,
+      maxLength: MODEL_API_KEY_MAX_LENGTH,
     });
   });
 

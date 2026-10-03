@@ -2,18 +2,19 @@ import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import {
+  ApiOutlined,
   DeleteOutlined,
   EditOutlined,
   GlobalOutlined,
   HeartFilled,
   HeartOutlined,
   LockOutlined,
-} from './knowledge-icons';
+} from './icons';
 
 /**
  * 内联 path data 的回归防线。
  *
- * 背景：knowledge-icons.tsx 的路径是手写压缩过的官方 SVG（坐标降到 1 位小数省字节）。
+ * 背景：icons.tsx 的路径是手写压缩过的官方 SVG（坐标降到 1 位小数省字节）。
  * 一次压缩把 arc 的两个标志位（large-arc-flag / sweep-flag）合并掉了：
  * 官方 `a9.96 9.96 0 000-14.1` 被写成 `a10 10 0 0-14.1`——`0 00` 压成了 `0`；
  * Heart 的 `a260.04 260.04 0 00-56.9-82.8` 被写成 `a260 260 0 0-56.9-82.8`。
@@ -164,9 +165,10 @@ const ICONS = [
   ['GlobalOutlined', GlobalOutlined],
   ['EditOutlined', EditOutlined],
   ['DeleteOutlined', DeleteOutlined],
+  ['ApiOutlined', ApiOutlined],
 ] as const;
 
-describe('knowledge-icons', () => {
+describe('icons', () => {
   it.each(ICONS)(
     '%s 的 path data 合法（浏览器不会静默丢弃）',
     (_name, Icon) => {

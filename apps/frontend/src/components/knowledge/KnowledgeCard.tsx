@@ -6,7 +6,7 @@ import {
   HeartFilled,
   HeartOutlined,
   LockOutlined,
-} from '@/components/knowledge/knowledge-icons.tsx';
+} from '@/components/icons.tsx';
 
 type KnowledgeCardProps = {
   kb: KnowledgeBase;

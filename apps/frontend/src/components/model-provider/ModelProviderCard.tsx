@@ -1,12 +1,16 @@
 import type { ModelProvider } from '@/api/types.ts';
 import {
+  ApiOutlined,
+  DeleteOutlined,
+  EditOutlined,
+} from '@/components/icons.tsx';
+import {
   MODEL_TYPE_COLOR,
   MODEL_TYPE_LABEL,
   PROTOCOL_LABEL,
   VENDOR_COLOR,
   VENDOR_LABEL,
 } from '@/components/model-provider/model-provider-labels.ts';
-import { ApiOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 
 type ModelProviderCardProps = {
   model: ModelProvider;

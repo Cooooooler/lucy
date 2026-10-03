@@ -50,9 +50,11 @@ describe('api-key-cipher', () => {
     expect(() => decryptApiKey(payload, otherKey)).toThrow();
   });
 
-  it('last4 取末四位，mask 只回显尾号', () => {
+  it('last4 取末四位；短明文（≤4 位）不回显，避免泄漏整把 Key', () => {
     expect(apiKeyLast4('sk-1234567890abcd')).toBe('abcd');
-    expect(apiKeyLast4('abc')).toBe('abc');
+    // ≤4 位时「末 4 位」即整把 Key，落库/回显都会全泄露，宁可不展示
+    expect(apiKeyLast4('abcd')).toBe('');
+    expect(apiKeyLast4('abc')).toBe('');
     expect(maskApiKey('abcd')).toBe('••••••abcd');
     expect(maskApiKey('')).toBe('');
   });

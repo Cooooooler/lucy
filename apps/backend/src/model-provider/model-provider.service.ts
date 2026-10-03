@@ -78,6 +78,21 @@ export class ModelProviderService {
   ): Promise<ModelProviderListResultDto> {
     const qb = this.repo
       .createQueryBuilder('m')
+      // 显式列投影：把 api_key_encrypted（text，凭证材料）挡在 SELECT 之外——列表只需
+      // 契约字段 + 脱敏用的 apiKeyLast4，没必要每页把密文拉回内存再由 mapper 丢弃
+      .select([
+        'm.id',
+        'm.ownerId',
+        'm.name',
+        'm.type',
+        'm.vendor',
+        'm.baseUrl',
+        'm.protocol',
+        'm.contextLength',
+        'm.apiKeyLast4',
+        'm.createdAt',
+        'm.updatedAt',
+      ])
       .where('m.ownerId = :uid', { uid: userId });
     if (query.type) {
       qb.andWhere('m.type = :type', { type: query.type });

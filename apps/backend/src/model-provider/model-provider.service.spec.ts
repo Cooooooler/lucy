@@ -170,6 +170,16 @@ describe('ModelProviderService', () => {
     expect(qb.andWhere).not.toHaveBeenCalled();
   });
 
+  it('list 做列投影，把 api_key_encrypted 挡在 SELECT 之外', async () => {
+    const qb = makeModelQb();
+    repo.createQueryBuilder.mockReturnValue(qb);
+    await service.list('u1', {});
+
+    const selected = qb.select.mock.calls[0]?.[0] as string[];
+    expect(selected).toContain('m.apiKeyLast4');
+    expect(selected).not.toContain('m.apiKeyEncrypted');
+  });
+
   it('get 属主返回契约视图', async () => {
     repo.findOne.mockResolvedValue(makeModelProvider());
     await expect(service.get('u1', MODEL_ID)).resolves.toEqual(makeModelItem());
