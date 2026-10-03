@@ -6,7 +6,9 @@ import {
   LOGIN_ACCOUNT_MAX_LENGTH,
   MESSAGE_CONTENT_MAX_LENGTH,
   MESSAGE_CONTENT_MIN_LENGTH,
+  MODEL_API_KEY_MAX_LENGTH,
   MODEL_NAME_MAX_LENGTH,
+  MODEL_PROVIDER_NAME_MAX_LENGTH,
   NICKNAME_MAX_LENGTH,
   NICKNAME_MIN_LENGTH,
   PASSWORD_MAX_LENGTH,
@@ -354,5 +356,62 @@ describe('gen-openapi', () => {
       format: 'email',
       maxLength: EMAIL_MAX_LENGTH,
     });
+    // 模型供应商 API Key：ollama 可省略，但一旦提供即非空。@MinLength(1) 必须同步进文档，
+    // 否则契约会把空串标为合法，与运行时的 400 相悖
+    expect(propOf('CreateModelProviderDto', 'apiKey')).toMatchObject({
+      minLength: 1,
+      maxLength: MODEL_API_KEY_MAX_LENGTH,
+    });
+    // 模型名称：trim 后非空（@MinLength(1) 同样要同步进文档）
+    expect(propOf('CreateModelProviderDto', 'name')).toMatchObject({
+      minLength: 1,
+      maxLength: MODEL_PROVIDER_NAME_MAX_LENGTH,
+    });
+  });
+
+  it('模型供应商契约：允许式白名单，且不含 API Key 明文/密文/尾号', async () => {
+    await generateOpenApi();
+    const doc = JSON.parse(readFileSync(OUT, 'utf8')) as PartialOpenApiDoc & {
+      components?: {
+        schemas?: Record<
+          string,
+          { properties?: Record<string, unknown>; required?: string[] }
+        >;
+      };
+    };
+
+    const item = doc.components?.schemas?.ModelProviderItemDto;
+    expect(item).toBeDefined();
+    const keys = Object.keys(item?.properties ?? {}).sort();
+    expect(keys).toEqual(
+      [
+        'id',
+        'ownerId',
+        'name',
+        'type',
+        'vendor',
+        'baseUrl',
+        'protocol',
+        'contextLength',
+        'apiKeyMasked',
+        'createdAt',
+        'updatedAt',
+      ].sort(),
+    );
+    // 反向断言：明文字段与实体上的密文/尾号列都不得进入契约
+    expect(item?.properties?.apiKey).toBeUndefined();
+    expect(item?.properties?.apiKeyEncrypted).toBeUndefined();
+    expect(item?.properties?.apiKeyLast4).toBeUndefined();
+
+    hasSuccessSchema(doc, '/model-providers', 'get', '200');
+    hasSuccessSchema(doc, '/model-providers', 'post', '201');
+    hasSuccessSchema(doc, '/model-providers/{id}', 'get', '200');
+    hasSuccessSchema(doc, '/model-providers/{id}', 'patch', '200');
+    hasSuccessSchema(
+      doc,
+      '/model-providers/{id}/test-connection',
+      'post',
+      '200',
+    );
   });
 });

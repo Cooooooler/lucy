@@ -109,6 +109,20 @@ const ALLOWED_OUTBOUND_KEYS: Record<string, readonly string[]> = {
   ],
   // 纯内部表：点赞对外只有 { likeCount, isLiked } 聚合结果，实体本身一个字段都不出网
   KnowledgeLike: [],
+  // 模型供应商：apiKeyEncrypted / apiKeyLast4 在实体上标 @Exclude（密文与尾号都不出网），
+  // 对外的脱敏串 apiKeyMasked 由允许式 DTO 计算，故不在此列。
+  ModelProvider: [
+    'id',
+    'ownerId',
+    'name',
+    'type',
+    'vendor',
+    'baseUrl',
+    'protocol',
+    'contextLength',
+    'createdAt',
+    'updatedAt',
+  ],
 };
 
 /** 查询期回写的视图字段：不在 TypeORM 元数据里，需单独填充才能被快照断言看到 */

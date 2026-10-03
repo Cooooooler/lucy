@@ -28,7 +28,14 @@ export const KnowledgeToolbar: FC<KnowledgeToolbarProps> = ({
   defaultKeyword,
   onCreate,
 }) => (
-  <FullBleedBar className="lucy-page-gutter shrink-0 py-6 shadow-lg">
+  // 与 PageShell 平级（自带 .lucy-page-gutter）：盒子已占满内容区，不能再补 100vw 伪元素。
+  // 本页无副菜单、伪元素当前恰好也铺对，但机制上不该依赖「盒子与视口同宽」这个前提。
+  // z-10：下方 PageShell 是滚动容器，虚拟列表项带定位/transform，按树序会盖在工具条之上，
+  // 卡片滚到工具条下缘时把 shadow-lg 整条吃掉（实测滚动后工具条像被切平）。抬一层即可。
+  <FullBleedBar
+    bleedToViewport={false}
+    className="lucy-page-gutter z-10 shrink-0 py-6 shadow-lg"
+  >
     <Segmented<VisibilityFilter>
       options={VISIBILITY_OPTIONS}
       value={visibility}

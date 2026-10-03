@@ -1,7 +1,10 @@
 import { envValidationSchema } from './env-validation.schema.js';
 
-/** 最小合法 env：仅 JWT_SECRET 必填 */
-const BASE = { JWT_SECRET: 'x'.repeat(32) };
+/** 最小合法 env：JWT_SECRET 与 MODEL_PROVIDER_SECRET_KEY 必填 */
+const BASE = {
+  JWT_SECRET: 'x'.repeat(32),
+  MODEL_PROVIDER_SECRET_KEY: 'y'.repeat(32),
+};
 
 const validate = (env: Record<string, unknown>) =>
   envValidationSchema.validate(
@@ -10,7 +13,7 @@ const validate = (env: Record<string, unknown>) =>
   ) as { error?: Error; value: Record<string, unknown> };
 
 describe('envValidationSchema', () => {
-  it('仅需 JWT_SECRET；带 default 的项消费方用 getOrThrow，其余默认由消费方持有', () => {
+  it('仅需 JWT_SECRET 与 MODEL_PROVIDER_SECRET_KEY；带 default 的项消费方用 getOrThrow，其余默认由消费方持有', () => {
     const { error, value } = validate({});
     expect(error).toBeUndefined();
     // 消费方用 getOrThrow 的项：默认值只此一处（否则会与消费方 fallback 形成两份）
@@ -23,6 +26,30 @@ describe('envValidationSchema', () => {
     expect(value.OLLAMA_BASE_URL).toBeUndefined();
     expect(value.BLOOM_ERROR_RATE).toBeUndefined();
     expect(value.FILE_STORAGE).toBeUndefined();
+    expect(value.MODEL_TEST_TIMEOUT_MS).toBeUndefined();
+  });
+
+  it('MODEL_PROVIDER_SECRET_KEY 必填且至少 32 字符；MODEL_TEST_TIMEOUT_MS 须为正整数', () => {
+    // 直接校验（不走 merge BASE 的 validate）：缺 key 必须失败
+    expect(
+      envValidationSchema.validate(
+        { JWT_SECRET: 'x'.repeat(32) },
+        { abortEarly: false, allowUnknown: true },
+      ).error,
+    ).toBeDefined();
+    expect(
+      validate({ MODEL_PROVIDER_SECRET_KEY: 'short' }).error,
+    ).toBeDefined();
+    expect(
+      validate({ MODEL_PROVIDER_SECRET_KEY: 'z'.repeat(32) }).error,
+    ).toBeUndefined();
+
+    expect(validate({ MODEL_TEST_TIMEOUT_MS: 15000 }).error).toBeUndefined();
+    expect(validate({ MODEL_TEST_TIMEOUT_MS: 0 }).error).toBeDefined();
+    expect(validate({ MODEL_TEST_TIMEOUT_MS: -1 }).error).toBeDefined();
+    expect(
+      validate({ MODEL_TEST_TIMEOUT_MS: 2_147_483_648 }).error,
+    ).toBeDefined();
   });
 
   it('停机宽限期须为正；DB 上界允许 0（不限）但拒绝负值', () => {

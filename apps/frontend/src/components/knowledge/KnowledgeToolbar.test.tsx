@@ -83,4 +83,17 @@ describe('KnowledgeToolbar', () => {
     renderToolbar({ defaultKeyword: '产品' });
     expect(screen.getByPlaceholderText('按名称搜索知识库')).toHaveValue('产品');
   });
+
+  it('工具条与 PageShell 平级：不挂 100vw 伪元素（机制上不依赖盒子与视口同宽）', () => {
+    renderToolbar();
+    expect(
+      screen.getByText('新增知识库').closest('.lucy-full-bleed-bar'),
+    ).toBeNull();
+  });
+
+  it('抬到滚动列表之上（z-10）：否则卡片按树序盖住 shadow-lg', () => {
+    renderToolbar();
+    const bar = screen.getByText('新增知识库').closest('.lucy-page-gutter');
+    expect(bar?.className).toContain('z-10');
+  });
 });

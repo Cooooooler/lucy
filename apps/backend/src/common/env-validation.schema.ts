@@ -95,4 +95,14 @@ export const envValidationSchema = Joi.object({
   AI_SYSTEM_PROMPT: Joi.string().allow('').optional(),
   // 标题提示非空：空串同样不会触发 `??` 回退，标题生成会失去指令
   AI_TITLE_PROMPT: Joi.string().min(1).optional(),
+  // 模型供应商 API Key 的加密密钥（AES-256-GCM）。required：缺失时若静默放行，加密会退化成
+  // 用默认/空密钥，等于明文入库——与「加密存储」的目标相悖，故在启动期拦下（类比 JWT_SECRET）。
+  // 长度对齐 JWT_SECRET 的口径（32 字符），实际密钥由 sha256 派生成 32 字节。
+  MODEL_PROVIDER_SECRET_KEY: Joi.string().min(32).required(),
+  // 连接测试的超时（毫秒）：上界同 setTimeout 的 32 位上限，超过会被按 1ms 处理
+  MODEL_TEST_TIMEOUT_MS: Joi.number()
+    .integer()
+    .positive()
+    .max(2_147_483_647)
+    .optional(),
 });

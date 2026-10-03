@@ -46,3 +46,17 @@ export type KnowledgeDocument =
 // 刻意不含解析全文 content——列表接口做列投影，content 只由详情接口返回
 export type KnowledgeDocumentListItem =
   components['schemas']['KnowledgeDocumentListItemDto'];
+
+// 模型供应商：契约类型来自后端 Swagger 生成的 components.schemas。
+// 后端用允许式 DTO（ModelProviderItemDto），API Key 只回显脱敏串 apiKeyMasked，
+// 明文/密文都不在契约内。
+export type ModelProvider = components['schemas']['ModelProviderItemDto'];
+export type ModelProviderType = ModelProvider['type'];
+export type ModelProviderVendor = ModelProvider['vendor'];
+export type ModelProviderProtocol = ModelProvider['protocol'];
+export type CreateModelProviderRequest =
+  components['schemas']['CreateModelProviderDto'];
+export type UpdateModelProviderRequest =
+  components['schemas']['UpdateModelProviderDto'];
+export type TestConnectionResult =
+  components['schemas']['ModelProviderTestResultDto'];

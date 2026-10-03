@@ -1,4 +1,5 @@
 import { resetKnowledgeViewState } from './hooks/use-knowledge-view-state';
+import { resetModelProviderViewState } from './hooks/use-model-provider-view-state';
 import { queryClient } from './queryClient';
 
 /**
@@ -9,4 +10,5 @@ import { queryClient } from './queryClient';
 export function resetClientCaches() {
   queryClient.clear();
   resetKnowledgeViewState();
+  resetModelProviderViewState();
 }

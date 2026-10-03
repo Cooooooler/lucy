@@ -385,6 +385,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/model-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 模型列表（游标分页）
+         * @description 仅返回当前用户创建的模型；用响应中的 nextCursor 翻页
+         */
+        get: operations["ModelProviderController_list"];
+        put?: never;
+        /** 创建模型 */
+        post: operations["ModelProviderController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/model-providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 模型详情 */
+        get: operations["ModelProviderController_get"];
+        put?: never;
+        post?: never;
+        /** 删除模型 */
+        delete: operations["ModelProviderController_remove"];
+        options?: never;
+        head?: never;
+        /**
+         * 更新模型
+         * @description apiKey 省略表示保留原 Key；传值则覆盖
+         */
+        patch: operations["ModelProviderController_update"];
+        trace?: never;
+    };
+    "/model-providers/{id}/test-connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 测试连接
+         * @description 用配置的 Key/Base URL/协议发起一次最小调用。返回 200 + ok 表达结论；不支持的类型与不可达地址都以 ok=false 返回
+         */
+        post: operations["ModelProviderController_testConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -783,6 +846,132 @@ export interface components {
             list: components["schemas"]["KnowledgeDocumentListItemDto"][];
             /** @description 下一页游标；null 表示已到末页 */
             nextCursor: string | null;
+        };
+        CreateModelProviderDto: {
+            /** @description 模型名称 */
+            name: string;
+            /**
+             * @description 模型类型
+             * @enum {string}
+             */
+            type: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+            /**
+             * @description 模型供应商
+             * @enum {string}
+             */
+            vendor: "ollama" | "openai" | "anthropic";
+            /** @description API Base URL（http/https） */
+            baseUrl: string;
+            /**
+             * @description API 协议（仅 LLM 有意义），省略时默认 chat-completions
+             * @enum {string}
+             */
+            protocol?: "chat-completions" | "responses";
+            /**
+             * @description 模型上下文长度（token）
+             * @example 32768
+             */
+            contextLength: number;
+            /** @description API Key（明文传入，服务端加密存储）；ollama 可省略 */
+            apiKey?: string;
+        };
+        ModelProviderItemDto: {
+            /** @description 模型 ID */
+            id: string;
+            /** @description 属主用户 ID */
+            ownerId: string;
+            /** @description 模型名称 */
+            name: string;
+            /**
+             * @description 模型类型
+             * @enum {string}
+             */
+            type: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+            /**
+             * @description 模型供应商
+             * @enum {string}
+             */
+            vendor: "ollama" | "openai" | "anthropic";
+            /** @description API Base URL */
+            baseUrl: string;
+            /**
+             * @description API 协议
+             * @enum {string}
+             */
+            protocol: "chat-completions" | "responses";
+            /** @description 模型上下文长度（token） */
+            contextLength: number;
+            /**
+             * @description 脱敏后的 API Key（仅尾号，如 ••••••abcd）
+             * @example ••••••abcd
+             */
+            apiKeyMasked: string;
+            /**
+             * Format: date-time
+             * @description 创建时间
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description 更新时间
+             */
+            updatedAt: string;
+        };
+        ModelProviderListResultDto: {
+            /** @description 模型列表 */
+            list: components["schemas"]["ModelProviderItemDto"][];
+            /** @description 下一页游标；null 表示已到末页 */
+            nextCursor: string | null;
+        };
+        UpdateModelProviderDto: {
+            /** @description 模型名称 */
+            name?: string;
+            /**
+             * @description 模型类型
+             * @enum {string}
+             */
+            type?: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+            /**
+             * @description 模型供应商
+             * @enum {string}
+             */
+            vendor?: "ollama" | "openai" | "anthropic";
+            /** @description API Base URL（http/https） */
+            baseUrl?: string;
+            /**
+             * @description API 协议（仅 LLM 有意义），省略时默认 chat-completions
+             * @enum {string}
+             */
+            protocol?: "chat-completions" | "responses";
+            /**
+             * @description 模型上下文长度（token）
+             * @example 32768
+             */
+            contextLength?: number;
+            /** @description API Key（明文传入，服务端加密存储）；ollama 可省略 */
+            apiKey?: string;
+        };
+        ModelProviderTestResultDto: {
+            /**
+             * @description 是否连通
+             * @example true
+             */
+            ok: boolean;
+            /**
+             * @description 结果说明（成功/失败原因）
+             * @example 连接成功
+             */
+            message: string;
+            /**
+             * @description 耗时（毫秒）；未真正发起调用（如不支持的类型）时为 null
+             * @example 320
+             */
+            latencyMs?: number | null;
+            /**
+             * @description 补充信息（如回复片段、向量维度）；无则为 null
+             * @example 回复：你好
+             */
+            detail?: string | null;
         };
         HealthResultDto: {
             /**
@@ -1542,6 +1731,172 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ModelProviderController_list: {
+        parameters: {
+            query?: {
+                /** @description 分页游标（上一页返回的 nextCursor），省略表示第一页 */
+                cursor?: string;
+                /** @description 每页条数 */
+                limit?: number;
+                /** @description 按模型类型过滤 */
+                type?: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+                /** @description 名称关键字（最多 100 字符） */
+                name?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderListResultDto"];
+                };
+            };
+        };
+    };
+    ModelProviderController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateModelProviderDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderItemDto"];
+                };
+            };
+        };
+    };
+    ModelProviderController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderItemDto"];
+                };
+            };
+            /** @description 模型不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ModelProviderController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 删除成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 模型不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ModelProviderController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateModelProviderDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderItemDto"];
+                };
+            };
+            /** @description 模型不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ModelProviderController_testConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderTestResultDto"];
+                };
+            };
+            /** @description 模型不存在 */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -75,3 +75,13 @@ export const MODEL_NAME_MAX_LENGTH = 100;
 
 /** 列表模糊匹配关键字上界：ILIKE 谓词走不了索引，超长输入是廉价的全表扫描放大器 */
 export const KNOWLEDGE_KEYWORD_MAX_LENGTH = 100;
+
+/** 模型供应商：名称与列表搜索关键字共用同一上界（name 列 varchar(100) 的对齐值） */
+export const MODEL_PROVIDER_NAME_MAX_LENGTH = 100;
+/** 模型 Base URL 上界（base_url 列 varchar(500) 的对齐值） */
+export const MODEL_BASE_URL_MAX_LENGTH = 500;
+/** API Key 明文上界：仅作 DoS 防护，实际 Key 远短于此 */
+export const MODEL_API_KEY_MAX_LENGTH = 512;
+/** 模型上下文长度（token）上下界 */
+export const MODEL_CONTEXT_LENGTH_MIN = 1;
+export const MODEL_CONTEXT_LENGTH_MAX = 10_000_000;

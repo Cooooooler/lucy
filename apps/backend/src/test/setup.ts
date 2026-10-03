@@ -7,3 +7,6 @@
  * setupFiles 在所有测试文件之前执行，提前 process.env 注入即可绕过该校验。
  */
 process.env.JWT_SECRET ??= 'test-secret-test-secret-test-secret-32';
+// 同理：MODEL_PROVIDER_SECRET_KEY 也是 required，缺失会让编译 AppModule 的用例/脚本退出
+process.env.MODEL_PROVIDER_SECRET_KEY ??=
+  'test-model-provider-secret-32-chars-long';

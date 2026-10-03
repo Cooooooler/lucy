@@ -2,7 +2,7 @@ import {
   CARD_ESTIMATED_HEIGHT,
   GRID_GAP,
   GRID_TOP_GAP,
-} from '@/components/knowledge/grid-layout';
+} from '@/components/grid-layout';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVirtualGrid } from './use-virtual-grid';

@@ -1,5 +1,5 @@
 import type { KnowledgeBase } from '@/api/types';
-import { GRID_TOP_GAP } from '@/components/knowledge/grid-layout';
+import { GRID_TOP_GAP } from '@/components/grid-layout';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
