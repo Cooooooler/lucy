@@ -3,7 +3,7 @@ import {
   computeGridLayout,
   GRID_GAP,
   GRID_TOP_GAP,
-} from '@/components/knowledge/grid-layout';
+} from '@/components/grid-layout';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   useCallback,

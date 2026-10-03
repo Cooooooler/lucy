@@ -41,10 +41,15 @@
   }
 }
 
-/* 通栏工具条底色（见 components/full-bleed-bar.tsx）。
-   PageShell 的限宽以居中内边距实现，宽屏下内容盒两侧仍有留白；工具条用伪元素把底色铺到 100vw，
-   而自身不参与布局——用负 margin 或 width:100vw 真去撑开元素会让元素变满宽，
-   居中偏移随即归零、控件被推到视口左缘与下方卡片错位。
+/* 通栏工具条补底色（见 components/full-bleed-bar.tsx）。
+   底色本身由组件画在盒子自身（`bg-(--ant-color-bg-container)`）——盒子占满内容区时这就够了。
+   只有当工具条放在 PageShell **内**时，盒子被居中内边距包住（宽屏下内容盒仅 1600px），
+   才叠上本规则，用伪元素把底色补到 100vw，而伪元素不参与布局——用负 margin 或
+   width:100vw 真去撑开元素会让元素变满宽，居中偏移随即归零、控件被推到视口左缘与下方卡片错位。
+
+   该伪元素以「工具条盒子在视口中居中」为前提。与 PageShell **平级**（挂在页面容器层级）的
+   工具条盒子偏向视口右侧（左侧让出副菜单列），伪元素会左溢进副菜单、右溢出视口，
+   这类用法应传 bleedToViewport={false}，只走盒子自身的底色。
 
    注意：底色所属的层叠上下文由组件上的 `isolate` utility 建立（Tailwind 的
    `isolation: isolate`），不写在这里——`position: relative` + `z-index: auto`

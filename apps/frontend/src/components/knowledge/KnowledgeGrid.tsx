@@ -1,11 +1,11 @@
 import { errorMessageOf } from '@/api/client';
 import type { KnowledgeBase } from '@/api/types';
-import { KnowledgeCard } from '@/components/knowledge/KnowledgeCard.tsx';
 import {
   CARD_ESTIMATED_HEIGHT,
   columnWidthOperand,
   GRID_TOP_GAP,
-} from '@/components/knowledge/grid-layout';
+} from '@/components/grid-layout';
+import { KnowledgeCard } from '@/components/knowledge/KnowledgeCard.tsx';
 import { useGridBreakpoints, useVirtualGrid } from '@/hooks/use-virtual-grid';
 import { Button, Empty, Result, Spin } from 'antd';
 import type { FC } from 'react';

@@ -32,6 +32,27 @@ describe('components/FullBleedBar', () => {
     expect(bar.className).toContain('isolate');
   });
 
+  it('底色始终画在盒子自身：窄盒子再靠伪元素补出视口两端', () => {
+    render(<FullBleedBar>内容</FullBleedBar>);
+    const bar = screen
+      .getByText('内容')
+      .closest('.lucy-full-bleed-bar') as HTMLElement;
+    // 盒子自身底色 + ::before 补宽两者都在，任一失效都不至于把工具条底色整条丢掉
+    expect(bar.className).toContain('bg-(--ant-color-bg-container)');
+    expect(bar.className).toContain('lucy-full-bleed-bar');
+  });
+
+  it('bleedToViewport=false：不挂伪元素（容器层级用法），底色只由盒子自身承担', () => {
+    render(<FullBleedBar bleedToViewport={false}>内容</FullBleedBar>);
+    const bar = screen.getByText('内容').parentElement as HTMLElement;
+    // 与 PageShell 平级时盒子已占满内容区，100vw 伪元素会以自身盒子居中而错位
+    // （副菜单场景下左溢进副菜单、右溢出视口），故这类用法必须不挂该 class
+    expect(bar.className).not.toContain('lucy-full-bleed-bar');
+    expect(bar.className).not.toContain('isolate');
+    expect(bar.className).toContain('bg-(--ant-color-bg-container)');
+    expect(bar.className).toContain('relative');
+  });
+
   it('className / innerClassName 透传', () => {
     render(
       <FullBleedBar className="py-6" innerClassName="px-4">

@@ -36,7 +36,7 @@ type KnowledgeCardProps = {
  * 不额外包 `memo`：本项目已在 vite.config.ts 启用 React Compiler，组件级重渲染由它
  * 细粒度接管，手写 `memo` 属重复优化，且会把「回调必须引用稳定」变成一条并不存在的正确性前提。
  *
- * ⚠️ 高度硬约束：整卡固定 `h-[210px]`，与 `grid-layout.ts` 的 `CARD_ESTIMATED_HEIGHT`（210）
+ * ⚠️ 高度硬约束：整卡固定 `h-[210px]`，与 `@/components/grid-layout` 的 `CARD_ESTIMATED_HEIGHT`（210）
  * 一一对应。改动高度必须同步改常量，否则虚拟化行高与真实高度不一致会导致滚动位置整体偏移。
  */
 export const KnowledgeCard = ({

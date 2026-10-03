@@ -13,6 +13,7 @@ import { envValidationSchema } from './common/env-validation.schema.js';
 import { loggerModuleOptions } from './common/logger-options.js';
 import { HealthModule } from './health/health.module.js';
 import { KnowledgeModule } from './knowledge/knowledge.module.js';
+import { ModelProviderModule } from './model-provider/model-provider.module.js';
 import { UsersModule } from './users/users.module.js';
 
 /** 从 ConfigService 读取 Redis 连接配置（提取为纯函数便于单测；端口强制 Number，因 ConfigService 可能返回字符串） */
@@ -86,6 +87,7 @@ export function fileModuleOptions(config: ConfigService) {
       useFactory: fileModuleOptions,
     }),
     KnowledgeModule,
+    ModelProviderModule,
     HealthModule,
   ],
   controllers: [AppController],

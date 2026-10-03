@@ -355,4 +355,50 @@ describe('gen-openapi', () => {
       maxLength: EMAIL_MAX_LENGTH,
     });
   });
+
+  it('模型供应商契约：允许式白名单，且不含 API Key 明文/密文/尾号', async () => {
+    await generateOpenApi();
+    const doc = JSON.parse(readFileSync(OUT, 'utf8')) as PartialOpenApiDoc & {
+      components?: {
+        schemas?: Record<
+          string,
+          { properties?: Record<string, unknown>; required?: string[] }
+        >;
+      };
+    };
+
+    const item = doc.components?.schemas?.ModelProviderItemDto;
+    expect(item).toBeDefined();
+    const keys = Object.keys(item?.properties ?? {}).sort();
+    expect(keys).toEqual(
+      [
+        'id',
+        'ownerId',
+        'name',
+        'type',
+        'vendor',
+        'baseUrl',
+        'protocol',
+        'contextLength',
+        'apiKeyMasked',
+        'createdAt',
+        'updatedAt',
+      ].sort(),
+    );
+    // 反向断言：明文字段与实体上的密文/尾号列都不得进入契约
+    expect(item?.properties?.apiKey).toBeUndefined();
+    expect(item?.properties?.apiKeyEncrypted).toBeUndefined();
+    expect(item?.properties?.apiKeyLast4).toBeUndefined();
+
+    hasSuccessSchema(doc, '/model-providers', 'get', '200');
+    hasSuccessSchema(doc, '/model-providers', 'post', '201');
+    hasSuccessSchema(doc, '/model-providers/{id}', 'get', '200');
+    hasSuccessSchema(doc, '/model-providers/{id}', 'patch', '200');
+    hasSuccessSchema(
+      doc,
+      '/model-providers/{id}/test-connection',
+      'post',
+      '200',
+    );
+  });
 });
