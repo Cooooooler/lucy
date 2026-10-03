@@ -129,6 +129,28 @@ describe('ModelProviderService', () => {
     expect(repo.save).not.toHaveBeenCalled();
   });
 
+  it('create 拒绝链路本地/云元数据主机（外呼出口策略）', async () => {
+    await expect(
+      service.create('u1', {
+        name: 'meta',
+        type: ModelProviderType.Llm,
+        vendor: ModelProviderVendor.OpenAI,
+        baseUrl: 'http://169.254.169.254/latest/meta-data',
+        contextLength: 1,
+        apiKey: 'k',
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('update 拒绝把 baseUrl 改到链路本地', async () => {
+    repo.findOne.mockResolvedValue(makeModelProvider());
+    await expect(
+      service.update('u1', MODEL_ID, { baseUrl: 'http://169.254.169.254/' }),
+    ).rejects.toThrow(BadRequestException);
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
   it('update 换到需要 Key 的供应商却无 Key → 400', async () => {
     const existing = makeModelProvider({
       vendor: ModelProviderVendor.Ollama,

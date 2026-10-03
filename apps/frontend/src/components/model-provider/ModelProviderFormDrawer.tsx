@@ -10,6 +10,7 @@ import {
   MODEL_TYPE_OPTIONS,
   PROTOCOL_OPTIONS,
   VENDOR_DEFAULT_BASE_URL,
+  VENDOR_DEFAULT_BASE_URLS,
   VENDOR_OPTIONS,
 } from '@/components/model-provider/model-provider-labels.ts';
 import {
@@ -82,7 +83,7 @@ export const ModelProviderFormDrawer: FC<ModelProviderFormDrawerProps> = ({
   /** 切换供应商时回填默认 Base URL（用户已手填其它值则不覆盖） */
   const handleVendorChange = (next: ModelProviderVendor) => {
     const current = form.getFieldValue('baseUrl') as string | undefined;
-    if (!current || Object.values(VENDOR_DEFAULT_BASE_URL).includes(current)) {
+    if (!current || VENDOR_DEFAULT_BASE_URLS.has(current)) {
       form.setFieldValue('baseUrl', VENDOR_DEFAULT_BASE_URL[next]);
     }
   };

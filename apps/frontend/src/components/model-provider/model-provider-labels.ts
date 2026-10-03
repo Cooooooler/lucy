@@ -34,6 +34,11 @@ export const VENDOR_DEFAULT_BASE_URL: Record<ModelProviderVendor, string> = {
   ollama: 'http://localhost:11434',
 };
 
+/** 默认 Base URL 集合：切换供应商时判断「当前值是否仍是某个默认值」，O(1) 命中 */
+export const VENDOR_DEFAULT_BASE_URLS = new Set(
+  Object.values(VENDOR_DEFAULT_BASE_URL),
+);
+
 /** 模型类型：与后端 `ModelProviderType` 枚举一一对应 */
 export const MODEL_TYPE_OPTIONS: {
   label: string;

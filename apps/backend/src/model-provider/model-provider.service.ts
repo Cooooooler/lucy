@@ -8,6 +8,7 @@ import type { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
+import { assertBaseUrlHostAllowed } from './base-url-guard.js';
 import { CreateModelProviderDto } from './dto/create-model-provider.dto.js';
 import { ModelProviderListQueryDto } from './dto/model-provider-list-query.dto.js';
 import type {
@@ -50,6 +51,7 @@ export class ModelProviderService {
   ): Promise<ModelProviderItemDto> {
     const apiKey = dto.apiKey?.trim() ?? '';
     this.assertApiKeyForVendor(dto.vendor, apiKey.length > 0);
+    assertBaseUrlHostAllowed(dto.baseUrl);
     const provider = await this.repo.save({
       ownerId: userId,
       name: dto.name,
@@ -131,7 +133,10 @@ export class ModelProviderService {
     if (dto.name !== undefined) provider.name = dto.name;
     if (dto.type !== undefined) provider.type = dto.type;
     if (dto.vendor !== undefined) provider.vendor = dto.vendor;
-    if (dto.baseUrl !== undefined) provider.baseUrl = dto.baseUrl;
+    if (dto.baseUrl !== undefined) {
+      assertBaseUrlHostAllowed(dto.baseUrl);
+      provider.baseUrl = dto.baseUrl;
+    }
     if (dto.protocol !== undefined) provider.protocol = dto.protocol;
     if (dto.contextLength !== undefined) {
       provider.contextLength = dto.contextLength;

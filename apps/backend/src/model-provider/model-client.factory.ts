@@ -88,12 +88,16 @@ export class ModelClientFactory {
         model: provider.name,
         baseUrl: provider.baseUrl,
         headers: this.ollamaHeaders(provider),
+        maxRetries: 0,
       });
     }
     return new OpenAIEmbeddings({
       model: provider.name,
       apiKey: this.requireApiKey(provider),
       configuration: { baseURL: provider.baseUrl },
+      // Embeddings 走基类的 AsyncCaller，默认重试 6 次（指数退避）；OpenAI client 自带的
+      // maxRetries 管不到这一层，不显式归零则连接测试超时返回后仍会在后台退避重试
+      maxRetries: 0,
     });
   }
 
