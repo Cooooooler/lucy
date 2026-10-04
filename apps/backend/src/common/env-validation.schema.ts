@@ -76,11 +76,9 @@ export const envValidationSchema = Joi.object({
   LOG_FILE_RETENTION_DAYS: Joi.number().integer().positive().optional(),
   // 接受常见真值写法（'1'/'true'），避免把一直可用的 LOG_PRETTY=true 升级成启动失败
   LOG_PRETTY: Joi.string().valid('0', '1', 'true', 'false').optional(),
-  // Ollama / LangChain AI 对话
+  // Ollama / LangChain AI 对话（仅 tokenizer 计数仍用 OLLAMA_BASE_URL；
+  // 对话模型改为按用户在「模型管理」中配置的 ModelProvider 解析，不再有全局默认模型）
   OLLAMA_BASE_URL: Joi.string().uri().optional(),
-  // 非空：消费者用 `config.get('OLLAMA_MODEL', '默认')`，而空串 != undefined，`??` 不会回退，
-  // 空模型名会让 AI 对话在运行期失败——须在启动期拦下
-  OLLAMA_MODEL: Joi.string().min(1).optional(),
   // 上界与 REQUEST_TIMEOUT_MS 同口径：都要喂给 setTimeout，超过 2^31-1 会按 1ms 处理
   OLLAMA_TIMEOUT_MS: Joi.number()
     .integer()

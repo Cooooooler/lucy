@@ -1,5 +1,5 @@
 import { createStreamRequest } from '@/api/ai';
-import type { Message } from '@/api/types.ts';
+import type { Message, SendMessageRequest } from '@/api/types.ts';
 import {
   ErrorCode,
   type AiStreamEvent,
@@ -28,6 +28,8 @@ const SSE_ERROR_TEXT: Partial<Record<ErrorCodeValue, string>> = {
   [ErrorCode.AI_GENERATE_ABORTED]: '生成中断',
   [ErrorCode.AI_GENERATE_FAILED]: '生成失败，请稍后重试',
   [ErrorCode.AI_GENERATE_TIMEOUT]: '模型响应超时，请稍后重试',
+  [ErrorCode.AI_MODEL_REQUIRED]: '请先配置并选择模型',
+  [ErrorCode.AI_MODEL_NOT_FOUND]: '所选模型不可用，请重新选择',
 };
 
 const sseErrorText = (code: number, fallback: string): string =>
@@ -146,17 +148,20 @@ export function useChatStream(conversationId: string | undefined) {
   async function send(
     conversationId: string | undefined,
     content: string,
-    reasoning = false,
+    options: { reasoning?: boolean; modelProviderId?: string } = {},
   ) {
     if (!conversationId) return;
     const text = content.trim();
     const aiId = appendOptimistic(conversationId, text);
+    // 省略未提供的可选项，避免把 undefined 写进请求体
+    const payload: SendMessageRequest = { content: text };
+    if (options.reasoning !== undefined) payload.reasoning = options.reasoning;
+    if (options.modelProviderId !== undefined) {
+      payload.modelProviderId = options.modelProviderId;
+    }
     try {
       // 逐帧消费事件流：delta 累积内容，done/error 结束流式态
-      for await (const chunk of stream(conversationId, {
-        content: text,
-        reasoning,
-      })) {
+      for await (const chunk of stream(conversationId, payload)) {
         const event = chunk.result as AiStreamEvent | null;
         if (!event) continue;
         if (event.type === 'delta') {

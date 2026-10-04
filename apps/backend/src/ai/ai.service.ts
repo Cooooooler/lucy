@@ -29,12 +29,11 @@ export class AiService {
   /** AI：创建会话（返回允许式契约视图，与列表项同形）。 */
   async create(
     userId: string,
-    dto: CreateConversationDto,
+    _dto: CreateConversationDto,
   ): Promise<ConversationItemDto> {
-    const conversation = await this.conversationRepo.save({
-      userId,
-      model: dto.model ?? null,
-    });
+    // 会话的默认模型在首条消息发送时按所选模型写入（见 ChatStreamService.prepareRun），
+    // 创建时模型为空
+    const conversation = await this.conversationRepo.save({ userId });
     return toConversationItem(conversation);
   }
 

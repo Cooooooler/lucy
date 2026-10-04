@@ -7,7 +7,6 @@ import {
   MESSAGE_CONTENT_MAX_LENGTH,
   MESSAGE_CONTENT_MIN_LENGTH,
   MODEL_API_KEY_MAX_LENGTH,
-  MODEL_NAME_MAX_LENGTH,
   MODEL_PROVIDER_NAME_MAX_LENGTH,
   NICKNAME_MAX_LENGTH,
   NICKNAME_MIN_LENGTH,
@@ -179,7 +178,7 @@ describe('gen-openapi', () => {
     expect(itemSchema).toBeDefined();
     const keys = Object.keys(itemSchema?.properties ?? {}).sort();
     expect(keys).toEqual(
-      ['createdAt', 'id', 'model', 'title', 'updatedAt'].sort(),
+      ['createdAt', 'id', 'modelProviderId', 'title', 'updatedAt'].sort(),
     );
     expect(itemSchema?.required?.sort()).toEqual(keys);
 
@@ -316,11 +315,9 @@ describe('gen-openapi', () => {
       minLength: MESSAGE_CONTENT_MIN_LENGTH,
       maxLength: MESSAGE_CONTENT_MAX_LENGTH,
     });
-    expect(propOf('SendMessageDto', 'model')).toMatchObject({
-      maxLength: MODEL_NAME_MAX_LENGTH,
-    });
-    expect(propOf('CreateConversationDto', 'model')).toMatchObject({
-      maxLength: MODEL_NAME_MAX_LENGTH,
+    // 所选模型改为引用模型配置 ID（uuid）：@IsUUID 不产出文档边界，需手写 format
+    expect(propOf('SendMessageDto', 'modelProviderId')).toMatchObject({
+      format: 'uuid',
     });
     expect(propOf('RenameConversationDto', 'title')).toMatchObject({
       minLength: CONVERSATION_TITLE_MIN_LENGTH,

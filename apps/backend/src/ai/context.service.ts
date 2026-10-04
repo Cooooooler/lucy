@@ -5,6 +5,7 @@ import {
 } from '@langchain/core/messages';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
 import { Message, MessageRole } from './entities/message.entity.js';
 import { TokenizerService } from './tokenizer.service.js';
 
@@ -18,16 +19,21 @@ export class ContextService {
   async buildMessages(
     history: Message[],
     newContent: string,
-    model: string,
+    provider: ModelProvider,
   ): Promise<(SystemMessage | HumanMessage | AIMessage)[]> {
-    // 输入预算 = 显式上限 − 安全边际。安全边际防本地 tokenizer（估算/模板/特殊
-    // token 未计满）与真实分词偏差造成的越界，而非靠比例粗放折算。
-    const limit = this.config.get<number>('AI_CONTEXT_TOKEN_LIMIT', 131072);
+    // 输入预算 = min(所选模型上下文长度, 全局上限) − 安全边际。安全边际防本地
+    // tokenizer（估算/模板/特殊 token 未计满）与真实分词偏差造成的越界；纳入模型自身的
+    // contextLength，避免给上下文较小的模型塞入超长提示。
+    const limit = Math.min(
+      provider.contextLength,
+      this.config.get<number>('AI_CONTEXT_TOKEN_LIMIT', 131072),
+    );
     const safetyMargin = this.config.get<number>(
       'AI_CONTEXT_SAFETY_MARGIN',
       2048,
     );
     const budget = Math.max(0, limit - safetyMargin);
+    const model = provider.name;
 
     const messages: (SystemMessage | HumanMessage | AIMessage)[] = [];
     const systemPrompt = this.config.get<string>('AI_SYSTEM_PROMPT', '');

@@ -25,6 +25,8 @@ vi.mock('../stores/auth', () => ({
 
 const fetchMock = vi.fn();
 
+const MODEL_ID = '00000000-0000-4000-8000-000000000001';
+
 const okEnvelope = (data: unknown) =>
   new Response(JSON.stringify({ code: 0, message: 'ok', data }), {
     status: 200,
@@ -34,7 +36,7 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
     id: 'c1',
     title: null,
-    model: null,
+    modelProviderId: null,
     messages: [],
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
@@ -85,12 +87,12 @@ describe('api/ai', () => {
     it('createConversationApi 调用 POST /ai/conversations', async () => {
       const conv = makeConversation();
       fetchMock.mockResolvedValueOnce(okEnvelope(conv));
-      const result = await createConversationApi({ model: 'qwen' });
+      const result = await createConversationApi({});
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/v1/ai/conversations',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ model: 'qwen' }),
+          body: JSON.stringify({}),
         }),
       );
       expect(result).toEqual(conv);
@@ -200,7 +202,10 @@ describe('api/ai', () => {
         new Response(doneFrame + DONE, { status: 200 }),
       );
       await collect(
-        streamSendMessageApi('c1', { content: 'hi', model: 'qwen' }),
+        streamSendMessageApi('c1', {
+          content: 'hi',
+          modelProviderId: MODEL_ID,
+        }),
       );
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toBe('/api/v1/ai/conversations/c1/messages');
@@ -208,7 +213,9 @@ describe('api/ai', () => {
       expect(new Headers(init.headers).get('Authorization')).toBe(
         'Bearer test-token',
       );
-      expect(init.body).toBe(JSON.stringify({ content: 'hi', model: 'qwen' }));
+      expect(init.body).toBe(
+        JSON.stringify({ content: 'hi', modelProviderId: MODEL_ID }),
+      );
     });
 
     it('error 事件作为事件流产出而非抛错', async () => {

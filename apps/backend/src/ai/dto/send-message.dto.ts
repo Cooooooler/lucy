@@ -1,13 +1,13 @@
 import {
   MESSAGE_CONTENT_MAX_LENGTH,
   MESSAGE_CONTENT_MIN_LENGTH,
-  MODEL_NAME_MAX_LENGTH,
 } from '@lucy/shared';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -25,14 +25,12 @@ export class SendMessageDto {
   content: string;
 
   @ApiPropertyOptional({
-    description: '本次请求模型覆盖',
-    example: 'qwen2.5:7b',
-    maxLength: MODEL_NAME_MAX_LENGTH,
+    description: '本次请求使用的模型配置 ID（省略则用会话默认模型）',
+    format: 'uuid',
   })
   @IsOptional()
-  @IsString()
-  @MaxLength(MODEL_NAME_MAX_LENGTH)
-  model?: string;
+  @IsUUID()
+  modelProviderId?: string;
 
   @ApiPropertyOptional({
     description: '是否开启深度思考（仅支持推理模型）',

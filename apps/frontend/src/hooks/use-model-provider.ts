@@ -16,6 +16,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
 
@@ -210,6 +211,16 @@ export function useInfiniteModelProviderList(
     placeholderData: (prev) => prev,
     refetchOnMount: false,
     refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** 聊天页用的 LLM 模型：只取首页（上限 100），与无限列表共用前缀便于统一失效 */
+export function useLlmModelProviders() {
+  return useQuery({
+    queryKey: modelProviderKeys.list({ type: 'llm', limit: 100 }),
+    queryFn: () => listModelProvidersApi({ type: 'llm', limit: 100 }),
+    staleTime: 0,
     refetchOnWindowFocus: false,
   });
 }

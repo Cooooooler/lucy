@@ -32,7 +32,7 @@ describe('AI conversation keyset pagination (e2e)', () => {
   const suffix = randomUUID().slice(0, 8);
 
   /** 列表项允许式白名单（多一个字段就该让断言失败） */
-  const itemKeys = ['createdAt', 'id', 'model', 'title', 'updatedAt'];
+  const itemKeys = ['createdAt', 'id', 'modelProviderId', 'title', 'updatedAt'];
 
   // 基准毫秒取「当前时间往前 10 分钟」，不写死日期：下面的「翻页途中改名」用例隐含依赖
   // now > tieTs（改名后的 updated_at 要落在夹具之上才能顶到最前、并被在途游标跳过），
@@ -105,8 +105,8 @@ describe('AI conversation keyset pagination (e2e)', () => {
     for (const spec of [...tieSpecs, ...spreadSpecs]) {
       const createdAt = new Date(tieTs.getTime() - 600_000 + seq++ * 1000);
       await dataSource.query(
-        `INSERT INTO ai_conversations (id, user_id, title, model, created_at, updated_at)
-         VALUES ($1, $2, $3, NULL, $4, $5)`,
+        `INSERT INTO ai_conversations (id, user_id, title, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5)`,
         [spec.id, userId, `e2e_ai_${suffix}`, createdAt, spec.updatedAt],
       );
     }

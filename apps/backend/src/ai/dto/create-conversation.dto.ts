@@ -1,15 +1,5 @@
-import { MODEL_NAME_MAX_LENGTH } from '@lucy/shared';
-import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
-
-export class CreateConversationDto {
-  @ApiPropertyOptional({
-    description: '会话默认模型',
-    example: 'qwen2.5:7b',
-    maxLength: MODEL_NAME_MAX_LENGTH,
-  })
-  @IsOptional()
-  @IsString()
-  @MaxLength(MODEL_NAME_MAX_LENGTH)
-  model?: string;
-}
+/**
+ * 创建会话请求体：当前无可选字段（会话的默认模型在首条消息发送时由所选模型写入），
+ * 保留空 DTO 作为 `@Body()` 的契约占位，避免控制器直接收 `unknown`。
+ */
+export class CreateConversationDto {}

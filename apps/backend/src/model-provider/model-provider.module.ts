@@ -24,5 +24,7 @@ import { ModelProviderService } from './model-provider.service.js';
     ModelClientFactory,
     ModelConnectionService,
   ],
+  // 工厂导出给 AI 对话复用（按其属主配置构造对话客户端）；仓库由消费方自行 forFeature
+  exports: [ModelClientFactory],
 })
 export class ModelProviderModule {}

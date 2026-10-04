@@ -32,6 +32,14 @@ export class UnsupportedModelTypeError extends Error {
   }
 }
 
+/** 对话客户端构造选项：仅对支持对应能力的供应商生效 */
+export interface ChatClientOptions {
+  /** 仅 Ollama：是否开启深度思考（think）。 */
+  think?: boolean;
+  /** 仅 Ollama：生成输出上限（num_predict）。 */
+  numPredict?: number;
+}
+
 /**
  * 按模型配置构造 LangChain 统一客户端的工厂（按 `vendor` 分派）。
  *
@@ -50,7 +58,10 @@ export class ModelClientFactory {
   constructor(private readonly cipher: ApiKeyCipher) {}
 
   /** 构造对话模型客户端（LLM 用；Moderation 走 buildOpenAiChat） */
-  buildChat(provider: ModelProvider): BaseChatModel {
+  buildChat(
+    provider: ModelProvider,
+    options: ChatClientOptions = {},
+  ): BaseChatModel {
     switch (provider.vendor) {
       case ModelProviderVendor.Anthropic:
         return new ChatAnthropic({
@@ -64,6 +75,9 @@ export class ModelClientFactory {
           model: provider.name,
           baseUrl: provider.baseUrl,
           headers: this.ollamaHeaders(provider),
+          // think 与 numPredict 是 ChatOllama 实例级参数；未提供时保持客户端默认
+          think: options.think,
+          numPredict: options.numPredict,
         });
       default:
         return this.buildOpenAiChat(provider);

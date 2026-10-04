@@ -60,6 +60,19 @@ describe('ModelClientFactory', () => {
     expect((client as ChatOllama).model).toBe('gpt-4o-mini');
   });
 
+  it('Ollama buildChat 透传 think / numPredict', () => {
+    const client = factory.buildChat(
+      {
+        ...provider,
+        vendor: ModelProviderVendor.Ollama,
+        apiKeyEncrypted: '',
+      },
+      { think: true, numPredict: 4096 },
+    ) as ChatOllama;
+    expect(client.think).toBe(true);
+    expect(client.numPredict).toBe(4096);
+  });
+
   it('OpenAI buildEmbeddings → OpenAIEmbeddings', () => {
     expect(factory.buildEmbeddings(provider)).toBeInstanceOf(OpenAIEmbeddings);
   });

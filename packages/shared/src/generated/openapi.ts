@@ -288,6 +288,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/model-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 模型列表（游标分页）
+         * @description 仅返回当前用户创建的模型；用响应中的 nextCursor 翻页
+         */
+        get: operations["ModelProviderController_list"];
+        put?: never;
+        /** 创建模型 */
+        post: operations["ModelProviderController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/model-providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 模型详情 */
+        get: operations["ModelProviderController_get"];
+        put?: never;
+        post?: never;
+        /** 删除模型 */
+        delete: operations["ModelProviderController_remove"];
+        options?: never;
+        head?: never;
+        /**
+         * 更新模型
+         * @description apiKey 省略表示保留原 Key；传值则覆盖
+         */
+        patch: operations["ModelProviderController_update"];
+        trace?: never;
+    };
+    "/model-providers/{id}/test-connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 测试连接
+         * @description 用配置的 Key/Base URL/协议发起一次最小调用。返回 200 + ok 表达结论；不支持的类型与不可达地址都以 ok=false 返回
+         */
+        post: operations["ModelProviderController_testConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/knowledge": {
         parameters: {
             query?: never;
@@ -380,69 +443,6 @@ export interface paths {
         post?: never;
         /** 删除文档（连带清理文件） */
         delete: operations["KnowledgeController_removeDocument"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/model-providers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * 模型列表（游标分页）
-         * @description 仅返回当前用户创建的模型；用响应中的 nextCursor 翻页
-         */
-        get: operations["ModelProviderController_list"];
-        put?: never;
-        /** 创建模型 */
-        post: operations["ModelProviderController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/model-providers/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** 模型详情 */
-        get: operations["ModelProviderController_get"];
-        put?: never;
-        post?: never;
-        /** 删除模型 */
-        delete: operations["ModelProviderController_remove"];
-        options?: never;
-        head?: never;
-        /**
-         * 更新模型
-         * @description apiKey 省略表示保留原 Key；传值则覆盖
-         */
-        patch: operations["ModelProviderController_update"];
-        trace?: never;
-    };
-    "/model-providers/{id}/test-connection": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 测试连接
-         * @description 用配置的 Key/Base URL/协议发起一次最小调用。返回 200 + ok 表达结论；不支持的类型与不可达地址都以 ok=false 返回
-         */
-        post: operations["ModelProviderController_testConnection"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -631,20 +631,14 @@ export interface components {
              */
             accessToken: string;
         };
-        CreateConversationDto: {
-            /**
-             * @description 会话默认模型
-             * @example qwen2.5:7b
-             */
-            model?: string;
-        };
+        CreateConversationDto: Record<string, never>;
         ConversationItemDto: {
             /** @description 会话 ID */
             id: string;
             /** @description 标题 */
             title: string | null;
-            /** @description 会话默认模型 */
-            model: string | null;
+            /** @description 会话默认模型（模型配置 ID） */
+            modelProviderId: string | null;
             /**
              * Format: date-time
              * @description 创建时间
@@ -694,8 +688,8 @@ export interface components {
             id: string;
             /** @description 标题 */
             title: string | null;
-            /** @description 会话默认模型 */
-            model: string | null;
+            /** @description 会话默认模型（模型配置 ID） */
+            modelProviderId: string | null;
             /**
              * Format: date-time
              * @description 创建时间
@@ -720,132 +714,12 @@ export interface components {
              */
             content: string;
             /**
-             * @description 本次请求模型覆盖
-             * @example qwen2.5:7b
+             * Format: uuid
+             * @description 本次请求使用的模型配置 ID（省略则用会话默认模型）
              */
-            model?: string;
+            modelProviderId?: string;
             /** @description 是否开启深度思考（仅支持推理模型） */
             reasoning?: boolean;
-        };
-        CreateKnowledgeBaseDto: {
-            /** @description 名称 */
-            name: string;
-            /** @description 描述 */
-            description?: string;
-            /**
-             * @description 可见性
-             * @default private
-             * @enum {string}
-             */
-            visibility: "private" | "public";
-        };
-        KnowledgeBaseItemDto: {
-            /** @description 知识库 ID */
-            id: string;
-            /** @description 属主用户 ID */
-            ownerId: string;
-            /**
-             * @description 可见性
-             * @default private
-             * @enum {string}
-             */
-            visibility: "private" | "public";
-            /** @description 名称 */
-            name: string;
-            /** @description 描述 */
-            description: string | null;
-            /**
-             * Format: date-time
-             * @description 创建时间
-             */
-            createdAt: string;
-            /**
-             * Format: date-time
-             * @description 更新时间
-             */
-            updatedAt: string;
-            /**
-             * @description 点赞数
-             * @example 0
-             */
-            likeCount: number;
-            /**
-             * @description 当前用户是否已点赞
-             * @example false
-             */
-            isLiked: boolean;
-        };
-        KnowledgeListResultDto: {
-            /** @description 知识库列表 */
-            list: components["schemas"]["KnowledgeBaseItemDto"][];
-            /** @description 下一页游标；null 表示已到末页 */
-            nextCursor: string | null;
-        };
-        UpdateKnowledgeBaseDto: {
-            /** @description 名称 */
-            name?: string;
-            /** @description 描述 */
-            description?: string;
-            /**
-             * @description 可见性
-             * @default private
-             * @enum {string}
-             */
-            visibility: "private" | "public";
-        };
-        LikeResultDto: {
-            /** @description 操作后的点赞数 */
-            likeCount: number;
-            /** @description 操作后当前用户是否已点赞 */
-            isLiked: boolean;
-        };
-        KnowledgeDocumentDetailDto: {
-            /** @description 文档 ID */
-            id: string;
-            /** @description 所属知识库 ID */
-            knowledgeBaseId: string;
-            /** @description 源文件 ID */
-            fileId: string;
-            /** @description 标题 */
-            title: string;
-            /** @description 解析出的纯文本 */
-            content: string | null;
-            /**
-             * Format: date-time
-             * @description 创建时间
-             */
-            createdAt: string;
-            /**
-             * Format: date-time
-             * @description 更新时间
-             */
-            updatedAt: string;
-        };
-        KnowledgeDocumentListItemDto: {
-            /** @description 文档 ID */
-            id: string;
-            /** @description 所属知识库 ID */
-            knowledgeBaseId: string;
-            /** @description 源文件 ID */
-            fileId: string;
-            /** @description 标题 */
-            title: string;
-            /**
-             * Format: date-time
-             * @description 创建时间
-             */
-            createdAt: string;
-            /**
-             * Format: date-time
-             * @description 更新时间
-             */
-            updatedAt: string;
-        };
-        DocumentListResultDto: {
-            /** @description 文档列表（不含解析全文 content） */
-            list: components["schemas"]["KnowledgeDocumentListItemDto"][];
-            /** @description 下一页游标；null 表示已到末页 */
-            nextCursor: string | null;
         };
         CreateModelProviderDto: {
             /** @description 模型名称 */
@@ -972,6 +846,126 @@ export interface components {
              * @example 回复：你好
              */
             detail?: string | null;
+        };
+        CreateKnowledgeBaseDto: {
+            /** @description 名称 */
+            name: string;
+            /** @description 描述 */
+            description?: string;
+            /**
+             * @description 可见性
+             * @default private
+             * @enum {string}
+             */
+            visibility: "private" | "public";
+        };
+        KnowledgeBaseItemDto: {
+            /** @description 知识库 ID */
+            id: string;
+            /** @description 属主用户 ID */
+            ownerId: string;
+            /**
+             * @description 可见性
+             * @default private
+             * @enum {string}
+             */
+            visibility: "private" | "public";
+            /** @description 名称 */
+            name: string;
+            /** @description 描述 */
+            description: string | null;
+            /**
+             * Format: date-time
+             * @description 创建时间
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description 更新时间
+             */
+            updatedAt: string;
+            /**
+             * @description 点赞数
+             * @example 0
+             */
+            likeCount: number;
+            /**
+             * @description 当前用户是否已点赞
+             * @example false
+             */
+            isLiked: boolean;
+        };
+        KnowledgeListResultDto: {
+            /** @description 知识库列表 */
+            list: components["schemas"]["KnowledgeBaseItemDto"][];
+            /** @description 下一页游标；null 表示已到末页 */
+            nextCursor: string | null;
+        };
+        UpdateKnowledgeBaseDto: {
+            /** @description 名称 */
+            name?: string;
+            /** @description 描述 */
+            description?: string;
+            /**
+             * @description 可见性
+             * @default private
+             * @enum {string}
+             */
+            visibility: "private" | "public";
+        };
+        LikeResultDto: {
+            /** @description 操作后的点赞数 */
+            likeCount: number;
+            /** @description 操作后当前用户是否已点赞 */
+            isLiked: boolean;
+        };
+        KnowledgeDocumentDetailDto: {
+            /** @description 文档 ID */
+            id: string;
+            /** @description 所属知识库 ID */
+            knowledgeBaseId: string;
+            /** @description 源文件 ID */
+            fileId: string;
+            /** @description 标题 */
+            title: string;
+            /** @description 解析出的纯文本 */
+            content: string | null;
+            /**
+             * Format: date-time
+             * @description 创建时间
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description 更新时间
+             */
+            updatedAt: string;
+        };
+        KnowledgeDocumentListItemDto: {
+            /** @description 文档 ID */
+            id: string;
+            /** @description 所属知识库 ID */
+            knowledgeBaseId: string;
+            /** @description 源文件 ID */
+            fileId: string;
+            /** @description 标题 */
+            title: string;
+            /**
+             * Format: date-time
+             * @description 创建时间
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description 更新时间
+             */
+            updatedAt: string;
+        };
+        DocumentListResultDto: {
+            /** @description 文档列表（不含解析全文 content） */
+            list: components["schemas"]["KnowledgeDocumentListItemDto"][];
+            /** @description 下一页游标；null 表示已到末页 */
+            nextCursor: string | null;
         };
         HealthResultDto: {
             /**
@@ -1482,6 +1476,172 @@ export interface operations {
             };
         };
     };
+    ModelProviderController_list: {
+        parameters: {
+            query?: {
+                /** @description 分页游标（上一页返回的 nextCursor），省略表示第一页 */
+                cursor?: string;
+                /** @description 每页条数 */
+                limit?: number;
+                /** @description 按模型类型过滤 */
+                type?: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+                /** @description 名称关键字（最多 100 字符） */
+                name?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderListResultDto"];
+                };
+            };
+        };
+    };
+    ModelProviderController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateModelProviderDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderItemDto"];
+                };
+            };
+        };
+    };
+    ModelProviderController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderItemDto"];
+                };
+            };
+            /** @description 模型不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ModelProviderController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 删除成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 模型不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ModelProviderController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateModelProviderDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderItemDto"];
+                };
+            };
+            /** @description 模型不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ModelProviderController_testConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderTestResultDto"];
+                };
+            };
+            /** @description 模型不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     KnowledgeController_list: {
         parameters: {
             query?: {
@@ -1731,172 +1891,6 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ModelProviderController_list: {
-        parameters: {
-            query?: {
-                /** @description 分页游标（上一页返回的 nextCursor），省略表示第一页 */
-                cursor?: string;
-                /** @description 每页条数 */
-                limit?: number;
-                /** @description 按模型类型过滤 */
-                type?: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
-                /** @description 名称关键字（最多 100 字符） */
-                name?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelProviderListResultDto"];
-                };
-            };
-        };
-    };
-    ModelProviderController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateModelProviderDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelProviderItemDto"];
-                };
-            };
-        };
-    };
-    ModelProviderController_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelProviderItemDto"];
-                };
-            };
-            /** @description 模型不存在 */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ModelProviderController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description 删除成功 */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description 模型不存在 */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ModelProviderController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateModelProviderDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelProviderItemDto"];
-                };
-            };
-            /** @description 模型不存在 */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ModelProviderController_testConnection: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelProviderTestResultDto"];
-                };
-            };
-            /** @description 模型不存在 */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };

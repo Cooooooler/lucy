@@ -65,7 +65,7 @@ const ALLOWED_OUTBOUND_KEYS: Record<string, readonly string[]> = {
   // （ConversationItemDto / ConversationDetailDto），实体不再作为响应出网。
   // userId 与 messages 已在实体上标 @Exclude（纵深防御），故不登记为允许出网字段——
   // 若将来有人把实体当契约返回，本白名单会红，而不是静默放过归属关系/消息关系的泄漏。
-  Conversation: ['id', 'title', 'model', 'createdAt', 'updatedAt'],
+  Conversation: ['id', 'title', 'modelProviderId', 'createdAt', 'updatedAt'],
   Message: [
     'id',
     'conversationId',

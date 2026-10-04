@@ -39,6 +39,10 @@ export const ErrorCode = {
   AI_GENERATE_FAILED: 50001,
   /** 模型调用超时。消息：模型调用超时。 */
   AI_GENERATE_TIMEOUT: 50002,
+  /** 未选择模型（或用户没有任何 LLM 模型可选用），无法发起对话。消息：请先配置并选择模型。 */
+  AI_MODEL_REQUIRED: 40001,
+  /** 所选模型不存在、不属于当前用户或已不是 LLM 类型。消息：所选模型不可用。 */
+  AI_MODEL_NOT_FOUND: 40402,
 } as const;
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 

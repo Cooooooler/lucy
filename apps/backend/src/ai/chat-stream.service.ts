@@ -7,6 +7,11 @@ import { Observable } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { ShutdownService } from '../common/shutdown.service.js';
+import {
+  ModelProvider,
+  ModelProviderType,
+} from '../model-provider/entities/model-provider.entity.js';
+import { ModelClientFactory } from '../model-provider/model-client.factory.js';
 import { ContextService } from './context.service.js';
 import { ConversationTitleService } from './conversation-title.service.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
@@ -16,13 +21,12 @@ import {
   MessageRole,
   MessageStatus,
 } from './entities/message.entity.js';
-import { OllamaFactory } from './ollama.factory.js';
 
-// Ollama 流式 chunk：content 为回答片段；thinking 模型另带 reasoning_content；done_reason 标识结束原因（stop/length）
-type AiChunk = {
-  content: unknown;
-  additional_kwargs?: { reasoning_content?: string };
-  response_metadata?: { done_reason?: string };
+// 归一后的流式分片：text/reasoning 为本次增量，finishReason 为结束原因（stop/length，截断判定用）
+type NormalizedChunk = {
+  text: string;
+  reasoning: string;
+  finishReason?: string;
 };
 
 // 流式订阅方：next 逐帧推送事件，complete 结束流
@@ -50,7 +54,10 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     private readonly conversationRepo: Repository<Conversation>,
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
-    private readonly ollamaFactory: OllamaFactory,
+    // 按属主配置解析本次所用模型（会话默认 / 请求覆盖）
+    @InjectRepository(ModelProvider)
+    private readonly modelProviderRepo: Repository<ModelProvider>,
+    private readonly modelClientFactory: ModelClientFactory,
     private readonly contextService: ContextService,
     private readonly config: ConfigService,
     private readonly titleService: ConversationTitleService,
@@ -191,19 +198,22 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       requestId,
       signal,
     );
-    // 会话不存在时 prepareRun 已发 error 帧，直接结束
+    // 会话不存在 / 未选择模型时 prepareRun 已发 error 帧，直接结束
     if (!prepared) return;
-    const { history, model } = prepared;
+    const { history, provider } = prepared;
 
     // 推理模型默认开启深度思考：推理模型以 think=false 运行，易产出退化/半途截断的
     // 输出（如「先试着…」后即结束）。仅在调用方未显式指定时才按模型能力兜底，
-    // 显式 reasoning:{true|false} 仍被尊重。
-    const think = dto.reasoning ?? this.isReasoningModel(model);
-    const client = this.ollamaFactory.getClient(model, think);
+    // 显式 reasoning:{true|false} 仍被尊重。think/numPredict 只对 Ollama 生效
+    const think = dto.reasoning ?? this.isReasoningModel(provider.name);
+    const client = this.modelClientFactory.buildChat(provider, {
+      think,
+      numPredict: this.resolveMaxTokens(),
+    });
     const messages = await this.contextService.buildMessages(
       history,
       dto.content,
-      model,
+      provider,
     );
 
     // 空闲超时：模型持续无输出（含首 token 等待）超过阈值判为超时
@@ -230,7 +240,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     try {
       // 传入 signal：订阅取消（SSE 断线）时中止底层流，半截内容落 aborted
       const stream = (await client.stream(messages, { signal })) as
-        AsyncIterable<AiChunk> | Iterable<AiChunk>;
+        AsyncIterable<unknown> | Iterable<unknown>;
       armIdle();
       await this.collectStream(
         subscriber,
@@ -258,8 +268,8 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     }
   }
 
-  // 流式前置准备：校验会话、读历史、落用户消息、刷新会话、必要时生成标题，并解析模型与上下文。
-  // 会话不存在时向订阅方发 error 帧并返回 null，runSend 据此提前结束。
+  // 流式前置准备：校验会话与所选模型、读历史、落用户消息并记住模型、必要时生成标题。
+  // 会话不存在 / 未选择模型 / 模型不可用时向订阅方发 error 帧并返回 null，runSend 据此提前结束。
   private async prepareRun(
     subscriber: Subscriber,
     userId: string,
@@ -267,20 +277,47 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     dto: SendMessageDto,
     requestId: string,
     signal: AbortSignal,
-  ): Promise<{ history: Message[]; model: string } | null> {
+  ): Promise<{ history: Message[]; provider: ModelProvider } | null> {
     const conversation = await this.conversationRepo.findOne({
       where: { id: conversationId, userId },
     });
     if (!conversation) {
-      subscriber.next({
-        type: 'error',
+      this.emitError(
+        subscriber,
         requestId,
-        data: {
-          code: ErrorCode.AI_CONVERSATION_NOT_FOUND,
-          message: '会话不存在',
-        },
-      });
-      subscriber.complete();
+        ErrorCode.AI_CONVERSATION_NOT_FOUND,
+        '会话不存在',
+      );
+      return null;
+    }
+
+    // 本次所用模型：请求覆盖优先，其次会话默认；都没有则无法对话（用户没有可用模型）
+    const requestedModelId =
+      dto.modelProviderId ?? conversation.modelProviderId;
+    if (!requestedModelId) {
+      this.emitError(
+        subscriber,
+        requestId,
+        ErrorCode.AI_MODEL_REQUIRED,
+        '请先配置并选择模型',
+      );
+      return null;
+    }
+    // 属主写进 where：不存在、非属主、或已不是 LLM 类型一律视为不可用（不泄漏存在性）
+    const provider = await this.modelProviderRepo.findOne({
+      where: {
+        id: requestedModelId,
+        ownerId: userId,
+        type: ModelProviderType.Llm,
+      },
+    });
+    if (!provider) {
+      this.emitError(
+        subscriber,
+        requestId,
+        ErrorCode.AI_MODEL_NOT_FOUND,
+        '所选模型不可用',
+      );
       return null;
     }
 
@@ -290,7 +327,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       order: { createdAt: 'ASC' },
     });
 
-    // 事务：保存用户消息 + 刷新会话 updatedAt，保证原子性
+    // 事务：保存用户消息 + 记住本次所用模型 + 刷新会话 updatedAt，保证原子性
     await this.dataSource.transaction(async (manager) => {
       const messageRepo = manager.getRepository(Message);
       const conversationRepo = manager.getRepository(Conversation);
@@ -300,6 +337,8 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         role: MessageRole.User,
         content: dto.content,
       });
+      // 写回所选模型，使会话下次默认沿用（按会话记忆）
+      conversation.modelProviderId = provider.id;
       // 刷新会话 updatedAt，保证会话列表按最近活跃排序；
       // 显式设值确保脏检查必触发 UPDATE，不依赖 UpdateDateColumn 的自动刷新
       conversation.updatedAt = new Date();
@@ -310,7 +349,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     // history 在插入本次用户消息**之前**读取，故 history 为空即「本次是首条」，无需再 count 一次
     if (history.length === 0) {
       try {
-        await this.titleService.generate(conversation, signal);
+        await this.titleService.generate(conversation, provider, signal);
       } catch (err) {
         // 标题生成失败不影响正文问答，仅记录日志
         this.logger.warn(
@@ -320,11 +359,27 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       }
     }
 
-    const model =
-      dto.model ??
-      conversation.model ??
-      this.config.get<string>('OLLAMA_MODEL', 'qwen2.5:7b');
-    return { history, model };
+    return { history, provider };
+  }
+
+  /** 向订阅方发一条 error 帧并结束流 */
+  private emitError(
+    subscriber: Subscriber,
+    requestId: string,
+    code: ErrorCodeValue,
+    message: string,
+  ): void {
+    subscriber.next({ type: 'error', requestId, data: { code, message } });
+    subscriber.complete();
+  }
+
+  /**
+   * 解析生成输出上限：ConfigService 不强制类型，env 值是 string，需 Number coerce。
+   * 仅接受有限正整数，否则（缺失/0/负数/小数/NaN/Infinity）回退默认 32768（对齐 .env.example）。
+   */
+  private resolveMaxTokens(): number {
+    const parsed = Number(this.config.get('AI_OUTPUT_MAX_TOKENS', 32768));
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : 32768;
   }
 
   // 中止守卫：signal 中止时以 reason 拒绝，供流读取竞速；吞掉拒绝避免 unhandled rejection
@@ -344,7 +399,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     subscriber: Subscriber,
     requestId: string,
     iterator: {
-      next(): IteratorResult<AiChunk> | Promise<IteratorResult<AiChunk>>;
+      next(): IteratorResult<unknown> | Promise<IteratorResult<unknown>>;
     },
     abortPromise: Promise<never>,
     armIdle: () => void,
@@ -361,17 +416,15 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       const { value: chunk, done } = (await Promise.race([
         nextPromise,
         abortPromise,
-      ])) as { value: AiChunk; done: boolean };
+      ])) as { value: unknown; done: boolean };
       if (done) break;
       armIdle();
-      // 末 chunk 的 response_metadata.done_reason 透传 Ollama 的结束原因（stop/length），
-      // 用于识别「长度截断」生成，避免与正常结束混淆
-      const dr = chunk.response_metadata?.done_reason;
-      if (dr) collected.finishReason = dr;
-      // 思考模型（think=true）把思考链放在 additional_kwargs.reasoning_content，
-      // 实际回答在 content：拆成 thinking/content 两路帧，前端可区分展示
-      const text = typeof chunk.content === 'string' ? chunk.content : '';
-      const reasoning = chunk.additional_kwargs?.reasoning_content ?? '';
+      const { text, reasoning, finishReason } = this.extractChunk(chunk);
+      // 结束原因（Ollama 的 done_reason / OpenAI、Anthropic 的 finish_reason）用于识别
+      // 「长度截断」生成，避免与正常结束混淆
+      if (finishReason) collected.finishReason = finishReason;
+      // 思考链（Ollama/OpenAI 的 reasoning_content 或 Anthropic 的 thinking 块）与实际回答
+      // 拆成 thinking/content 两路帧，前端可区分展示
       if (reasoning) {
         collected.thinkingAll += reasoning;
         subscriber.next({
@@ -464,6 +517,60 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     }
     const iter = stream[Symbol.iterator]();
     return { next: () => iter.next() };
+  }
+
+  /**
+   * 归一不同 vendor 的流式分片：content 可能是字符串（OpenAI/Ollama）或内容块数组
+   * （Anthropic）；思考链可能在 `additional_kwargs.reasoning_content`（OpenAI/Ollama）或
+   * 内容块里（Anthropic）。结束原因 Ollama 用 `done_reason`、OpenAI/Anthropic 用
+   * `finish_reason`，Anthropic 的长度截断记作 `max_tokens`，统一归一为 `length`。
+   */
+  private extractChunk(chunk: unknown): NormalizedChunk {
+    const c = chunk as {
+      content?: unknown;
+      additional_kwargs?: { reasoning_content?: unknown };
+      response_metadata?: { done_reason?: unknown; finish_reason?: unknown };
+    };
+    const { text, reasoning } = this.extractContent(c.content);
+    const extraReasoning =
+      typeof c.additional_kwargs?.reasoning_content === 'string'
+        ? c.additional_kwargs.reasoning_content
+        : '';
+    const rawFinish =
+      typeof c.response_metadata?.done_reason === 'string'
+        ? c.response_metadata.done_reason
+        : typeof c.response_metadata?.finish_reason === 'string'
+          ? c.response_metadata.finish_reason
+          : undefined;
+    return {
+      text,
+      reasoning: reasoning + extraReasoning,
+      finishReason: rawFinish === 'max_tokens' ? 'length' : rawFinish,
+    };
+  }
+
+  // content 为字符串或内容块数组（Anthropic）：text 归一为回答，thinking/reasoning 块归一为思考
+  private extractContent(content: unknown): {
+    text: string;
+    reasoning: string;
+  } {
+    if (typeof content === 'string') return { text: content, reasoning: '' };
+    if (!Array.isArray(content)) return { text: '', reasoning: '' };
+    let text = '';
+    let reasoning = '';
+    for (const block of content) {
+      if (!block || typeof block !== 'object') continue;
+      const b = block as { type?: unknown; text?: unknown; thinking?: unknown };
+      const value =
+        typeof b.text === 'string'
+          ? b.text
+          : typeof b.thinking === 'string'
+            ? b.thinking
+            : '';
+      if (b.type === 'thinking' || b.type === 'reasoning') reasoning += value;
+      else text += value;
+    }
+    return { text, reasoning };
   }
 
   // 是否推理（深度思考）模型：按模型名家族粗判。真实能力以 Ollama capabilities 为准，

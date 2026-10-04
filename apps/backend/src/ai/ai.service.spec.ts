@@ -54,7 +54,7 @@ describe('AiService', () => {
       id: 'c1',
       userId: '1',
       title: null,
-      model: null,
+      modelProviderId: null,
     });
 
   /** 带排序键时间戳的会话：真 paginator 会用 updatedAt 生成游标，所以必须给真实 Date */
@@ -111,23 +111,20 @@ describe('AiService', () => {
     await expect(service.create('1', {})).resolves.toEqual({
       id: saved.id,
       title: saved.title,
-      model: saved.model,
+      modelProviderId: saved.modelProviderId,
       createdAt: saved.createdAt,
       updatedAt: saved.updatedAt,
     });
-    expect(conversationRepo.save).toHaveBeenCalledWith({
-      userId: '1',
-      model: null,
-    });
+    expect(conversationRepo.save).toHaveBeenCalledWith({ userId: '1' });
   });
 
   /** 列表项允许式白名单的键集（已排序，与 `Object.keys(...).sort()` 比对） */
-  const itemKeys = ['createdAt', 'id', 'model', 'title', 'updatedAt'];
+  const itemKeys = ['createdAt', 'id', 'modelProviderId', 'title', 'updatedAt'];
 
   it('list 走游标分页：过滤归属用户，按 updatedAt 排序，列表项走允许式白名单', async () => {
     const row = Object.assign(timedConv(1), {
       title: '会话标题',
-      model: 'qwen2.5:7b',
+      modelProviderId: '00000000-0000-4000-8000-0000000000ff',
     });
     const qb = makeListQueryBuilder([row]);
     conversationRepo.createQueryBuilder.mockReturnValue(qb);
@@ -140,7 +137,7 @@ describe('AiService', () => {
       {
         id: row.id,
         title: '会话标题',
-        model: 'qwen2.5:7b',
+        modelProviderId: '00000000-0000-4000-8000-0000000000ff',
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       },
@@ -182,7 +179,7 @@ describe('AiService', () => {
     expect(page.list[0]).toEqual({
       id: rows[0].id,
       title: rows[0].title,
-      model: rows[0].model,
+      modelProviderId: rows[0].modelProviderId,
       createdAt: rows[0].createdAt,
       updatedAt: rows[0].updatedAt,
     });
@@ -221,7 +218,7 @@ describe('AiService', () => {
       'createdAt',
       'id',
       'messages',
-      'model',
+      'modelProviderId',
       'title',
       'updatedAt',
     ]);
@@ -247,7 +244,7 @@ describe('AiService', () => {
     await expect(service.rename('1', 'c1', '新标题')).resolves.toEqual({
       id: saved.id,
       title: '新标题',
-      model: saved.model,
+      modelProviderId: saved.modelProviderId,
       createdAt: saved.createdAt,
       updatedAt: saved.updatedAt,
     });
