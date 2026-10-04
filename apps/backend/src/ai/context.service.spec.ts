@@ -98,6 +98,23 @@ describe('ContextService', () => {
     expect(out[0].content).toBe('new');
   });
 
+  it('模型总窗口小于输出预留时：输入预算归零，丢弃全部历史', async () => {
+    // contextLimit = min(100000, 1000 − 4000) = 0 → budget = 0 → 历史全部放不下
+    const svc = makeSvc({
+      AI_CONTEXT_TOKEN_LIMIT: 100000,
+      AI_OUTPUT_MAX_TOKENS: 4000,
+    });
+    const tiny = makeModelProvider({ contextLength: 1000 });
+    const out = await svc.buildMessages(
+      [msg(MessageRole.Ai, 'recent')],
+      'new',
+      tiny,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]).toBeInstanceOf(HumanMessage);
+    expect(out[0].content).toBe('new');
+  });
+
   it('空历史只返回系统提示与新消息', async () => {
     const svc = makeSvc({ AI_SYSTEM_PROMPT: 'sys' });
     const out = await svc.buildMessages([], 'new', provider);

@@ -7,11 +7,8 @@ import { toArray } from 'rxjs/operators';
 import { DataSource } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { ShutdownService } from '../common/shutdown.service.js';
-import {
-  ModelProvider,
-  ModelProviderType,
-} from '../model-provider/entities/model-provider.entity.js';
 import { ModelClientFactory } from '../model-provider/model-client.factory.js';
+import { ModelProviderService } from '../model-provider/model-provider.service.js';
 import {
   makeModelProvider,
   MODEL_ID,
@@ -51,9 +48,9 @@ describe('ChatStreamService', () => {
       return cb(manager);
     }),
   } as unknown as DataSource;
-  const modelProviderRepo = { findOne: vi.fn() };
+  const modelProviderService = { resolveOwnedLlm: vi.fn() };
   const modelClientFactory = { buildChat: vi.fn() };
-  // 默认模型配置（属主校验通过）；个别用例会覆盖 findOne 的返回值
+  // 默认模型配置（属主校验通过）；个别用例会覆盖 resolveOwnedLlm 的返回值
   const provider = makeModelProvider();
   const contextService = { buildMessages: vi.fn() };
   const titleService = { generate: vi.fn() };
@@ -85,10 +82,7 @@ describe('ChatStreamService', () => {
           useValue: conversationRepo,
         },
         { provide: getRepositoryToken(Message), useValue: messageRepo },
-        {
-          provide: getRepositoryToken(ModelProvider),
-          useValue: modelProviderRepo,
-        },
+        { provide: ModelProviderService, useValue: modelProviderService },
         { provide: ModelClientFactory, useValue: modelClientFactory },
         { provide: ContextService, useValue: contextService },
         // 标题生成已下沉到 ConversationTitleService，其行为在 conversation-title.service.spec.ts 覆盖
@@ -104,7 +98,7 @@ describe('ChatStreamService', () => {
     vi.clearAllMocks();
     // clearAllMocks 只清调用记录不清实现，但仍显式复位：停机位默认关闭
     shutdown.isShutdown.mockReturnValue(false);
-    modelProviderRepo.findOne.mockResolvedValue(provider);
+    modelProviderService.resolveOwnedLlm.mockResolvedValue(provider);
     modelClientFactory.buildChat.mockReturnValue(fakeClient());
     service = await buildService();
   });
@@ -343,14 +337,14 @@ describe('ChatStreamService', () => {
       }),
     );
     expectErrorCode(await sendHi(), ErrorCode.AI_MODEL_REQUIRED);
-    expect(modelProviderRepo.findOne).not.toHaveBeenCalled();
+    expect(modelProviderService.resolveOwnedLlm).not.toHaveBeenCalled();
     expect(modelClientFactory.buildChat).not.toHaveBeenCalled();
     expect(messageRepo.save).not.toHaveBeenCalled();
   });
 
   it('所选模型不可用（不存在/非属主/非 LLM）：发 AI_MODEL_NOT_FOUND 且不落库', async () => {
     conversationRepo.findOne.mockResolvedValue(conv());
-    modelProviderRepo.findOne.mockResolvedValue(null);
+    modelProviderService.resolveOwnedLlm.mockResolvedValue(null);
     expectErrorCode(await sendHi(), ErrorCode.AI_MODEL_NOT_FOUND);
     expect(modelClientFactory.buildChat).not.toHaveBeenCalled();
     expect(messageRepo.save).not.toHaveBeenCalled();
@@ -431,7 +425,7 @@ describe('ChatStreamService', () => {
       }),
     );
     const reqProvider = makeModelProvider({ id: reqModelId });
-    modelProviderRepo.findOne.mockResolvedValue(reqProvider);
+    modelProviderService.resolveOwnedLlm.mockResolvedValue(reqProvider);
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
@@ -443,17 +437,13 @@ describe('ChatStreamService', () => {
         modelProviderId: reqModelId,
       }),
     );
-    expect(modelProviderRepo.findOne).toHaveBeenCalledWith({
-      where: {
-        id: reqModelId,
-        ownerId: '1',
-        type: ModelProviderType.Llm,
-      },
-    });
-    expect(modelClientFactory.buildChat).toHaveBeenCalledWith(
-      reqProvider,
-      expect.objectContaining({ think: false, numPredict: 32768 }),
+    expect(modelProviderService.resolveOwnedLlm).toHaveBeenCalledWith(
+      '1',
+      reqModelId,
     );
+    expect(modelClientFactory.buildChat).toHaveBeenCalledWith(reqProvider, {
+      think: false,
+    });
   });
 
   it('请求级 reasoning 透传给模型客户端', async () => {

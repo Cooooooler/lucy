@@ -7,11 +7,9 @@ import { Observable } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { ShutdownService } from '../common/shutdown.service.js';
-import {
-  ModelProvider,
-  ModelProviderType,
-} from '../model-provider/entities/model-provider.entity.js';
+import type { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
 import { ModelClientFactory } from '../model-provider/model-client.factory.js';
+import { ModelProviderService } from '../model-provider/model-provider.service.js';
 import { ContextService } from './context.service.js';
 import { ConversationTitleService } from './conversation-title.service.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
@@ -21,13 +19,7 @@ import {
   MessageRole,
   MessageStatus,
 } from './entities/message.entity.js';
-
-// 归一后的流式分片：text/reasoning 为本次增量，finishReason 为结束原因（stop/length，截断判定用）
-type NormalizedChunk = {
-  text: string;
-  reasoning: string;
-  finishReason?: string;
-};
+import { normalizeChunk } from './stream-chunk.js';
 
 // 流式订阅方：next 逐帧推送事件，complete 结束流
 type Subscriber = {
@@ -54,9 +46,8 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     private readonly conversationRepo: Repository<Conversation>,
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
-    // 按属主配置解析本次所用模型（会话默认 / 请求覆盖）
-    @InjectRepository(ModelProvider)
-    private readonly modelProviderRepo: Repository<ModelProvider>,
+    // 按属主配置解析本次所用模型（会话默认 / 请求覆盖）——属主/类型约束收敛在模型领域内
+    private readonly modelProviderService: ModelProviderService,
     private readonly modelClientFactory: ModelClientFactory,
     private readonly contextService: ContextService,
     private readonly config: ConfigService,
@@ -204,12 +195,9 @@ export class ChatStreamService implements BeforeApplicationShutdown {
 
     // 推理模型默认开启深度思考：推理模型以 think=false 运行，易产出退化/半途截断的
     // 输出（如「先试着…」后即结束）。仅在调用方未显式指定时才按模型能力兜底，
-    // 显式 reasoning:{true|false} 仍被尊重。think/numPredict 只对 Ollama 生效
+    // 显式 reasoning:{true|false} 仍被尊重。think 只对 Ollama 生效（工厂内部处理其它供应商）
     const think = dto.reasoning ?? this.isReasoningModel(provider.name);
-    const client = this.modelClientFactory.buildChat(provider, {
-      think,
-      numPredict: this.resolveMaxTokens(),
-    });
+    const client = this.modelClientFactory.buildChat(provider, { think });
     const messages = await this.contextService.buildMessages(
       history,
       dto.content,
@@ -303,14 +291,11 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       );
       return null;
     }
-    // 属主写进 where：不存在、非属主、或已不是 LLM 类型一律视为不可用（不泄漏存在性）
-    const provider = await this.modelProviderRepo.findOne({
-      where: {
-        id: requestedModelId,
-        ownerId: userId,
-        type: ModelProviderType.Llm,
-      },
-    });
+    // 属主与 LLM 类型约束收敛在模型领域：不存在、非属主或非 LLM 一律视为不可用（不泄漏存在性）
+    const provider = await this.modelProviderService.resolveOwnedLlm(
+      userId,
+      requestedModelId,
+    );
     if (!provider) {
       this.emitError(
         subscriber,
@@ -373,15 +358,6 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     subscriber.complete();
   }
 
-  /**
-   * 解析生成输出上限：ConfigService 不强制类型，env 值是 string，需 Number coerce。
-   * 仅接受有限正整数，否则（缺失/0/负数/小数/NaN/Infinity）回退默认 32768（对齐 .env.example）。
-   */
-  private resolveMaxTokens(): number {
-    const parsed = Number(this.config.get('AI_OUTPUT_MAX_TOKENS', 32768));
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : 32768;
-  }
-
   // 中止守卫：signal 中止时以 reason 拒绝，供流读取竞速；吞掉拒绝避免 unhandled rejection
   private createAbortPromise(signal: AbortSignal): Promise<never> {
     const abortPromise = new Promise<never>((_, reject) => {
@@ -419,7 +395,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       ])) as { value: unknown; done: boolean };
       if (done) break;
       armIdle();
-      const { text, reasoning, finishReason } = this.extractChunk(chunk);
+      const { text, reasoning, finishReason } = normalizeChunk(chunk);
       // 结束原因（Ollama 的 done_reason / OpenAI、Anthropic 的 finish_reason）用于识别
       // 「长度截断」生成，避免与正常结束混淆
       if (finishReason) collected.finishReason = finishReason;
@@ -517,60 +493,6 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     }
     const iter = stream[Symbol.iterator]();
     return { next: () => iter.next() };
-  }
-
-  /**
-   * 归一不同 vendor 的流式分片：content 可能是字符串（OpenAI/Ollama）或内容块数组
-   * （Anthropic）；思考链可能在 `additional_kwargs.reasoning_content`（OpenAI/Ollama）或
-   * 内容块里（Anthropic）。结束原因 Ollama 用 `done_reason`、OpenAI/Anthropic 用
-   * `finish_reason`，Anthropic 的长度截断记作 `max_tokens`，统一归一为 `length`。
-   */
-  private extractChunk(chunk: unknown): NormalizedChunk {
-    const c = chunk as {
-      content?: unknown;
-      additional_kwargs?: { reasoning_content?: unknown };
-      response_metadata?: { done_reason?: unknown; finish_reason?: unknown };
-    };
-    const { text, reasoning } = this.extractContent(c.content);
-    const extraReasoning =
-      typeof c.additional_kwargs?.reasoning_content === 'string'
-        ? c.additional_kwargs.reasoning_content
-        : '';
-    const rawFinish =
-      typeof c.response_metadata?.done_reason === 'string'
-        ? c.response_metadata.done_reason
-        : typeof c.response_metadata?.finish_reason === 'string'
-          ? c.response_metadata.finish_reason
-          : undefined;
-    return {
-      text,
-      reasoning: reasoning + extraReasoning,
-      finishReason: rawFinish === 'max_tokens' ? 'length' : rawFinish,
-    };
-  }
-
-  // content 为字符串或内容块数组（Anthropic）：text 归一为回答，thinking/reasoning 块归一为思考
-  private extractContent(content: unknown): {
-    text: string;
-    reasoning: string;
-  } {
-    if (typeof content === 'string') return { text: content, reasoning: '' };
-    if (!Array.isArray(content)) return { text: '', reasoning: '' };
-    let text = '';
-    let reasoning = '';
-    for (const block of content) {
-      if (!block || typeof block !== 'object') continue;
-      const b = block as { type?: unknown; text?: unknown; thinking?: unknown };
-      const value =
-        typeof b.text === 'string'
-          ? b.text
-          : typeof b.thinking === 'string'
-            ? b.thinking
-            : '';
-      if (b.type === 'thinking' || b.type === 'reasoning') reasoning += value;
-      else text += value;
-    }
-    return { text, reasoning };
   }
 
   // 是否推理（深度思考）模型：按模型名家族粗判。真实能力以 Ollama capabilities 为准，

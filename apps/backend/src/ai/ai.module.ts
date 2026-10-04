@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommonModule } from '../common/common.module.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
-import { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
 import { ModelProviderModule } from '../model-provider/model-provider.module.js';
 import { AiController } from './ai.controller.js';
 import { AiService } from './ai.service.js';
@@ -18,9 +17,9 @@ import { TokenizerService } from './tokenizer.service.js';
     CommonModule,
     // KeysetPaginator 与 AI 无耦合，由 common 侧的模块提供，这里只消费（会话列表用它分页）
     PaginationModule,
-    // 按属主配置构造对话客户端（ModelClientFactory）；ModelProvider 仓库由本模块自行 forFeature
+    // 复用模型领域：ModelClientFactory（按 vendor 构造客户端）+ ModelProviderService（属主/类型受限解析）
     ModelProviderModule,
-    TypeOrmModule.forFeature([Conversation, Message, ModelProvider]),
+    TypeOrmModule.forFeature([Conversation, Message]),
   ],
   controllers: [AiController],
   // 会话元信息（AiService）与流式生成（ChatStreamService）分属两个职责

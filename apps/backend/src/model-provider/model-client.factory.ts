@@ -4,6 +4,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { ChatOllama, OllamaEmbeddings } from '@langchain/ollama';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import {
   ModelProviderProtocol,
@@ -55,12 +56,54 @@ export interface ChatClientOptions {
  */
 @Injectable()
 export class ModelClientFactory {
-  constructor(private readonly cipher: ApiKeyCipher) {}
+  // 对话客户端缓存：同一会话每条消息、每次标题生成都复用同一实例，避免重复 new 底层 SDK/连接。
+  // 键取「影响客户端构造的配置签名」（见 chatCacheKey），任一字段或密文 Key 变化即视为新客户端，
+  // 不会命中旧凭证/旧地址；provider 删除后条目由容量淘汰兜底。
+  private readonly chatCache = new Map<string, BaseChatModel>();
+  private readonly maxChatCacheEntries = 50;
+
+  constructor(
+    private readonly cipher: ApiKeyCipher,
+    private readonly config: ConfigService,
+  ) {}
 
   /** 构造对话模型客户端（LLM 用；Moderation 走 buildOpenAiChat） */
   buildChat(
     provider: ModelProvider,
     options: ChatClientOptions = {},
+  ): BaseChatModel {
+    const key = this.chatCacheKey(provider, options);
+    const cached = this.chatCache.get(key);
+    if (cached) return cached;
+    const client = this.createChat(provider, options);
+    this.chatCache.set(key, client);
+    // 超限淘汰最旧条目（Map 保持插入序）
+    if (this.chatCache.size > this.maxChatCacheEntries) {
+      const oldest = this.chatCache.keys().next().value;
+      if (oldest !== undefined) this.chatCache.delete(oldest);
+    }
+    return client;
+  }
+
+  /** 缓存键：影响客户端构造的字段签名 + think，任一变化都重建（含密文 Key，避免命中旧凭证） */
+  private chatCacheKey(
+    provider: ModelProvider,
+    options: ChatClientOptions,
+  ): string {
+    return [
+      provider.id,
+      provider.vendor,
+      provider.name,
+      provider.baseUrl,
+      provider.protocol,
+      provider.apiKeyEncrypted,
+      options.think === true,
+    ].join('|');
+  }
+
+  private createChat(
+    provider: ModelProvider,
+    options: ChatClientOptions,
   ): BaseChatModel {
     switch (provider.vendor) {
       case ModelProviderVendor.Anthropic:
@@ -75,13 +118,23 @@ export class ModelClientFactory {
           model: provider.name,
           baseUrl: provider.baseUrl,
           headers: this.ollamaHeaders(provider),
-          // think 与 numPredict 是 ChatOllama 实例级参数；未提供时保持客户端默认
+          // think 是实例级参数；numPredict 默认取 AI_OUTPUT_MAX_TOKENS，调用点可按需覆盖
           think: options.think,
-          numPredict: options.numPredict,
+          numPredict: options.numPredict ?? this.resolveMaxTokens(),
         });
       default:
         return this.buildOpenAiChat(provider);
     }
+  }
+
+  /**
+   * 生成输出上限默认值：ConfigService 不强制类型，env 是 string，需 Number coerce。
+   * 仅接受有限正整数，否则（缺失/0/负数/小数/NaN/Infinity）回退 32768（对齐 .env.example）。
+   * 收敛在工厂内，避免各调用方（对话、标题生成）各写一份、漏传即无上限。
+   */
+  private resolveMaxTokens(): number {
+    const parsed = Number(this.config.get('AI_OUTPUT_MAX_TOKENS', 32768));
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : 32768;
   }
 
   /** 构造 OpenAI 对话客户端（Moderation 的 `moderateContent` 只在此类上提供） */

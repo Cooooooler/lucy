@@ -21,18 +21,19 @@ export class ContextService {
     newContent: string,
     provider: ModelProvider,
   ): Promise<(SystemMessage | HumanMessage | AIMessage)[]> {
-    // 输入预算 = min(所选模型上下文长度, 全局上限) − 安全边际。安全边际防本地
-    // tokenizer（估算/模板/特殊 token 未计满）与真实分词偏差造成的越界；纳入模型自身的
-    // contextLength，避免给上下文较小的模型塞入超长提示。
-    const limit = Math.min(
-      provider.contextLength,
+    // 输入预算 = min(全局输入上限, 模型总窗口 − 输出预留) − 安全边际。
+    // provider.contextLength 是模型**总窗口**，须先为生成输出留出空间（numPredict 默认
+    // 即 AI_OUTPUT_MAX_TOKENS），否则小窗口模型会出现「输入 + 输出预留 > 窗口」被供应商以
+    // 超长拒绝；安全边际则防本地 tokenizer（估算/模板/特殊 token 未计满）与真实分词偏差。
+    const contextLimit = Math.min(
       this.config.get<number>('AI_CONTEXT_TOKEN_LIMIT', 131072),
+      Math.max(0, provider.contextLength - this.resolveOutputReserve()),
     );
     const safetyMargin = this.config.get<number>(
       'AI_CONTEXT_SAFETY_MARGIN',
       2048,
     );
-    const budget = Math.max(0, limit - safetyMargin);
+    const budget = Math.max(0, contextLimit - safetyMargin);
     const model = provider.name;
 
     const messages: (SystemMessage | HumanMessage | AIMessage)[] = [];
@@ -66,5 +67,14 @@ export class ContextService {
     }
     messages.push(new HumanMessage(newContent));
     return messages;
+  }
+
+  /**
+   * 生成输出的预留 token：与 ModelClientFactory 的 numPredict 默认同源（AI_OUTPUT_MAX_TOKENS，
+   * 非法/缺失回退 32768），用于在输入预算里为输出让出空间。
+   */
+  private resolveOutputReserve(): number {
+    const parsed = Number(this.config.get('AI_OUTPUT_MAX_TOKENS', 32768));
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : 32768;
   }
 }

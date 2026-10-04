@@ -288,7 +288,7 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
   // 模型选择：只列 LLM 类型（其它类型不能对话）。会话已带默认模型则用它，否则自动选最近配置的一个
   const conversationQuery = useConversation(id);
   const { data: modelData, isLoading: modelsLoading } = useLlmModelProviders();
-  const models = useMemo(() => modelData?.list ?? [], [modelData]);
+  const models = modelData?.list ?? [];
   const hasModels = models.length > 0;
   const defaultModelId =
     conversationQuery.data?.modelProviderId ?? models[0]?.id;
