@@ -44,9 +44,9 @@ describe('AiController', () => {
     return { res, headers, writes, getCloseHandler: () => closeHandler };
   }
 
-  it('create 透传 userId 与 dto', async () => {
-    await controller.create(user, {});
-    expect(aiService.create).toHaveBeenCalledWith('1', {});
+  it('create 透传 userId', async () => {
+    await controller.create(user);
+    expect(aiService.create).toHaveBeenCalledWith('1');
   });
 
   it('list 透传游标与条数', async () => {

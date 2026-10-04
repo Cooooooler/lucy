@@ -87,7 +87,7 @@ describe('api/ai', () => {
     it('createConversationApi 调用 POST /ai/conversations', async () => {
       const conv = makeConversation();
       fetchMock.mockResolvedValueOnce(okEnvelope(conv));
-      const result = await createConversationApi({});
+      const result = await createConversationApi();
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/v1/ai/conversations',
         expect.objectContaining({

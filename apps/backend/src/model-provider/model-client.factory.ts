@@ -42,6 +42,16 @@ export interface ChatClientOptions {
 }
 
 /**
+ * 生成输出上限（token）的单一解析：`AI_OUTPUT_MAX_TOKENS`，非法/缺失（0/负/小数/NaN/Infinity）
+ * 回退 32768（对齐 .env.example）。既作为工厂 numPredict 的默认，也供上下文预算预留复用，
+ * 确保「预留」与「实际 numPredict」同源、不漂移。
+ */
+export function resolveOutputMaxTokens(config: ConfigService): number {
+  const parsed = Number(config.get('AI_OUTPUT_MAX_TOKENS', 32768));
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 32768;
+}
+
+/**
  * 按模型配置构造 LangChain 统一客户端的工厂（按 `vendor` 分派）。
  *
  * 覆盖矩阵（统一 SDK 的实际能力）：
@@ -85,7 +95,10 @@ export class ModelClientFactory {
     return client;
   }
 
-  /** 缓存键：影响客户端构造的字段签名 + think，任一变化都重建（含密文 Key，避免命中旧凭证） */
+  /**
+   * 缓存键：影响客户端构造的字段签名 + think + numPredict，任一变化都重建
+   * （含密文 Key，避免命中旧凭证；含 numPredict，避免覆盖值命中默认值实例）。
+   */
   private chatCacheKey(
     provider: ModelProvider,
     options: ChatClientOptions,
@@ -98,6 +111,7 @@ export class ModelClientFactory {
       provider.protocol,
       provider.apiKeyEncrypted,
       options.think === true,
+      options.numPredict ?? 'default',
     ].join('|');
   }
 
@@ -120,21 +134,11 @@ export class ModelClientFactory {
           headers: this.ollamaHeaders(provider),
           // think 是实例级参数；numPredict 默认取 AI_OUTPUT_MAX_TOKENS，调用点可按需覆盖
           think: options.think,
-          numPredict: options.numPredict ?? this.resolveMaxTokens(),
+          numPredict: options.numPredict ?? resolveOutputMaxTokens(this.config),
         });
       default:
         return this.buildOpenAiChat(provider);
     }
-  }
-
-  /**
-   * 生成输出上限默认值：ConfigService 不强制类型，env 是 string，需 Number coerce。
-   * 仅接受有限正整数，否则（缺失/0/负数/小数/NaN/Infinity）回退 32768（对齐 .env.example）。
-   * 收敛在工厂内，避免各调用方（对话、标题生成）各写一份、漏传即无上限。
-   */
-  private resolveMaxTokens(): number {
-    const parsed = Number(this.config.get('AI_OUTPUT_MAX_TOKENS', 32768));
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : 32768;
   }
 
   /** 构造 OpenAI 对话客户端（Moderation 的 `moderateContent` 只在此类上提供） */

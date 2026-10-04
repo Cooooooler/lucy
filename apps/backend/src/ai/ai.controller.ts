@@ -28,7 +28,6 @@ import { ChatStreamService } from './chat-stream.service.js';
 import { ConversationDetailDto } from './dto/conversation-detail.dto.js';
 import { ConversationItemDto } from './dto/conversation-item.dto.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
-import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { RenameConversationDto } from './dto/rename-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
 
@@ -52,9 +51,8 @@ export class AiController {
   })
   create(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() dto: CreateConversationDto,
   ): Promise<ConversationItemDto> {
-    return this.aiService.create(user.userId, dto);
+    return this.aiService.create(user.userId);
   }
 
   @Get('conversations')

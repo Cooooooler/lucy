@@ -7,7 +7,6 @@ import { http } from './client';
 import type {
   Conversation,
   ConversationItem,
-  CreateConversationRequest,
   RenameConversationRequest,
   SendMessageRequest,
 } from './types';
@@ -16,12 +15,15 @@ import type {
 // 流式发送标记 skipAuthRefresh：SSE 流中途不应触发 401 重放，否则会破坏流协议。
 
 // 创建/改名返回列表项同一份允许式契约（服务端不 populate messages，自然也不该出现在契约里）
-export function createConversationApi(input: CreateConversationRequest = {}) {
+// 创建会话无入参（会话模型在首条消息发送时写入），但仍发空对象以保持 POST 的 JSON 形状
+export function createConversationApi() {
   // 首条消息无感创建会话（chat.tsx handleSubmit）：静默，不弹「会话创建成功」
   return http
-    .post<ConversationItem>('ai/conversations', input, {
-      extra: { skipSuccessMessage: true },
-    })
+    .post<ConversationItem>(
+      'ai/conversations',
+      {},
+      { extra: { skipSuccessMessage: true } },
+    )
     .json();
 }
 

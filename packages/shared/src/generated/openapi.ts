@@ -631,7 +631,6 @@ export interface components {
              */
             accessToken: string;
         };
-        CreateConversationDto: Record<string, never>;
         ConversationItemDto: {
             /** @description 会话 ID */
             id: string;
@@ -1347,11 +1346,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateConversationDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description 创建成功 */
             201: {

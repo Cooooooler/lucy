@@ -164,6 +164,18 @@ describe('ModelClientFactory', () => {
     expect(client.numPredict).toBe(32768);
   });
 
+  it('numPredict 不同则缓存键不同（默认与覆盖值不互相命中）', () => {
+    const base = {
+      ...provider,
+      vendor: ModelProviderVendor.Ollama,
+      apiKeyEncrypted: '',
+    };
+    const a = factory.buildChat(base, { numPredict: 4096 });
+    expect(factory.buildChat(base, { numPredict: 4096 })).toBe(a);
+    expect(factory.buildChat(base, { numPredict: 8192 })).not.toBe(a);
+    expect(factory.buildChat(base)).not.toBe(a);
+  });
+
   it('同配置复用缓存实例；配置变化后重建', () => {
     const a = factory.buildChat(provider);
     expect(factory.buildChat(provider)).toBe(a);

@@ -6,6 +6,7 @@ import {
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
+import { resolveOutputMaxTokens } from '../model-provider/model-client.factory.js';
 import { Message, MessageRole } from './entities/message.entity.js';
 import { TokenizerService } from './tokenizer.service.js';
 
@@ -27,7 +28,7 @@ export class ContextService {
     // 超长拒绝；安全边际则防本地 tokenizer（估算/模板/特殊 token 未计满）与真实分词偏差。
     const contextLimit = Math.min(
       this.config.get<number>('AI_CONTEXT_TOKEN_LIMIT', 131072),
-      Math.max(0, provider.contextLength - this.resolveOutputReserve()),
+      Math.max(0, provider.contextLength - resolveOutputMaxTokens(this.config)),
     );
     const safetyMargin = this.config.get<number>(
       'AI_CONTEXT_SAFETY_MARGIN',
@@ -67,14 +68,5 @@ export class ContextService {
     }
     messages.push(new HumanMessage(newContent));
     return messages;
-  }
-
-  /**
-   * 生成输出的预留 token：与 ModelClientFactory 的 numPredict 默认同源（AI_OUTPUT_MAX_TOKENS，
-   * 非法/缺失回退 32768），用于在输入预算里为输出让出空间。
-   */
-  private resolveOutputReserve(): number {
-    const parsed = Number(this.config.get('AI_OUTPUT_MAX_TOKENS', 32768));
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : 32768;
   }
 }

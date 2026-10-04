@@ -58,10 +58,7 @@ describe('routes/_layout/chat', () => {
     mocks.useLlmModelProviders.mockReset();
     // 默认：已配置一个 LLM 模型，发送框可用
     mocks.useLlmModelProviders.mockReturnValue({
-      data: {
-        list: [{ id: 'model-1', name: 'gpt-4o-mini' }],
-        nextCursor: null,
-      },
+      models: [{ id: 'model-1', name: 'gpt-4o-mini' }],
       isLoading: false,
     });
   });
@@ -145,13 +142,21 @@ describe('routes/_layout/chat', () => {
 
   it('无可用模型：显示配置提示且发送框禁用', () => {
     mocks.useLlmModelProviders.mockReturnValue({
-      data: { list: [], nextCursor: null },
+      models: [],
       isLoading: false,
     });
     mockChat();
     renderChat({ id: undefined });
     expect(screen.getByText('尚未配置可用模型')).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/请先配置模型/)).toBeDisabled();
+  });
+
+  it('模型加载中：不误报未配置，发送框禁用且占位为加载中', () => {
+    mocks.useLlmModelProviders.mockReturnValue({ models: [], isLoading: true });
+    mockChat();
+    renderChat({ id: undefined });
+    expect(screen.queryByText('尚未配置可用模型')).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/正在加载模型/)).toBeDisabled();
   });
 
   it('回空：未知角色也能安全渲染（RoleType 占位 avatar）', () => {

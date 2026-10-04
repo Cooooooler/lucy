@@ -5,10 +5,7 @@ export class ConversationModelProvider1791135779660 implements MigrationInterfac
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `ALTER TABLE "ai_conversations" RENAME COLUMN "model" TO "model_provider_id"`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "ai_conversations" DROP COLUMN "model_provider_id"`,
+      `ALTER TABLE "ai_conversations" DROP COLUMN "model"`,
     );
     await queryRunner.query(
       `ALTER TABLE "ai_conversations" ADD "model_provider_id" uuid`,
@@ -26,10 +23,7 @@ export class ConversationModelProvider1791135779660 implements MigrationInterfac
       `ALTER TABLE "ai_conversations" DROP COLUMN "model_provider_id"`,
     );
     await queryRunner.query(
-      `ALTER TABLE "ai_conversations" ADD "model_provider_id" character varying`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "ai_conversations" RENAME COLUMN "model_provider_id" TO "model"`,
+      `ALTER TABLE "ai_conversations" ADD "model" character varying`,
     );
   }
 }

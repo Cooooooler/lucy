@@ -108,7 +108,7 @@ describe('AiService', () => {
   it('create 保存会话并返回允许式契约视图（与列表项同形）', async () => {
     const saved = timedConv(1);
     conversationRepo.save.mockResolvedValue(saved);
-    await expect(service.create('1', {})).resolves.toEqual({
+    await expect(service.create('1')).resolves.toEqual({
       id: saved.id,
       title: saved.title,
       modelProviderId: saved.modelProviderId,

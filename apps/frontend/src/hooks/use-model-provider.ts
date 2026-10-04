@@ -16,7 +16,6 @@ import type { QueryClient } from '@tanstack/react-query';
 import {
   useInfiniteQuery,
   useMutation,
-  useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
 
@@ -215,14 +214,14 @@ export function useInfiniteModelProviderList(
   });
 }
 
-/** 聊天页用的 LLM 模型：只取首页（上限 100），与无限列表共用前缀便于统一失效 */
-export function useLlmModelProviders() {
-  return useQuery({
-    queryKey: modelProviderKeys.list({ type: 'llm', limit: 100 }),
-    queryFn: () => listModelProvidersApi({ type: 'llm', limit: 100 }),
-    staleTime: 0,
-    refetchOnWindowFocus: false,
-  });
+/**
+ * 聊天页用的 LLM 模型：复用无限列表（同一 queryKey 与 `{ pages }` 缓存形态，
+ * 增/改/删的乐观更新才能命中；普通 useQuery 的 `{ list }` 形态会被更新器静默忽略），只取首页。
+ */
+export function useLlmModelProviders(limit = 100) {
+  const query = useInfiniteModelProviderList({ type: 'llm' }, limit);
+  const models = query.data?.pages.flatMap((page) => page.list) ?? [];
+  return { models, isLoading: query.isLoading };
 }
 
 export function useCreateModelProvider() {

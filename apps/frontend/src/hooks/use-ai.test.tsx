@@ -103,10 +103,10 @@ describe('useCreateConversation', () => {
 
     const mutation = renderHook(() => useCreateConversation(), { wrapper });
     await act(async () => {
-      await mutation.result.current.mutateAsync({});
+      await mutation.result.current.mutateAsync();
     });
 
-    expect(api.createConversationApi).toHaveBeenCalledWith({});
+    expect(api.createConversationApi).toHaveBeenCalledWith();
     await waitFor(() => expect(mutation.result.current.data).toEqual(created));
     await waitFor(() =>
       expect(api.listConversationsApi).toHaveBeenCalledTimes(2),

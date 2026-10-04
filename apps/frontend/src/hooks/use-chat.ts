@@ -210,6 +210,8 @@ export function useChatStream(conversationId: string | undefined) {
     streaming,
     isLoading: conversationQuery.isLoading,
     error: conversationQuery.error,
+    // 会话默认模型：供聊天页初始化选择，避免组件再单独 useConversation 挂第二个 observer
+    modelProviderId: conversationQuery.data?.modelProviderId ?? undefined,
     send,
     stop,
   };
