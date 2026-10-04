@@ -133,6 +133,18 @@ describe('ChatStreamService', () => {
   const events = (obs: ReturnType<ChatStreamService['sendMessage']>) =>
     lastValueFrom(obs.pipe(toArray()));
 
+  /** 发送一条「hi」并返回事件流（错误路径用例共用；默认会话 id 为 c1） */
+  const sendHi = (conversationId = 'c1') =>
+    events(service.sendMessage('1', conversationId, { content: 'hi' }));
+
+  /** 断言事件流以指定错误码收尾 */
+  const expectErrorCode = (
+    result: Awaited<ReturnType<typeof sendHi>>,
+    code: ErrorCodeValue,
+  ): void => {
+    expect(result.at(-1)).toMatchObject({ type: 'error', data: { code } });
+  };
+
   it('正常流：逐帧 delta + done，落库 complete', async () => {
     conversationRepo.findOne.mockResolvedValue(conv());
     messageRepo.count.mockResolvedValue(2);
@@ -317,13 +329,7 @@ describe('ChatStreamService', () => {
 
   it('会话不属于当前用户：发 error 事件且不保存', async () => {
     conversationRepo.findOne.mockResolvedValue(null);
-    const result = await events(
-      service.sendMessage('1', 'x', { content: 'hi' }),
-    );
-    expect(result[result.length - 1]).toMatchObject({
-      type: 'error',
-      data: { code: ErrorCode.AI_CONVERSATION_NOT_FOUND },
-    });
+    expectErrorCode(await sendHi('x'), ErrorCode.AI_CONVERSATION_NOT_FOUND);
     expect(messageRepo.save).not.toHaveBeenCalled();
   });
 
@@ -336,13 +342,7 @@ describe('ChatStreamService', () => {
         modelProviderId: null,
       }),
     );
-    const result = await events(
-      service.sendMessage('1', 'c1', { content: 'hi' }),
-    );
-    expect(result.at(-1)).toMatchObject({
-      type: 'error',
-      data: { code: ErrorCode.AI_MODEL_REQUIRED },
-    });
+    expectErrorCode(await sendHi(), ErrorCode.AI_MODEL_REQUIRED);
     expect(modelProviderRepo.findOne).not.toHaveBeenCalled();
     expect(modelClientFactory.buildChat).not.toHaveBeenCalled();
     expect(messageRepo.save).not.toHaveBeenCalled();
@@ -351,13 +351,7 @@ describe('ChatStreamService', () => {
   it('所选模型不可用（不存在/非属主/非 LLM）：发 AI_MODEL_NOT_FOUND 且不落库', async () => {
     conversationRepo.findOne.mockResolvedValue(conv());
     modelProviderRepo.findOne.mockResolvedValue(null);
-    const result = await events(
-      service.sendMessage('1', 'c1', { content: 'hi' }),
-    );
-    expect(result.at(-1)).toMatchObject({
-      type: 'error',
-      data: { code: ErrorCode.AI_MODEL_NOT_FOUND },
-    });
+    expectErrorCode(await sendHi(), ErrorCode.AI_MODEL_NOT_FOUND);
     expect(modelClientFactory.buildChat).not.toHaveBeenCalled();
     expect(messageRepo.save).not.toHaveBeenCalled();
   });
