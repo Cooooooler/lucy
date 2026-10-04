@@ -214,6 +214,16 @@ export function useInfiniteModelProviderList(
   });
 }
 
+/**
+ * 聊天页用的 LLM 模型：复用无限列表（同一 queryKey 与 `{ pages }` 缓存形态，
+ * 增/改/删的乐观更新才能命中；普通 useQuery 的 `{ list }` 形态会被更新器静默忽略），只取首页。
+ */
+export function useLlmModelProviders(limit = 100) {
+  const query = useInfiniteModelProviderList({ type: 'llm' }, limit);
+  const models = query.data?.pages.flatMap((page) => page.list) ?? [];
+  return { models, isLoading: query.isLoading };
+}
+
 export function useCreateModelProvider() {
   const queryClient = useQueryClient();
   return useMutation({

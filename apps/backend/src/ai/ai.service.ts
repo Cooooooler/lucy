@@ -6,7 +6,6 @@ import { toConversationDetail, toConversationItem } from './ai.mapper.js';
 import type { ConversationDetailDto } from './dto/conversation-detail.dto.js';
 import type { ConversationItemDto } from './dto/conversation-item.dto.js';
 import { ConversationListResultDto } from './dto/conversation-list-result.dto.js';
-import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { Conversation } from './entities/conversation.entity.js';
 import { Message } from './entities/message.entity.js';
 
@@ -26,15 +25,11 @@ export class AiService {
     private readonly paginator: KeysetPaginator,
   ) {}
 
-  /** AI：创建会话（返回允许式契约视图，与列表项同形）。 */
-  async create(
-    userId: string,
-    dto: CreateConversationDto,
-  ): Promise<ConversationItemDto> {
-    const conversation = await this.conversationRepo.save({
-      userId,
-      model: dto.model ?? null,
-    });
+  /** AI：创建会话（无入参；返回允许式契约视图，与列表项同形）。 */
+  async create(userId: string): Promise<ConversationItemDto> {
+    // 会话的默认模型在首条消息发送时按所选模型写入（见 ChatStreamService.prepareRun），
+    // 创建时模型为空
+    const conversation = await this.conversationRepo.save({ userId });
     return toConversationItem(conversation);
   }
 

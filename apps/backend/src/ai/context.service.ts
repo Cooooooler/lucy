@@ -5,6 +5,8 @@ import {
 } from '@langchain/core/messages';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
+import { resolveOutputMaxTokens } from '../model-provider/model-client.factory.js';
 import { Message, MessageRole } from './entities/message.entity.js';
 import { TokenizerService } from './tokenizer.service.js';
 
@@ -18,16 +20,29 @@ export class ContextService {
   async buildMessages(
     history: Message[],
     newContent: string,
-    model: string,
+    provider: ModelProvider,
   ): Promise<(SystemMessage | HumanMessage | AIMessage)[]> {
-    // 输入预算 = 显式上限 − 安全边际。安全边际防本地 tokenizer（估算/模板/特殊
-    // token 未计满）与真实分词偏差造成的越界，而非靠比例粗放折算。
-    const limit = this.config.get<number>('AI_CONTEXT_TOKEN_LIMIT', 131072);
+    // 输入预算 = min(全局输入上限, 模型总窗口 − 输出预留) − 安全边际。
+    // provider.contextLength 是模型**总窗口**，须先为生成输出留出空间（numPredict 默认
+    // 即 AI_OUTPUT_MAX_TOKENS），否则「输入 + 输出预留 > 窗口」会被供应商以超长拒绝。
+    // 但输出预留**不超过窗口的一半**：否则 8k/16k/32k 这类常见小窗口会被默认预留占满，
+    // 输入预算归零、静默丢弃全部历史（表现为「模型失忆」）；安全边际则防本地 tokenizer
+    // （估算/模板/特殊 token 未计满）与真实分词偏差。
+    const window = provider.contextLength;
+    const outputReserve = Math.min(
+      resolveOutputMaxTokens(this.config),
+      Math.floor(window / 2),
+    );
+    const contextLimit = Math.min(
+      this.config.get<number>('AI_CONTEXT_TOKEN_LIMIT', 131072),
+      Math.max(0, window - outputReserve),
+    );
     const safetyMargin = this.config.get<number>(
       'AI_CONTEXT_SAFETY_MARGIN',
       2048,
     );
-    const budget = Math.max(0, limit - safetyMargin);
+    const budget = Math.max(0, contextLimit - safetyMargin);
+    const model = provider.name;
 
     const messages: (SystemMessage | HumanMessage | AIMessage)[] = [];
     const systemPrompt = this.config.get<string>('AI_SYSTEM_PROMPT', '');

@@ -22,8 +22,12 @@ export class ConversationItemDto {
   @ApiProperty({ description: '标题', type: String, nullable: true })
   title: string | null;
 
-  @ApiProperty({ description: '会话默认模型', type: String, nullable: true })
-  model: string | null;
+  @ApiProperty({
+    description: '会话默认模型（模型配置 ID）',
+    type: String,
+    nullable: true,
+  })
+  modelProviderId: string | null;
 
   @ApiProperty({ description: '创建时间' })
   createdAt: Date;

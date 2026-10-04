@@ -4,11 +4,15 @@ import {
   SystemMessage,
 } from '@langchain/core/messages';
 import { ConfigService } from '@nestjs/config';
+import { makeModelProvider } from '../test/model-provider.fixtures.js';
 import { ContextService } from './context.service.js';
 import { Message, MessageRole } from './entities/message.entity.js';
 import { TokenizerService } from './tokenizer.service.js';
 
 describe('ContextService', () => {
+  // 上下文较大的模型：预算由测试显式设置的 AI_CONTEXT_TOKEN_LIMIT 主导（min 取较小者）
+  const provider = makeModelProvider({ contextLength: 1_000_000 });
+
   function makeConfig(overrides: Record<string, unknown> = {}) {
     return new ConfigService({
       AI_CONTEXT_TOKEN_LIMIT: 100,
@@ -37,7 +41,7 @@ describe('ContextService', () => {
       AI_CONTEXT_TOKEN_LIMIT: 30,
     });
     const history = [msg(MessageRole.User, 'u1'), msg(MessageRole.Ai, 'a1')];
-    const out = await svc.buildMessages(history, 'new', 'qwen');
+    const out = await svc.buildMessages(history, 'new', provider);
     expect(out[0]).toBeInstanceOf(SystemMessage);
     expect(out[1]).toBeInstanceOf(HumanMessage);
     expect(out[2]).toBeInstanceOf(AIMessage);
@@ -53,7 +57,7 @@ describe('ContextService', () => {
       msg(MessageRole.User, 'early'),
       msg(MessageRole.Ai, 'recent'),
     ];
-    const out = await svc.buildMessages(history, 'new', 'qwen');
+    const out = await svc.buildMessages(history, 'new', provider);
     expect(out[0]).toBeInstanceOf(HumanMessage);
     expect(out[0].content).toBe('early');
     expect(out[1]).toBeInstanceOf(AIMessage);
@@ -73,7 +77,7 @@ describe('ContextService', () => {
       msg(MessageRole.User, 'early'),
       msg(MessageRole.Ai, 'recent'),
     ];
-    const out = await svc.buildMessages(history, 'new', 'qwen');
+    const out = await svc.buildMessages(history, 'new', provider);
     expect(out).toHaveLength(2);
     expect(out[0]).toBeInstanceOf(AIMessage);
     expect(out[0].content).toBe('recent');
@@ -87,16 +91,35 @@ describe('ContextService', () => {
     const out = await svc.buildMessages(
       [msg(MessageRole.Ai, 'recent')],
       'new',
-      'qwen',
+      provider,
     );
     expect(out).toHaveLength(1);
     expect(out[0]).toBeInstanceOf(HumanMessage);
     expect(out[0].content).toBe('new');
   });
 
+  it('小窗口模型：输出预留不超过窗口一半，仍保留历史（不静默清空）', async () => {
+    // AI_OUTPUT_MAX_TOKENS=4000 但窗口仅 1000 → 预留被 clamp 到 500，
+    // contextLimit = min(100000, 1000 − 500) = 500 → budget = 500，历史放得下
+    const svc = makeSvc({
+      AI_CONTEXT_TOKEN_LIMIT: 100000,
+      AI_OUTPUT_MAX_TOKENS: 4000,
+    });
+    const small = makeModelProvider({ contextLength: 1000 });
+    const out = await svc.buildMessages(
+      [msg(MessageRole.Ai, 'recent')],
+      'new',
+      small,
+    );
+    expect(out).toHaveLength(2);
+    expect(out[0]).toBeInstanceOf(AIMessage);
+    expect(out[1]).toBeInstanceOf(HumanMessage);
+    expect(out[1].content).toBe('new');
+  });
+
   it('空历史只返回系统提示与新消息', async () => {
     const svc = makeSvc({ AI_SYSTEM_PROMPT: 'sys' });
-    const out = await svc.buildMessages([], 'new', 'qwen');
+    const out = await svc.buildMessages([], 'new', provider);
     expect(out).toHaveLength(2);
     expect(out[0]).toBeInstanceOf(SystemMessage);
     expect(out[1]).toBeInstanceOf(HumanMessage);

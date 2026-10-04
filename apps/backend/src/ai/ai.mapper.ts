@@ -15,8 +15,8 @@ import type { Message } from './entities/message.entity.js';
 export function toConversationItem(
   conversation: Conversation,
 ): ConversationItemDto {
-  const { id, title, model, createdAt, updatedAt } = conversation;
-  return { id, title, model, createdAt, updatedAt };
+  const { id, title, modelProviderId, createdAt, updatedAt } = conversation;
+  return { id, title, modelProviderId, createdAt, updatedAt };
 }
 
 /** 把消息实体映射为对外契约视图（允许式白名单）。 */

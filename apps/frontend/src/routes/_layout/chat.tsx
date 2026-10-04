@@ -7,6 +7,7 @@ import {
   useRenameConversation,
 } from '@/hooks/use-ai';
 import { type ChatMessage, useChatStream } from '@/hooks/use-chat';
+import { useLlmModelProviders } from '@/hooks/use-model-provider';
 import { authStore } from '@/stores/auth.ts';
 import {
   DeleteOutlined,
@@ -35,6 +36,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useSelector } from '@tanstack/react-store';
 import { useBoolean } from 'ahooks';
 import {
+  Alert,
   App,
   Avatar,
   Button,
@@ -43,6 +45,7 @@ import {
   Input,
   type InputRef,
   Result,
+  Select,
   Spin,
   Splitter,
   Typography,
@@ -270,8 +273,15 @@ function InlineRenameInput({
 }
 
 const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
-  const { messages, streaming, isLoading, error, send, stop } =
-    useChatStream(id);
+  const {
+    messages,
+    streaming,
+    isLoading,
+    error,
+    send,
+    stop,
+    modelProviderId: conversationModelId,
+  } = useChatStream(id);
   const [value, setValue] = useState('');
   const [reasoning, setReasoning] = useState(true);
   const [creating, { setTrue: setCreatingTrue, setFalse: setCreatingFalse }] =
@@ -280,6 +290,21 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
   const create = useCreateConversation();
   const listRef = useRef<ComponentRef<typeof Bubble.List>>(null);
   const [atBottom, setAtBottom] = useState(true);
+
+  // 模型选择：只列 LLM 类型（其它类型不能对话）。会话已带默认模型则用它，否则自动选最近配置的一个
+  const { models, isLoading: modelsLoading } = useLlmModelProviders();
+  const hasModels = models.length > 0;
+  const defaultModelId = conversationModelId ?? models[0]?.id;
+  // 用户在当前会话内的手动选择。以会话 id 归属，切换会话即失效回落默认——
+  // 用赋值而非 effect 同步，避免 set-state-in-effect 的额外渲染
+  const [modelOverride, setModelOverride] = useState<{
+    conversationId?: string;
+    id: string;
+  }>();
+  const modelProviderId =
+    modelOverride && modelOverride.conversationId === id
+      ? modelOverride.id
+      : defaultModelId;
 
   // 响应式订阅 user：登录态变化时 header 昵称即时更新（get() 读取不会随 store 变更重渲染）
   const user = useSelector(authStore, (s) => s.user);
@@ -334,15 +359,19 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
   async function handleSubmit(text: string) {
     // 点击发送按钮后，输入框清空
     setValue('');
+    // 无可用模型不发起发送（输入框已禁用，这里是双保险）
+    if (!modelProviderId) return;
     if (id) {
-      await send(id, text, reasoning);
+      await send(id, text, { reasoning, modelProviderId });
       return;
     }
     setCreatingTrue();
     try {
-      const conv = await create.mutateAsync({});
+      const conv = await create.mutateAsync();
+      // 让选择跟随新会话，避免导航到新 id 后回落成默认模型
+      setModelOverride({ conversationId: conv.id, id: modelProviderId });
       await navigate({ to: '/chat', search: { id: conv.id }, replace: true });
-      void send(conv.id, text, reasoning);
+      void send(conv.id, text, { reasoning, modelProviderId });
     } finally {
       setCreatingFalse();
     }
@@ -415,12 +444,46 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
           />
         </div>
       )}
+      {!modelsLoading && !hasModels ? (
+        <div className="px-4 pb-2">
+          <Alert
+            type="warning"
+            showIcon
+            title="尚未配置可用模型"
+            description="请先在「模型管理」中添加模型，并在聊天页选择后再开始对话。"
+            action={
+              <Button
+                size="small"
+                onClick={() => navigate({ to: '/integration/model-provider' })}
+              >
+                去配置模型
+              </Button>
+            }
+          />
+        </div>
+      ) : null}
       <div className="px-4">
         <Sender
           footer={() => {
             return (
               <Flex justify="space-between" align="center">
                 <Flex gap="small" align="center">
+                  <Select
+                    size="small"
+                    variant="borderless"
+                    placeholder="选择模型"
+                    value={modelProviderId}
+                    onChange={(value: string) =>
+                      setModelOverride({ conversationId: id, id: value })
+                    }
+                    loading={modelsLoading}
+                    disabled={modelsLoading || !hasModels}
+                    className="min-w-32"
+                    options={models.map((m) => ({
+                      label: m.name,
+                      value: m.id,
+                    }))}
+                  />
                   <Switch
                     value={reasoning}
                     onChange={(checked: boolean) => {
@@ -441,7 +504,14 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
           onSubmit={handleSubmit}
           loading={streaming ?? creating}
           onCancel={stop}
-          placeholder="输入消息，Enter 发送"
+          disabled={modelsLoading || !hasModels}
+          placeholder={
+            modelsLoading
+              ? '正在加载模型…'
+              : hasModels
+                ? '输入消息，Enter 发送'
+                : '请先配置模型'
+          }
         />
       </div>
     </Flex>

@@ -3,9 +3,10 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
+import { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
+import { ModelClientFactory } from '../model-provider/model-client.factory.js';
 import { Conversation } from './entities/conversation.entity.js';
 import { Message, MessageRole } from './entities/message.entity.js';
-import { OllamaFactory } from './ollama.factory.js';
 
 /**
  * 会话标题生成：按首条用户消息生成简短标题并写回 `conversation.title`。
@@ -18,7 +19,7 @@ import { OllamaFactory } from './ollama.factory.js';
 export class ConversationTitleService {
   constructor(
     private readonly config: ConfigService,
-    private readonly ollamaFactory: OllamaFactory,
+    private readonly modelClientFactory: ModelClientFactory,
     @InjectRepository(Conversation)
     private readonly conversationRepo: Repository<Conversation>,
     @InjectRepository(Message)
@@ -28,12 +29,14 @@ export class ConversationTitleService {
   /**
    * 生成并写回标题（仅在会话尚无标题时写）。失败上抛，由调用方记录日志并继续。
    *
-   * @param conversation 目标会话（读取其首条用户消息与模型）
+   * @param conversation 目标会话（读取其首条用户消息）
+   * @param provider 本次对话所用的模型配置（构造客户端）
    * @param signal 本次请求的中止信号：标题生成在首条消息路径上被 await，挂起会拖住正文流，
    *   故必须可被客户端断线中止，并有独立超时兜底（见 {@link invokeTitle}）
    */
   async generate(
     conversation: Conversation,
+    provider: ModelProvider,
     signal: AbortSignal,
   ): Promise<void> {
     const first = await this.messageRepo.findOne({
@@ -47,7 +50,7 @@ export class ConversationTitleService {
     );
     const title = await this.invokeTitle(
       `${prompt}${first.content}`,
-      conversation.model,
+      provider,
       signal,
     );
     if (title) {
@@ -65,10 +68,10 @@ export class ConversationTitleService {
    */
   private async invokeTitle(
     prompt: string,
-    model: string | null,
+    provider: ModelProvider,
     signal: AbortSignal,
   ): Promise<string> {
-    const client = this.ollamaFactory.getClient(model ?? undefined);
+    const client = this.modelClientFactory.buildChat(provider);
     const timeoutMs = Number(this.config.get('OLLAMA_TIMEOUT_MS', 120000));
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {

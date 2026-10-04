@@ -20,6 +20,7 @@ import { UpdateModelProviderDto } from './dto/update-model-provider.dto.js';
 import {
   ModelProvider,
   ModelProviderProtocol,
+  ModelProviderType,
   ModelProviderVendor,
 } from './entities/model-provider.entity.js';
 import { resolveOwnedModelProvider } from './model-provider-access.js';
@@ -110,6 +111,22 @@ export class ModelProviderService {
       list: page.list.map(toModelProviderItem),
       nextCursor: page.nextCursor,
     };
+  }
+
+  /**
+   * 解析属主私有且类型为 **LLM** 的模型配置；不存在、非属主或非 LLM 一律返回 null。
+   *
+   * 供 AI 对话在流式管线里解析本次所用模型：那里需要「查不到就发 error 帧」而非抛
+   * `NotFoundException`（SSE 已开始，无法再抛 HTTP 异常），故与 {@link resolveOwnedModelProvider}
+   * 的抛错语义区分开；属主与类型约束的判据仍收敛在本领域内，不泄漏给会话服务。
+   */
+  async resolveOwnedLlm(
+    userId: string,
+    id: string,
+  ): Promise<ModelProvider | null> {
+    return this.repo.findOne({
+      where: { id, ownerId: userId, type: ModelProviderType.Llm },
+    });
   }
 
   /**

@@ -10,10 +10,11 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { ModelProvider } from '../../model-provider/entities/model-provider.entity.js';
 import { User } from '../../users/user.entity.js';
 
 /**
- * AI 对话会话：归属用户 + 默认模型 + 标题。
+ * AI 对话会话：归属用户 + 默认模型配置（`modelProviderId`）+ 标题。
  *
  * 刻意不声明 `messages` 反向关系（`@OneToMany`）：会话侧从不 populate 消息，服务一律按
  * `conversationId` 单独查询；反向关系还会让本实体与 `Message` 互相 import 成环，踩中 tsc
@@ -27,6 +28,9 @@ import { User } from '../../users/user.entity.js';
  */
 @Entity('ai_conversations')
 @Index('IDX_ai_conversations_user_updated_id', ['userId', 'updatedAt', 'id'])
+// model_provider_id 的 FK 需自带索引：删除 ModelProvider 时 ON DELETE SET NULL 会按该列定位
+// 引用行，无索引则退化为全表扫描（TypeORM 不会为 FK 列自动建索引）
+@Index('IDX_ai_conversations_model_provider', ['modelProviderId'])
 export class Conversation {
   @ApiProperty({ description: '会话 ID' })
   @PrimaryGeneratedColumn('uuid')
@@ -52,9 +56,24 @@ export class Conversation {
   @Column({ type: 'varchar', length: 50, nullable: true })
   title: string | null;
 
-  @ApiProperty({ description: '会话默认模型', type: String, nullable: true })
-  @Column({ type: 'varchar', nullable: true })
-  model: string | null;
+  @ApiProperty({
+    description: '会话默认模型（模型配置 ID）',
+    type: String,
+    nullable: true,
+  })
+  @Column({ name: 'model_provider_id', type: 'uuid', nullable: true })
+  modelProviderId: string | null;
+
+  @ApiHideProperty()
+  // 出网与否由全局序列化拦截器依据 @Exclude 决定（@ApiHideProperty 只管 Swagger）。
+  // ON DELETE SET NULL：删除模型配置时仅断开会话的引用，不连带删除会话。
+  @Exclude()
+  @ManyToOne(() => ModelProvider, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({
+    name: 'model_provider_id',
+    foreignKeyConstraintName: 'FK_ai_conversations_model_provider',
+  })
+  modelProvider?: ModelProvider;
 
   @ApiProperty({ description: '创建时间' })
   // 毫秒精度靠**列类型**保证（`timestamptz(3)`），不靠列默认值：DEFAULT 只在 INSERT 生效，

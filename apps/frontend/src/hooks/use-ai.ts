@@ -9,7 +9,6 @@ import {
 import type {
   Conversation,
   ConversationItem,
-  CreateConversationRequest,
   RenameConversationRequest,
   SendMessageRequest,
 } from '@/api/types';
@@ -50,8 +49,7 @@ export function useConversation(id: string | undefined) {
 export function useCreateConversation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateConversationRequest) =>
-      createConversationApi(input),
+    mutationFn: () => createConversationApi(),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: conversationListAll });
     },

@@ -27,7 +27,7 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
     id: 'c1',
     title: null,
-    model: null,
+    modelProviderId: null,
     messages: [],
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
@@ -103,10 +103,10 @@ describe('useCreateConversation', () => {
 
     const mutation = renderHook(() => useCreateConversation(), { wrapper });
     await act(async () => {
-      await mutation.result.current.mutateAsync({ model: 'qwen' });
+      await mutation.result.current.mutateAsync();
     });
 
-    expect(api.createConversationApi).toHaveBeenCalledWith({ model: 'qwen' });
+    expect(api.createConversationApi).toHaveBeenCalledWith();
     await waitFor(() => expect(mutation.result.current.data).toEqual(created));
     await waitFor(() =>
       expect(api.listConversationsApi).toHaveBeenCalledTimes(2),

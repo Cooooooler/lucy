@@ -7,6 +7,12 @@ import { toArray } from 'rxjs/operators';
 import { DataSource } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { ShutdownService } from '../common/shutdown.service.js';
+import { ModelClientFactory } from '../model-provider/model-client.factory.js';
+import { ModelProviderService } from '../model-provider/model-provider.service.js';
+import {
+  makeModelProvider,
+  MODEL_ID,
+} from '../test/model-provider.fixtures.js';
 import { ChatStreamService } from './chat-stream.service.js';
 import { ContextService } from './context.service.js';
 import { ConversationTitleService } from './conversation-title.service.js';
@@ -16,7 +22,6 @@ import {
   MessageRole,
   MessageStatus,
 } from './entities/message.entity.js';
-import { OllamaFactory } from './ollama.factory.js';
 
 describe('ChatStreamService', () => {
   const conversationRepo = {
@@ -43,13 +48,16 @@ describe('ChatStreamService', () => {
       return cb(manager);
     }),
   } as unknown as DataSource;
-  const ollamaFactory = { getClient: vi.fn() };
+  const modelProviderService = { resolveOwnedLlm: vi.fn() };
+  const modelClientFactory = { buildChat: vi.fn() };
+  // 默认模型配置（属主校验通过）；个别用例会覆盖 resolveOwnedLlm 的返回值
+  const provider = makeModelProvider();
   const contextService = { buildMessages: vi.fn() };
   const titleService = { generate: vi.fn() };
   const shutdown = { isShutdown: vi.fn(), startShutdown: vi.fn() };
   const config = new ConfigService({
-    OLLAMA_MODEL: 'default-model',
     SHUTDOWN_GRACE_MS: 15000,
+    AI_OUTPUT_MAX_TOKENS: 32768,
   });
   // 保留可断言的 mock 句柄（直接对 `logger.warn` 断言会触发 unbound-method）
   const loggerMock = { log: vi.fn(), warn: vi.fn() };
@@ -74,7 +82,8 @@ describe('ChatStreamService', () => {
           useValue: conversationRepo,
         },
         { provide: getRepositoryToken(Message), useValue: messageRepo },
-        { provide: OllamaFactory, useValue: ollamaFactory },
+        { provide: ModelProviderService, useValue: modelProviderService },
+        { provide: ModelClientFactory, useValue: modelClientFactory },
         { provide: ContextService, useValue: contextService },
         // 标题生成已下沉到 ConversationTitleService，其行为在 conversation-title.service.spec.ts 覆盖
         { provide: ConversationTitleService, useValue: titleService },
@@ -89,6 +98,8 @@ describe('ChatStreamService', () => {
     vi.clearAllMocks();
     // clearAllMocks 只清调用记录不清实现，但仍显式复位：停机位默认关闭
     shutdown.isShutdown.mockReturnValue(false);
+    modelProviderService.resolveOwnedLlm.mockResolvedValue(provider);
+    modelClientFactory.buildChat.mockReturnValue(fakeClient());
     service = await buildService();
   });
 
@@ -97,7 +108,7 @@ describe('ChatStreamService', () => {
       id: 'c1',
       userId: '1',
       title: null,
-      model: null,
+      modelProviderId: MODEL_ID,
     });
 
   function fakeClient(overrides: Record<string, unknown> = {}) {
@@ -116,12 +127,24 @@ describe('ChatStreamService', () => {
   const events = (obs: ReturnType<ChatStreamService['sendMessage']>) =>
     lastValueFrom(obs.pipe(toArray()));
 
+  /** 发送一条「hi」并返回事件流（错误路径用例共用；默认会话 id 为 c1） */
+  const sendHi = (conversationId = 'c1') =>
+    events(service.sendMessage('1', conversationId, { content: 'hi' }));
+
+  /** 断言事件流以指定错误码收尾 */
+  const expectErrorCode = (
+    result: Awaited<ReturnType<typeof sendHi>>,
+    code: ErrorCodeValue,
+  ): void => {
+    expect(result.at(-1)).toMatchObject({ type: 'error', data: { code } });
+  };
+
   it('正常流：逐帧 delta + done，落库 complete', async () => {
     conversationRepo.findOne.mockResolvedValue(conv());
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(fakeClient());
+    modelClientFactory.buildChat.mockReturnValue(fakeClient());
 
     const result = await events(
       service.sendMessage('1', 'c1', { content: 'hi' }),
@@ -147,7 +170,7 @@ describe('ChatStreamService', () => {
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(
+    modelClientFactory.buildChat.mockReturnValue(
       fakeClient({
         *stream() {
           yield { content: '半截' };
@@ -191,7 +214,7 @@ describe('ChatStreamService', () => {
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(
+    modelClientFactory.buildChat.mockReturnValue(
       fakeClient({
         *stream() {
           yield { content: '半截' };
@@ -233,15 +256,15 @@ describe('ChatStreamService', () => {
     try {
       service = await buildService(
         new ConfigService({
-          OLLAMA_MODEL: 'default-model',
           OLLAMA_TIMEOUT_MS: 1000,
+          AI_OUTPUT_MAX_TOKENS: 32768,
         }),
       );
       conversationRepo.findOne.mockResolvedValue(conv());
       messageRepo.count.mockResolvedValue(2);
       messageRepo.find.mockResolvedValue([]);
       contextService.buildMessages.mockResolvedValue([]);
-      ollamaFactory.getClient.mockReturnValue(
+      modelClientFactory.buildChat.mockReturnValue(
         fakeClient({
           async *stream() {
             yield { content: '你' };
@@ -280,7 +303,7 @@ describe('ChatStreamService', () => {
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(
+    modelClientFactory.buildChat.mockReturnValue(
       fakeClient({
         stream() {
           throw new Error('no tokens');
@@ -300,26 +323,88 @@ describe('ChatStreamService', () => {
 
   it('会话不属于当前用户：发 error 事件且不保存', async () => {
     conversationRepo.findOne.mockResolvedValue(null);
-    const result = await events(
-      service.sendMessage('1', 'x', { content: 'hi' }),
-    );
-    expect(result[result.length - 1]).toMatchObject({
-      type: 'error',
-      data: { code: ErrorCode.AI_CONVERSATION_NOT_FOUND },
-    });
+    expectErrorCode(await sendHi('x'), ErrorCode.AI_CONVERSATION_NOT_FOUND);
     expect(messageRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('未选择模型（会话无默认且请求未带）：发 AI_MODEL_REQUIRED 且不调用模型', async () => {
+    conversationRepo.findOne.mockResolvedValue(
+      Object.assign(new Conversation(), {
+        id: 'c1',
+        userId: '1',
+        title: null,
+        modelProviderId: null,
+      }),
+    );
+    expectErrorCode(await sendHi(), ErrorCode.AI_MODEL_REQUIRED);
+    expect(modelProviderService.resolveOwnedLlm).not.toHaveBeenCalled();
+    expect(modelClientFactory.buildChat).not.toHaveBeenCalled();
+    expect(messageRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('所选模型不可用（不存在/非属主/非 LLM）：发 AI_MODEL_NOT_FOUND 且不落库', async () => {
+    conversationRepo.findOne.mockResolvedValue(conv());
+    modelProviderService.resolveOwnedLlm.mockResolvedValue(null);
+    expectErrorCode(await sendHi(), ErrorCode.AI_MODEL_NOT_FOUND);
+    expect(modelClientFactory.buildChat).not.toHaveBeenCalled();
+    expect(messageRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('Anthropic 内容块 + max_tokens：thinking/content 分路，done 标记截断', async () => {
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.find.mockResolvedValue([]);
+    contextService.buildMessages.mockResolvedValue([]);
+    modelClientFactory.buildChat.mockReturnValue(
+      fakeClient({
+        *stream() {
+          yield { content: [{ type: 'thinking', thinking: '想一想' }] };
+          yield { content: [{ type: 'text', text: '答案' }] };
+          // Anthropic 流式：结束原因在 additional_kwargs.stop_reason
+          yield {
+            content: [],
+            additional_kwargs: { stop_reason: 'max_tokens' },
+          };
+        },
+      }),
+    );
+
+    const result = await events(
+      service.sendMessage('1', 'c1', { content: 'hi' }),
+    );
+    expect(result.map((e) => e.type)).toEqual(['delta', 'delta', 'done']);
+    expect(result[0]).toMatchObject({
+      type: 'delta',
+      data: { thinking: '想一想' },
+    });
+    expect(result[1]).toMatchObject({
+      type: 'delta',
+      data: { content: '答案' },
+    });
+    expect(result.at(-1)).toMatchObject({
+      type: 'done',
+      data: { finish_reason: 'length', truncated: true },
+    });
+    expect(messageRepo.save).toHaveBeenCalledWith({
+      conversationId: 'c1',
+      role: MessageRole.Ai,
+      content: '答案',
+      thinking: '想一想',
+      status: MessageStatus.Complete,
+      truncated: true,
+    });
   });
 
   it('仅首条消息（history 为空）委托标题生成，非首条不调用', async () => {
     conversationRepo.findOne.mockResolvedValue(conv());
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(fakeClient());
+    modelClientFactory.buildChat.mockReturnValue(fakeClient());
 
     messageRepo.find.mockResolvedValue([]);
     await events(service.sendMessage('1', 'c1', { content: 'hi' }));
     expect(titleService.generate).toHaveBeenCalledTimes(1);
     expect(titleService.generate).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'c1' }),
+      provider,
       expect.anything(),
     );
 
@@ -329,24 +414,37 @@ describe('ChatStreamService', () => {
     expect(titleService.generate).not.toHaveBeenCalled();
   });
 
-  it('请求级 model 覆盖会话默认', async () => {
+  it('请求级 modelProviderId 覆盖会话默认', async () => {
+    const convModelId = '00000000-0000-4000-8000-0000000000aa';
+    const reqModelId = '00000000-0000-4000-8000-0000000000bb';
     conversationRepo.findOne.mockResolvedValue(
       Object.assign(new Conversation(), {
         id: 'c1',
         userId: '1',
         title: null,
-        model: 'conv-model',
+        modelProviderId: convModelId,
       }),
     );
+    const reqProvider = makeModelProvider({ id: reqModelId });
+    modelProviderService.resolveOwnedLlm.mockResolvedValue(reqProvider);
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(fakeClient());
+    modelClientFactory.buildChat.mockReturnValue(fakeClient());
 
     await events(
-      service.sendMessage('1', 'c1', { content: 'hi', model: 'req-model' }),
+      service.sendMessage('1', 'c1', {
+        content: 'hi',
+        modelProviderId: reqModelId,
+      }),
     );
-    expect(ollamaFactory.getClient).toHaveBeenCalledWith('req-model', false);
+    expect(modelProviderService.resolveOwnedLlm).toHaveBeenCalledWith(
+      '1',
+      reqModelId,
+    );
+    expect(modelClientFactory.buildChat).toHaveBeenCalledWith(reqProvider, {
+      think: false,
+    });
   });
 
   it('请求级 reasoning 透传给模型客户端', async () => {
@@ -354,12 +452,15 @@ describe('ChatStreamService', () => {
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(fakeClient());
+    modelClientFactory.buildChat.mockReturnValue(fakeClient());
 
     await events(
       service.sendMessage('1', 'c1', { content: 'hi', reasoning: true }),
     );
-    expect(ollamaFactory.getClient).toHaveBeenCalledWith('default-model', true);
+    expect(modelClientFactory.buildChat).toHaveBeenCalledWith(
+      provider,
+      expect.objectContaining({ think: true }),
+    );
   });
 
   it('思考流：thinking 与 content 分为两路 delta，落库全文', async () => {
@@ -367,7 +468,7 @@ describe('ChatStreamService', () => {
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(
+    modelClientFactory.buildChat.mockReturnValue(
       fakeClient({
         *stream() {
           yield {
@@ -425,7 +526,7 @@ describe('ChatStreamService', () => {
       return m;
     });
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(fakeClient());
+    modelClientFactory.buildChat.mockReturnValue(fakeClient());
 
     await events(service.sendMessage('1', 'c1', { content: '新的问题' }));
 
@@ -435,7 +536,7 @@ describe('ChatStreamService', () => {
         expect.objectContaining({ content: '新的问题' }),
       ]),
       '新的问题',
-      'default-model',
+      provider,
     );
     // 历史读取先于用户消息保存，避免模型收到重复消息
     const findOrder = messageRepo.find.mock.invocationCallOrder[0];
@@ -449,7 +550,7 @@ describe('ChatStreamService', () => {
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(fakeClient());
+    modelClientFactory.buildChat.mockReturnValue(fakeClient());
 
     await events(service.sendMessage('1', 'c1', { content: 'hi' }));
 
@@ -470,7 +571,7 @@ describe('ChatStreamService', () => {
     let release: (() => void) | undefined;
     // 门闩：生成器在首帧后挂起，等测试决定是否中止，避免时序竞态
     const gate = new Promise<void>((resolve) => (release = resolve));
-    ollamaFactory.getClient.mockReturnValue(
+    modelClientFactory.buildChat.mockReturnValue(
       fakeClient({
         async *stream(_messages: Message[], opts?: { signal?: AbortSignal }) {
           captured.signal = opts?.signal;
@@ -503,7 +604,7 @@ describe('ChatStreamService', () => {
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(
+    modelClientFactory.buildChat.mockReturnValue(
       fakeClient({
         async *stream() {
           yield { content: '半截' };
@@ -530,7 +631,7 @@ describe('ChatStreamService', () => {
     });
     // runSend 为异步链路，等其真正走到 client 创建，确认第二次未重复执行
     await vi.waitFor(() =>
-      expect(ollamaFactory.getClient).toHaveBeenCalledTimes(1),
+      expect(modelClientFactory.buildChat).toHaveBeenCalledTimes(1),
     );
     sub.unsubscribe();
   });
@@ -540,7 +641,7 @@ describe('ChatStreamService', () => {
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(fakeClient());
+    modelClientFactory.buildChat.mockReturnValue(fakeClient());
 
     const inFlight = (service as unknown as { inFlight: Map<string, unknown> })
       .inFlight;
@@ -578,7 +679,7 @@ describe('ChatStreamService', () => {
     messageRepo.count.mockResolvedValue(2);
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
-    ollamaFactory.getClient.mockReturnValue(
+    modelClientFactory.buildChat.mockReturnValue(
       fakeClient({
         async *stream() {
           yield { content: 'x' };
@@ -611,7 +712,7 @@ describe('ChatStreamService', () => {
       }),
     ]);
     expect(conversationRepo.findOne).not.toHaveBeenCalled();
-    expect(ollamaFactory.getClient).not.toHaveBeenCalled();
+    expect(modelClientFactory.buildChat).not.toHaveBeenCalled();
   });
 
   it('停机：中止在途流并等待其落库收敛（半截内容落 aborted）', async () => {
@@ -619,7 +720,7 @@ describe('ChatStreamService', () => {
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
     const captured: { signal?: AbortSignal } = {};
-    ollamaFactory.getClient.mockReturnValue(
+    modelClientFactory.buildChat.mockReturnValue(
       fakeClient({
         async *stream(_messages: Message[], opts?: { signal?: AbortSignal }) {
           captured.signal = opts?.signal;

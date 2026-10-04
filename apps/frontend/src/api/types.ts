@@ -12,8 +12,6 @@ export type RefreshResult = components['schemas']['RefreshResultDto'];
 export type LoginResult = components['schemas']['LoginResultDto'];
 export type LoginRequest = components['schemas']['LoginDto'];
 export type RegisterRequest = components['schemas']['RegisterDto'];
-export type CreateConversationRequest =
-  components['schemas']['CreateConversationDto'];
 export type SendMessageRequest = components['schemas']['SendMessageDto'];
 export type RenameConversationRequest =
   components['schemas']['RenameConversationDto'];

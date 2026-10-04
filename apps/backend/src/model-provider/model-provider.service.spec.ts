@@ -61,6 +61,18 @@ describe('ModelProviderService', () => {
     service = await buildService();
   });
 
+  it('resolveOwnedLlm 按属主 + LLM 类型查询，查不到返回 null', async () => {
+    const found = makeModelProvider();
+    repo.findOne.mockResolvedValue(found);
+    await expect(service.resolveOwnedLlm('u1', MODEL_ID)).resolves.toBe(found);
+    expect(repo.findOne).toHaveBeenCalledWith({
+      where: { id: MODEL_ID, ownerId: 'u1', type: ModelProviderType.Llm },
+    });
+
+    repo.findOne.mockResolvedValue(null);
+    await expect(service.resolveOwnedLlm('u1', MODEL_ID)).resolves.toBeNull();
+  });
+
   it('create 加密 API Key 入库并返回不含明文/密文的契约视图', async () => {
     const result = await service.create('u1', {
       name: 'gpt-4o-mini',

@@ -164,7 +164,6 @@ describe('useChatStream', () => {
     });
     expect(mocks.createStreamRequest).toHaveBeenCalledWith('c1', {
       content: 'hi',
-      reasoning: false,
     });
     expect(result.current.messages).toHaveLength(2);
     expect(result.current.messages[0]).toMatchObject({
@@ -177,6 +176,26 @@ describe('useChatStream', () => {
       streaming: false,
     });
     expect(result.current.streaming).toBe(false);
+  });
+
+  it('send 把 reasoning 与 modelProviderId 透传给请求', async () => {
+    mocks.createStreamRequest.mockReturnValue(
+      mockStreamRequest(() => streamOf([done()])),
+    );
+    const { result } = renderHook(() => useChatStream('c1'), {
+      wrapper: createWrapper(),
+    });
+    await act(async () => {
+      await result.current.send('c1', 'hi', {
+        reasoning: true,
+        modelProviderId: 'model-1',
+      });
+    });
+    expect(mocks.createStreamRequest).toHaveBeenCalledWith('c1', {
+      content: 'hi',
+      reasoning: true,
+      modelProviderId: 'model-1',
+    });
   });
 
   it('done 标记 truncated：message 置位 truncated 且结束流式', async () => {
