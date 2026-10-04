@@ -24,11 +24,18 @@ export class ContextService {
   ): Promise<(SystemMessage | HumanMessage | AIMessage)[]> {
     // 输入预算 = min(全局输入上限, 模型总窗口 − 输出预留) − 安全边际。
     // provider.contextLength 是模型**总窗口**，须先为生成输出留出空间（numPredict 默认
-    // 即 AI_OUTPUT_MAX_TOKENS），否则小窗口模型会出现「输入 + 输出预留 > 窗口」被供应商以
-    // 超长拒绝；安全边际则防本地 tokenizer（估算/模板/特殊 token 未计满）与真实分词偏差。
+    // 即 AI_OUTPUT_MAX_TOKENS），否则「输入 + 输出预留 > 窗口」会被供应商以超长拒绝。
+    // 但输出预留**不超过窗口的一半**：否则 8k/16k/32k 这类常见小窗口会被默认预留占满，
+    // 输入预算归零、静默丢弃全部历史（表现为「模型失忆」）；安全边际则防本地 tokenizer
+    // （估算/模板/特殊 token 未计满）与真实分词偏差。
+    const window = provider.contextLength;
+    const outputReserve = Math.min(
+      resolveOutputMaxTokens(this.config),
+      Math.floor(window / 2),
+    );
     const contextLimit = Math.min(
       this.config.get<number>('AI_CONTEXT_TOKEN_LIMIT', 131072),
-      Math.max(0, provider.contextLength - resolveOutputMaxTokens(this.config)),
+      Math.max(0, window - outputReserve),
     );
     const safetyMargin = this.config.get<number>(
       'AI_CONTEXT_SAFETY_MARGIN',

@@ -38,13 +38,23 @@ describe('normalizeChunk', () => {
     ).toBe('length');
   });
 
-  it('Anthropic finish_reason=max_tokens 归一为 length', () => {
+  it('Anthropic additional_kwargs.stop_reason=max_tokens 归一为 length', () => {
+    // Anthropic 流式把结束原因放在 additional_kwargs.stop_reason（非 response_metadata）
     expect(
       normalizeChunk({
         content: '',
-        response_metadata: { finish_reason: 'max_tokens' },
+        additional_kwargs: { stop_reason: 'max_tokens' },
       }).finishReason,
     ).toBe('length');
+  });
+
+  it('Anthropic additional_kwargs.stop_reason=end_turn 视为正常结束', () => {
+    expect(
+      normalizeChunk({
+        content: '',
+        additional_kwargs: { stop_reason: 'end_turn' },
+      }).finishReason,
+    ).toBe('end_turn');
   });
 
   it('未知形状回退为空增量', () => {

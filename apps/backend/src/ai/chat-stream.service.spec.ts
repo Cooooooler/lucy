@@ -359,9 +359,10 @@ describe('ChatStreamService', () => {
         *stream() {
           yield { content: [{ type: 'thinking', thinking: '想一想' }] };
           yield { content: [{ type: 'text', text: '答案' }] };
+          // Anthropic 流式：结束原因在 additional_kwargs.stop_reason
           yield {
             content: [],
-            response_metadata: { finish_reason: 'max_tokens' },
+            additional_kwargs: { stop_reason: 'max_tokens' },
           };
         },
       }),

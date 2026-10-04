@@ -11,13 +11,18 @@ export interface NormalizedChunk {
  *
  * - `content` 可能是字符串（OpenAI/Ollama）或内容块数组（Anthropic）；
  * - 思考链可能在 `additional_kwargs.reasoning_content`（OpenAI/Ollama）或内容块里（Anthropic）；
- * - 结束原因 Ollama 用 `done_reason`、OpenAI/Anthropic 用 `finish_reason`，Anthropic 的长度
- *   截断记作 `max_tokens`，统一归一为 `length`。
+ * - 结束原因：Ollama 在 `response_metadata.done_reason`、OpenAI 在
+ *   `response_metadata.finish_reason`、**Anthropic 在 `additional_kwargs.stop_reason`**
+ *   （`message_delta` 事件写入 additional_kwargs，不进 response_metadata）；三者都可能以
+ *   `max_tokens` 表示长度截断，统一归一为 `length`。
  */
 export function normalizeChunk(chunk: unknown): NormalizedChunk {
   const c = chunk as {
     content?: unknown;
-    additional_kwargs?: { reasoning_content?: unknown };
+    additional_kwargs?: {
+      reasoning_content?: unknown;
+      stop_reason?: unknown;
+    };
     response_metadata?: { done_reason?: unknown; finish_reason?: unknown };
   };
   const { text, reasoning } = extractContent(c.content);
@@ -26,16 +31,18 @@ export function normalizeChunk(chunk: unknown): NormalizedChunk {
       ? c.additional_kwargs.reasoning_content
       : '';
   const rawFinish =
-    typeof c.response_metadata?.done_reason === 'string'
-      ? c.response_metadata.done_reason
-      : typeof c.response_metadata?.finish_reason === 'string'
-        ? c.response_metadata.finish_reason
-        : undefined;
+    pickString(c.response_metadata?.done_reason) ??
+    pickString(c.response_metadata?.finish_reason) ??
+    pickString(c.additional_kwargs?.stop_reason);
   return {
     text,
     reasoning: reasoning + extraReasoning,
     finishReason: rawFinish === 'max_tokens' ? 'length' : rawFinish,
   };
+}
+
+function pickString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
 
 // content 为字符串或内容块数组（Anthropic）：text 归一为回答，thinking/reasoning 块归一为思考

@@ -28,6 +28,9 @@ import { User } from '../../users/user.entity.js';
  */
 @Entity('ai_conversations')
 @Index('IDX_ai_conversations_user_updated_id', ['userId', 'updatedAt', 'id'])
+// model_provider_id 的 FK 需自带索引：删除 ModelProvider 时 ON DELETE SET NULL 会按该列定位
+// 引用行，无索引则退化为全表扫描（TypeORM 不会为 FK 列自动建索引）
+@Index('IDX_ai_conversations_model_provider', ['modelProviderId'])
 export class Conversation {
   @ApiProperty({ description: '会话 ID' })
   @PrimaryGeneratedColumn('uuid')
