@@ -14,7 +14,6 @@ import { Route as LayoutRouteImport } from './routes/_layout'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
-import { Route as LayoutAboutRouteImport } from './routes/_layout/about'
 import { Route as LayoutChatRouteImport } from './routes/_layout/chat'
 import { Route as LayoutIntegrationRouteImport } from './routes/_layout/integration'
 import { Route as LayoutKnowledgeRouteImport } from './routes/_layout/knowledge'
@@ -43,11 +42,6 @@ const AuthRegisterRoute = AuthRegisterRouteImport.update({
 const LayoutIndexRoute = LayoutIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => LayoutRoute,
-} as any)
-const LayoutAboutRoute = LayoutAboutRouteImport.update({
-  id: '/about',
-  path: '/about',
   getParentRoute: () => LayoutRoute,
 } as any)
 const LayoutChatRoute = LayoutChatRouteImport.update({
@@ -86,7 +80,6 @@ export interface FileRoutesByFullPath {
   '/': typeof LayoutIndexRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
-  '/about': typeof LayoutAboutRoute
   '/chat': typeof LayoutChatRoute
   '/integration': typeof LayoutIntegrationRouteWithChildren
   '/knowledge': typeof LayoutKnowledgeRoute
@@ -98,7 +91,6 @@ export interface FileRoutesByTo {
   '/': typeof LayoutIndexRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
-  '/about': typeof LayoutAboutRoute
   '/chat': typeof LayoutChatRoute
   '/knowledge': typeof LayoutKnowledgeRoute
   '/users': typeof LayoutUsersRoute
@@ -111,7 +103,6 @@ export interface FileRoutesById {
   '/_layout': typeof LayoutRouteWithChildren
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/register': typeof AuthRegisterRoute
-  '/_layout/about': typeof LayoutAboutRoute
   '/_layout/chat': typeof LayoutChatRoute
   '/_layout/integration': typeof LayoutIntegrationRouteWithChildren
   '/_layout/knowledge': typeof LayoutKnowledgeRoute
@@ -126,7 +117,6 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/register'
-    | '/about'
     | '/chat'
     | '/integration'
     | '/knowledge'
@@ -138,7 +128,6 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/register'
-    | '/about'
     | '/chat'
     | '/knowledge'
     | '/users'
@@ -150,7 +139,6 @@ export interface FileRouteTypes {
     | '/_layout'
     | '/_auth/login'
     | '/_auth/register'
-    | '/_layout/about'
     | '/_layout/chat'
     | '/_layout/integration'
     | '/_layout/knowledge'
@@ -200,13 +188,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof LayoutIndexRouteImport
-      parentRoute: typeof LayoutRoute
-    }
-    '/_layout/about': {
-      id: '/_layout/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof LayoutAboutRouteImport
       parentRoute: typeof LayoutRoute
     }
     '/_layout/chat': {
@@ -280,7 +261,6 @@ const LayoutIntegrationRouteWithChildren =
   LayoutIntegrationRoute._addFileChildren(LayoutIntegrationRouteChildren)
 
 interface LayoutRouteChildren {
-  LayoutAboutRoute: typeof LayoutAboutRoute
   LayoutChatRoute: typeof LayoutChatRoute
   LayoutIntegrationRoute: typeof LayoutIntegrationRouteWithChildren
   LayoutKnowledgeRoute: typeof LayoutKnowledgeRoute
@@ -289,7 +269,6 @@ interface LayoutRouteChildren {
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
-  LayoutAboutRoute: LayoutAboutRoute,
   LayoutChatRoute: LayoutChatRoute,
   LayoutIntegrationRoute: LayoutIntegrationRouteWithChildren,
   LayoutKnowledgeRoute: LayoutKnowledgeRoute,

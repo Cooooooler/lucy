@@ -7,7 +7,6 @@ import {
   ApiOutlined,
   DatabaseOutlined,
   HomeOutlined,
-  InfoCircleOutlined,
   OllamaFilled,
   TeamOutlined,
 } from '@ant-design/icons';
@@ -45,7 +44,6 @@ const menuData = {
   path: '/',
   routes: [
     { path: '/', name: '首页', icon: <HomeOutlined /> },
-    { path: '/about', name: '关于', icon: <InfoCircleOutlined /> },
     { path: '/knowledge', name: '知识库', icon: <DatabaseOutlined /> },
     { path: '/chat', name: '聊天机器人', icon: <OllamaFilled /> },
     {
