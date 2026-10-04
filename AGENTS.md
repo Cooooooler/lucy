@@ -66,7 +66,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 ## PR 全流程协议（接到「提交 / 推送 / 创建 PR」时自动执行）
 
-**协作约定**：用户说「提交 / 推送 / 创建 PR」= 授权按本节跑完整循环**直到合并**，不必逐步确认。只有下列情况停下来汇报：CI 或质量门禁红、评审存在未决的阻塞项、需要产品/契约决策、或要执行不可逆操作（删分支、强推、改 CI 流水线本身）。
+**协作约定**：用户说「提交 / 推送 / 创建 PR」= 授权按本节跑完整循环**直到合并**，不必逐步确认。只有下列情况停下来汇报：CI 或质量门禁红、评审存在未决的阻塞项、需要产品/契约决策、或要执行不可逆操作（强推、改 CI 流水线本身）。
 
 ### 0. 起手
 
@@ -118,7 +118,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 - 用 merge commit（与本仓历史一致）并**锁定 head SHA**：`merge_pull_request{merge_method:'merge', expectedHeadSha:<head>}`，避免合并窗口内被推新提交
 - 合并条件：CI 全绿 + 门禁 OK + 评审无未决阻塞项。master **没有分支保护**（无必需检查），纪律靠自觉，**别把红门禁合进去**
 - 栈式 PR：先合底层，再把上层 PR 的 `base` **手动 retarget 到 master**（GitHub 不会自动改），随后把新 master 合进上层分支（生成物常需重跑 `pnpm typegen`）
-- 合并后确认 master 的 `Build` 变绿（head SHA = 合并 commit）；**不删分支**（与既有历史一致）
+- 合并后确认 master 的 `Build` 变绿（head SHA = 合并 commit）；随后**删除该分支**：远端 `git push origin --delete <branch>`、本地 `git branch -d <branch>`（被 worktree 占用时先 `git worktree remove`）。每个已合并分支都删，不留历史分支
 - 转跟进的小项：开一个收口 PR，正文逐条注明来源 PR；需要独立迁移/设计决策的另开 issue
 - Sonar 里处置过的误报/接受项要写明理由（`change_sonar_issue_status`）
 
