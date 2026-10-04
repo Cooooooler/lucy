@@ -1,0 +1,5 @@
+# 生成物由工具（vite、openapi-typescript 等）写出，统一用 LF：
+# 本仓 blob 为 LF，而 Windows 上 core.autocrlf=true 默认期望工作区为 CRLF，
+# 工具改写过的工作区文件（LF）会被判成 modified，但内容其实无变化。
+apps/frontend/src/routeTree.gen.ts text eol=lf
+packages/shared/src/generated/openapi.ts text eol=lf
