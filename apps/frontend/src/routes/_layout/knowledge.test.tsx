@@ -45,8 +45,12 @@ const mutationMocks = vi.hoisted(() => {
   };
 });
 
+/** 刷新回调（丢弃全部列表缓存并重载）：由路由持有的 hook 提供 */
+const refreshList = vi.hoisted(() => vi.fn());
+
 vi.mock('@/hooks/use-knowledge', () => ({
   useInfiniteKnowledgeBaseList: vi.fn(),
+  useRefreshKnowledgeBaseList: vi.fn(() => refreshList),
   useCreateKnowledgeBase: vi.fn(() => mutationMocks.create),
   useUpdateKnowledgeBase: vi.fn(() => mutationMocks.update),
   useLikeKnowledgeBase: vi.fn(() => mutationMocks.like),
@@ -338,6 +342,23 @@ describe('routes/_layout/knowledge', () => {
     await userEvent.click(screen.getByText('公开'));
     await userEvent.click(screen.getByText('全部'));
     expect(saveFilter).toHaveBeenLastCalledWith({ visibility: undefined });
+  });
+
+  it('点击刷新：走刷新 hook 重新加载，并回到顶部、作废恢复锚点', async () => {
+    mockViewState({}, 7);
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    try {
+      renderRoute();
+      expect(lastGridProps().initialRestoreIndex).toBe(7);
+
+      await userEvent.click(screen.getByRole('button', { name: '刷新' }));
+
+      await waitFor(() => expect(refreshList).toHaveBeenCalledTimes(1));
+      expect(lastGridProps().initialRestoreIndex).toBe(0);
+      expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
+    } finally {
+      scrollTo.mockRestore();
+    }
   });
 
   it('挂载不归零，改筛选才回到列表顶部', async () => {

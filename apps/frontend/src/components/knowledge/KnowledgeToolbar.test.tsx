@@ -10,6 +10,7 @@ function renderToolbar(
     visibility: 'all' | 'private' | 'public';
     onVisibilityChange: () => void;
     onSearch: (value: string) => void;
+    onRefresh: () => void;
     defaultKeyword?: string;
     onCreate: () => void;
   }> = {},
@@ -20,6 +21,7 @@ function renderToolbar(
         visibility={props.visibility ?? 'all'}
         onVisibilityChange={props.onVisibilityChange ?? (() => {})}
         onSearch={props.onSearch ?? (() => {})}
+        onRefresh={props.onRefresh ?? (() => {})}
         defaultKeyword={props.defaultKeyword}
         onCreate={props.onCreate ?? (() => {})}
       />
@@ -64,6 +66,13 @@ describe('KnowledgeToolbar', () => {
     expect(screen.queryByText('名称')).not.toBeInTheDocument();
     expect(screen.queryByText('描述')).not.toBeInTheDocument();
     expect(screen.queryByText('可见性')).not.toBeInTheDocument();
+  });
+
+  it('点击刷新按钮触发 onRefresh（缓存操作由路由持有）', async () => {
+    const onRefresh = vi.fn();
+    renderToolbar({ onRefresh });
+    await userEvent.click(screen.getByRole('button', { name: '刷新' }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
   it('搜索触发 onSearch 并 trim', async () => {
