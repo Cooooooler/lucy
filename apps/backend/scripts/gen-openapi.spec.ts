@@ -364,6 +364,18 @@ describe('gen-openapi', () => {
       minLength: 1,
       maxLength: MODEL_PROVIDER_NAME_MAX_LENGTH,
     });
+    // 知识库描述：必填且非空。@MinLength(1) 不产出文档边界，需手写；否则契约里
+    // 空串仍是合法值，与运行时的 400、列的非空约束三处口径不一致。
+    expect(propOf('CreateKnowledgeBaseDto', 'description')).toMatchObject({
+      minLength: 1,
+      maxLength: 200,
+    });
+    // 更新侧由 PartialType 克隆同一份 ApiProperty 元数据（仅 required 置 false），
+    // 边界应一并继承——这里同时钉住「skipNullProperties: false 不改变文档形状」
+    expect(propOf('UpdateKnowledgeBaseDto', 'description')).toMatchObject({
+      minLength: 1,
+      maxLength: 200,
+    });
   });
 
   it('模型供应商契约：允许式白名单，且不含 API Key 明文/密文/尾号', async () => {
