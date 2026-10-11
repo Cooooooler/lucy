@@ -193,8 +193,8 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
       const id = randomUUID();
       await dataSource.query(
         `INSERT INTO knowledge_bases (id, owner_id, visibility, name, description, created_at, updated_at)
-         VALUES ($1, $2, 'private', $3, NULL, $4, $4)`,
-        [id, userId, spec.name, spec.createdAt],
+         VALUES ($1, $2, 'private', $3, $4, $5, $5)`,
+        [id, userId, spec.name, `${spec.name}-描述`, spec.createdAt],
       );
       if (spec.name.includes('-tie-')) {
         tieIds.push(id);
@@ -388,7 +388,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
     const created = await request(server)
       .post('/v1/knowledge')
       .set('Authorization', auth)
-      .send({ name: `${scopeToken}-get` })
+      .send({ name: `${scopeToken}-get`, description: 'd' })
       .expect(201);
     const id = (created.body as ApiBody<{ id: string }>).data.id;
 
@@ -560,7 +560,7 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
     const created = await request(server)
       .post('/v1/knowledge')
       .set('Authorization', auth)
-      .send({ name: 'x' })
+      .send({ name: 'x', description: 'd' })
       .expect(201);
     expect(JSON.stringify(created.body)).not.toContain('SENTINEL');
   });

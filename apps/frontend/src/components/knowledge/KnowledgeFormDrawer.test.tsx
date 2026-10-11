@@ -112,21 +112,18 @@ describe('KnowledgeFormDrawer', () => {
     expect(createMock.mutateAsync).toHaveBeenCalledTimes(1);
   });
 
-  it('创建态未填描述时提交 undefined（可见性默认 private）', async () => {
-    const mutateAsync = vi.fn().mockResolvedValue({});
-    setCreateMock(mutationMock({ mutateAsync }));
-    renderDrawer({ mode: 'create' });
+  it('创建态未填描述时校验失败，不提交也不关闭', async () => {
+    const createMock = setCreateMock(mutationMock());
+    const { onClose } = renderDrawer({ mode: 'create' });
 
     await userEvent.type(screen.getByLabelText('名称'), '仅名称');
     await userEvent.click(screen.getByRole('button', { name: /创\s*建/ }));
 
     await waitFor(() => {
-      expect(mutateAsync).toHaveBeenCalledWith({
-        name: '仅名称',
-        description: undefined,
-        visibility: 'private',
-      });
+      expect(screen.getByText('请输入知识库描述')).toBeInTheDocument();
     });
+    expect(createMock.mutateAsync).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('创建态可见性只有私有/公开两项，切换为公开后随表单提交', async () => {
@@ -140,12 +137,13 @@ describe('KnowledgeFormDrawer', () => {
 
     await userEvent.click(screen.getByText('公开'));
     await userEvent.type(screen.getByLabelText('名称'), '公开库');
+    await userEvent.type(screen.getByLabelText('描述'), '公开资料');
     await userEvent.click(screen.getByRole('button', { name: /创\s*建/ }));
 
     await waitFor(() => {
       expect(mutateAsync).toHaveBeenCalledWith({
         name: '公开库',
-        description: undefined,
+        description: '公开资料',
         visibility: 'public',
       });
     });
@@ -212,7 +210,7 @@ describe('KnowledgeFormDrawer', () => {
     expect(updateMock.mutateAsync).toHaveBeenCalledTimes(1);
   });
 
-  it('编辑态清空描述时提交空串（后端以空串表示清空，省略字段表示不修改）', async () => {
+  it('编辑态清空描述时校验失败，不提交', async () => {
     const mutateAsync = vi.fn().mockResolvedValue({});
     setUpdateMock(mutationMock({ mutateAsync }));
     renderDrawer({ mode: 'edit', kb: baseKb });
@@ -221,15 +219,9 @@ describe('KnowledgeFormDrawer', () => {
     await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
 
     await waitFor(() => {
-      expect(mutateAsync).toHaveBeenCalledWith({
-        id: 'kb1',
-        input: {
-          name: '产品文档',
-          description: '',
-          visibility: 'private',
-        },
-      });
+      expect(screen.getByText('请输入知识库描述')).toBeInTheDocument();
     });
+    expect(mutateAsync).not.toHaveBeenCalled();
   });
 
   it('编辑态预填可见性并随表单提交', async () => {
@@ -262,6 +254,7 @@ describe('KnowledgeFormDrawer', () => {
     const { onClose } = renderDrawer({ mode: 'create' });
 
     await userEvent.type(screen.getByLabelText('名称'), '重复名称');
+    await userEvent.type(screen.getByLabelText('描述'), '描述');
     await userEvent.click(screen.getByRole('button', { name: /创\s*建/ }));
 
     expect(await screen.findByText('名称已存在')).toBeInTheDocument();
@@ -287,6 +280,7 @@ describe('KnowledgeFormDrawer', () => {
     renderDrawer({ mode: 'create' });
 
     await userEvent.type(screen.getByLabelText('名称'), '测试');
+    await userEvent.type(screen.getByLabelText('描述'), '描述');
     await userEvent.click(screen.getByRole('button', { name: /创\s*建/ }));
 
     expect(await screen.findByText('创建失败，请稍后重试')).toBeInTheDocument();

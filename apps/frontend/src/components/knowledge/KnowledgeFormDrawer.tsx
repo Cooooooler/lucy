@@ -48,7 +48,7 @@ export const KnowledgeFormDrawer: FC<KnowledgeFormDrawerProps> = ({
   const handleSubmit = async () => {
     let values: {
       name: string;
-      description?: string;
+      description: string;
       visibility: 'private' | 'public';
     };
     try {
@@ -57,15 +57,9 @@ export const KnowledgeFormDrawer: FC<KnowledgeFormDrawerProps> = ({
       // 校验未通过：表单自身会展示错误提示，无需额外处理
       return;
     }
-    const trimmedDescription = values.description?.trim();
     const input = {
       name: values.name.trim(),
-      // 后端 PATCH 语义：description 省略 = 不修改，空串 = 清空。
-      // 编辑态必须保留空串，否则用户「清空描述」会被静默忽略；
-      // 创建态用 undefined，让后端落 null 而非空串（沿用改造前行为）。
-      description: isEdit
-        ? (trimmedDescription ?? undefined)
-        : trimmedDescription || undefined,
+      description: values.description.trim(),
       visibility: values.visibility,
     };
     try {
@@ -128,12 +122,18 @@ export const KnowledgeFormDrawer: FC<KnowledgeFormDrawerProps> = ({
         >
           <Input maxLength={20} placeholder="请输入知识库名称" />
         </Form.Item>
-        <Form.Item name="description" label="描述">
+        <Form.Item
+          name="description"
+          label="描述"
+          rules={[
+            { required: true, whitespace: true, message: '请输入知识库描述' },
+          ]}
+        >
           <Input.TextArea
             maxLength={200}
             showCount
             rows={4}
-            placeholder="请输入描述（可选）"
+            placeholder="请输入知识库描述"
           />
         </Form.Item>
         <Form.Item name="visibility" label="可见性">

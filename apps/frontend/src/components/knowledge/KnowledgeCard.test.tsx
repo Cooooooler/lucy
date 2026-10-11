@@ -59,8 +59,8 @@ describe('KnowledgeCard', () => {
     expect(container.querySelector('.ant-typography')).toBeNull();
   });
 
-  it('描述为 null 时不渲染空 tooltip（无 title 属性）', () => {
-    const { container } = renderCard({ kb: { ...baseKb, description: null } });
+  it('描述为空时不渲染空 tooltip（无 title 属性）', () => {
+    const { container } = renderCard({ kb: { ...baseKb, description: '' } });
 
     const desc = container.querySelector('.line-clamp-2');
     expect(desc).not.toBeNull();

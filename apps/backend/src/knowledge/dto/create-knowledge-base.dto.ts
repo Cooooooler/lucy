@@ -8,11 +8,10 @@ export class CreateKnowledgeBaseDto {
   @MaxLength(100)
   name: string;
 
-  @ApiPropertyOptional({ description: '描述', maxLength: 200 })
-  @IsOptional()
+  @ApiProperty({ description: '描述', maxLength: 200 })
   @IsString()
   @MaxLength(200)
-  description?: string;
+  description: string;
 
   @ApiPropertyOptional({
     description: '可见性',

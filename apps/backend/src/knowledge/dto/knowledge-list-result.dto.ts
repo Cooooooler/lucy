@@ -31,8 +31,8 @@ export class KnowledgeBaseItemDto {
   @ApiProperty({ description: '名称' })
   name: string;
 
-  @ApiProperty({ description: '描述', type: String, nullable: true })
-  description: string | null;
+  @ApiProperty({ description: '描述', type: String })
+  description: string;
 
   @ApiProperty({ description: '创建时间' })
   createdAt: Date;
