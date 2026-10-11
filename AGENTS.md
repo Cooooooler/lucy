@@ -60,7 +60,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 - `COMMAND_CODE_API_KEY` —— 仅 Skill Review 用，仓库 owner 的 Command Code 账号 key；headless 下 CLI 据此登录，模型调用走该账号额度、经网关（`SKILL_REVIEW_MODEL` 固定 `deepseek/deepseek-v4.1-flash`，不再走 BYOK）。在 Studio 生成。
 
 - **PR-Agent**（`.github/workflows/pr-agent.yml` + `.pr_agent.toml`）：评论触发（`/review`、`/describe`、`/improve`、`/ask`），配置从默认分支读取。它原生支持 `[skills]`，但为单次模型调用、没有文件读取工具，技能只能静态内联、受 `max_skills_tokens` 限制，因此**未启用**。
-- **Skill Review**（`.github/workflows/pr-skill-review.yml`）：PR 改动命中 `apps/frontend/**` 或 `apps/backend/**` 时触发（仅同仓库分支，fork PR 跳过）。**只在 `opened` / `ready_for_review` / `reopened` 时自动跑一轮，刻意不订阅 `synchronize`**：每次 push 都评审会让同一 PR 堆出多条互相重叠、甚至前后矛盾的评论（实测 #53 五条、#55 四条，多数条目在 head 上早已修好或已被后续提交取代，但评论不会自动关闭，散落意见反而盖住真正待改的几条）。迭代修复后若要再评审，就在 PR 里评论 **`/skill-review`** 手动触发（限 `OWNER`/`MEMBER`/`COLLABORATOR`，避免外部贡献者用一句评论消耗 owner 的账号额度；该入口由默认分支的工作流响应，以 master 上的版本为准）。用 Command Code CLI headless（`COMMAND_CODE_API_KEY` 鉴权，走账号额度、模型固定 `deepseek/deepseek-v4.1-flash`）**按路径加载完整技能**，模型先看 `name + description`，再按需读 `SKILL.md` 与 `rules/*.md`：前端 `vercel-react-best-practices`，后端 `nestjs-best-practices`。结果**每次运行都新发一条评论**（不再编辑旧评论——编辑不产生通知，评审容易被漏看；marker `<!-- pr-skill-review -->` 保留仅作标识），评论末尾带本轮评审的 commit 与 run 链接以便区分。评审经 `.github/skill-review/scripts/review-with-retry.sh` 做早停校验：输出过短（<500 字节）或汉字过少（<30）判为模型早停，重试 1 次，两次不合格判空、不发残缺评论；「未发现需要修改的问题」这类干净结论不算早停，并按规范句式照常写入评论（模型换个说法的“无问题”也会被识别并归一，避免明明没问题却什么都不发）。
+- **Skill Review**（`.github/workflows/pr-skill-review.yml`）：**只有手动入口**——在 PR 上评论 **`/skill-review`** 触发（`issue_comment` 事件，限 `OWNER`/`MEMBER`/`COLLABORATOR` 且非 bot，避免外部贡献者用一句评论消耗 owner 的账号额度；该入口由默认分支的工作流响应，以 master 上的版本为准）。**曾经的 `pull_request`（`opened`/`ready_for_review`/`reopened`）自动触发连同同仓库 / fork 路径过滤都已删除**：SonarCloud 机器人在 PR 创建后 3~~4 分钟会发一条质量门禁评论，落进同一个 concurrency group，把正在跑的评审取消（一轮评审要 4~~5 分钟，两者时间窗稳定重叠），于是整轮零产出（实测 #80）；job 级 `if` 拦不住——排队先发生、`if` 后求值，被取消的 run 只显示 `skipped`（更早还因每次 push 都评审会堆出重叠评论、实测 #53 五条 / #55 四条，刻意不订阅 `synchronize`）。触发时机现由人决定（跑完 CI、看完 diff 再评），也不再消耗自动触发的额度；**没有路径过滤**——作业内部按 `git diff <base>...HEAD -- apps/frontend` 与 `-- apps/backend` 切出两侧补丁，某侧为空则跳过该侧评审，两侧都空则不发评论。用 Command Code CLI headless（`COMMAND_CODE_API_KEY` 鉴权，走账号额度、模型固定 `deepseek/deepseek-v4.1-flash`）**按路径加载完整技能**，模型先看 `name + description`，再按需读 `SKILL.md` 与 `rules/*.md`：前端 `vercel-react-best-practices`，后端 `nestjs-best-practices`。结果**每次运行都新发一条评论**（不再编辑旧评论——编辑不产生通知，评审容易被漏看；marker `<!-- pr-skill-review -->` 保留仅作标识），评论末尾带本轮评审的 commit 与 run 链接以便区分。评审经 `.github/skill-review/scripts/review-with-retry.sh` 做早停校验：输出过短（<500 字节）或汉字过少（<30）判为模型早停，重试 1 次，两次不合格判空、不发残缺评论；「未发现需要修改的问题」这类干净结论不算早停，并按规范句式照常写入评论（模型换个说法的“无问题”也会被识别并归一，避免明明没问题却什么都不发）。
 
 技能放在 `.github/skill-review/skills/`（入库；`.commandcode/` 与 `.claude/` 已被 gitignore，CI 用不了）。该目录已加入 `.prettierignore`，上游规则文件保持原样。更新技能直接替换目录内容即可。
 
@@ -92,13 +92,13 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 ### 3. 监控（协议的核心，不能省）
 
-一次 PR 会并行产出三类反馈，用后台任务等它们落地（`gh run watch <id> --exit-status` + `shell_output wait:"exit"`），**不要 sleep 循环轮询**：
+一次 PR 会自动产出两类反馈（CI、Sonar）；技能评审**只在 PR 上评论 `/skill-review` 后**才跑（见「PR 评审流水线」）。用后台任务等它们落地（`gh run watch <id> --exit-status` + `shell_output wait:"exit"`），**不要 sleep 循环轮询**：
 
 | 反馈 | 位置 | 判读 |
 | --- | --- | --- |
 | CI（Build：lint / typecheck / 各包 test+coverage） | Actions `Build` | 全部 job 绿 |
 | Sonar 质量门禁 | SonarCloud 检查 / `get_project_quality_gate_status` | 本仓唯一会红的条件是 **new_coverage ≥ 80** |
-| 技能评审 | PR **会话评论**（不是行内 review thread） | `gh api repos/<owner>/<repo>/issues/<n>/comments --jq '.[-1].body'` 读**最新一条**，并核对其「评审 commit」是否等于当前 head |
+| 技能评审 | PR **会话评论**（不是行内 review thread） | **仅手动触发**（PR 里评论 `/skill-review`）后才有，未触发时该行恒为空；`gh api repos/<owner>/<repo>/issues/<n>/comments --jq '.[-1].body'` 读**最新一条**，并核对其「评审 commit」是否等于当前 head |
 
 要点：
 
@@ -110,7 +110,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 - 逐条给结论，只有三种：**修** / **转跟进**（另开 issue 或并入收口 PR，写明理由）/ **不采纳**（必须写理由——评审会来回摆动，例如「某条恰是上一轮评审明确要求的写法」；结论有事实错误时也在此列出，如「该规则在 JS 中不成立」）
 - **把要改的攒齐一次 push**：每次 push 都可能引出新一轮评审，逐条改逐条推会把 PR 淹没在重叠评论里
-- 需要再评审时：push **不会**自动触发（`pr-skill-review.yml` 只在 `opened`/`ready_for_review`/`reopened` 跑），改完后在 PR 里评论 **`/skill-review`** 手动要一轮
+- 需要评审时：push **不会**触发（`pr-skill-review.yml` 现**只有手动入口**），改完后在 PR 里评论 **`/skill-review`** 手动要一轮（限 `OWNER`/`MEMBER`/`COLLABORATOR`）
 - 评审轮次多、条目散时，补一条**处置表评论**（逐条：已修 / 转跟进 / 保留 + 理由，并指向跟进的 issue/PR），后来者不必翻评论历史
 
 ### 5. 合并与收尾
