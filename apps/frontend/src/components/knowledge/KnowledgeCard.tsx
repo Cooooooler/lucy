@@ -93,7 +93,7 @@ export const KnowledgeCard = ({
         />
         <div
           className="line-clamp-2 h-11 text-sm text-gray-500"
-          title={kb.description ?? undefined}
+          title={kb.description || undefined}
         >
           {kb.description}
         </div>

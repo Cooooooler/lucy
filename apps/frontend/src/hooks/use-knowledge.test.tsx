@@ -46,7 +46,7 @@ function makeBase(overrides: Partial<KnowledgeBase> = {}): KnowledgeBase {
     ownerId: 'u1',
     visibility: 'private',
     name: '产品文档',
-    description: null,
+    description: '这是一段描述',
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
     likeCount: 0,
@@ -241,6 +241,7 @@ describe('useCreateKnowledgeBase', () => {
     await act(async () => {
       await mutation.result.current.mutateAsync({
         name: '新产品',
+        description: '新产品描述',
         visibility: 'private',
       });
     });
@@ -270,6 +271,7 @@ describe('useCreateKnowledgeBase', () => {
     await act(async () => {
       await mutation.result.current.mutateAsync({
         name: '私有库',
+        description: '私有库描述',
         visibility: 'private',
       });
     });

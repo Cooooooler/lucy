@@ -76,9 +76,9 @@ export class KnowledgeBase {
   @Column({ type: 'varchar', length: 100 })
   name: string;
 
-  @ApiProperty({ description: '描述', type: 'string', nullable: true })
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  description: string | null;
+  @ApiProperty({ description: '描述', type: 'string' })
+  @Column({ type: 'varchar', length: 200 })
+  description: string;
 
   @ApiProperty({ description: '创建时间' })
   // 毫秒对齐：keyset 游标是毫秒精度（JS Date 的固有精度），列默认值若落到微秒，

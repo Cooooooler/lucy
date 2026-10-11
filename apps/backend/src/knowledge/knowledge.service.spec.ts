@@ -75,7 +75,7 @@ describe('KnowledgeService', () => {
 
   it('create 保存知识库（默认 private）并返回契约视图', async () => {
     kbRepo.save.mockResolvedValue(makeKb());
-    const result = await service.create('u1', { name: 'x' });
+    const result = await service.create('u1', { name: 'x', description: 'd' });
     expect(result).toEqual(makeKbItem());
     // 契约项是普通视图对象，不携带实体上的内部关系（owner 等）
     expect(result).not.toBeInstanceOf(KnowledgeBase);
@@ -83,6 +83,7 @@ describe('KnowledgeService', () => {
       expect.objectContaining({
         ownerId: 'u1',
         name: 'x',
+        description: 'd',
         visibility: 'private',
       }),
     );
@@ -107,7 +108,7 @@ describe('KnowledgeService', () => {
 
   it('create/get/list/update 字段集完全一致（契约不随端点漂移）', async () => {
     kbRepo.save.mockResolvedValue(makeKb());
-    const created = await service.create('u1', { name: 'x' });
+    const created = await service.create('u1', { name: 'x', description: 'd' });
 
     kbRepo.findOne.mockResolvedValue(makeKb());
     const detail = await service.get('u1', KB_ID);

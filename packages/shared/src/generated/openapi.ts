@@ -850,7 +850,7 @@ export interface components {
             /** @description 名称 */
             name: string;
             /** @description 描述 */
-            description?: string;
+            description: string;
             /**
              * @description 可见性
              * @default private
@@ -872,7 +872,7 @@ export interface components {
             /** @description 名称 */
             name: string;
             /** @description 描述 */
-            description: string | null;
+            description: string;
             /**
              * Format: date-time
              * @description 创建时间

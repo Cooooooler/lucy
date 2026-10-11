@@ -54,7 +54,7 @@ export class KnowledgeService {
     const kb = await this.kbRepo.save({
       ownerId: userId,
       name: dto.name,
-      description: dto.description ?? null,
+      description: dto.description,
       visibility: dto.visibility ?? KnowledgeBaseVisibility.Private,
     });
     return toKnowledgeBaseItem(kb);

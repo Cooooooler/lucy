@@ -38,7 +38,7 @@ function makeKnowledgeBase(
     ownerId: 'u1',
     visibility: 'private',
     name: '产品文档',
-    description: null,
+    description: '这是一段描述',
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
     likeCount: 0,
@@ -93,6 +93,7 @@ describe('api/knowledge', () => {
     fetchMock.mockResolvedValueOnce(okEnvelope(kb));
     const result = await createKnowledgeBaseApi({
       name: '产品文档',
+      description: '这是一段描述',
       visibility: 'public',
     });
     expect(result).toEqual(kb);
@@ -100,7 +101,11 @@ describe('api/knowledge', () => {
       '/api/v1/knowledge',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ name: '产品文档', visibility: 'public' }),
+        body: JSON.stringify({
+          name: '产品文档',
+          description: '这是一段描述',
+          visibility: 'public',
+        }),
       }),
     );
   });

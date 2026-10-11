@@ -28,7 +28,7 @@ export const makeKb = (over: Partial<KnowledgeBase> = {}): KnowledgeBase => ({
   ownerId: 'u1',
   visibility: KnowledgeBaseVisibility.Private,
   name: '产品文档',
-  description: null,
+  description: '产品文档',
   createdAt: EPOCH,
   updatedAt: EPOCH,
   ...over,
@@ -89,7 +89,7 @@ export type KbItem = {
   ownerId: string;
   visibility: KnowledgeBaseVisibility;
   name: string;
-  description: string | null;
+  description: string;
   createdAt: Date;
   updatedAt: Date;
   likeCount: number;
@@ -101,7 +101,7 @@ export const makeKbItem = (over: Partial<KbItem> = {}): KbItem => ({
   ownerId: 'u1',
   visibility: KnowledgeBaseVisibility.Private,
   name: '产品文档',
-  description: null,
+  description: '产品文档',
   createdAt: EPOCH,
   updatedAt: EPOCH,
   likeCount: 0,
