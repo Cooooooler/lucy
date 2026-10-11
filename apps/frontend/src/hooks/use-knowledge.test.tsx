@@ -19,6 +19,7 @@ import {
   useInfiniteKnowledgeBaseList,
   useKnowledgeBase,
   useLikeKnowledgeBase,
+  useRefreshKnowledgeBaseList,
   useUnlikeKnowledgeBase,
   useUpdateKnowledgeBase,
 } from './use-knowledge.js';
@@ -181,6 +182,47 @@ describe('useInfiniteKnowledgeBaseList', () => {
     );
   });
 
+  it('换筛选后切回已缓存的筛选命中缓存，不重放历史分页', async () => {
+    api.listKnowledgeBasesApi.mockImplementation(
+      (query: { visibility?: string; cursor?: string } = {}) => {
+        if (query.visibility === 'private') {
+          return Promise.resolve(cursorPage([makeBase({ id: 'priv' })], null));
+        }
+        return Promise.resolve(
+          query.cursor
+            ? cursorPage([makeBase({ id: 'all2' })], null)
+            : cursorPage([makeBase({ id: 'all1' })], 'c1'),
+        );
+      },
+    );
+    const client = createTestQueryClient();
+    const { result, rerender } = renderHook(
+      (props: { visibility?: 'private' | 'public' }) =>
+        useInfiniteKnowledgeBaseList(props),
+      { wrapper: createWrapperWithClient(client), initialProps: {} },
+    );
+
+    // 全部：先加载两页
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.hasNextPage).toBe(true));
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
+    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(2);
+
+    // 切到私有：新条件无缓存，正常请求一次
+    rerender({ visibility: 'private' });
+    await waitFor(() => expect(result.current.isPlaceholderData).toBe(false));
+    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(3);
+
+    // 切回全部：命中已有缓存，不得把两页历史分页重放一遍
+    rerender({});
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(3);
+  });
+
   it('卸载后在 gcTime 内重新挂载不重放历史分页', async () => {
     api.listKnowledgeBasesApi.mockResolvedValue(cursorPage([makeBase()], 'c1'));
     const client = createTestQueryClient();
@@ -202,6 +244,52 @@ describe('useInfiniteKnowledgeBaseList', () => {
     // 给潜在的 refetch 留出微/宏任务窗口
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useRefreshKnowledgeBaseList', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('丢弃所有筛选的列表缓存，只让当前筛选重取第一页（不重放）', async () => {
+    api.listKnowledgeBasesApi.mockResolvedValue(
+      cursorPage([makeBase({ id: 'kb1' })], null),
+    );
+    const client = createTestQueryClient();
+    // 预置「公开」筛选的缓存，模拟之前访问过（刷新后应一并作废）
+    const publicKey = knowledgeKeys.baseList({
+      limit: KNOWLEDGE_PAGE_SIZE,
+      visibility: 'public',
+    });
+    client.setQueryData(
+      publicKey,
+      infiniteCache([cursorPage([makeBase({ id: 'pub' })])]),
+    );
+
+    const { result } = renderHook(
+      () => ({
+        list: useInfiniteKnowledgeBaseList(),
+        refresh: useRefreshKnowledgeBaseList(),
+      }),
+      { wrapper: createWrapperWithClient(client) },
+    );
+    await waitFor(() => expect(result.current.list.isSuccess).toBe(true));
+    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    // 其它筛选的缓存被清空：下次进入同样从第一页重来
+    expect(client.getQueryData(publicKey)).toBeUndefined();
+    // 当前筛选只重新取第一页：总请求数为 2，不重放（invalidate 会重放整段分页）
+    await waitFor(() =>
+      expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(2),
+    );
+    expect(api.listKnowledgeBasesApi).toHaveBeenLastCalledWith({
+      limit: KNOWLEDGE_PAGE_SIZE,
+      cursor: undefined,
+    });
+    expect(result.current.list.data?.pages).toHaveLength(1);
   });
 });
 

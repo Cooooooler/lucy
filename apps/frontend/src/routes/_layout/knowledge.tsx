@@ -16,6 +16,7 @@ import {
   useDeleteKnowledgeBase,
   useInfiniteKnowledgeBaseList,
   useLikeKnowledgeBase,
+  useRefreshKnowledgeBaseList,
   useUnlikeKnowledgeBase,
   useUpdateKnowledgeBase,
 } from '@/hooks/use-knowledge.ts';
@@ -78,6 +79,7 @@ function KnowledgeComponent() {
     () => query.data?.pages.flatMap((page) => page.list) ?? [],
     [query.data],
   );
+  const refreshList = useRefreshKnowledgeBaseList();
 
   // 四个变更操作在路由各持有一份：卡片只上报意图。
   // 卡片数量随列表规模增长，若每张卡片各挂一套 mutation，实例与订阅数会随之线性膨胀。
@@ -193,12 +195,21 @@ function KnowledgeComponent() {
     [saveFilter, scrollElement],
   );
 
+  // 刷新：丢弃所有筛选的列表缓存并让当前筛选从第一页重新加载。
+  // 与改筛选同样要回顶并作废恢复锚点，否则新数据回来后会被恢复到刷新前的位置。
+  const handleRefresh = useCallback(() => {
+    setRestoreIndex(0);
+    scrollElement?.scrollTo({ top: 0 });
+    void refreshList();
+  }, [refreshList, scrollElement]);
+
   return (
     <>
       <KnowledgeToolbar
         visibility={visibility}
         onVisibilityChange={handleVisibilityChange}
         onSearch={handleSearch}
+        onRefresh={handleRefresh}
         defaultKeyword={initialFilter.name ?? ''}
         onCreate={handleCreate}
       />

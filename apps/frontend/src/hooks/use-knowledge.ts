@@ -26,6 +26,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
+import { useCallback } from 'react';
 
 /** 默认每页条数（游标分页，同时是列表 queryKey 的一部分） */
 export const KNOWLEDGE_PAGE_SIZE = 20;
@@ -219,7 +220,15 @@ export function useInfiniteKnowledgeBaseList(
       }),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    staleTime: 0,
+    // staleTime: Infinity（已缓存即新鲜）不是随手写的乐观值，堵的是「换筛选」这条路径：
+    // 换筛选是在同一个 observer 上换 queryKey，QueryObserver.setOptions 走的是
+    // shouldFetchOptionally——只要新 query 的缓存已过期（staleTime 0 恒过期）就 refetch，
+    // 而 useInfiniteQuery 的 refetch 会把已加载的分页从头重放一遍（几页就几次请求）。
+    // refetchOnMount/refetchOnReconnect 只覆盖挂载/重连，管不到 setOptions 这条，
+    // 于是「切回已看过的筛选」也会重放历史分页——缓存看着像失效了。
+    // Infinity 后无缓存的新条件（data === undefined 仍判定为过期）照常请求首页，
+    // 缓存寿命交给默认 gcTime(5min) 回收。
+    staleTime: Infinity,
     // 换筛选会切到新的 queryKey（新查询无缓存）：用上一组条件的数据做占位，
     // 列表保持可见，不再「整块骨架 → 整格重挂」——虚拟网格与已挂卡片实例得以沿用。
     // 占位期间 isPlaceholderData 为 true：它与新条件的 nextCursor 不匹配，触底预取必须停手。
@@ -231,6 +240,22 @@ export function useInfiniteKnowledgeBaseList(
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
   });
+}
+
+/**
+ * 手动「刷新」：丢弃**所有筛选条件**的分页缓存，并让当前可见的筛选从第一页重新加载。
+ *
+ * 用 `resetQueries` 而非 `invalidateQueries`：invalidate 会把 `useInfiniteQuery` 的整段缓存
+ * 标记过期并 refetch，等于把已加载的分页从头重放（几页就几次请求，正是换筛选时踩过的坑）；
+ * reset 先把匹配的缓存全部清空，再只 refetch `type: 'active'` 的查询——因此只有当前筛选
+ * 重新取第一页（1 次请求），其它筛选的缓存一并作废、下次进入同样从第一页开始。
+ */
+export function useRefreshKnowledgeBaseList() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    () => queryClient.resetQueries({ queryKey: knowledgeKeys.baseListAll() }),
+    [queryClient],
+  );
 }
 
 export function useKnowledgeBase(id: string | undefined) {
