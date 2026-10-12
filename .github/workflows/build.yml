@@ -70,7 +70,7 @@ jobs:
       - name: Backend tests with coverage
         run: pnpm --filter @lucy/backend test:cov
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage
           path: apps/backend/coverage
@@ -97,7 +97,7 @@ jobs:
       - name: Frontend tests with coverage
         run: pnpm --filter @lucy/frontend test:cov
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-coverage
           path: apps/frontend/coverage
@@ -127,7 +127,7 @@ jobs:
       - name: Redis package tests with coverage
         run: pnpm --filter @coool/redis-nest test:cov
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: redis-coverage
           path: packages/redis/coverage
@@ -152,7 +152,7 @@ jobs:
       - name: Shared package tests with coverage
         run: pnpm --filter @lucy/shared test:cov
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: shared-coverage
           path: packages/shared/coverage
@@ -168,22 +168,22 @@ jobs:
         with:
           fetch-depth: 0 # 全量历史，SonarCloud 分析相关性需要
       - name: Download coverage report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: backend-coverage
           path: apps/backend/coverage
       - name: Download frontend coverage report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: frontend-coverage
           path: apps/frontend/coverage
       - name: Download redis coverage report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: redis-coverage
           path: packages/redis/coverage
       - name: Download shared coverage report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: shared-coverage
           path: packages/shared/coverage
