@@ -66,40 +66,37 @@ export interface GlassButtonProps
     VariantProps<typeof glassButtonVariants> {
   glowEffect?: boolean;
   asChild?: boolean;
+  /** React 19 起 ref 是普通 prop，无需再包一层 forwardRef */
+  ref?: React.Ref<HTMLButtonElement>;
 }
 
-const GlassButton = React.forwardRef<HTMLButtonElement, GlassButtonProps>(
-  (
-    {
-      className,
-      variant,
-      asChild = false,
-      size,
-      glowEffect = false,
-      children,
-      ...props
-    },
-    ref,
-  ) => {
-    const Comp = asChild ? SlotPrimitive.Slot : 'button';
-    return (
-      <div className="relative inline-block">
-        {glowEffect && (
-          <div className="absolute -inset-1 rounded-xl bg-linear-to-r from-cyan-500/40 via-blue-500/40 to-purple-500/40 opacity-70 blur-lg transition-opacity group-hover:opacity-100" />
-        )}
-        <Comp
-          className={cn(glassButtonVariants({ variant, size, className }))}
-          ref={ref}
-          {...props}
-        >
-          <span className="relative z-10 flex items-center gap-2">
-            {children}
-          </span>
-        </Comp>
-      </div>
-    );
-  },
-);
-GlassButton.displayName = 'GlassButton';
+const GlassButton = ({
+  className,
+  variant,
+  asChild = false,
+  size,
+  glowEffect = false,
+  children,
+  ref,
+  ...props
+}: GlassButtonProps) => {
+  const Comp = asChild ? SlotPrimitive.Slot : 'button';
+  return (
+    <div className="relative inline-block">
+      {glowEffect && (
+        <div className="absolute -inset-1 rounded-xl bg-linear-to-r from-cyan-500/40 via-blue-500/40 to-purple-500/40 opacity-70 blur-lg transition-opacity group-hover:opacity-100" />
+      )}
+      <Comp
+        className={cn(glassButtonVariants({ variant, size, className }))}
+        ref={ref}
+        {...props}
+      >
+        <span className="relative z-10 flex items-center gap-2">
+          {children}
+        </span>
+      </Comp>
+    </div>
+  );
+};
 
 export { GlassButton, glassButtonVariants };

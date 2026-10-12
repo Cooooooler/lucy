@@ -45,14 +45,14 @@ export type PageShellProps = {
  * 后者会把容器自身收窄到 1600px，滚动容器（scrollable）的滚动条只能停在限宽盒内缘；
  * 居中内边距让容器保持满宽，滚动条得以贴到内容区右缘，而内容盒宽度两者等价。
  */
-export function PageShell({
+export const PageShell = ({
   children,
   height = 'content',
   bleed = false,
   scrollable = false,
   className,
   ref,
-}: PageShellProps) {
+}: PageShellProps) => {
   return (
     <div
       ref={ref}
@@ -68,4 +68,4 @@ export function PageShell({
       {children}
     </div>
   );
-}
+};
