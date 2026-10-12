@@ -47,17 +47,22 @@ const HINGE_CONFIG: Record<Hinge, HingeConfig> = {
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
 
-const renderWhitespace = (value: string, key: string): ReactNode[] =>
-  value.split(/(\n)/).map((part, index) => {
-    if (part === '\n') return <br key={`${key}-br-${index}`} />;
+const renderWhitespace = (value: string, key: string): ReactNode[] => {
+  // key 用字符偏移而非数组下标：下标会被 react-x/no-array-index-key 拦下
+  let offset = 0;
+  return value.split(/(\n)/).map((part) => {
+    const at = offset;
+    offset += part.length;
+    if (part === '\n') return <br key={`${key}-br-${at}`} />;
     if (!part) return null;
 
     return (
-      <span className="fold-text-whitespace" key={`${key}-space-${index}`}>
+      <span className="fold-text-whitespace" key={`${key}-space-${at}`}>
         {part.replace(/ /g, '\u00A0')}
       </span>
     );
   });
+};
 
 const FOLD_TEXT_STYLES = `.fold-text {
   display: inline-block;
@@ -210,26 +215,38 @@ const FoldText = ({
     };
 
     if (splitBy === 'line') {
-      return text.split('\n').map((line, index) => (
-        <span className="fold-text-line" key={`line-${index}`}>
-          {renderSegment(line || '\u00A0', `segment-line-${index}`, 'line')}
-        </span>
-      ));
+      // 同上：key 走字符偏移，避免以数组下标作 key
+      let lineOffset = 0;
+      return text.split('\n').map((line) => {
+        const at = lineOffset;
+        lineOffset += line.length + 1;
+        return (
+          <span className="fold-text-line" key={`line-${at}`}>
+            {renderSegment(line || '\u00A0', `segment-line-${at}`, 'line')}
+          </span>
+        );
+      });
     }
 
     if (splitBy === 'word') {
-      return text.split(/(\s+)/).flatMap((part, index) => {
+      let wordOffset = 0;
+      return text.split(/(\s+)/).flatMap((part) => {
+        const at = wordOffset;
+        wordOffset += part.length;
         if (!part) return [];
-        if (/^\s+$/.test(part)) return renderWhitespace(part, `ws-${index}`);
+        if (/^\s+$/.test(part)) return renderWhitespace(part, `ws-${at}`);
         return renderSegment(part, `segment-word-${segmentIndex}`);
       });
     }
 
-    return Array.from(text).map((char, index) => {
-      if (char === '\n') return <br key={`br-${index}`} />;
+    let charOffset = 0;
+    return Array.from(text).map((char) => {
+      const at = charOffset;
+      charOffset += 1;
+      if (char === '\n') return <br key={`br-${at}`} />;
       return renderSegment(
         char === ' ' ? '\u00A0' : char,
-        `segment-char-${index}`,
+        `segment-char-${at}`,
       );
     });
   }, [text, splitBy, hinge, hingeConfig.origin, safePerspective]);
