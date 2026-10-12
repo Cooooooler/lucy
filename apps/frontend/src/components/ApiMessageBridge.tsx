@@ -9,7 +9,7 @@ import { onApiSuccessMessage } from '../api/messages';
  * 前端不决定提示文案与时机（只负责展示）：是否弹出由后端的 `message` 字段
  * 与客户端的变更方法 + `skipSuccessMessage` 标记共同决定，见 `api/client.ts`。
  */
-export function ApiMessageBridge() {
+export const ApiMessageBridge = () => {
   const { message } = App.useApp();
 
   useEffect(
@@ -18,4 +18,4 @@ export function ApiMessageBridge() {
   );
 
   return null;
-}
+};

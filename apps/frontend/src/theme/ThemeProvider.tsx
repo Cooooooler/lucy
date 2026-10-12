@@ -68,7 +68,9 @@ function getNoSystemDark(): boolean {
   return false;
 }
 
-export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
+export const ThemeProvider = ({
+  children,
+}: Readonly<{ children: ReactNode }>) => {
   const [mode, setModeState] = useLocalStorageState<ThemeMode>(THEME_KEY, {
     defaultValue: 'system',
   });
@@ -119,7 +121,7 @@ export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
       </ConfigProvider>
     </ThemeContext>
   );
-}
+};
 
 export function useTheme(): ThemeContextValue {
   const ctx = use(ThemeContext);

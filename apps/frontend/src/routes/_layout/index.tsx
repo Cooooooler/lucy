@@ -2,11 +2,7 @@ import { PageShell } from '@/components/page-shell';
 import { ProCard, StatisticCard } from '@ant-design/pro-components';
 import { createFileRoute } from '@tanstack/react-router';
 
-export const Route = createFileRoute('/_layout/')({
-  component: HomeComponent,
-});
-
-function HomeComponent() {
+const HomeComponent = () => {
   return (
     <PageShell>
       <ProCard gutter={[16, 16]} wrap>
@@ -22,4 +18,8 @@ function HomeComponent() {
       </ProCard>
     </PageShell>
   );
-}
+};
+
+export const Route = createFileRoute('/_layout/')({
+  component: HomeComponent,
+});

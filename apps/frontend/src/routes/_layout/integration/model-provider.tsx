@@ -22,10 +22,6 @@ import { createFileRoute } from '@tanstack/react-router';
 import { App } from 'antd';
 import { useCallback, useMemo, useState } from 'react';
 
-export const Route = createFileRoute('/_layout/integration/model-provider')({
-  component: ModelProviderComponent,
-});
-
 /** 从「该 mutation 是否在跑 + 它的 variables」取出正在处理的模型 id */
 function pendingIdOf(
   isPending: boolean,
@@ -35,7 +31,7 @@ function pendingIdOf(
   return typeof variables === 'string' ? variables : variables.id;
 }
 
-function ModelProviderComponent() {
+const ModelProviderComponent = () => {
   const { message, modal } = App.useApp();
   const {
     initialFilter,
@@ -203,4 +199,8 @@ function ModelProviderComponent() {
       </PageShell>
     </>
   );
-}
+};
+
+export const Route = createFileRoute('/_layout/integration/model-provider')({
+  component: ModelProviderComponent,
+});

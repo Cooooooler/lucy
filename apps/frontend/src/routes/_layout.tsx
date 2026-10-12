@@ -27,16 +27,6 @@ import { type ReactNode, useMemo } from 'react';
 
 const { Text } = Typography;
 
-export const Route = createFileRoute('/_layout')({
-  beforeLoad: async ({ context }) => {
-    await context.auth.ready;
-    if (!context.auth.isAuthenticated) {
-      throw redirect({ to: '/login' });
-    }
-  },
-  component: LayoutComponent,
-});
-
 // 声明式两层菜单：某项有 routes → mix 布局在左侧渲染它的副菜单；
 // 没有 routes → 侧栏整体不渲染（ProLayout 内部 flexDirection 退回纵向，页面占满宽度）。
 // 因此「有没有副菜单」不需要额外开关，写成树就生效。
@@ -80,7 +70,7 @@ function getAvatarLetter(username?: string): string {
   return first.toUpperCase();
 }
 
-function LayoutComponent() {
+const LayoutComponent = () => {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const user = useSelector(authStore, (s) => s.user);
@@ -179,4 +169,14 @@ function LayoutComponent() {
       </PageContainer>
     </ProLayout>
   );
-}
+};
+
+export const Route = createFileRoute('/_layout')({
+  beforeLoad: async ({ context }) => {
+    await context.auth.ready;
+    if (!context.auth.isAuthenticated) {
+      throw redirect({ to: '/login' });
+    }
+  },
+  component: LayoutComponent,
+});

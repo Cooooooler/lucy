@@ -26,11 +26,7 @@ const formSchema = z.object({
 
 type LoginFormValues = z.infer<typeof formSchema>;
 
-export const Route = createFileRoute('/_auth/login')({
-  component: LoginPageBlock,
-});
-
-function LoginPageBlock() {
+const LoginPageBlock = () => {
   const [showPassword, setShowPassword] = useState(false);
   const { message } = App.useApp();
   const navigate = useNavigate();
@@ -239,4 +235,8 @@ function LoginPageBlock() {
       </GlassCardContent>
     </GlassCard>
   );
-}
+};
+
+export const Route = createFileRoute('/_auth/login')({
+  component: LoginPageBlock,
+});

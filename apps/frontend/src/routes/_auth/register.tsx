@@ -70,11 +70,7 @@ const formSchema = z
 
 type RegisterFormValues = z.infer<typeof formSchema>;
 
-export const Route = createFileRoute('/_auth/register')({
-  component: SignupPageBlock,
-});
-
-function SignupPageBlock() {
+const SignupPageBlock = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const { message } = App.useApp();
@@ -424,4 +420,8 @@ function SignupPageBlock() {
       </GlassCardContent>
     </GlassCard>
   );
-}
+};
+
+export const Route = createFileRoute('/_auth/register')({
+  component: SignupPageBlock,
+});
