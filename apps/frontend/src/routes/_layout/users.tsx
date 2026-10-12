@@ -36,19 +36,6 @@ import {
   type ReactNode,
 } from 'react';
 
-export const Route = createFileRoute('/_layout/users')({
-  beforeLoad: async ({ context }) => {
-    await context.auth.ready;
-    if (!context.auth.isAuthenticated) {
-      throw redirect({ to: '/login' });
-    }
-    if (!hasMinRole(authStore.get().user?.role, 'admin')) {
-      throw redirect({ to: '/' });
-    }
-  },
-  component: UsersPage,
-});
-
 const ROLE_TAG_COLOR: Record<User['role'], string> = {
   user: 'blue',
   admin: 'orange',
@@ -61,17 +48,17 @@ const ROLE_LABEL: Record<User['role'], string> = {
   superadmin: '超级管理员',
 };
 
-function RoleTag({ role }: { readonly role: User['role'] }) {
+const RoleTag = ({ role }: { readonly role: User['role'] }) => {
   return <Tag color={ROLE_TAG_COLOR[role]}>{ROLE_LABEL[role]}</Tag>;
-}
+};
 
-function StatusTag({ status }: { readonly status: number }) {
+const StatusTag = ({ status }: { readonly status: number }) => {
   return status === 1 ? (
     <Tag color="success">正常</Tag>
   ) : (
     <Tag color="default">已禁用</Tag>
   );
-}
+};
 
 type UserDetailModalProps = {
   readonly user: User | null;
@@ -188,7 +175,7 @@ const UserRoleModal: FC<UserRoleModalProps> = ({ user, open, onClose }) => {
   );
 };
 
-function UsersPage() {
+const UsersPage = () => {
   const { message, modal } = App.useApp();
   const currentUser = useSelector(authStore, (s) => s.user);
   const [page, setPage] = useState(1);
@@ -429,4 +416,17 @@ function UsersPage() {
       />
     </PageShell>
   );
-}
+};
+
+export const Route = createFileRoute('/_layout/users')({
+  beforeLoad: async ({ context }) => {
+    await context.auth.ready;
+    if (!context.auth.isAuthenticated) {
+      throw redirect({ to: '/login' });
+    }
+    if (!hasMinRole(authStore.get().user?.role, 'admin')) {
+      throw redirect({ to: '/' });
+    }
+  },
+  component: UsersPage,
+});

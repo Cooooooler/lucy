@@ -35,7 +35,7 @@ function stubMatchMedia(matches: boolean) {
   };
 }
 
-function Probe() {
+const Probe = () => {
   const { mode, resolvedTheme, setMode } = useTheme();
   return (
     <div>
@@ -46,7 +46,7 @@ function Probe() {
       <button onClick={() => setMode('system')}>to-system</button>
     </div>
   );
-}
+};
 
 describe('ThemeProvider', () => {
   beforeEach(() => {
@@ -180,10 +180,10 @@ describe('ThemeProvider', () => {
 
 describe('useTheme', () => {
   it('在 Provider 外调用时抛出明确错误', () => {
-    function Naked() {
+    const Naked = () => {
       useTheme();
       return null;
-    }
+    };
     // 关掉 React 错误边界日志噪音（该错误本就预期）
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => render(<Naked />)).toThrow(

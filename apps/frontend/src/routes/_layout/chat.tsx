@@ -64,19 +64,11 @@ import {
 const { Text } = Typography;
 const Switch = Sender.Switch;
 
-export const Route = createFileRoute('/_layout/chat')({
-  // /chat?id=<conversationId>：可选 id，缺省时首条消息无感创建会话
-  validateSearch: (search: Record<string, unknown>) => ({
-    id: typeof search.id === 'string' ? search.id : undefined,
-  }),
-  component: ChatPage,
-});
-
 /** 思考折叠块：思考进行中展开并闪烁；完成/历史默认收起，用户可手动切换 */
-function ThinkingBlock({
+const ThinkingBlock = ({
   children,
   thinkingActive,
-}: Readonly<ThinkProps & { thinkingActive: boolean }>) {
+}: Readonly<ThinkProps & { thinkingActive: boolean }>) => {
   // override 记录用户手动切换；未手动时展开状态跟随 thinkingActive（思考中展开、完成/历史收起）
   const [override, setOverride] = useState<boolean | null>(null);
   const expanded = override ?? thinkingActive;
@@ -91,7 +83,7 @@ function ThinkingBlock({
       {children}
     </Think>
   );
-}
+};
 
 const renderMarkdown: BubbleProps['contentRender'] = (content, info) => {
   // info.extraInfo 为完整 ChatMessage：ai 消息若带 thinking（深度思考）则用 Think 折叠展示
@@ -117,7 +109,7 @@ const renderMarkdown: BubbleProps['contentRender'] = (content, info) => {
   );
 };
 
-function ChatPage() {
+const ChatPage = () => {
   const { id } = Route.useSearch();
   const navigate = useNavigate();
   const conversations = useConversationList();
@@ -220,14 +212,14 @@ function ChatPage() {
       </Splitter>
     </PageShell>
   );
-}
+};
 
 /**
  * # 行内重命名输入
  * 回车确认；失焦（点击外部）取消并恢复原标题。
  * doneRef 防止 Enter 提交后紧接着的 onBlur 又把取消分支执行一遍。
  */
-function InlineRenameInput({
+const InlineRenameInput = ({
   defaultValue,
   onConfirm,
   onCancel,
@@ -235,7 +227,7 @@ function InlineRenameInput({
   defaultValue: string;
   onConfirm: (title: string) => void;
   onCancel: () => void;
-}>) {
+}>) => {
   const [value, setValue] = useState(defaultValue);
   const inputRef = useRef<InputRef>(null);
   const doneRef = useRef(false);
@@ -270,7 +262,7 @@ function InlineRenameInput({
       maxLength={CONVERSATION_TITLE_MAX_LENGTH}
     />
   );
-}
+};
 
 const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
   const {
@@ -518,7 +510,7 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
   );
 };
 
-function ThoughtChainPlaceholder() {
+const ThoughtChainPlaceholder = () => {
   return (
     <div className="flex h-full items-center justify-center">
       <Empty
@@ -527,4 +519,12 @@ function ThoughtChainPlaceholder() {
       />
     </div>
   );
-}
+};
+
+export const Route = createFileRoute('/_layout/chat')({
+  // /chat?id=<conversationId>：可选 id，缺省时首条消息无感创建会话
+  validateSearch: (search: Record<string, unknown>) => ({
+    id: typeof search.id === 'string' ? search.id : undefined,
+  }),
+  component: ChatPage,
+});

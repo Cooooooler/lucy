@@ -8,7 +8,7 @@
  * 刻意不依赖 antd：本组件经 router 进入入口模块图，引入组件库会按需把它拉进入口 chunk。
  * 颜色走 antd 主题变量，取不到时回退到默认主色（浅/深色下都可见）。
  */
-export function RoutePending() {
+export const RoutePending = () => {
   return (
     <div className="flex h-full min-h-40 w-full items-center justify-center">
       <div
@@ -22,4 +22,4 @@ export function RoutePending() {
       />
     </div>
   );
-}
+};
