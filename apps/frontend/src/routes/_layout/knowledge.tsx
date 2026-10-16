@@ -1,10 +1,11 @@
 import { errorMessageOf } from '@/api/client';
 import type { KnowledgeBase } from '@/api/types.ts';
-import { KnowledgeFormDrawer } from '@/components/knowledge/KnowledgeFormDrawer.tsx';
 import {
-  KnowledgeGrid,
-  type KnowledgePendingIds,
-} from '@/components/knowledge/KnowledgeGrid.tsx';
+  VirtualCardGrid,
+  type CardGridEmptyLabel,
+} from '@/components/card-list/VirtualCardGrid.tsx';
+import { KnowledgeCard } from '@/components/knowledge/KnowledgeCard.tsx';
+import { KnowledgeFormDrawer } from '@/components/knowledge/KnowledgeFormDrawer.tsx';
 import {
   KnowledgeToolbar,
   type VisibilityFilter,
@@ -12,26 +13,33 @@ import {
 import { PageShell } from '@/components/page-shell';
 import { useKnowledgeViewState } from '@/hooks/use-knowledge-view-state.ts';
 import {
-  type KnowledgeListFilter,
   useDeleteKnowledgeBase,
   useInfiniteKnowledgeBaseList,
   useLikeKnowledgeBase,
   useRefreshKnowledgeBaseList,
   useUnlikeKnowledgeBase,
   useUpdateKnowledgeBase,
+  type KnowledgeListFilter,
 } from '@/hooks/use-knowledge.ts';
+import {
+  pendingIdOf,
+  useListPageChrome,
+} from '@/hooks/use-list-page-chrome.ts';
 import { createFileRoute } from '@tanstack/react-router';
 import { App } from 'antd';
 import { useCallback, useMemo, useState } from 'react';
 
-/** 从「该 mutation 是否在跑 + 它的 variables」取出正在处理的知识库 id */
-function pendingIdOf(
-  isPending: boolean,
-  variables: string | { id: string } | undefined,
-): string | null {
-  if (!isPending || !variables) return null;
-  return typeof variables === 'string' ? variables : variables.id;
-}
+/** 正在 pending 的变更操作所对应的知识库 id（null 表示当前没有） */
+type KnowledgePendingIds = {
+  like: string | null;
+  update: string | null;
+  delete: string | null;
+};
+
+const EMPTY_LABEL: CardGridEmptyLabel = {
+  filtered: '没有匹配的知识库',
+  initial: '暂无知识库',
+};
 
 const KnowledgeComponent = () => {
   const { message, modal } = App.useApp();
@@ -42,20 +50,23 @@ const KnowledgeComponent = () => {
     saveFirstVisibleIndex,
   } = useKnowledgeViewState();
 
-  // 恢复锚点只在路由本次挂载后消费一次：恢复完成后置 0。
-  // 必须由路由持有而非网格自己记账——网格仍会因加载态/空态卸载重挂
-  // （首次加载、以及「改筛选后新条件无结果」等分支），网格内的「已恢复」标记会随实例归零，
-  // 于是旧锚点被再次回放，把事件处理器里的 scrollTo({ top: 0 }) 覆盖掉。
-  const [restoreIndex, setRestoreIndex] = useState(initialRestoreIndex);
-  const handleRestoreDone = useCallback(() => setRestoreIndex(0), []);
+  // 恢复锚点、滚动容器、以及「回顶 + 作废锚点 + 写回 store」三件套都由公共件持有
+  const {
+    restoreIndex,
+    consumeRestore,
+    scrollElement,
+    setScrollElement,
+    resetToTop,
+    onFilterChange,
+  } = useListPageChrome<KnowledgeListFilter>({
+    initialRestoreIndex,
+    saveFilter,
+  });
 
   // 初值来自会话 store：SPA 返回时自动还原上次筛选
   const [committedName, setCommittedName] = useState(initialFilter.name ?? '');
   const [visibility, setVisibility] = useState<VisibilityFilter>(
     initialFilter.visibility ?? 'all',
-  );
-  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
-    null,
   );
   /** 单例表单抽屉的目标：create / edit(kb) / 关闭(null) */
   const [formTarget, setFormTarget] = useState<
@@ -100,18 +111,29 @@ const KnowledgeComponent = () => {
     variables: deleteVariables,
   } = useDeleteKnowledgeBase();
 
-  const pendingIds: KnowledgePendingIds = {
-    // 点赞与取消点赞是一对：谁在跑就是谁的 id
-    like:
-      pendingIdOf(isLiking, likeVariables) ??
-      pendingIdOf(isUnliking, unlikeVariables),
-    update: pendingIdOf(isUpdating, updateVariables),
-    delete: pendingIdOf(isDeleting, deleteVariables),
-  };
+  // 三个 mutation 的 pending 态拼成「谁在 pending」：用 useMemo 兜住引用，
+  // 否则下面 renderItem 的依赖每轮都变，等于给网格传一个新 renderItem。
+  const pendingIds = useMemo<KnowledgePendingIds>(
+    () => ({
+      // 点赞与取消点赞是一对：谁在跑就是谁的 id
+      like:
+        pendingIdOf(isLiking, likeVariables) ??
+        pendingIdOf(isUnliking, unlikeVariables),
+      update: pendingIdOf(isUpdating, updateVariables),
+      delete: pendingIdOf(isDeleting, deleteVariables),
+    }),
+    [
+      deleteVariables,
+      isDeleting,
+      isLiking,
+      isUnliking,
+      isUpdating,
+      likeVariables,
+      unlikeVariables,
+      updateVariables,
+    ],
+  );
 
-  // 回调用 useCallback 包裹只是让引用在「未经 React Compiler 的路径」（vitest、
-  // 未启用 compiler 的 dev 配置）下也保持稳定；构建产物里 Compiler 已做细粒度 memo。
-  // 不是正确性前提——卡片不再依赖 memo 包裹，回调换成新引用也不会导致重放或错渲染。
   const handleEdit = useCallback(
     (kb: KnowledgeBase) => setFormTarget({ mode: 'edit', kb }),
     [],
@@ -162,42 +184,51 @@ const KnowledgeComponent = () => {
     [deleteBase, message, modal],
   );
 
-  // 改筛选后回到列表顶部：直接写进改变筛选的两个用户事件里，不再用 filterKey 派生值 + effect。
-  // 筛选只可能由这两个事件改变，用 effect 比对「上一次 key」是对同一动作的重复建模，
-  // 还多一趟 effect 与一个纯记账 ref。放进事件处理器天然满足「挂载时不归零」
-  // （挂载不触发这两个处理器），因此不会与首可见项恢复互相打架。
-  //
-  // 同时必须**作废恢复锚点**：锚点只有网格的 onRestoreDone 会消费，而网格在骨架
-  // （冷加载）与空态（新条件无结果）下根本不挂载 KnowledgeGridVirtual，恢复 effect
-  // 不跑、也就永远不会回调。此时若把旧锚点留在路由上，等新条件的数据回来、网格重新
-  // 挂载时会拿它去恢复旧位置，把这里的 scrollTo({ top: 0 }) 覆盖掉。
   const handleSearch = useCallback(
     (value: string) => {
-      setRestoreIndex(0);
       setCommittedName(value);
-      saveFilter({ name: value || undefined });
-      scrollElement?.scrollTo({ top: 0 });
+      onFilterChange({ name: value || undefined });
     },
-    [saveFilter, scrollElement],
+    [onFilterChange],
   );
 
   const handleVisibilityChange = useCallback(
     (value: VisibilityFilter) => {
-      setRestoreIndex(0);
       setVisibility(value);
-      saveFilter({ visibility: value === 'all' ? undefined : value });
-      scrollElement?.scrollTo({ top: 0 });
+      onFilterChange({ visibility: value === 'all' ? undefined : value });
     },
-    [saveFilter, scrollElement],
+    [onFilterChange],
   );
 
-  // 刷新：丢弃所有筛选的列表缓存并让当前筛选从第一页重新加载。
-  // 与改筛选同样要回顶并作废恢复锚点，否则新数据回来后会被恢复到刷新前的位置。
+  /** 刷新：丢弃所有筛选的列表缓存并让当前筛选从第一页重新加载 */
   const handleRefresh = useCallback(() => {
-    setRestoreIndex(0);
-    scrollElement?.scrollTo({ top: 0 });
+    resetToTop();
     void refreshList();
-  }, [refreshList, scrollElement]);
+  }, [refreshList, resetToTop]);
+
+  // 卡片只接收该条目自己的 pending 标记；回调用 useCallback 包裹让引用在
+  // 「未经 React Compiler 的路径」（vitest、未启用 compiler 的 dev 配置）下也保持稳定
+  const renderItem = useCallback(
+    (kb: KnowledgeBase) => (
+      <KnowledgeCard
+        kb={kb}
+        onEdit={handleEdit}
+        onToggleLike={handleToggleLike}
+        onToggleVisibility={handleToggleVisibility}
+        onDelete={handleDelete}
+        isLikePending={pendingIds.like === kb.id}
+        isUpdatePending={pendingIds.update === kb.id}
+        isDeletePending={pendingIds.delete === kb.id}
+      />
+    ),
+    [
+      handleDelete,
+      handleEdit,
+      handleToggleLike,
+      handleToggleVisibility,
+      pendingIds,
+    ],
+  );
 
   return (
     <>
@@ -211,7 +242,7 @@ const KnowledgeComponent = () => {
       />
       {/* 滚动交给 PageShell 自身：滚动条贴限宽容器右缘，而不是被内边距推离 */}
       <PageShell scrollable ref={setScrollElement}>
-        <KnowledgeGrid
+        <VirtualCardGrid
           scrollElement={scrollElement}
           items={items}
           isLoading={query.isLoading}
@@ -224,13 +255,10 @@ const KnowledgeComponent = () => {
           fetchNextPage={query.fetchNextPage}
           refetch={query.refetch}
           hasFilter={Boolean(filter.name || filter.visibility)}
-          onEdit={handleEdit}
-          onToggleLike={handleToggleLike}
-          onToggleVisibility={handleToggleVisibility}
-          onDelete={handleDelete}
-          pendingIds={pendingIds}
+          emptyLabel={EMPTY_LABEL}
+          renderItem={renderItem}
           initialRestoreIndex={restoreIndex}
-          onRestoreDone={handleRestoreDone}
+          onRestoreDone={consumeRestore}
           onFirstVisibleItemChange={saveFirstVisibleIndex}
         />
         <KnowledgeFormDrawer

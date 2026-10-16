@@ -1,12 +1,12 @@
 import type { KnowledgeBase } from '@/api/types.ts';
-import { KnowledgeGrid } from '@/components/knowledge/KnowledgeGrid.tsx';
+import { VirtualCardGrid } from '@/components/card-list/VirtualCardGrid.tsx';
 import { makeKb } from '@/components/knowledge/knowledge-test-fixture.ts';
 import { useInfiniteKnowledgeBaseList } from '@/hooks/use-knowledge';
 import { useKnowledgeViewState } from '@/hooks/use-knowledge-view-state';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
-import type { FC } from 'react';
+import type { FC, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Route as KnowledgeRoute } from './knowledge';
 
@@ -58,16 +58,37 @@ vi.mock('@/hooks/use-knowledge', () => ({
   useDeleteKnowledgeBase: vi.fn(() => mutationMocks.delete),
 }));
 
-vi.mock('@/components/knowledge/KnowledgeGrid.tsx', () => ({
-  KnowledgeGrid: vi.fn(() => null),
-}));
+/**
+ * 通用网格的桩：把每条数据都经路由的 `renderItem` 真实渲染出来（不虚拟化）。
+ * 这样既保留了「路由往下传了什么」的断言（`mockedGrid.mock.calls`），
+ * 又能通过真实卡片上的按钮驱动路由的事件处理器。
+ */
+type GridStubProps = {
+  items: KnowledgeBase[];
+  renderItem: (item: KnowledgeBase) => ReactNode;
+};
+
+vi.mock('@/components/card-list/VirtualCardGrid.tsx', async () => {
+  const { createElement, Fragment } = await import('react');
+  return {
+    VirtualCardGrid: vi.fn((props: GridStubProps) =>
+      createElement(
+        Fragment,
+        null,
+        props.items.map((item) =>
+          createElement(Fragment, { key: item.id }, props.renderItem(item)),
+        ),
+      ),
+    ),
+  };
+});
 
 vi.mock('@/hooks/use-knowledge-view-state', () => ({
   useKnowledgeViewState: vi.fn(),
 }));
 
 const mockedList = vi.mocked(useInfiniteKnowledgeBaseList);
-const mockedGrid = vi.mocked(KnowledgeGrid);
+const mockedGrid = vi.mocked(VirtualCardGrid);
 const mockedViewState = vi.mocked(useKnowledgeViewState);
 
 function noopQuery() {
@@ -82,6 +103,14 @@ function noopQuery() {
     fetchNextPage: vi.fn(),
     refetch: vi.fn(),
   } as unknown as ReturnType<typeof useInfiniteKnowledgeBaseList>;
+}
+
+/** 让列表返回指定条目（页面据渲染成真实卡片） */
+function mockItems(items: KnowledgeBase[]) {
+  mockedList.mockReturnValue({
+    ...noopQuery(),
+    data: { pages: [{ list: items, nextCursor: null }], pageParams: [null] },
+  } as unknown as ReturnType<typeof useInfiniteKnowledgeBaseList>);
 }
 
 /** 控制 store 的冻结值，返回写回 spy 以便断言 */
@@ -109,14 +138,12 @@ function renderRoute() {
   );
 }
 
-/** 最近一次传给 KnowledgeGrid 的 props（React 可能以 (props, context) 调用） */
+/** 最近一次传给通用网格的 props（React 可能以 (props, context) 调用） */
 function lastGridProps() {
-  return mockedGrid.mock.calls.at(-1)?.[0] as Record<string, unknown>;
-}
-
-/** 取路由传下去的某个事件处理器 */
-function gridHandler(name: string) {
-  return lastGridProps()[name] as (kb: KnowledgeBase) => unknown;
+  return mockedGrid.mock.calls.at(-1)?.[0] as unknown as Record<
+    string,
+    unknown
+  >;
 }
 
 /** 点击 Input.Search 的搜索按钮（antd 会把按钮文字渲染成带空格的「搜 索」） */
@@ -133,7 +160,6 @@ describe('routes/_layout/knowledge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedList.mockReturnValue(noopQuery());
-    mockedGrid.mockReturnValue(null);
     for (const mutation of Object.values(mutationMocks)) {
       mutation.isPending = false;
       mutation.variables = undefined;
@@ -158,8 +184,8 @@ describe('routes/_layout/knowledge', () => {
     expect(lastGridProps()).toMatchObject({
       initialRestoreIndex: 7,
       onFirstVisibleItemChange: saveFirstVisibleIndex,
-      onEdit: expect.any(Function),
       hasFilter: true,
+      emptyLabel: { filtered: '没有匹配的知识库', initial: '暂无知识库' },
     });
   });
 
@@ -183,49 +209,48 @@ describe('routes/_layout/knowledge', () => {
     expect(screen.getByLabelText('描述')).toBeInTheDocument();
   });
 
-  it('网格 onEdit 打开编辑抽屉并预填该卡片', async () => {
+  it('卡片的编辑意图打开编辑抽屉并预填该卡片', async () => {
+    mockItems([makeKb('kb9', '架构文档')]);
     renderRoute();
-    const onEdit = gridHandler('onEdit');
-    const kb = makeKb('kb9', '架构文档');
 
-    act(() => onEdit(kb));
+    await userEvent.click(screen.getByRole('button', { name: '编辑知识库' }));
 
     expect(await screen.findByDisplayValue('架构文档')).toBeInTheDocument();
     expect(screen.getByDisplayValue('架构文档 的描述')).toBeInTheDocument();
   });
 
-  it('未点赞的卡片上报点赞 → 调用 like.mutate', () => {
+  it('未点赞的卡片上报点赞 → 调用 like.mutate', async () => {
+    mockItems([makeKb('kb1', '产品文档')]);
     renderRoute();
-    const kb = makeKb('kb1', '产品文档');
 
-    act(() => gridHandler('onToggleLike')(kb));
+    await userEvent.click(screen.getByRole('button', { name: '点赞' }));
 
     expect(mutationMocks.like.mutate).toHaveBeenCalledWith('kb1');
     expect(mutationMocks.unlike.mutate).not.toHaveBeenCalled();
   });
 
-  it('已点赞的卡片上报点赞 → 调用 unlike.mutate', () => {
+  it('已点赞的卡片上报点赞 → 调用 unlike.mutate', async () => {
+    mockItems([{ ...makeKb('kb1', '产品文档'), isLiked: true, likeCount: 3 }]);
     renderRoute();
-    const kb = { ...makeKb('kb1', '产品文档'), isLiked: true, likeCount: 3 };
 
-    act(() => gridHandler('onToggleLike')(kb));
+    await userEvent.click(screen.getByRole('button', { name: '取消点赞' }));
 
     expect(mutationMocks.unlike.mutate).toHaveBeenCalledWith('kb1');
     expect(mutationMocks.like.mutate).not.toHaveBeenCalled();
   });
 
   it('切换可见性：调用 update；成功提示由后端 message 经全局桥弹出（路由不再自己弹）', async () => {
+    mockItems([makeKb('kb1', '产品文档')]);
     renderRoute();
-    const kb = makeKb('kb1', '产品文档');
 
-    await act(async () => {
-      await gridHandler('onToggleVisibility')(kb);
-    });
+    await userEvent.click(screen.getByRole('button', { name: '设为公开' }));
 
-    expect(mutationMocks.update.mutateAsync).toHaveBeenCalledWith({
-      id: 'kb1',
-      input: { visibility: 'public' },
-    });
+    await waitFor(() =>
+      expect(mutationMocks.update.mutateAsync).toHaveBeenCalledWith({
+        id: 'kb1',
+        input: { visibility: 'public' },
+      }),
+    );
     // 可失败的「不再自己弹」：本地 message.success 一旦被调用即失败
     expect(messageSuccess).not.toHaveBeenCalled();
   });
@@ -238,11 +263,10 @@ describe('routes/_layout/knowledge', () => {
       status: 403,
     });
     mutationMocks.update.mutateAsync.mockRejectedValueOnce(error);
+    mockItems([makeKb('kb1', '产品文档')]);
     renderRoute();
 
-    await act(async () => {
-      await gridHandler('onToggleVisibility')(makeKb('kb1', '产品文档'));
-    });
+    await userEvent.click(screen.getByRole('button', { name: '设为公开' }));
 
     expect(await screen.findByText('仅知识库主可操作')).toBeInTheDocument();
   });
@@ -251,21 +275,19 @@ describe('routes/_layout/knowledge', () => {
     mutationMocks.update.mutateAsync.mockRejectedValueOnce(
       new Error('Failed to fetch'),
     );
+    mockItems([makeKb('kb1', '产品文档')]);
     renderRoute();
 
-    await act(async () => {
-      await gridHandler('onToggleVisibility')(makeKb('kb1', '产品文档'));
-    });
+    await userEvent.click(screen.getByRole('button', { name: '设为公开' }));
 
     expect(await screen.findByText('操作失败，请稍后重试')).toBeInTheDocument();
   });
 
   it('删除：先弹确认框，确认后才调用删除接口；成功提示由全局桥弹出（路由不再自己弹）', async () => {
+    mockItems([makeKb('kb1', '产品文档')]);
     renderRoute();
 
-    await act(async () => {
-      gridHandler('onDelete')(makeKb('kb1', '产品文档'));
-    });
+    await userEvent.click(screen.getByRole('button', { name: '删除知识库' }));
 
     expect(
       screen.getByText('确定要删除知识库「产品文档」吗？此操作不可恢复。'),
@@ -282,41 +304,49 @@ describe('routes/_layout/knowledge', () => {
   });
 
   it('删除确认框取消时不调用接口', async () => {
+    mockItems([makeKb('kb1', '产品文档')]);
     renderRoute();
 
-    await act(async () => {
-      gridHandler('onDelete')(makeKb('kb1', '产品文档'));
-    });
+    await userEvent.click(screen.getByRole('button', { name: '删除知识库' }));
     await userEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
 
     expect(mutationMocks.delete.mutateAsync).not.toHaveBeenCalled();
   });
 
-  it('把 mutation 的 pending 态整理成 pendingIds 传给网格', () => {
+  it('把 mutation 的 pending 态落到对应卡片的禁用态（点赞与取消点赞是一对）', () => {
     mutationMocks.like.isPending = true;
     mutationMocks.like.variables = 'kb7';
     mutationMocks.delete.isPending = true;
-    mutationMocks.delete.variables = 'kb8';
+    mutationMocks.delete.variables = 'kb7';
+    mockItems([makeKb('kb7', '产品文档')]);
 
     renderRoute();
 
-    expect(lastGridProps().pendingIds).toEqual({
-      like: 'kb7',
-      update: null,
-      delete: 'kb8',
-    });
+    expect(screen.getByRole('button', { name: '点赞' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '删除知识库' })).toBeDisabled();
+    // 未 pending 的操作不受影响；编辑不涉及写操作，保持可用
+    expect(screen.getByRole('button', { name: '设为公开' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '编辑知识库' })).toBeEnabled();
   });
 
   it('update 的 pending 态取 variables.id（该 mutation 的入参是对象）', () => {
     mutationMocks.update.isPending = true;
-    mutationMocks.update.variables = {
-      id: 'kb9',
-      input: { name: 'x' },
-    };
+    mutationMocks.update.variables = { id: 'kb9', input: { name: 'x' } };
+    mockItems([makeKb('kb9', '产品文档')]);
 
     renderRoute();
 
-    expect(lastGridProps().pendingIds).toMatchObject({ update: 'kb9' });
+    expect(screen.getByRole('button', { name: '设为公开' })).toBeDisabled();
+  });
+
+  it('pending 指向别的知识库时当前卡片保持可用', () => {
+    mutationMocks.like.isPending = true;
+    mutationMocks.like.variables = 'kb7';
+    mockItems([makeKb('kb1', '产品文档')]);
+
+    renderRoute();
+
+    expect(screen.getByRole('button', { name: '点赞' })).toBeEnabled();
   });
 
   it('改变筛选时把新筛选写回 store', async () => {
@@ -413,15 +443,15 @@ describe('routes/_layout/knowledge', () => {
     expect(lastGridProps().initialRestoreIndex).toBe(0);
   });
 
-  it('onEdit 引用稳定（useCallback）：重渲染后仍是同一引用', async () => {
+  it('renderItem 在筛选条件变化（重渲染）后仍能用最新回调打开抽屉', async () => {
+    mockItems([makeKb('kb1', '产品文档')]);
     mockViewState();
     renderRoute();
-    const before = lastGridProps().onEdit;
 
-    // 触发一次重渲染（切换可见性筛选）
+    // 触发一次重渲染（切换可见性筛选），确认 renderItem 换新引用后卡片依然可用
     await userEvent.click(screen.getByText('公开'));
+    await userEvent.click(screen.getByRole('button', { name: '编辑知识库' }));
 
-    expect(lastGridProps().onEdit).toBe(before);
-    expect(before).toEqual(expect.any(Function));
+    expect(await screen.findByDisplayValue('产品文档')).toBeInTheDocument();
   });
 });

@@ -96,6 +96,49 @@ describe('use-model-provider', () => {
     });
   });
 
+  it('换筛选后切回已缓存的筛选命中缓存，不重放历史分页', async () => {
+    // 回归守卫：staleTime 若退回 0，换筛选会经 QueryObserver.setOptions 判定新 query 过期
+    // 而 refetch，useInfiniteQuery 的 refetch 会把已加载的分页从头重放（下面第 4 次请求）。
+    api.listModelProvidersApi.mockImplementation(
+      (query: { type?: string; cursor?: string } = {}) => {
+        if (query.type === 'llm') {
+          return Promise.resolve(cursorPage([makeModel({ id: 'llm1' })], null));
+        }
+        return Promise.resolve(
+          query.cursor
+            ? cursorPage([makeModel({ id: 'all2' })], null)
+            : cursorPage([makeModel({ id: 'all1' })], 'c1'),
+        );
+      },
+    );
+    const client = createTestQueryClient();
+    const { result, rerender } = renderHook(
+      (props: { type?: ModelProvider['type'] }) =>
+        useInfiniteModelProviderList(props),
+      { wrapper: createWrapperWithClient(client), initialProps: {} },
+    );
+
+    // 全部：先加载两页
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.hasNextPage).toBe(true));
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
+    expect(api.listModelProvidersApi).toHaveBeenCalledTimes(2);
+
+    // 切到 LLM：新条件无缓存，正常请求一次
+    rerender({ type: 'llm' });
+    await waitFor(() => expect(result.current.isPlaceholderData).toBe(false));
+    expect(api.listModelProvidersApi).toHaveBeenCalledTimes(3);
+
+    // 切回全部：命中已有缓存，不得把两页历史分页重放一遍
+    rerender({});
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(api.listModelProvidersApi).toHaveBeenCalledTimes(3);
+  });
+
   it('create 成功后把新模型插入匹配过滤条件的列表首页', async () => {
     const created = makeModel({ id: 'm-new', name: 'new-model' });
     api.createModelProviderApi.mockResolvedValue(created);

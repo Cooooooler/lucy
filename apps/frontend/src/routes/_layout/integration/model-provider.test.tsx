@@ -1,12 +1,12 @@
 import type { ModelProvider } from '@/api/types.ts';
-import { ModelProviderGrid } from '@/components/model-provider/ModelProviderGrid.tsx';
+import { VirtualCardGrid } from '@/components/card-list/VirtualCardGrid.tsx';
 import { makeModel } from '@/components/model-provider/model-provider-test-fixture.ts';
 import { useInfiniteModelProviderList } from '@/hooks/use-model-provider';
 import { useModelProviderViewState } from '@/hooks/use-model-provider-view-state';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
-import type { FC } from 'react';
+import type { FC, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Route as ModelProviderRoute } from './model-provider';
 
@@ -52,16 +52,37 @@ vi.mock('@/hooks/use-model-provider', () => ({
   useTestModelProviderConnection: vi.fn(() => mutationMocks.test),
 }));
 
-vi.mock('@/components/model-provider/ModelProviderGrid.tsx', () => ({
-  ModelProviderGrid: vi.fn(() => null),
-}));
+/**
+ * 通用网格的桩：把每条数据都经路由的 `renderItem` 真实渲染出来（不虚拟化）。
+ * 这样既保留了「路由往下传了什么」的断言（`mockedGrid.mock.calls`），
+ * 又能通过真实卡片上的按钮驱动路由的事件处理器。
+ */
+type GridStubProps = {
+  items: ModelProvider[];
+  renderItem: (item: ModelProvider) => ReactNode;
+};
+
+vi.mock('@/components/card-list/VirtualCardGrid.tsx', async () => {
+  const { createElement, Fragment } = await import('react');
+  return {
+    VirtualCardGrid: vi.fn((props: GridStubProps) =>
+      createElement(
+        Fragment,
+        null,
+        props.items.map((item) =>
+          createElement(Fragment, { key: item.id }, props.renderItem(item)),
+        ),
+      ),
+    ),
+  };
+});
 
 vi.mock('@/hooks/use-model-provider-view-state', () => ({
   useModelProviderViewState: vi.fn(),
 }));
 
 const mockedList = vi.mocked(useInfiniteModelProviderList);
-const mockedGrid = vi.mocked(ModelProviderGrid);
+const mockedGrid = vi.mocked(VirtualCardGrid);
 const mockedViewState = vi.mocked(useModelProviderViewState);
 
 function noopQuery() {
@@ -77,6 +98,14 @@ function noopQuery() {
     fetchNextPage: vi.fn(),
     refetch: vi.fn(),
   } as unknown as ReturnType<typeof useInfiniteModelProviderList>;
+}
+
+/** 让列表返回指定条目（页面据渲染成真实卡片） */
+function mockItems(items: ModelProvider[]) {
+  mockedList.mockReturnValue({
+    ...noopQuery(),
+    data: { pages: [{ list: items, nextCursor: null }], pageParams: [null] },
+  } as unknown as ReturnType<typeof useInfiniteModelProviderList>);
 }
 
 function mockViewState(
@@ -110,15 +139,10 @@ function lastGridProps() {
   >;
 }
 
-function gridHandler(name: string) {
-  return lastGridProps()[name] as (model: ModelProvider) => unknown;
-}
-
 describe('routes/_layout/integration/model-provider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedList.mockReturnValue(noopQuery());
-    mockedGrid.mockReturnValue(null);
     for (const mutation of Object.values(mutationMocks)) {
       mutation.isPending = false;
       mutation.variables = undefined;
@@ -141,6 +165,7 @@ describe('routes/_layout/integration/model-provider', () => {
       initialRestoreIndex: 7,
       onFirstVisibleItemChange: saveFirstVisibleIndex,
       hasFilter: true,
+      emptyLabel: { filtered: '没有匹配的模型', initial: '暂无模型' },
     });
   });
 
@@ -151,17 +176,17 @@ describe('routes/_layout/integration/model-provider', () => {
     expect(screen.getByLabelText('API Key')).toBeInTheDocument();
   });
 
-  it('网格 onEdit 打开编辑抽屉并预填', async () => {
+  it('卡片的编辑意图打开编辑抽屉并预填', async () => {
+    mockItems([makeModel('m9', '架构模型')]);
     renderRoute();
-    act(() => gridHandler('onEdit')(makeModel('m9', '架构模型')));
+    await userEvent.click(screen.getByRole('button', { name: '编辑模型' }));
     expect(await screen.findByDisplayValue('架构模型')).toBeInTheDocument();
   });
 
   it('删除：确认后调用接口；成功提示由全局桥弹出', async () => {
+    mockItems([makeModel('m1', '模型甲')]);
     renderRoute();
-    await act(async () => {
-      gridHandler('onDelete')(makeModel('m1', '模型甲'));
-    });
+    await userEvent.click(screen.getByRole('button', { name: '删除模型' }));
     expect(
       screen.getByText('确定要删除模型「模型甲」吗？此操作不可恢复。'),
     ).toBeInTheDocument();
@@ -181,11 +206,14 @@ describe('routes/_layout/integration/model-provider', () => {
       latencyMs: 12,
       detail: null,
     });
+    mockItems([makeModel('m1', '模型甲')]);
     renderRoute();
-    await act(async () => {
-      await gridHandler('onTest')(makeModel('m1', '模型甲'));
-    });
-    expect(mutationMocks.test.mutateAsync).toHaveBeenCalledWith('m1');
+
+    await userEvent.click(screen.getByRole('button', { name: '测试连接' }));
+
+    await waitFor(() =>
+      expect(mutationMocks.test.mutateAsync).toHaveBeenCalledWith('m1'),
+    );
     expect(messageSuccess).toHaveBeenCalledWith('连接成功（12ms）');
   });
 
@@ -196,22 +224,28 @@ describe('routes/_layout/integration/model-provider', () => {
       latencyMs: null,
       detail: null,
     });
+    mockItems([makeModel('m1', '模型甲')]);
     renderRoute();
-    await act(async () => {
-      await gridHandler('onTest')(makeModel('m1', '模型甲'));
-    });
-    expect(messageError).toHaveBeenCalledWith('API Key 无效或无权限');
+
+    await userEvent.click(screen.getByRole('button', { name: '测试连接' }));
+
+    await waitFor(() =>
+      expect(messageError).toHaveBeenCalledWith('API Key 无效或无权限'),
+    );
   });
 
   it('测试连接异常：走兜底文案', async () => {
     mutationMocks.test.mutateAsync.mockRejectedValueOnce(
       new Error('Failed to fetch'),
     );
+    mockItems([makeModel('m1', '模型甲')]);
     renderRoute();
-    await act(async () => {
-      await gridHandler('onTest')(makeModel('m1', '模型甲'));
-    });
-    expect(messageError).toHaveBeenCalledWith('测试失败，请稍后重试');
+
+    await userEvent.click(screen.getByRole('button', { name: '测试连接' }));
+
+    await waitFor(() =>
+      expect(messageError).toHaveBeenCalledWith('测试失败，请稍后重试'),
+    );
   });
 
   it('改变筛选写回 store 并作废恢复锚点', async () => {
@@ -227,20 +261,29 @@ describe('routes/_layout/integration/model-provider', () => {
     expect(saveFilter).toHaveBeenCalledWith({ name: 'gpt' });
   });
 
-  it('把 mutation 的 pending 态整理成 pendingIds 传给网格', () => {
+  it('把 mutation 的 pending 态落到对应卡片的禁用态', () => {
     mutationMocks.update.isPending = true;
     mutationMocks.update.variables = { id: 'm5', input: { name: 'x' } };
     mutationMocks.delete.isPending = true;
-    mutationMocks.delete.variables = 'm6';
+    mutationMocks.delete.variables = 'm5';
     mutationMocks.test.isPending = true;
-    mutationMocks.test.variables = 'm7';
+    mutationMocks.test.variables = 'm5';
+    mockItems([makeModel('m5', '模型甲')]);
 
     renderRoute();
 
-    expect(lastGridProps().pendingIds).toEqual({
-      update: 'm5',
-      delete: 'm6',
-      test: 'm7',
-    });
+    expect(screen.getByRole('button', { name: '测试连接' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '编辑模型' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '删除模型' })).toBeDisabled();
+  });
+
+  it('pending 指向别的模型时当前卡片保持可用', () => {
+    mutationMocks.test.isPending = true;
+    mutationMocks.test.variables = 'm9';
+    mockItems([makeModel('m1', '模型甲')]);
+
+    renderRoute();
+
+    expect(screen.getByRole('button', { name: '测试连接' })).toBeEnabled();
   });
 });

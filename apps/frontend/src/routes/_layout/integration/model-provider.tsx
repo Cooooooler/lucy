@@ -1,35 +1,40 @@
 import { errorMessageOf } from '@/api/client';
 import type { ModelProvider } from '@/api/types.ts';
-import { ModelProviderFormDrawer } from '@/components/model-provider/ModelProviderFormDrawer.tsx';
 import {
-  ModelProviderGrid,
-  type ModelProviderPendingIds,
-} from '@/components/model-provider/ModelProviderGrid.tsx';
+  VirtualCardGrid,
+  type CardGridEmptyLabel,
+} from '@/components/card-list/VirtualCardGrid.tsx';
+import { ModelProviderCard } from '@/components/model-provider/ModelProviderCard.tsx';
+import { ModelProviderFormDrawer } from '@/components/model-provider/ModelProviderFormDrawer.tsx';
 import {
   ModelProviderToolbar,
   type ModelTypeFilter,
 } from '@/components/model-provider/ModelProviderToolbar.tsx';
 import { PageShell } from '@/components/page-shell';
+import { pendingIdOf, useListPageChrome } from '@/hooks/use-list-page-chrome';
 import {
-  type ModelProviderListFilter,
   useDeleteModelProvider,
   useInfiniteModelProviderList,
   useTestModelProviderConnection,
   useUpdateModelProvider,
+  type ModelProviderListFilter,
 } from '@/hooks/use-model-provider';
 import { useModelProviderViewState } from '@/hooks/use-model-provider-view-state';
 import { createFileRoute } from '@tanstack/react-router';
 import { App } from 'antd';
 import { useCallback, useMemo, useState } from 'react';
 
-/** 从「该 mutation 是否在跑 + 它的 variables」取出正在处理的模型 id */
-function pendingIdOf(
-  isPending: boolean,
-  variables: string | { id: string } | undefined,
-): string | null {
-  if (!isPending || !variables) return null;
-  return typeof variables === 'string' ? variables : variables.id;
-}
+/** 正在 pending 的变更操作所对应的模型 id（null 表示当前没有） */
+type ModelProviderPendingIds = {
+  update: string | null;
+  delete: string | null;
+  test: string | null;
+};
+
+const EMPTY_LABEL: CardGridEmptyLabel = {
+  filtered: '没有匹配的模型',
+  initial: '暂无模型',
+};
 
 const ModelProviderComponent = () => {
   const { message, modal } = App.useApp();
@@ -40,16 +45,21 @@ const ModelProviderComponent = () => {
     saveFirstVisibleIndex,
   } = useModelProviderViewState();
 
-  // 恢复锚点只在路由本次挂载后消费一次：恢复完成后置 0（与知识库同一套逻辑）
-  const [restoreIndex, setRestoreIndex] = useState(initialRestoreIndex);
-  const handleRestoreDone = useCallback(() => setRestoreIndex(0), []);
+  // 恢复锚点、滚动容器、以及「回顶 + 作废锚点 + 写回 store」三件套都由公共件持有（与知识库同一套）
+  const {
+    restoreIndex,
+    consumeRestore,
+    scrollElement,
+    setScrollElement,
+    onFilterChange,
+  } = useListPageChrome<ModelProviderListFilter>({
+    initialRestoreIndex,
+    saveFilter,
+  });
 
   const [committedName, setCommittedName] = useState(initialFilter.name ?? '');
   const [type, setType] = useState<ModelTypeFilter>(
     initialFilter.type ?? 'all',
-  );
-  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
-    null,
   );
   /** 单例表单抽屉的目标：create / edit(model) / 关闭(null) */
   const [formTarget, setFormTarget] = useState<
@@ -85,11 +95,23 @@ const ModelProviderComponent = () => {
     variables: testVariables,
   } = useTestModelProviderConnection();
 
-  const pendingIds: ModelProviderPendingIds = {
-    update: pendingIdOf(isUpdating, updateVariables),
-    delete: pendingIdOf(isDeleting, deleteVariables),
-    test: pendingIdOf(isTesting, testVariables),
-  };
+  // 三个 mutation 的 pending 态拼成「谁在 pending」：用 useMemo 兜住引用，
+  // 否则下面 renderItem 的依赖每轮都变，等于给网格传一个新 renderItem。
+  const pendingIds = useMemo<ModelProviderPendingIds>(
+    () => ({
+      update: pendingIdOf(isUpdating, updateVariables),
+      delete: pendingIdOf(isDeleting, deleteVariables),
+      test: pendingIdOf(isTesting, testVariables),
+    }),
+    [
+      deleteVariables,
+      isDeleting,
+      isTesting,
+      isUpdating,
+      testVariables,
+      updateVariables,
+    ],
+  );
 
   const handleEdit = useCallback(
     (model: ModelProvider) => setFormTarget({ mode: 'edit', model }),
@@ -137,25 +159,37 @@ const ModelProviderComponent = () => {
     [deleteModel, message, modal],
   );
 
-  // 改筛选后回到列表顶部，并作废恢复锚点（与知识库一致；锚点只有网格的 onRestoreDone 会消费）
   const handleSearch = useCallback(
     (value: string) => {
-      setRestoreIndex(0);
       setCommittedName(value);
-      saveFilter({ name: value || undefined });
-      scrollElement?.scrollTo({ top: 0 });
+      onFilterChange({ name: value || undefined });
     },
-    [saveFilter, scrollElement],
+    [onFilterChange],
   );
 
   const handleTypeChange = useCallback(
     (value: ModelTypeFilter) => {
-      setRestoreIndex(0);
       setType(value);
-      saveFilter({ type: value === 'all' ? undefined : value });
-      scrollElement?.scrollTo({ top: 0 });
+      onFilterChange({ type: value === 'all' ? undefined : value });
     },
-    [saveFilter, scrollElement],
+    [onFilterChange],
+  );
+
+  // 卡片只接收该条目自己的 pending 标记；回调用 useCallback 包裹让引用在
+  // 「未经 React Compiler 的路径」（vitest、未启用 compiler 的 dev 配置）下也保持稳定
+  const renderItem = useCallback(
+    (model: ModelProvider) => (
+      <ModelProviderCard
+        model={model}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        onTest={handleTest}
+        isUpdatePending={pendingIds.update === model.id}
+        isDeletePending={pendingIds.delete === model.id}
+        isTestPending={pendingIds.test === model.id}
+      />
+    ),
+    [handleDelete, handleEdit, handleTest, pendingIds],
   );
 
   return (
@@ -169,7 +203,7 @@ const ModelProviderComponent = () => {
       />
       {/* 滚动交给 PageShell 自身：滚动条贴限宽容器右缘 */}
       <PageShell scrollable ref={setScrollElement}>
-        <ModelProviderGrid
+        <VirtualCardGrid
           scrollElement={scrollElement}
           items={items}
           isLoading={query.isLoading}
@@ -182,12 +216,10 @@ const ModelProviderComponent = () => {
           fetchNextPage={query.fetchNextPage}
           refetch={query.refetch}
           hasFilter={Boolean(filter.name || filter.type)}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-          onTest={handleTest}
-          pendingIds={pendingIds}
+          emptyLabel={EMPTY_LABEL}
+          renderItem={renderItem}
           initialRestoreIndex={restoreIndex}
-          onRestoreDone={handleRestoreDone}
+          onRestoreDone={consumeRestore}
           onFirstVisibleItemChange={saveFirstVisibleIndex}
         />
         <ModelProviderFormDrawer
