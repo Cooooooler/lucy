@@ -27,9 +27,14 @@ permissions:
 jobs:
   pr_agent:
     name: Run PR Agent
-    # 三重过滤：必须是 PR（非普通 issue）、非 bot 触发、评论以 `/` 开头
+    # 四重过滤：必须是 PR（非普通 issue）、非 bot 触发、评论以 `/` 开头、且不是兄弟工作流的命令。
+    # 最后一条是必需的：issue_comment 会被 pr-agent.yml 与 pr-skill-review.yml 同时收到，
+    # `/skill-review` 落进本工作流后被 PR-Agent 判为未知命令并整跑失败
+    # （日志：WARNING pr_agent.agent.pr_agent:_run_command:386 - Unknown command: skill-review），
+    # 于是每次要一轮技能评审都会在 Actions 里多一个红叉。这里做精确排除而非改成白名单，
+    # 是为了不误伤 PR-Agent 自己的其余命令（/help、/add_docs 等）。
     if: >-
-      github.event.issue.pull_request && github.event.sender.type != 'Bot' && startsWith(github.event.comment.body, '/')
+      github.event.issue.pull_request && github.event.sender.type != 'Bot' && startsWith(github.event.comment.body, '/') && !startsWith(github.event.comment.body, '/skill-review')
     runs-on: tenki-standard-small-2c-4g
     timeout-minutes: 15
     steps:
