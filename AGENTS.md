@@ -36,6 +36,7 @@ pnpm --filter @lucy/backend test:cov                          # 覆盖率（CI �
 pnpm --filter @lucy/backend test:e2e                          # 后端 e2e（test/ 目录）
 pnpm --filter @lucy/frontend test                             # 前端全部单测
 pnpm --filter @lucy/frontend test src/stores/auth.test.ts     # 单个测试文件
+pnpm --filter @lucy/frontend test:e2e                         # 前端 e2e 冒烟（Playwright；首次需先装浏览器）
 pnpm --filter @lucy/shared build                              # 构建 shared（消费方 build / 运行前先构建；typecheck 读 src 免构建）
 pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 ```
@@ -80,6 +81,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 - **先 `pnpm --filter @lucy/shared build`**：消费方「运行/构建」走 `exports.import` → `dist`，忘了构建会读到过期 `dist`，出现「常量是 undefined」这类假失败（typecheck 读 `src` 不受影响，所以更容易误判）
 - `pnpm lint` / `pnpm typecheck` / `pnpm test`
 - 改了 `apps/backend/test/**` 或后端启动装配 → **`pnpm --filter @lucy/backend test:e2e`**（真 Postgres + Redis；**Build 工作流不跑 e2e**，本地不跑等于没验）
+- 改了 `apps/frontend/**` 的页面、路由或组件 → **`pnpm --filter @lucy/frontend test:e2e`**（Playwright 冒烟，首次需 `playwright install chromium`；API 全部在网络层被拦截，不需要后端）
 - 改了 DTO/实体 → `pnpm typegen`，生成物一并提交（勿手改，见上文「不要改动生成文件」）
 - pre-commit 会跑 `typegen + lint-staged + typecheck + 全仓 test`，慢是正常的；**不要 `--no-verify`**
 - commit 信息用 Conventional Commits；**合并 master 的提交也要合规**（`merge master: …` 会被 commitlint 拒，改写 `chore: 并入 master，…`）；结尾带 `Co-authored-by: CommandCodeBot <noreply@commandcode.ai>`
@@ -176,6 +178,7 @@ Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite bui
 - **别名**（tsconfig paths + vite-tsconfig-paths）：`@`→`src/`、`@api`→`src/api/`、`@bg`→`src/backgrounds/index.ts`、`@components`→`src/components/index.ts`。
 - **目录**：`src/api`（ky HTTP 客户端）、`src/auth`（AuthProvider）、`src/backgrounds`（视觉特效）、`src/components`、`src/routes`、`src/stores`、`src/test`（fixtures + setup）。
 - **测试**：Vitest + jsdom + Testing Library，覆盖率门槛 80%（`vitest.config.ts` 排除视觉特效、路由、生成代码等非业务模块）。
+- **e2e 冒烟**（`e2e/smoke.spec.ts` + `playwright.config.ts`，CI 里是独立 job `frontend-e2e`）：逐个打开全部路由，断言文档标题 / 页面锚点 / 落地路径，并要求**控制台无 error、无未捕获异常**。全程在浏览器网络层拦掉 `/api/**`（连同 `/v1/**` 一起拦，以免隐式依赖上面那处 NODE_ENV 修正），不依赖后端进程。存在的理由：React Compiler 会把 `useCallback(fn, [])` 这类「不依赖响应式值」的回调提升到模块作用域，一旦它捕获了不该捕获的局部变量就只在运行时炸（`ReferenceError` + 整页白屏），而 tsc / lint / vitest 全都发现不了（vitest 走 SWC 不跑 Compiler）。本地首次跑需 `pnpm --filter @lucy/frontend exec playwright install chromium`；webServer 显式绑 `127.0.0.1`——vite 默认绑 IPv6，用 `localhost` 探测会看不到已在跑的 dev server，转而自己再启一个并撞端口。
 
 ### packages/shared（@lucy/shared）
 

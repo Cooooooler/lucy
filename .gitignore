@@ -56,6 +56,10 @@ dist-ssr
 *.sln
 *.sw?
 .tanstack
+# Playwright（前端 e2e）
+/test-results/
+/apps/frontend/test-results/
+/apps/frontend/playwright-report/
 apps/backend/openapi.json
 components.json
 .claude
