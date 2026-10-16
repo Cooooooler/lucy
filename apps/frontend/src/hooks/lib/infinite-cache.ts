@@ -200,6 +200,17 @@ export type UseCursorListOptions<T> = {
 };
 
 /**
+ * 「换筛选时沿用上一组数据」的占位函数。
+ *
+ * 提到模块级的原因：若内联写成 `(prev) => prev`，每轮渲染都会产生新引用并进入
+ * `useInfiniteQuery` 的 options，于是每次渲染都要重算一次 options——本文件与同目录的 hook
+ * 都在强调引用稳定的重要性（见 `useResetListCache` 为何收 key 工厂那段），这里同理。
+ */
+const keepPreviousPage = <T>(
+  prev: InfiniteData<CursorPageResult<T>> | undefined,
+) => prev;
+
+/**
  * 游标分页无限列表：所有列表页共用同一套 options。
  * 保留默认 gcTime(5min)：离开 ≤5min 返回命中缓存，>5min 缓存回收后从首页重来；
  * 用 `refetchOnMount`/`refetchOnReconnect` 阻止重挂载与断网重连时重放历史分页。
@@ -214,9 +225,7 @@ export function useCursorList<T>({
   InfiniteData<CursorPageResult<T>>,
   Error
 > {
-  const placeholderData = keepPreviousData
-    ? (prev: InfiniteData<CursorPageResult<T>> | undefined) => prev
-    : undefined;
+  const placeholderData = keepPreviousData ? keepPreviousPage : undefined;
   return useInfiniteQuery({
     queryKey,
     queryFn: ({ pageParam }) =>
