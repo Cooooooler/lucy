@@ -104,6 +104,34 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  frontend-e2e:
+    name: Frontend e2e smoke
+    runs-on: tenki-standard-small-2c-4g
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build shared package
+        run: pnpm --filter @lucy/shared build
+      # 只装 chromium：整套冒烟用例在浏览器网络层拦掉全部 /api 请求，不需要后端
+      - name: Install Playwright browser
+        run: pnpm --filter @lucy/frontend exec playwright install --with-deps chromium
+      - name: Frontend e2e smoke
+        run: pnpm --filter @lucy/frontend test:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-playwright-report
+          path: apps/frontend/playwright-report
+          retention-days: 1
+
   redis-tests:
     name: Redis package tests with coverage
     runs-on: tenki-standard-small-2c-4g
