@@ -1,26 +1,32 @@
 import { errorMessageOf } from '@/api/client';
-import type { KnowledgeBase } from '@/api/types';
 import {
   CARD_ESTIMATED_HEIGHT,
   columnWidthOperand,
   GRID_TOP_GAP,
 } from '@/components/grid-layout';
-import { KnowledgeCard } from '@/components/knowledge/KnowledgeCard.tsx';
 import { useGridBreakpoints, useVirtualGrid } from '@/hooks/use-virtual-grid';
 import { Button, Empty, Result, Spin } from 'antd';
-import type { FC } from 'react';
+import type { FC, ReactNode } from 'react';
 
-/** 正在 pending 的变更操作所对应的知识库 id（由路由持有的 mutation 提供，null 表示当前没有） */
-export type KnowledgePendingIds = {
-  like: string | null;
-  update: string | null;
-  delete: string | null;
+/** 空态文案：筛选无结果与尚无数据是两件事，措辞不同 */
+export type CardGridEmptyLabel = {
+  /** 有筛选条件但没命中 */
+  filtered: string;
+  /** 一条数据都还没有 */
+  initial: string;
 };
 
-type KnowledgeGridProps = {
+/**
+ * 卡片列表网格：把「查询状态 → 骨架 / 错误 / 空 / 虚拟列表」这段分发逻辑收敛成一处。
+ *
+ * 卡片本身由调用方通过 `renderItem` 提供——网格只负责状态分发、虚拟化、列宽/定位与页脚，
+ * 不含任何领域知识。知识库与模型供应商两个页面此前各自复制了一份（262/232 行里 188 行逐字相同），
+ * 复制期间已经漂移（空态文案各改各的、错误态的 ApiError 说明只留在一边）。
+ */
+export type VirtualCardGridProps<T extends { id: string }> = {
   /** 滚动容器，交给虚拟化作为 scrollElement */
   scrollElement: HTMLElement | null;
-  items: KnowledgeBase[];
+  items: T[];
   isLoading: boolean;
   isError: boolean;
   error: unknown;
@@ -33,12 +39,9 @@ type KnowledgeGridProps = {
   fetchNextPage: () => void;
   refetch: () => void;
   hasFilter: boolean;
-  /** 卡片事件与 pending 态由路由持有（卡片保持纯展示，不各自实例化 mutation） */
-  onEdit?: (kb: KnowledgeBase) => void;
-  onToggleLike: (kb: KnowledgeBase) => void;
-  onToggleVisibility: (kb: KnowledgeBase) => void;
-  onDelete: (kb: KnowledgeBase) => void;
-  pendingIds: KnowledgePendingIds;
+  emptyLabel: CardGridEmptyLabel;
+  /** 单张卡片：只渲染卡片本身，定位/列宽/行间距由网格统一承担 */
+  renderItem: (item: T) => ReactNode;
   /** 挂载时一次性恢复到的首可见项索引（来自会话内视图状态） */
   initialRestoreIndex?: number;
   /** 本次挂载的恢复动作结束（调用方据此清掉锚点，避免重挂时回放） */
@@ -53,24 +56,18 @@ const SKELETON_KEYS = ['sk-1', 'sk-2', 'sk-3', 'sk-4', 'sk-5', 'sk-6'];
  * 加载中：6 个骨架卡片。
  *
  * 刻意**不用 antd `Card`+`Skeleton`**、也刻意**按容器宽度而非视口断点**分列，否则会出现两处
- * jank：一是本次改造的出发点正是「antd Card 单张约 4-5ms」，骨架反而比卡片还重；
+ * jank：一是改用轻量卡片的出发点正是「antd Card 单张约 4-5ms」，骨架反而比卡片还重；
  * 二是视口断点（md/lg/xl）与真实网格的 `computeGridLayout(容器宽度)` 在 1024–1536px 区间会差
  * 一列，冷加载完成瞬间整格跳列。这里复用网格同一套分档与 210px 等高约束。
  */
-const KnowledgeGridLoading: FC<{ scrollElement: HTMLElement | null }> = ({
+const CardGridLoading: FC<{ scrollElement: HTMLElement | null }> = ({
   scrollElement,
 }) => {
   const { columns, gap } = useGridBreakpoints(scrollElement);
   // 满宽即可：卡片 `100%` 解析到滚动容器的内容盒，PageShell 的内边距已被排除在外
   const width = `calc(${columnWidthOperand(columns, gap)})`;
   return (
-    <div
-      className="flex flex-wrap"
-      style={{
-        paddingTop: GRID_TOP_GAP,
-        gap,
-      }}
-    >
+    <div className="flex flex-wrap" style={{ paddingTop: GRID_TOP_GAP, gap }}>
       {SKELETON_KEYS.map((key) => (
         <div
           key={key}
@@ -86,7 +83,7 @@ const KnowledgeGridLoading: FC<{ scrollElement: HTMLElement | null }> = ({
   );
 };
 
-const KnowledgeGridError: FC<{ error: unknown; onRetry: () => void }> = ({
+const CardGridError: FC<{ error: unknown; onRetry: () => void }> = ({
   error,
   onRetry,
 }) => (
@@ -104,15 +101,18 @@ const KnowledgeGridError: FC<{ error: unknown; onRetry: () => void }> = ({
   />
 );
 
-const KnowledgeGridEmpty: FC<{ hasFilter: boolean }> = ({ hasFilter }) => (
+const CardGridEmpty: FC<{ hasFilter: boolean; label: CardGridEmptyLabel }> = ({
+  hasFilter,
+  label,
+}) => (
   <Empty
     className="py-16"
-    description={hasFilter ? '没有匹配的知识库' : '暂无知识库'}
+    description={hasFilter ? label.filtered : label.initial}
   />
 );
 
 /** 触底加载/换筛选过渡/取下一页失败：三种状态都在页脚就地表达 */
-const KnowledgeGridFooter: FC<{
+const CardGridFooter: FC<{
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   isPlaceholderData: boolean;
@@ -154,7 +154,7 @@ const KnowledgeGridFooter: FC<{
 };
 
 /** 虚拟化网格：只渲染可视窗口内的卡片，避免长列表把 DOM 撑爆 */
-const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
+const CardGridVirtual = <T extends { id: string }>({
   scrollElement,
   items,
   hasNextPage,
@@ -162,15 +162,11 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
   isFetchNextPageError,
   isPlaceholderData,
   fetchNextPage,
-  onEdit,
-  onToggleLike,
-  onToggleVisibility,
-  onDelete,
-  pendingIds,
+  renderItem,
   initialRestoreIndex,
   onRestoreDone,
   onFirstVisibleItemChange,
-}) => {
+}: VirtualCardGridProps<T>) => {
   const { layout, virtualItems, totalSize, restorePending } = useVirtualGrid({
     scrollElement,
     count: items.length,
@@ -200,11 +196,11 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
         {restorePending
           ? null
           : virtualItems.map((virtualItem) => {
-              const kb = items[virtualItem.index];
-              if (!kb) return null;
+              const item = items[virtualItem.index];
+              if (!item) return null;
               return (
                 <div
-                  key={kb.id}
+                  key={item.id}
                   data-index={virtualItem.index}
                   style={{
                     position: 'absolute',
@@ -218,23 +214,13 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
                     paddingBottom: layout.gap,
                   }}
                 >
-                  {/* 原样透传回调（不包箭头函数），不额外引入每次渲染都变化的引用；
-                  可空处理留在卡片内部（onEdit?.()） */}
-                  <KnowledgeCard
-                    kb={kb}
-                    onEdit={onEdit}
-                    onToggleLike={onToggleLike}
-                    onToggleVisibility={onToggleVisibility}
-                    onDelete={onDelete}
-                    isLikePending={pendingIds.like === kb.id}
-                    isUpdatePending={pendingIds.update === kb.id}
-                    isDeletePending={pendingIds.delete === kb.id}
-                  />
+                  {/* 卡片由调用方提供；这里不包箭头函数、不额外引入每次渲染都变化的引用 */}
+                  {renderItem(item)}
                 </div>
               );
             })}
       </div>
-      <KnowledgeGridFooter
+      <CardGridFooter
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         isPlaceholderData={isPlaceholderData}
@@ -246,17 +232,21 @@ const KnowledgeGridVirtual: FC<KnowledgeGridProps> = ({
 };
 
 /**
- * 知识库网格：按查询状态分发到 加载中 / 失败 / 空 / 虚拟化列表。
+ * 按查询状态分发到 加载中 / 失败 / 空 / 虚拟化列表。
  * 各状态拆成独立组件并以扁平 if 返回，避免嵌套三元表达式。
  */
-export const KnowledgeGrid: FC<KnowledgeGridProps> = (props) => {
+export const VirtualCardGrid = <T extends { id: string }>(
+  props: VirtualCardGridProps<T>,
+) => {
   if (props.isLoading)
-    return <KnowledgeGridLoading scrollElement={props.scrollElement} />;
+    return <CardGridLoading scrollElement={props.scrollElement} />;
   if (props.isError) {
-    return <KnowledgeGridError error={props.error} onRetry={props.refetch} />;
+    return <CardGridError error={props.error} onRetry={props.refetch} />;
   }
   if (props.items.length === 0) {
-    return <KnowledgeGridEmpty hasFilter={props.hasFilter} />;
+    return (
+      <CardGridEmpty hasFilter={props.hasFilter} label={props.emptyLabel} />
+    );
   }
-  return <KnowledgeGridVirtual {...props} />;
+  return <CardGridVirtual {...props} />;
 };

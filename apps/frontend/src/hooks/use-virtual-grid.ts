@@ -46,7 +46,7 @@ type UseVirtualGridOptions = {
   onRestoreDone?: () => void;
 };
 
-/** 随宽度「分档」变化的几何量：列数与列间距。卡片宽度由 CSS 计算（见 KnowledgeGridVirtual） */
+/** 随宽度「分档」变化的几何量：列数与列间距。卡片宽度由 CSS 计算（见 VirtualCardGrid） */
 export type GridBreakpoints = {
   columns: number;
   gap: number;

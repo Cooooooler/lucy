@@ -16,17 +16,24 @@ import type {
   KnowledgeBase,
   KnowledgeBaseVisibility,
   KnowledgeDocument,
+  KnowledgeDocumentListItem,
   UpdateKnowledgeBaseRequest,
 } from '@/api/types';
-import type { CursorPageResult, KnowledgeListQuery } from '@lucy/shared';
+import type { KnowledgeListQuery } from '@lucy/shared';
 import type { QueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
-import { useCallback } from 'react';
+  type ListCacheKeys,
+  type ListsSnapshot,
+  filterOutItem,
+  findItemInCache,
+  patchItemInCache,
+  prependToMatchingLists,
+  rollbackToSnapshot,
+  snapshotLists,
+  useCursorList,
+  useResetListCache,
+} from './lib/infinite-cache';
 
 /** 默认每页条数（游标分页，同时是列表 queryKey 的一部分） */
 export const KNOWLEDGE_PAGE_SIZE = 20;
@@ -67,52 +74,23 @@ export const knowledgeKeys = {
 
 type DocumentListQueryShape = DocumentListFilter & { limit?: number };
 
-// ==== 游标分页缓存操作 ====================================================
-// 无限查询缓存形态：{ pages: CursorPageResult<T>[], pageParams: (string|null)[] }
-// 只处理这一种形态（offset 形态已随游标分页一并移除），无需再兼容多形态。
+/** 知识库的列表前缀 + 详情 key：缓存操作只需这两个 */
+const baseCacheKeys = (id: string): ListCacheKeys => ({
+  listAll: knowledgeKeys.baseListAll(),
+  item: knowledgeKeys.base(id),
+});
 
-type InfinitePages<T> = {
-  pages: CursorPageResult<T>[];
-  pageParams: unknown[];
-};
-
-type Snapshot = ReadonlyArray<[readonly unknown[], unknown]>;
-
-/** 对无限查询缓存中每一页的 list 做映射；非无限形态原样返回 */
-function mapPages<T extends { id: string }>(
-  old: unknown,
-  mapper: (item: T) => T,
-): unknown {
-  if (!old || typeof old !== 'object') return old;
-  const data = old as { pages?: unknown };
-  if (!Array.isArray(data.pages)) return old;
-  return {
-    ...data,
-    pages: (data.pages as unknown[]).map((page) => {
-      if (!page || typeof page !== 'object') return page;
-      const p = page as { list?: unknown };
-      if (!Array.isArray(p.list)) return page;
-      return { ...p, list: (p.list as T[]).map(mapper) };
-    }),
-  };
-}
-
-/** 在无限查询缓存中按 id 查找条目 */
-function findInPages<T extends { id: string }>(
-  old: unknown,
-  id: string,
-): T | undefined {
-  if (!old || typeof old !== 'object') return undefined;
-  const data = old as { pages?: unknown };
-  if (!Array.isArray(data.pages)) return undefined;
-  for (const page of data.pages as unknown[]) {
-    if (!page || typeof page !== 'object') continue;
-    const list = (page as { list?: unknown }).list;
-    if (!Array.isArray(list)) continue;
-    const found = (list as T[]).find((item) => item.id === id);
-    if (found) return found;
+/** 判断新建的知识库是否属于当前过滤条件；不属于则不应插入列表 */
+function matchesFilter(kb: KnowledgeBase, filter: unknown): boolean {
+  const current = filter as KnowledgeListQuery | undefined;
+  if (current?.visibility && kb.visibility !== current.visibility) return false;
+  if (
+    current?.name &&
+    !kb.name.toLowerCase().includes(current.name.toLowerCase())
+  ) {
+    return false;
   }
-  return undefined;
+  return true;
 }
 
 /** 统一更新知识库缓存：详情 + 所有列表分页（乐观更新，不触发 refetch） */
@@ -121,82 +99,16 @@ function patchBaseInCache(
   id: string,
   patch: Partial<KnowledgeBase>,
 ) {
-  queryClient.setQueryData<KnowledgeBase>(knowledgeKeys.base(id), (old) =>
-    old ? { ...old, ...patch } : old,
-  );
+  patchItemInCache<KnowledgeBase>(queryClient, baseCacheKeys(id), id, patch);
+}
+
+/** 乐观从所有列表分页中移除指定知识库，并清掉详情与文档缓存 */
+function removeBaseFromCache(queryClient: QueryClient, id: string) {
+  // base(id) 前缀同时覆盖其下的 documents 缓存
+  queryClient.removeQueries({ queryKey: knowledgeKeys.base(id) });
   queryClient.setQueriesData({ queryKey: knowledgeKeys.baseListAll() }, (old) =>
-    mapPages<KnowledgeBase>(old, (kb) =>
-      kb.id === id ? { ...kb, ...patch } : kb,
-    ),
+    filterOutItem<KnowledgeBase>(old, id),
   );
-}
-
-function findBaseInCache(
-  queryClient: QueryClient,
-  id: string,
-): KnowledgeBase | undefined {
-  const detail = queryClient.getQueryData<KnowledgeBase>(
-    knowledgeKeys.base(id),
-  );
-  if (detail) return detail;
-  for (const [, data] of queryClient.getQueriesData<unknown>({
-    queryKey: knowledgeKeys.baseListAll(),
-  })) {
-    const found = findInPages<KnowledgeBase>(data, id);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-function snapshotBaseLists(queryClient: QueryClient): Snapshot {
-  return queryClient.getQueriesData<unknown>({
-    queryKey: knowledgeKeys.baseListAll(),
-  });
-}
-
-function restoreSnapshot(queryClient: QueryClient, snapshot: Snapshot) {
-  for (const [key, data] of snapshot) {
-    queryClient.setQueryData(key, data);
-  }
-}
-
-/** 判断新建的知识库是否属于当前过滤条件；不属于则不应插入列表 */
-function matchesFilter(
-  kb: KnowledgeBase,
-  filter: KnowledgeListQuery | undefined,
-): boolean {
-  if (filter?.visibility && kb.visibility !== filter.visibility) return false;
-  if (
-    filter?.name &&
-    !kb.name.toLowerCase().includes(filter.name.toLowerCase())
-  ) {
-    return false;
-  }
-  return true;
-}
-
-/** 把新建的知识库插入每个匹配过滤条件的列表首页顶部（乐观新增，不触发 refetch） */
-function prependBaseToMatchingLists(
-  queryClient: QueryClient,
-  created: KnowledgeBase,
-) {
-  const queries = queryClient.getQueryCache().findAll({
-    queryKey: knowledgeKeys.baseListAll(),
-  });
-  for (const query of queries) {
-    const filter = query.queryKey[3] as KnowledgeListQuery | undefined;
-    if (!matchesFilter(created, filter)) continue;
-    queryClient.setQueryData(query.queryKey, (old: unknown) => {
-      if (!old || typeof old !== 'object') return old;
-      const data = old as InfinitePages<KnowledgeBase>;
-      if (!Array.isArray(data.pages) || data.pages.length === 0) return old;
-      const [first, ...rest] = data.pages;
-      return {
-        ...data,
-        pages: [{ ...first, list: [created, ...first.list] }, ...rest],
-      };
-    });
-  }
 }
 
 // ==== 知识库查询 ==========================================================
@@ -210,52 +122,15 @@ export function useInfiniteKnowledgeBaseList(
   filter: KnowledgeListFilter = {},
   limit = KNOWLEDGE_PAGE_SIZE,
 ) {
-  return useInfiniteQuery({
+  return useCursorList<KnowledgeBase>({
     queryKey: knowledgeKeys.baseList({ ...filter, limit }),
-    queryFn: ({ pageParam }) =>
-      listKnowledgeBasesApi({
-        ...filter,
-        limit,
-        cursor: pageParam ?? undefined,
-      }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    // staleTime: Infinity（已缓存即新鲜）不是随手写的乐观值，堵的是「换筛选」这条路径：
-    // 换筛选是在同一个 observer 上换 queryKey，QueryObserver.setOptions 走的是
-    // shouldFetchOptionally——只要新 query 的缓存已过期（staleTime 0 恒过期）就 refetch，
-    // 而 useInfiniteQuery 的 refetch 会把已加载的分页从头重放一遍（几页就几次请求）。
-    // refetchOnMount/refetchOnReconnect 只覆盖挂载/重连，管不到 setOptions 这条，
-    // 于是「切回已看过的筛选」也会重放历史分页——缓存看着像失效了。
-    // Infinity 后无缓存的新条件（data === undefined 仍判定为过期）照常请求首页，
-    // 缓存寿命交给默认 gcTime(5min) 回收。
-    staleTime: Infinity,
-    // 换筛选会切到新的 queryKey（新查询无缓存）：用上一组条件的数据做占位，
-    // 列表保持可见，不再「整块骨架 → 整格重挂」——虚拟网格与已挂卡片实例得以沿用。
-    // 占位期间 isPlaceholderData 为 true：它与新条件的 nextCursor 不匹配，触底预取必须停手。
-    placeholderData: (prev) => prev,
-    // 保留默认 gcTime(5min)：离开 ≤5min 返回命中缓存，>5min 缓存回收后从首页重来。
-    // 用 refetchOnMount/refetchOnReconnect 阻止重挂载与断网重连时重放历史分页
-    // （useInfiniteQuery 重放会一次发 N 页请求）
-    refetchOnMount: false,
-    refetchOnReconnect: false,
-    refetchOnWindowFocus: false,
+    fetchPage: (cursor) => listKnowledgeBasesApi({ ...filter, limit, cursor }),
   });
 }
 
-/**
- * 手动「刷新」：丢弃**所有筛选条件**的分页缓存，并让当前可见的筛选从第一页重新加载。
- *
- * 用 `resetQueries` 而非 `invalidateQueries`：invalidate 会把 `useInfiniteQuery` 的整段缓存
- * 标记过期并 refetch，等于把已加载的分页从头重放（几页就几次请求，正是换筛选时踩过的坑）；
- * reset 先把匹配的缓存全部清空，再只 refetch `type: 'active'` 的查询——因此只有当前筛选
- * 重新取第一页（1 次请求），其它筛选的缓存一并作废、下次进入同样从第一页开始。
- */
+/** 手动「刷新」：丢弃所有筛选的列表缓存并让当前筛选从第一页重新加载 */
 export function useRefreshKnowledgeBaseList() {
-  const queryClient = useQueryClient();
-  return useCallback(
-    () => queryClient.resetQueries({ queryKey: knowledgeKeys.baseListAll() }),
-    [queryClient],
-  );
+  return useResetListCache(knowledgeKeys.baseListAll);
 }
 
 export function useKnowledgeBase(id: string | undefined) {
@@ -273,7 +148,13 @@ export function useCreateKnowledgeBase() {
   return useMutation({
     mutationFn: (input: CreateKnowledgeBaseRequest) =>
       createKnowledgeBaseApi(input),
-    onSuccess: (created) => prependBaseToMatchingLists(queryClient, created),
+    onSuccess: (created) =>
+      prependToMatchingLists<KnowledgeBase>(
+        queryClient,
+        knowledgeKeys.baseListAll(),
+        created,
+        matchesFilter,
+      ),
   });
 }
 
@@ -293,7 +174,10 @@ export function useUpdateKnowledgeBase() {
       const previousBase = queryClient.getQueryData<KnowledgeBase>(
         knowledgeKeys.base(id),
       );
-      const previousLists = snapshotBaseLists(queryClient);
+      const previousLists = snapshotLists(
+        queryClient,
+        knowledgeKeys.baseListAll(),
+      );
       patchBaseInCache(queryClient, id, input);
       return { previousBase, previousLists };
     },
@@ -311,37 +195,9 @@ export function useUpdateKnowledgeBase() {
       if (context?.previousBase) {
         queryClient.setQueryData(knowledgeKeys.base(id), context.previousBase);
       }
-      restoreSnapshot(queryClient, context?.previousLists ?? []);
+      rollbackToSnapshot(queryClient, context?.previousLists);
     },
   });
-}
-
-/** 乐观从所有列表分页中移除指定知识库，并清掉详情与文档缓存 */
-function removeBaseFromCache(queryClient: QueryClient, id: string) {
-  // base(id) 前缀同时覆盖其下的 documents 缓存
-  queryClient.removeQueries({ queryKey: knowledgeKeys.base(id) });
-  queryClient.setQueriesData({ queryKey: knowledgeKeys.baseListAll() }, (old) =>
-    filterOutBase(old, id),
-  );
-}
-
-/** 从无限查询缓存的每页 list 中剔除指定知识库 */
-function filterOutBase(old: unknown, id: string): unknown {
-  if (!old || typeof old !== 'object') return old;
-  const data = old as { pages?: unknown };
-  if (!Array.isArray(data.pages)) return old;
-  return {
-    ...data,
-    pages: (data.pages as unknown[]).map((page) => {
-      if (!page || typeof page !== 'object') return page;
-      const p = page as { list?: unknown };
-      if (!Array.isArray(p.list)) return page;
-      return {
-        ...p,
-        list: (p.list as KnowledgeBase[]).filter((kb) => kb.id !== id),
-      };
-    }),
-  };
 }
 
 /** 删除知识库。乐观移除，onError 回滚。 */
@@ -353,7 +209,10 @@ export function useDeleteKnowledgeBase() {
       await queryClient.cancelQueries({
         queryKey: knowledgeKeys.baseListAll(),
       });
-      const previousLists = snapshotBaseLists(queryClient);
+      const previousLists = snapshotLists(
+        queryClient,
+        knowledgeKeys.baseListAll(),
+      );
       const previousBase = queryClient.getQueryData<KnowledgeBase>(
         knowledgeKeys.base(id),
       );
@@ -364,22 +223,13 @@ export function useDeleteKnowledgeBase() {
       return { previousLists, previousBase, previousDocuments };
     },
     onError: (_err, id, context) => {
-      restoreSnapshot(queryClient, context?.previousLists ?? []);
+      rollbackToSnapshot(queryClient, context?.previousLists);
       if (context?.previousBase) {
         queryClient.setQueryData(knowledgeKeys.base(id), context.previousBase);
       }
-      restoreSnapshot(queryClient, context?.previousDocuments ?? []);
+      rollbackToSnapshot(queryClient, context?.previousDocuments);
     },
   });
-}
-
-/** 乐观更新点赞态（同时更新详情与所有列表分页） */
-function patchLikeInCache(
-  queryClient: QueryClient,
-  id: string,
-  result: { likeCount: number; isLiked: boolean },
-) {
-  patchBaseInCache(queryClient, id, result);
 }
 
 /** 点赞/取消点赞共享的乐观前置逻辑 */
@@ -395,10 +245,14 @@ async function optimisticLike(
   const previousBase = queryClient.getQueryData<KnowledgeBase>(
     knowledgeKeys.base(id),
   );
-  const previousLists = snapshotBaseLists(queryClient);
-  const current = findBaseInCache(queryClient, id);
+  const previousLists = snapshotLists(queryClient, knowledgeKeys.baseListAll());
+  const current = findItemInCache<KnowledgeBase>(
+    queryClient,
+    baseCacheKeys(id),
+    id,
+  );
   const likeCount = Math.max(0, (current?.likeCount ?? 0) + next.delta);
-  patchLikeInCache(queryClient, id, { isLiked: next.isLiked, likeCount });
+  patchBaseInCache(queryClient, id, { isLiked: next.isLiked, likeCount });
   return { previousBase, previousLists };
 }
 
@@ -406,12 +260,12 @@ function rollbackLike(
   queryClient: QueryClient,
   id: string,
   context:
-    { previousBase?: KnowledgeBase; previousLists: Snapshot } | undefined,
+    { previousBase?: KnowledgeBase; previousLists: ListsSnapshot } | undefined,
 ) {
   if (context?.previousBase) {
     queryClient.setQueryData(knowledgeKeys.base(id), context.previousBase);
   }
-  restoreSnapshot(queryClient, context?.previousLists ?? []);
+  rollbackToSnapshot(queryClient, context?.previousLists);
 }
 
 /** 点赞知识库。乐观更新 UI，onSuccess 用服务端返回的真实值覆盖缓存。 */
@@ -421,7 +275,7 @@ export function useLikeKnowledgeBase() {
     mutationFn: (id: string) => likeKnowledgeBaseApi(id),
     onMutate: (id) =>
       optimisticLike(queryClient, id, { isLiked: true, delta: 1 }),
-    onSuccess: (result, id) => patchLikeInCache(queryClient, id, result),
+    onSuccess: (result, id) => patchBaseInCache(queryClient, id, result),
     onError: (_err, id, context) => rollbackLike(queryClient, id, context),
   });
 }
@@ -433,35 +287,30 @@ export function useUnlikeKnowledgeBase() {
     mutationFn: (id: string) => unlikeKnowledgeBaseApi(id),
     onMutate: (id) =>
       optimisticLike(queryClient, id, { isLiked: false, delta: -1 }),
-    onSuccess: (result, id) => patchLikeInCache(queryClient, id, result),
+    onSuccess: (result, id) => patchBaseInCache(queryClient, id, result),
     onError: (_err, id, context) => rollbackLike(queryClient, id, context),
   });
 }
 
 // ==== 文档查询 ============================================================
 
-/** 游标分页文档列表（无限滚动） */
+/**
+ * 游标分页文档列表（无限滚动）。
+ * 与知识库列表同策略（保留缓存、不在重挂载/重连时重放分页），但不做换筛选占位：
+ * 文档列表嵌在某个知识库下，kbId 变更时整块内容本就该重取。
+ */
 export function useInfiniteDocumentList(
   kbId: string | undefined,
   filter: DocumentListFilter = {},
   limit = KNOWLEDGE_PAGE_SIZE,
 ) {
-  return useInfiniteQuery({
+  return useCursorList<KnowledgeDocumentListItem>({
     queryKey: knowledgeKeys.documentList(kbId ?? '', { ...filter, limit }),
-    queryFn: ({ pageParam }) =>
-      listDocumentsApi(kbId!, {
-        ...filter,
-        limit,
-        cursor: pageParam ?? undefined,
-      }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    fetchPage: (cursor) =>
+      listDocumentsApi(kbId!, { ...filter, limit, cursor }),
     enabled: !!kbId,
     staleTime: 0,
-    // 同知识库列表：保留缓存但不在重挂载/重连时重放分页
-    refetchOnMount: false,
-    refetchOnReconnect: false,
-    refetchOnWindowFocus: false,
+    keepPreviousData: false,
   });
 }
 

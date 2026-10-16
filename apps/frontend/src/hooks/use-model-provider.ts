@@ -11,13 +11,19 @@ import type {
   ModelProviderType,
   UpdateModelProviderRequest,
 } from '@/api/types';
-import type { CursorPageResult, ModelProviderListQuery } from '@lucy/shared';
+import type { ModelProviderListQuery } from '@lucy/shared';
 import type { QueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  useInfiniteQuery,
-  useMutation,
-  useQueryClient,
-} from '@tanstack/react-query';
+  type ListCacheKeys,
+  filterOutItem,
+  findItemInCache,
+  patchItemInCache,
+  prependToMatchingLists,
+  rollbackToSnapshot,
+  snapshotLists,
+  useCursorList,
+} from './lib/infinite-cache';
 
 /** 默认每页条数（游标分页，同时是列表 queryKey 的一部分） */
 export const MODEL_PROVIDER_PAGE_SIZE = 20;
@@ -38,152 +44,32 @@ export const modelProviderKeys = {
   item: (id: string) => [...modelProviderKeys.all, id] as const,
 };
 
-// ==== 游标分页缓存操作 ====================================================
-// 无限查询缓存形态：{ pages: CursorPageResult<T>[], pageParams: (string|null)[] }
-
-type InfinitePages<T> = {
-  pages: CursorPageResult<T>[];
-  pageParams: unknown[];
-};
-
-type Snapshot = ReadonlyArray<[readonly unknown[], unknown]>;
-
-/** 对无限查询缓存中每一页的 list 做映射；非无限形态原样返回 */
-function mapPages<T extends { id: string }>(
-  old: unknown,
-  mapper: (item: T) => T,
-): unknown {
-  if (!old || typeof old !== 'object') return old;
-  const data = old as { pages?: unknown };
-  if (!Array.isArray(data.pages)) return old;
-  return {
-    ...data,
-    pages: (data.pages as unknown[]).map((page) => {
-      if (!page || typeof page !== 'object') return page;
-      const p = page as { list?: unknown };
-      if (!Array.isArray(p.list)) return page;
-      return { ...p, list: (p.list as T[]).map(mapper) };
-    }),
-  };
-}
-
-function findInPages<T extends { id: string }>(
-  old: unknown,
-  id: string,
-): T | undefined {
-  if (!old || typeof old !== 'object') return undefined;
-  const data = old as { pages?: unknown };
-  if (!Array.isArray(data.pages)) return undefined;
-  for (const page of data.pages as unknown[]) {
-    if (!page || typeof page !== 'object') continue;
-    const list = (page as { list?: unknown }).list;
-    if (!Array.isArray(list)) continue;
-    const found = (list as T[]).find((item) => item.id === id);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-/** 统一更新模型缓存：详情 + 所有列表分页（乐观更新，不触发 refetch） */
-function patchItemInCache(
-  queryClient: QueryClient,
-  id: string,
-  patch: Partial<ModelProvider>,
-) {
-  queryClient.setQueryData<ModelProvider>(modelProviderKeys.item(id), (old) =>
-    old ? { ...old, ...patch } : old,
-  );
-  queryClient.setQueriesData({ queryKey: modelProviderKeys.listAll() }, (old) =>
-    mapPages<ModelProvider>(old, (m) => (m.id === id ? { ...m, ...patch } : m)),
-  );
-}
-
-function findItemInCache(
-  queryClient: QueryClient,
-  id: string,
-): ModelProvider | undefined {
-  const detail = queryClient.getQueryData<ModelProvider>(
-    modelProviderKeys.item(id),
-  );
-  if (detail) return detail;
-  for (const [, data] of queryClient.getQueriesData<unknown>({
-    queryKey: modelProviderKeys.listAll(),
-  })) {
-    const found = findInPages<ModelProvider>(data, id);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-function snapshotLists(queryClient: QueryClient): Snapshot {
-  return queryClient.getQueriesData<unknown>({
-    queryKey: modelProviderKeys.listAll(),
-  });
-}
-
-function restoreSnapshot(queryClient: QueryClient, snapshot: Snapshot) {
-  for (const [key, data] of snapshot) {
-    queryClient.setQueryData(key, data);
-  }
-}
+/** 模型的列表前缀 + 详情 key：缓存操作只需这两个 */
+const modelCacheKeys = (id: string): ListCacheKeys => ({
+  listAll: modelProviderKeys.listAll(),
+  item: modelProviderKeys.item(id),
+});
 
 /** 判断新建的模型是否属于当前过滤条件；不属于则不应插入列表 */
-function matchesFilter(
-  item: ModelProvider,
-  filter: ModelProviderListQuery | undefined,
-): boolean {
-  if (filter?.type && item.type !== filter.type) return false;
+function matchesFilter(item: ModelProvider, filter: unknown): boolean {
+  const current = filter as ModelProviderListQuery | undefined;
+  if (current?.type && item.type !== current.type) return false;
   if (
-    filter?.name &&
-    !item.name.toLowerCase().includes(filter.name.toLowerCase())
+    current?.name &&
+    !item.name.toLowerCase().includes(current.name.toLowerCase())
   ) {
     return false;
   }
   return true;
 }
 
-/** 把新建的模型插入每个匹配过滤条件的列表首页顶部（乐观新增，不触发 refetch） */
-function prependToMatchingLists(
+/** 统一更新模型缓存：详情 + 所有列表分页（乐观更新，不触发 refetch） */
+function patchModelInCache(
   queryClient: QueryClient,
-  created: ModelProvider,
+  id: string,
+  patch: Partial<ModelProvider>,
 ) {
-  const queries = queryClient.getQueryCache().findAll({
-    queryKey: modelProviderKeys.listAll(),
-  });
-  for (const query of queries) {
-    // 列表 key 的最末元素即过滤条件（不写死下标，避免 key 结构变化后静默取错）
-    const filter = query.queryKey.at(-1) as ModelProviderListQuery | undefined;
-    if (!matchesFilter(created, filter)) continue;
-    queryClient.setQueryData(query.queryKey, (old: unknown) => {
-      if (!old || typeof old !== 'object') return old;
-      const data = old as InfinitePages<ModelProvider>;
-      if (!Array.isArray(data.pages) || data.pages.length === 0) return old;
-      const [first, ...rest] = data.pages;
-      return {
-        ...data,
-        pages: [{ ...first, list: [created, ...first.list] }, ...rest],
-      };
-    });
-  }
-}
-
-/** 从无限查询缓存的每页 list 中剔除指定模型 */
-function filterOut(old: unknown, id: string): unknown {
-  if (!old || typeof old !== 'object') return old;
-  const data = old as { pages?: unknown };
-  if (!Array.isArray(data.pages)) return old;
-  return {
-    ...data,
-    pages: (data.pages as unknown[]).map((page) => {
-      if (!page || typeof page !== 'object') return page;
-      const p = page as { list?: unknown };
-      if (!Array.isArray(p.list)) return page;
-      return {
-        ...p,
-        list: (p.list as ModelProvider[]).filter((m) => m.id !== id),
-      };
-    }),
-  };
+  patchItemInCache<ModelProvider>(queryClient, modelCacheKeys(id), id, patch);
 }
 
 // ==== 查询 ================================================================
@@ -196,21 +82,9 @@ export function useInfiniteModelProviderList(
   filter: ModelProviderListFilter = {},
   limit = MODEL_PROVIDER_PAGE_SIZE,
 ) {
-  return useInfiniteQuery({
+  return useCursorList<ModelProvider>({
     queryKey: modelProviderKeys.list({ ...filter, limit }),
-    queryFn: ({ pageParam }) =>
-      listModelProvidersApi({
-        ...filter,
-        limit,
-        cursor: pageParam ?? undefined,
-      }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    staleTime: 0,
-    placeholderData: (prev) => prev,
-    refetchOnMount: false,
-    refetchOnReconnect: false,
-    refetchOnWindowFocus: false,
+    fetchPage: (cursor) => listModelProvidersApi({ ...filter, limit, cursor }),
   });
 }
 
@@ -229,7 +103,13 @@ export function useCreateModelProvider() {
   return useMutation({
     mutationFn: (input: CreateModelProviderRequest) =>
       createModelProviderApi(input),
-    onSuccess: (created) => prependToMatchingLists(queryClient, created),
+    onSuccess: (created) =>
+      prependToMatchingLists<ModelProvider>(
+        queryClient,
+        modelProviderKeys.listAll(),
+        created,
+        matchesFilter,
+      ),
   });
 }
 
@@ -250,7 +130,10 @@ export function useUpdateModelProvider() {
       const previousItem = queryClient.getQueryData<ModelProvider>(
         modelProviderKeys.item(id),
       );
-      const previousLists = snapshotLists(queryClient);
+      const previousLists = snapshotLists(
+        queryClient,
+        modelProviderKeys.listAll(),
+      );
       // 显式挑出展示安全字段，避免把 input.apiKey 明文带进缓存
       const { name, type, vendor, baseUrl, protocol, contextLength } = input;
       const safe: Partial<ModelProvider> = {};
@@ -260,7 +143,7 @@ export function useUpdateModelProvider() {
       if (baseUrl !== undefined) safe.baseUrl = baseUrl;
       if (protocol !== undefined) safe.protocol = protocol;
       if (contextLength !== undefined) safe.contextLength = contextLength;
-      patchItemInCache(queryClient, id, safe);
+      patchModelInCache(queryClient, id, safe);
       return { previousItem, previousLists };
     },
     onSuccess: (updated) => {
@@ -274,7 +157,7 @@ export function useUpdateModelProvider() {
         apiKeyMasked,
         updatedAt,
       } = updated;
-      patchItemInCache(queryClient, updated.id, {
+      patchModelInCache(queryClient, updated.id, {
         name,
         type,
         vendor,
@@ -292,7 +175,7 @@ export function useUpdateModelProvider() {
           context.previousItem,
         );
       }
-      restoreSnapshot(queryClient, context?.previousLists ?? []);
+      rollbackToSnapshot(queryClient, context?.previousLists);
     },
   });
 }
@@ -306,17 +189,24 @@ export function useDeleteModelProvider() {
       await queryClient.cancelQueries({
         queryKey: modelProviderKeys.listAll(),
       });
-      const previousLists = snapshotLists(queryClient);
-      const previousItem = findItemInCache(queryClient, id);
+      const previousLists = snapshotLists(
+        queryClient,
+        modelProviderKeys.listAll(),
+      );
+      const previousItem = findItemInCache<ModelProvider>(
+        queryClient,
+        modelCacheKeys(id),
+        id,
+      );
       queryClient.removeQueries({ queryKey: modelProviderKeys.item(id) });
       queryClient.setQueriesData(
         { queryKey: modelProviderKeys.listAll() },
-        (old) => filterOut(old, id),
+        (old) => filterOutItem<ModelProvider>(old, id),
       );
       return { previousLists, previousItem };
     },
     onError: (_err, id, context) => {
-      restoreSnapshot(queryClient, context?.previousLists ?? []);
+      rollbackToSnapshot(queryClient, context?.previousLists);
       if (context?.previousItem) {
         queryClient.setQueryData(
           modelProviderKeys.item(id),
