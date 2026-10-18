@@ -15,7 +15,7 @@ import { ArrowLeftOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { App, Button, Empty, Result } from 'antd';
+import { Alert, App, Button, Empty, Result } from 'antd';
 import dayjs from 'dayjs';
 import {
   useCallback,
@@ -201,7 +201,25 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
       />
       {/* 与列表页同一结构：工具条占满内容区，表格在下方自然高度容器里 */}
       <div className="min-h-0 flex-1 py-4">
-        {query.isError ? (
+        {/* 失败就地提示：列表带 placeholderData（翻页保留上一页），整页错误态会把已渲染的表格
+            连同页码与关键字一起吞掉——同 VirtualCardGrid 的约定「失败就地提示 + 重试，
+            不能走整页 isError 分支」。只有首次加载就失败、手上一条数据都没有时才整页报错。 */}
+        {query.isError && rows.length > 0 ? (
+          <Alert
+            type="error"
+            showIcon
+            className="mb-4"
+            // antd 6 起 Alert 的 message 弃用（改叫 title）
+            title="文档列表加载失败"
+            description={errorMessageOf(query.error, '请稍后重试')}
+            action={
+              <Button type="link" onClick={() => void query.refetch()}>
+                重试
+              </Button>
+            }
+          />
+        ) : null}
+        {query.isError && rows.length === 0 ? (
           <Result
             status="error"
             title="文档加载失败"

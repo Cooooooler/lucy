@@ -17,7 +17,8 @@ import { KnowledgeBase } from './knowledge-base.entity.js';
  * 索引由下面的 `@Index` 声明——**实体是 schema 的唯一来源**，迁移由 `migration:generate`
  * 从实体产出（改这里 → 生成迁移 → `db:migrate`），不手写 DDL。
  *
- * `(knowledge_base_id, created_at, id)` 同时服务知识库维度下的 keyset 分页：
+ * `(knowledge_base_id, created_at, id)` 同时服务知识库维度下的**页码分页**（详情页文件表格）：
+ * `ORDER BY created_at DESC, id DESC` 的 OFFSET 扫描同样由它提供；
  * `@Index` 只能表达 ASC，但 `ORDER BY created_at DESC, id DESC` 由 Postgres 的
  * 反向索引扫描满足（与 knowledge_bases 的索引同理），无需建成 DESC。
  */

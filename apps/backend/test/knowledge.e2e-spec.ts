@@ -226,7 +226,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
       [docRowId, docsKbId, fileRowId, tieTs],
     );
 
-    // 文档列表的 keyset 分页：另起一个知识库承载 6 条同毫秒 + 4 条不同毫秒的文档。
+    // 文档列表的页码分页：另起一个知识库承载 6 条同毫秒 + 4 条不同毫秒的文档。
     // 单独一个库是为了不影响上面那条「列表做列投影」用例对 list[0]（'文档标题'）的断言。
     docsPageKbId = tieIds[1];
     const docSpecs: { title: string; createdAt: Date }[] = [];
@@ -532,11 +532,17 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
     get: () => kbWithRelations,
   };
 
-  // 文档端点走独立服务 KnowledgeDocumentService，同样以桩返回「填充了内部关系」的实体
+  /**
+   * 文档端点桩：形状必须与真实契约一致（页码分页的 `{ list, total, page, pageSize }`）。
+   * 之前这里留着旧 envelope 的 `nextCursor`，既与契约不符、也让「列表响应形状」在这条
+   * 路径上无人校验（桩是无类型标注的字面量，编译器拦不住）。
+   */
   const docStub = {
     listDocuments: () => ({
       list: [docListItemWithRelations],
-      nextCursor: null,
+      total: 1,
+      page: 1,
+      pageSize: 20,
     }),
     getDocument: () => docWithRelations,
   };
@@ -610,6 +616,11 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
       .set('Authorization', auth)
       .expect(200);
     expect(JSON.stringify(docs.body)).not.toContain('SENTINEL');
+    // 先钉住列表的 envelope 形状：契约是页码分页的 {list,total,page,pageSize}，无 nextCursor。
+    // 桩是无类型标注的字面量（编译器拦不住），少了这条断言，桩退回旧形状也不会红。
+    expect(
+      Object.keys((docs.body as ApiBody<Record<string, unknown>>).data).sort(),
+    ).toEqual(['list', 'page', 'pageSize', 'total'].sort());
     const docItem = (docs.body as ApiBody<{ list: Record<string, unknown>[] }>)
       .data.list[0];
     expect(docItem).not.toHaveProperty('knowledgeBase');
