@@ -1,3 +1,4 @@
+import { makeDocument, makeDocumentListItem } from '@/test/fixtures';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   addDocumentApi,
@@ -10,11 +11,7 @@ import {
   listKnowledgeBasesApi,
   updateKnowledgeBaseApi,
 } from './knowledge.js';
-import type {
-  KnowledgeBase,
-  KnowledgeDocument,
-  KnowledgeDocumentListItem,
-} from './types.js';
+import type { KnowledgeBase } from './types.js';
 
 // 保留真实 http（走真实 fetch 与完整插件链），仅覆盖 authStore 以便注入 Bearer
 vi.mock('../stores/auth', () => ({
@@ -43,44 +40,6 @@ function makeKnowledgeBase(
     updatedAt: '2024-01-01T00:00:00Z',
     likeCount: 0,
     isLiked: false,
-    ...overrides,
-  };
-}
-
-function makeDocument(
-  overrides: Partial<KnowledgeDocument> = {},
-): KnowledgeDocument {
-  return {
-    id: 'd1',
-    knowledgeBaseId: 'kb1',
-    fileId: 'f1',
-    title: 'intro',
-    originalName: 'intro.md',
-    ext: '.md',
-    mime: 'text/markdown',
-    size: 1024,
-    content: null,
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-01T00:00:00Z',
-    ...overrides,
-  };
-}
-
-/** 列表项工厂：文档列表契约不含 content（服务端做列投影），但含文件元数据 */
-function makeDocumentListItem(
-  overrides: Partial<KnowledgeDocumentListItem> = {},
-): KnowledgeDocumentListItem {
-  return {
-    id: 'd1',
-    knowledgeBaseId: 'kb1',
-    fileId: 'f1',
-    title: 'intro',
-    originalName: 'intro.md',
-    ext: '.md',
-    mime: 'text/markdown',
-    size: 1024,
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-01T00:00:00Z',
     ...overrides,
   };
 }

@@ -1,4 +1,5 @@
 import type { KnowledgeDocumentListItem } from '@/api/types';
+import { makeKb } from '@/components/knowledge/knowledge-test-fixture';
 import {
   useAddDocument,
   useDeleteDocument,
@@ -6,6 +7,8 @@ import {
   useDocumentList,
   useKnowledgeBase,
 } from '@/hooks/use-knowledge';
+// 文档夹具与 api/knowledge.test.ts、hooks 用例共用（见 src/test/fixtures.ts）
+import { makeDocumentListItem as makeRow } from '@/test/fixtures';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
@@ -62,25 +65,6 @@ const mockedDoc = vi.mocked(useDocument);
 const mockedAdd = vi.mocked(useAddDocument);
 const mockedDelete = vi.mocked(useDeleteDocument);
 
-function makeRow(
-  id = 'd1',
-  over: Partial<KnowledgeDocumentListItem> = {},
-): KnowledgeDocumentListItem {
-  return {
-    id,
-    knowledgeBaseId: 'kb1',
-    fileId: 'f1',
-    title: 'intro',
-    originalName: 'intro.md',
-    ext: '.md',
-    mime: 'text/markdown',
-    size: 1024,
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-01T00:00:00Z',
-    ...over,
-  };
-}
-
 const refetch = vi.fn();
 
 /** 文档列表查询桩：`page` 固定回显 1，断言只看调用方传进去的分页参数 */
@@ -126,17 +110,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedKb.mockReturnValue({
-      data: {
-        id: 'kb1',
-        ownerId: 'u1',
-        visibility: 'private',
-        name: '产品文档',
-        description: '这是一段描述',
-        createdAt: '2024-01-01T00:00:00Z',
-        updatedAt: '2024-01-01T00:00:00Z',
-        likeCount: 0,
-        isLiked: false,
-      },
+      data: makeKb('kb1', '产品文档'),
       isLoading: false,
       isError: false,
       error: null,
@@ -165,7 +139,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
       screen.getByRole('link', { name: '返回知识库列表' }),
     ).toHaveAttribute('href', '/knowledge');
     expect(screen.getByText('产品文档')).toBeInTheDocument();
-    expect(screen.getByText('这是一段描述')).toBeInTheDocument();
+    expect(screen.getByText('产品文档 的描述')).toBeInTheDocument();
     // 表格列
     expect(screen.getByText('文件名')).toBeInTheDocument();
     expect(screen.getByText('intro.md')).toBeInTheDocument();
@@ -199,7 +173,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
 
   it('翻页：把 page 交给查询', async () => {
     mockList(
-      Array.from({ length: 20 }, (_, i) => makeRow(`row-${i}`)),
+      Array.from({ length: 20 }, (_, i) => makeRow({ id: `row-${i}` })),
       40,
     );
     renderPage();
@@ -250,7 +224,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
 
   it('末页最后一条被删时先回退页码，避免拉到空页', async () => {
     // 共 21 条 → 2 页；第 2 页只有 1 行
-    mockList([makeRow('last')], 21);
+    mockList([makeRow({ id: 'last' })], 21);
     renderPage();
 
     await userEvent.click(screen.getByTitle('2'));
@@ -280,7 +254,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
   });
 
   it('上传：选中文件后调用 addDocument 并回到第 1 页', async () => {
-    mockList([makeRow('last')], 21);
+    mockList([makeRow({ id: 'last' })], 21);
     renderPage();
 
     await userEvent.click(screen.getByTitle('2'));

@@ -1,8 +1,10 @@
-import type {
-  KnowledgeBase,
-  KnowledgeDocument,
-  KnowledgeDocumentListItem,
-} from '@/api/types';
+import type { KnowledgeBase } from '@/api/types';
+// 文档夹具与 api/knowledge.test.ts、详情路由用例共用（见 src/test/fixtures.ts）：
+// 三处各写一份同样的工厂会让新代码重复率顶红 Sonar 门禁
+import {
+  makeDocument as makeDoc,
+  makeDocumentListItem as makeDocListItem,
+} from '@/test/fixtures';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -52,45 +54,6 @@ function makeBase(overrides: Partial<KnowledgeBase> = {}): KnowledgeBase {
     updatedAt: '2024-01-01T00:00:00Z',
     likeCount: 0,
     isLiked: false,
-    ...overrides,
-  };
-}
-
-/** 文档数据工厂（详情/上传返回，含解析全文与文件元数据） */
-function makeDoc(
-  overrides: Partial<KnowledgeDocument> = {},
-): KnowledgeDocument {
-  return {
-    id: 'd1',
-    knowledgeBaseId: 'kb1',
-    fileId: 'f1',
-    title: 'intro',
-    originalName: 'intro.md',
-    ext: '.md',
-    mime: 'text/markdown',
-    size: 1024,
-    content: null,
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-01T00:00:00Z',
-    ...overrides,
-  };
-}
-
-/** 文档**列表项**工厂：不含 content（服务端做列投影），含文件元数据 */
-function makeDocListItem(
-  overrides: Partial<KnowledgeDocumentListItem> = {},
-): KnowledgeDocumentListItem {
-  return {
-    id: 'd1',
-    knowledgeBaseId: 'kb1',
-    fileId: 'f1',
-    title: 'intro',
-    originalName: 'intro.md',
-    ext: '.md',
-    mime: 'text/markdown',
-    size: 1024,
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-01T00:00:00Z',
     ...overrides,
   };
 }
