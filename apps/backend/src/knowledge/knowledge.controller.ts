@@ -163,7 +163,12 @@ export class KnowledgeController {
   }
 
   @Get(':kbId/documents')
-  @ApiOperation({ summary: '某知识库文档列表（游标分页）' })
+  @ApiOperation({
+    summary: '某知识库文档列表（页码分页）',
+    description:
+      '用 page/pageSize 翻页，响应含 total（总条数）与本页页码；' +
+      '旧的 cursor/limit 已随页码分页改造移除，照旧文档发送会被全局校验管道拒为 400。',
+  })
   @ApiResponse({ status: 200, type: DocumentListResultDto })
   listDocuments(
     @CurrentUser() user: CurrentUserPayload,

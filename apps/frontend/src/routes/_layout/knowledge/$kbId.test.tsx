@@ -67,15 +67,17 @@ const mockedDelete = vi.mocked(useDeleteDocument);
 
 const refetch = vi.fn();
 
-/** 文档列表查询桩：`page` 固定回显 1，断言只看调用方传进去的分页参数 */
+/** 文档列表查询桩：返回桩对象本身，便于用例在其上叠加 isError 等状态 */
 function mockList(list: KnowledgeDocumentListItem[], total: number) {
-  mockedList.mockReturnValue({
+  const stub = {
     data: { list, total, page: 1, pageSize: 20 },
     isLoading: false,
     isError: false,
     error: null,
     refetch,
-  } as never);
+  };
+  mockedList.mockReturnValue(stub as never);
+  return stub;
 }
 
 /** 变更 hook 桩：返回可断言的句柄（mutateAsync 的实现由用例控制） */
@@ -328,6 +330,29 @@ describe('routes/_layout/knowledge/$kbId', () => {
     renderPage();
 
     expect(screen.getByText('文档加载失败')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('已有数据时失败：保留表格并就地提示（不走整页错误态）', async () => {
+    // 列表带 placeholderData：翻页时失败，上一页的数据仍在手上，不能被错误页吞掉
+    const base = mockList([makeRow()], 21);
+    mockedList.mockReturnValue({
+      ...base,
+      isError: true,
+      error: Object.assign(new Error('知识库不存在'), {
+        name: 'ApiError',
+        status: 404,
+      }),
+    } as never);
+    renderPage();
+
+    // 表格与数据仍在，错误就地提示
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('intro.md')).toBeInTheDocument();
+    expect(screen.getByText('文档列表加载失败')).toBeInTheDocument();
+    expect(screen.queryByText('文档加载失败')).not.toBeInTheDocument();
+
     await userEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(refetch).toHaveBeenCalledTimes(1);
   });

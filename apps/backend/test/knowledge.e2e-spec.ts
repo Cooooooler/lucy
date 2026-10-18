@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
+import type { DocumentListResultDto } from '../src/knowledge/dto/knowledge-list-result.dto.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
@@ -38,7 +39,7 @@ async function deleteTestUserData(
   await dataSource.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
-describe('Knowledge keyset pagination & serialization (e2e)', () => {
+describe('Knowledge pagination (keyset + page) & serialization (e2e)', () => {
   let app: INestApplication<Server>;
   let server: Server;
   let dataSource: DataSource;
@@ -226,7 +227,7 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
       [docRowId, docsKbId, fileRowId, tieTs],
     );
 
-    // 文档列表的 keyset 分页：另起一个知识库承载 6 条同毫秒 + 4 条不同毫秒的文档。
+    // 文档列表的页码分页：另起一个知识库承载 6 条同毫秒 + 4 条不同毫秒的文档。
     // 单独一个库是为了不影响上面那条「列表做列投影」用例对 list[0]（'文档标题'）的断言。
     docsPageKbId = tieIds[1];
     const docSpecs: { title: string; createdAt: Date }[] = [];
@@ -532,11 +533,22 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
     get: () => kbWithRelations,
   };
 
-  // 文档端点走独立服务 KnowledgeDocumentService，同样以桩返回「填充了内部关系」的实体
-  const docStub = {
+  /**
+   * 文档端点桩：返回类型**从契约派生**（`DocumentListResultDto` 去掉 list 元素类型），
+   * 而不是手抄一份字面量——契约增删 envelope 键时会在编译期打断这里，桩不会静默变成过期副本。
+   * list 元素仍用实体，因为本用例要验证实体上的内部关系被 `@Exclude` 剔除。
+   */
+  const docStub: {
+    listDocuments: () => Omit<DocumentListResultDto, 'list'> & {
+      list: KnowledgeDocument[];
+    };
+    getDocument: () => KnowledgeDocument;
+  } = {
     listDocuments: () => ({
       list: [docListItemWithRelations],
-      nextCursor: null,
+      total: 1,
+      page: 1,
+      pageSize: 20,
     }),
     getDocument: () => docWithRelations,
   };
@@ -610,6 +622,11 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
       .set('Authorization', auth)
       .expect(200);
     expect(JSON.stringify(docs.body)).not.toContain('SENTINEL');
+    // 钉住列表的 envelope 键集：契约是页码分页的 {list,total,page,pageSize}，无 nextCursor。
+    // （桩的类型已从 DocumentListResultDto 派生，这条断言钉的是**真实响应**，不是桩。）
+    expect(
+      Object.keys((docs.body as ApiBody<Record<string, unknown>>).data).sort(),
+    ).toEqual(['list', 'page', 'pageSize', 'total'].sort());
     const docItem = (docs.body as ApiBody<{ list: Record<string, unknown>[] }>)
       .data.list[0];
     expect(docItem).not.toHaveProperty('knowledgeBase');

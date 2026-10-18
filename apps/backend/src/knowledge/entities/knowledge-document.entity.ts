@@ -17,7 +17,8 @@ import { KnowledgeBase } from './knowledge-base.entity.js';
  * 索引由下面的 `@Index` 声明——**实体是 schema 的唯一来源**，迁移由 `migration:generate`
  * 从实体产出（改这里 → 生成迁移 → `db:migrate`），不手写 DDL。
  *
- * `(knowledge_base_id, created_at, id)` 同时服务知识库维度下的 keyset 分页：
+ * `(knowledge_base_id, created_at, id)` 同时服务知识库维度下的**页码分页**（详情页文件表格）：
+ * `ORDER BY created_at DESC, id DESC` 的 OFFSET 扫描同样由它提供；
  * `@Index` 只能表达 ASC，但 `ORDER BY created_at DESC, id DESC` 由 Postgres 的
  * 反向索引扫描满足（与 knowledge_bases 的索引同理），无需建成 DESC。
  */
@@ -77,8 +78,9 @@ export class KnowledgeDocument {
   content: string | null;
 
   @ApiProperty({ description: '创建时间' })
-  // 毫秒对齐：keyset 游标是毫秒精度（JS Date 的固有精度），列默认值若落到微秒，
-  // `(created_at, id) < (:cursorTs, :cursorId)` 会在同一毫秒内整批跳行。
+  // 毫秒对齐：与 knowledge_bases 的 created_at 同精度，避免同一实体族在时间列上出现两种精度；
+  // 本表当前只有页码分页（不需要游标精度），但精度一旦不一致，将来把 keyset 分页复用到这里时
+  // `(created_at, id) < (:cursorTs, :cursorId)` 会在同一毫秒内整批跳行——改精度要连带改数据。
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',
