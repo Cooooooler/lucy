@@ -38,7 +38,7 @@ async function deleteTestUserData(
   await dataSource.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
-describe('Knowledge keyset pagination & serialization (e2e)', () => {
+describe('Knowledge pagination (keyset + page) & serialization (e2e)', () => {
   let app: INestApplication<Server>;
   let server: Server;
   let dataSource: DataSource;
@@ -535,9 +535,18 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
   /**
    * 文档端点桩：形状必须与真实契约一致（页码分页的 `{ list, total, page, pageSize }`）。
    * 之前这里留着旧 envelope 的 `nextCursor`，既与契约不符、也让「列表响应形状」在这条
-   * 路径上无人校验（桩是无类型标注的字面量，编译器拦不住）。
+   * 路径上无人校验。现在给返回类型显式标注：envelope 多一个/少一个键都会在编译期报
+   * excess property，比只靠运行时断言更早、也覆盖其它复用点。
    */
-  const docStub = {
+  const docStub: {
+    listDocuments: () => {
+      list: KnowledgeDocument[];
+      total: number;
+      page: number;
+      pageSize: number;
+    };
+    getDocument: () => KnowledgeDocument;
+  } = {
     listDocuments: () => ({
       list: [docListItemWithRelations],
       total: 1,

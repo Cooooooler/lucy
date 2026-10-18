@@ -78,8 +78,9 @@ export class KnowledgeDocument {
   content: string | null;
 
   @ApiProperty({ description: '创建时间' })
-  // 毫秒对齐：keyset 游标是毫秒精度（JS Date 的固有精度），列默认值若落到微秒，
-  // `(created_at, id) < (:cursorTs, :cursorId)` 会在同一毫秒内整批跳行。
+  // 毫秒对齐：与 knowledge_bases 的 created_at 同精度，避免同一实体族在时间列上出现两种精度；
+  // 本表当前只有页码分页（不需要游标精度），但精度一旦不一致，将来把 keyset 分页复用到这里时
+  // `(created_at, id) < (:cursorTs, :cursorId)` 会在同一毫秒内整批跳行——改精度要连带改数据。
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',
