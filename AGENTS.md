@@ -99,7 +99,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 | 反馈 | 位置 | 判读 |
 | --- | --- | --- |
 | CI（Build：lint / typecheck / 各包 test+coverage） | Actions `Build` | 全部 job 绿 |
-| Sonar 质量门禁 | SonarCloud 检查 / `get_project_quality_gate_status` | 本仓唯一会红的条件是 **new_coverage ≥ 80** |
+| Sonar 质量门禁 | SonarCloud 检查 / `get_project_quality_gate_status` | 本仓**会红的条件有两个**：**new_coverage ≥ 80**，以及 **new_duplicated_lines_density ≤ 3**（重复率的检测范围见 `sonar-project.properties` 的 `sonar.cpd.exclusions`——测试文件与后端 DTO 不参与重复率，但它们仍参与代码规范/漏洞扫描） |
 | 技能评审 | PR **会话评论**（不是行内 review thread） | **仅手动触发**（PR 里评论 `/skill-review`）后才有，未触发时该行恒为空；`gh api repos/<owner>/<repo>/issues/<n>/comments --jq '.[-1].body'` 读**最新一条**，并核对其「评审 commit」是否等于当前 head |
 
 要点：
@@ -254,6 +254,7 @@ WebStorm IDE 已接入 MCP。当 WebStorm 可用时，**执行类操作优先走
 - **分支 vs PR 上下文**：长/短命分支分析用 `branch`（可用 `list_branches` 发现，git 分支名也可用）；PR 分析用 `pullRequest`（key 来自 `list_pull_requests`，**绝不能传 git 分支名**）。两者不可同时传；都省略则查 main 分支。
 - **项目 key 解析**：直接使用 `Cooooooler_lucy`，无需搜索；不确定时再用 `search_my_sonarqube_projects`。
 - 修改代码后、提交/合并前，可先查质量门禁与新增 issue，避免引入回归。
+- **重复率只统计生产代码的「业务重复」**：`sonar-project.properties` 的 `sonar.cpd.exclusions` 把 migrations、测试文件（`*.spec.ts` / `*.test.ts` / `*.test.tsx`）与后端 `**/dto/**` 排除在 CPD 之外。测试的夹具与断言模板、以及「允许式白名单」DTO 的平铺字段声明天然成片重复，对它们设门槛只会逼出为过门禁而写的抽象；这份排除**不影响**代码规范、漏洞/安全热点与覆盖率（覆盖率另有 `sonar.coverage.exclusions`）。新增此类「结构性重复」的目录时，往 `sonar.cpd.exclusions` 里补一条并写清理由。
 
 ### antd MCP（Ant Design 官方 API 查询）
 
