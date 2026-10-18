@@ -20,6 +20,8 @@ import { Route as LayoutKnowledgeRouteImport } from './routes/_layout/knowledge'
 import { Route as LayoutUsersRouteImport } from './routes/_layout/users'
 import { Route as LayoutIntegrationIndexRouteImport } from './routes/_layout/integration/index'
 import { Route as LayoutIntegrationModelProviderRouteImport } from './routes/_layout/integration/model-provider'
+import { Route as LayoutKnowledgeIndexRouteImport } from './routes/_layout/knowledge/index'
+import { Route as LayoutKnowledgeKbIdRouteImport } from './routes/_layout/knowledge/$kbId'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/_auth',
@@ -75,6 +77,16 @@ const LayoutIntegrationModelProviderRoute =
     path: '/model-provider',
     getParentRoute: () => LayoutIntegrationRoute,
   } as any)
+const LayoutKnowledgeIndexRoute = LayoutKnowledgeIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => LayoutKnowledgeRoute,
+} as any)
+const LayoutKnowledgeKbIdRoute = LayoutKnowledgeKbIdRouteImport.update({
+  id: '/$kbId',
+  path: '/$kbId',
+  getParentRoute: () => LayoutKnowledgeRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof LayoutIndexRoute
@@ -82,20 +94,23 @@ export interface FileRoutesByFullPath {
   '/register': typeof AuthRegisterRoute
   '/chat': typeof LayoutChatRoute
   '/integration': typeof LayoutIntegrationRouteWithChildren
-  '/knowledge': typeof LayoutKnowledgeRoute
+  '/knowledge': typeof LayoutKnowledgeRouteWithChildren
   '/users': typeof LayoutUsersRoute
   '/integration/model-provider': typeof LayoutIntegrationModelProviderRoute
+  '/knowledge/$kbId': typeof LayoutKnowledgeKbIdRoute
   '/integration/': typeof LayoutIntegrationIndexRoute
+  '/knowledge/': typeof LayoutKnowledgeIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof LayoutIndexRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
   '/chat': typeof LayoutChatRoute
-  '/knowledge': typeof LayoutKnowledgeRoute
   '/users': typeof LayoutUsersRoute
   '/integration/model-provider': typeof LayoutIntegrationModelProviderRoute
+  '/knowledge/$kbId': typeof LayoutKnowledgeKbIdRoute
   '/integration': typeof LayoutIntegrationIndexRoute
+  '/knowledge': typeof LayoutKnowledgeIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -105,11 +120,13 @@ export interface FileRoutesById {
   '/_auth/register': typeof AuthRegisterRoute
   '/_layout/chat': typeof LayoutChatRoute
   '/_layout/integration': typeof LayoutIntegrationRouteWithChildren
-  '/_layout/knowledge': typeof LayoutKnowledgeRoute
+  '/_layout/knowledge': typeof LayoutKnowledgeRouteWithChildren
   '/_layout/users': typeof LayoutUsersRoute
   '/_layout/': typeof LayoutIndexRoute
   '/_layout/integration/model-provider': typeof LayoutIntegrationModelProviderRoute
+  '/_layout/knowledge/$kbId': typeof LayoutKnowledgeKbIdRoute
   '/_layout/integration/': typeof LayoutIntegrationIndexRoute
+  '/_layout/knowledge/': typeof LayoutKnowledgeIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -122,17 +139,20 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/users'
     | '/integration/model-provider'
+    | '/knowledge/$kbId'
     | '/integration/'
+    | '/knowledge/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/login'
     | '/register'
     | '/chat'
-    | '/knowledge'
     | '/users'
     | '/integration/model-provider'
+    | '/knowledge/$kbId'
     | '/integration'
+    | '/knowledge'
   id:
     | '__root__'
     | '/_auth'
@@ -145,7 +165,9 @@ export interface FileRouteTypes {
     | '/_layout/users'
     | '/_layout/'
     | '/_layout/integration/model-provider'
+    | '/_layout/knowledge/$kbId'
     | '/_layout/integration/'
+    | '/_layout/knowledge/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -232,6 +254,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutIntegrationModelProviderRouteImport
       parentRoute: typeof LayoutIntegrationRoute
     }
+    '/_layout/knowledge/': {
+      id: '/_layout/knowledge/'
+      path: '/'
+      fullPath: '/knowledge/'
+      preLoaderRoute: typeof LayoutKnowledgeIndexRouteImport
+      parentRoute: typeof LayoutKnowledgeRoute
+    }
+    '/_layout/knowledge/$kbId': {
+      id: '/_layout/knowledge/$kbId'
+      path: '/$kbId'
+      fullPath: '/knowledge/$kbId'
+      preLoaderRoute: typeof LayoutKnowledgeKbIdRouteImport
+      parentRoute: typeof LayoutKnowledgeRoute
+    }
   }
 }
 
@@ -260,10 +296,24 @@ const LayoutIntegrationRouteChildren: LayoutIntegrationRouteChildren = {
 const LayoutIntegrationRouteWithChildren =
   LayoutIntegrationRoute._addFileChildren(LayoutIntegrationRouteChildren)
 
+interface LayoutKnowledgeRouteChildren {
+  LayoutKnowledgeKbIdRoute: typeof LayoutKnowledgeKbIdRoute
+  LayoutKnowledgeIndexRoute: typeof LayoutKnowledgeIndexRoute
+}
+
+const LayoutKnowledgeRouteChildren: LayoutKnowledgeRouteChildren = {
+  LayoutKnowledgeKbIdRoute: LayoutKnowledgeKbIdRoute,
+  LayoutKnowledgeIndexRoute: LayoutKnowledgeIndexRoute,
+}
+
+const LayoutKnowledgeRouteWithChildren = LayoutKnowledgeRoute._addFileChildren(
+  LayoutKnowledgeRouteChildren,
+)
+
 interface LayoutRouteChildren {
   LayoutChatRoute: typeof LayoutChatRoute
   LayoutIntegrationRoute: typeof LayoutIntegrationRouteWithChildren
-  LayoutKnowledgeRoute: typeof LayoutKnowledgeRoute
+  LayoutKnowledgeRoute: typeof LayoutKnowledgeRouteWithChildren
   LayoutUsersRoute: typeof LayoutUsersRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
 }
@@ -271,7 +321,7 @@ interface LayoutRouteChildren {
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutChatRoute: LayoutChatRoute,
   LayoutIntegrationRoute: LayoutIntegrationRouteWithChildren,
-  LayoutKnowledgeRoute: LayoutKnowledgeRoute,
+  LayoutKnowledgeRoute: LayoutKnowledgeRouteWithChildren,
   LayoutUsersRoute: LayoutUsersRoute,
   LayoutIndexRoute: LayoutIndexRoute,
 }

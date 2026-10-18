@@ -190,4 +190,29 @@ describe('KnowledgeCard', () => {
     // 编辑不涉及写操作，保持可用
     expect(screen.getByRole('button', { name: '编辑知识库' })).toBeEnabled();
   });
+
+  it('openLink 透传给 CardShell：整卡可点，卡片本身不认识路由', () => {
+    renderCard({
+      openLink: (
+        <a
+          href="/knowledge/kb1"
+          aria-label="打开知识库：产品文档"
+          className="absolute inset-0"
+        >
+          {null}
+        </a>
+      ),
+    });
+
+    const link = screen.getByRole('link', { name: '打开知识库：产品文档' });
+    // 热区是卡片内第一个子元素（角标与操作栏在其后，绘制在上）
+    expect(link.parentElement?.firstElementChild).toBe(link);
+    // 既有操作按钮不受影响
+    expect(screen.getByRole('button', { name: '编辑知识库' })).toBeEnabled();
+  });
+
+  it('未传 openLink 时不渲染热区（保持卡片可复用）', () => {
+    const { container } = renderCard();
+    expect(container.querySelectorAll('a')).toHaveLength(0);
+  });
 });

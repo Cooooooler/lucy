@@ -8,9 +8,15 @@ import {
   HeartOutlined,
   LockOutlined,
 } from '@/components/icons.tsx';
+import type { ReactNode } from 'react';
 
 type KnowledgeCardProps = {
   kb: KnowledgeBase;
+  /**
+   * 「打开详情」热区：由**路由**注入（卡片不认识 `/knowledge/$kbId`），
+   * 与 mutation 提升到路由同一分工。内容应为带 `absolute inset-0` 的真锚点，见 `CardShell.openLink`。
+   */
+  openLink?: ReactNode;
   /** 各操作只上报意图：mutation 与提示由路由统一持有（见路由的 pendingIds） */
   onEdit?: (kb: KnowledgeBase) => void;
   onToggleLike: (kb: KnowledgeBase) => void;
@@ -32,6 +38,7 @@ type KnowledgeCardProps = {
  */
 export const KnowledgeCard = ({
   kb,
+  openLink,
   onEdit,
   onToggleLike,
   onToggleVisibility,
@@ -45,6 +52,7 @@ export const KnowledgeCard = ({
   return (
     <CardShell
       title={kb.name}
+      openLink={openLink}
       /* 公私状态：右上角三角角标（`clip-path` 沿对角线切出，实色 + 白色图标）。
          形状（地球 / 锁）与配色（青 / 灰）双重区分——只靠 lock/unlock 的锁梁开口，
          在 14px 白字下几乎看不出差别。角标盖住标题行右侧，故标题行留出 pr-10（见 CardShell） */
