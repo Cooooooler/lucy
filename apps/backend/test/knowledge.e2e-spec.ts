@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
+import type { DocumentListResultDto } from '../src/knowledge/dto/knowledge-list-result.dto.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
@@ -533,17 +534,13 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
   };
 
   /**
-   * 文档端点桩：形状必须与真实契约一致（页码分页的 `{ list, total, page, pageSize }`）。
-   * 之前这里留着旧 envelope 的 `nextCursor`，既与契约不符、也让「列表响应形状」在这条
-   * 路径上无人校验。现在给返回类型显式标注：envelope 多一个/少一个键都会在编译期报
-   * excess property，比只靠运行时断言更早、也覆盖其它复用点。
+   * 文档端点桩：返回类型**从契约派生**（`DocumentListResultDto` 去掉 list 元素类型），
+   * 而不是手抄一份字面量——契约增删 envelope 键时会在编译期打断这里，桩不会静默变成过期副本。
+   * list 元素仍用实体，因为本用例要验证实体上的内部关系被 `@Exclude` 剔除。
    */
   const docStub: {
-    listDocuments: () => {
+    listDocuments: () => Omit<DocumentListResultDto, 'list'> & {
       list: KnowledgeDocument[];
-      total: number;
-      page: number;
-      pageSize: number;
     };
     getDocument: () => KnowledgeDocument;
   } = {
@@ -625,8 +622,8 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
       .set('Authorization', auth)
       .expect(200);
     expect(JSON.stringify(docs.body)).not.toContain('SENTINEL');
-    // 先钉住列表的 envelope 形状：契约是页码分页的 {list,total,page,pageSize}，无 nextCursor。
-    // 桩是无类型标注的字面量（编译器拦不住），少了这条断言，桩退回旧形状也不会红。
+    // 钉住列表的 envelope 键集：契约是页码分页的 {list,total,page,pageSize}，无 nextCursor。
+    // （桩的类型已从 DocumentListResultDto 派生，这条断言钉的是**真实响应**，不是桩。）
     expect(
       Object.keys((docs.body as ApiBody<Record<string, unknown>>).data).sort(),
     ).toEqual(['list', 'page', 'pageSize', 'total'].sort());
