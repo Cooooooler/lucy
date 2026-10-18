@@ -927,6 +927,14 @@ export interface components {
             fileId: string;
             /** @description 标题 */
             title: string;
+            /** @description 原始文件名 */
+            originalName: string;
+            /** @description 扩展名（含点，如 .pdf） */
+            ext: string;
+            /** @description MIME 类型 */
+            mime: string;
+            /** @description 文件大小（字节） */
+            size: number;
             /** @description 解析出的纯文本 */
             content: string | null;
             /**
@@ -949,6 +957,14 @@ export interface components {
             fileId: string;
             /** @description 标题 */
             title: string;
+            /** @description 原始文件名 */
+            originalName: string;
+            /** @description 扩展名（含点，如 .pdf） */
+            ext: string;
+            /** @description MIME 类型 */
+            mime: string;
+            /** @description 文件大小（字节） */
+            size: number;
             /**
              * Format: date-time
              * @description 创建时间
@@ -963,8 +979,21 @@ export interface components {
         DocumentListResultDto: {
             /** @description 文档列表（不含解析全文 content） */
             list: components["schemas"]["KnowledgeDocumentListItemDto"][];
-            /** @description 下一页游标；null 表示已到末页 */
-            nextCursor: string | null;
+            /**
+             * @description 总条数
+             * @example 0
+             */
+            total: number;
+            /**
+             * @description 当前页码
+             * @example 1
+             */
+            page: number;
+            /**
+             * @description 每页条数
+             * @example 20
+             */
+            pageSize: number;
         };
         HealthResultDto: {
             /**
@@ -1805,10 +1834,10 @@ export interface operations {
     KnowledgeController_listDocuments: {
         parameters: {
             query?: {
-                /** @description 分页游标（上一页返回的 nextCursor），省略表示第一页 */
-                cursor?: string;
+                /** @description 页码 */
+                page?: number;
                 /** @description 每页条数 */
-                limit?: number;
+                pageSize?: number;
                 /** @description 匹配标题/内容的关键字（最多 100 字符） */
                 keyword?: string;
             };

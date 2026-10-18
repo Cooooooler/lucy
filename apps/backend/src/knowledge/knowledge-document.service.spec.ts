@@ -6,17 +6,14 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, In } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
-import { decodeCursor, encodeCursor } from '../common/pagination/cursor.js';
-import { PaginationModule } from '../common/pagination/pagination.module.js';
+import { MAX_PAGE_SIZE } from '../common/pagination/pagination.constants.js';
 import {
   DOC_ID,
   makeDoc,
   makeDocQb,
+  makeFile,
   makeKb,
   makeStored,
-  OTHER_ID,
-  sqlOf,
-  uuid,
 } from '../test/knowledge.fixtures.js';
 import {
   KnowledgeBase,
@@ -86,14 +83,11 @@ describe('KnowledgeDocumentService', () => {
 
   /**
    * 经 DI 容器装配服务：provider 是否注册、注入 token 是否正确由容器判定。
-   * `KeysetPaginator` 刻意不在这里 provide，而是走 `imports: [PaginationModule]`：
-   * 与生产一致的模块路径才会验证 `PaginationModule` 真的 exports 了它。
    */
   const buildService = async (
     configService: ConfigService = config,
   ): Promise<KnowledgeDocumentService> => {
     const moduleRef = await Test.createTestingModule({
-      imports: [PaginationModule],
       providers: [
         KnowledgeDocumentService,
         { provide: AppLogger, useValue: logger },
@@ -188,19 +182,24 @@ describe('KnowledgeDocumentService', () => {
     });
     vi.mocked(extractContent).mockResolvedValue('正文');
     fileService.save.mockResolvedValue(makeStored());
-    fileRepo.save.mockResolvedValue({ id: 'f1' });
+    // 与 TypeORM 行为一致：save 返回带全部列的实体（上传响应要把文件元数据回填给前端）
+    fileRepo.save.mockResolvedValue(makeFile({ size: 4 }));
     docRepo.save.mockResolvedValue(makeDoc({ content: '正文' }));
     const uploaded = await docService.addDocument('u1', 'kb1', {
       buffer: Buffer.from('%PDF'),
       originalname: 'a.pdf',
       size: 4,
     } as never);
-    // 上传返回详情契约视图（与 getDocument 同形，含 content），不是实体本身
+    // 上传返回详情契约视图（与 getDocument 同形，含 content 与文件元数据），不是实体本身
     expect(uploaded).toEqual({
       id: DOC_ID,
       knowledgeBaseId: 'kb1',
       fileId: 'f1',
       title: 'a',
+      originalName: 'a.pdf',
+      ext: '.pdf',
+      mime: 'application/pdf',
+      size: 4,
       content: '正文',
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -338,30 +337,53 @@ describe('KnowledgeDocumentService', () => {
     );
   });
 
-  it('listDocuments 公开库非属主可读', async () => {
+  it('listDocuments 公开库非属主可读，按页码分页返回 total', async () => {
     kbRepo.findOne.mockResolvedValue(
       makeKb({ visibility: KnowledgeBaseVisibility.Public }),
     );
     const qb = makeDocQb();
+    qb.getManyAndCount.mockResolvedValue([[makeDoc()], 42]);
     docRepo.createQueryBuilder.mockReturnValue(qb);
-    const result = await docService.listDocuments('u2', 'kb1', {});
+
+    const result = await docService.listDocuments('u2', 'kb1', {
+      page: 3,
+      pageSize: 5,
+    });
+
     expect(qb.where).toHaveBeenCalledWith('d.knowledgeBaseId = :kbId', {
       kbId: 'kb1',
     });
-    expect(qb.take).toHaveBeenCalledWith(21);
+    // OFFSET = (page - 1) * pageSize
+    expect(qb.skip).toHaveBeenCalledWith(10);
+    expect(qb.take).toHaveBeenCalledWith(5);
+    expect(qb.orderBy).toHaveBeenCalledWith('d.created_at', 'DESC');
+    expect(qb.addOrderBy).toHaveBeenCalledWith('d.id', 'DESC');
+    expect(result).toMatchObject({ total: 42, page: 3, pageSize: 5 });
     expect(result.list).toEqual([
       expect.objectContaining({ id: DOC_ID, title: 'a' }),
     ]);
-    expect(result.nextCursor).toBeNull();
   });
 
-  it('listDocuments 做列投影并剔除 content：列表不返回解析全文', async () => {
+  it('listDocuments 归一化非法页码/每页条数（pageSize 越界不会变成全量扫描）', async () => {
+    kbRepo.findOne.mockResolvedValue(makeKb());
+    const qb = makeDocQb();
+    docRepo.createQueryBuilder.mockReturnValue(qb);
+
+    await docService.listDocuments('u1', 'kb1', { page: 0, pageSize: 1e6 });
+
+    expect(qb.skip).toHaveBeenCalledWith(0);
+    expect(qb.take).toHaveBeenCalledWith(MAX_PAGE_SIZE);
+  });
+
+  it('listDocuments 做列投影并 join files：不返回解析全文，带文件元数据', async () => {
     kbRepo.findOne.mockResolvedValue(makeKb());
     const qb = makeDocQb();
     docRepo.createQueryBuilder.mockReturnValue(qb);
 
     const result = await docService.listDocuments('u1', 'kb1', {});
 
+    // file_id 是 NOT NULL 外键（onDelete CASCADE），内连接不会丢行；文件元数据随列表一起取
+    expect(qb.innerJoin).toHaveBeenCalledWith('d.file', 'f');
     // 显式列投影：content（text，可达 MB 级）不进 SELECT
     const selected = qb.select.mock.calls[0][0] as string[];
     expect(selected).toEqual([
@@ -373,61 +395,34 @@ describe('KnowledgeDocumentService', () => {
       'd.updatedAt',
     ]);
     expect(selected).not.toContain('d.content');
-    // 响应同样不含 content，只剩列表页需要的字段
+    expect(qb.addSelect).toHaveBeenCalledWith([
+      'f.originalName',
+      'f.ext',
+      'f.mime',
+      'f.size',
+    ]);
+    // 响应同样不含 content，只剩列表页需要的字段 + 文件元数据
     expect(result.list[0]).not.toHaveProperty('content');
     expect(
       Object.keys(result.list[0]).sort((a, b) => a.localeCompare(b)),
     ).toEqual([
       'createdAt',
+      'ext',
       'fileId',
       'id',
       'knowledgeBaseId',
+      'mime',
+      'originalName',
+      'size',
       'title',
       'updatedAt',
     ]);
-  });
-
-  it('listDocuments 带 cursor：解码为行比较 keyset 条件（排序键为 created_at）', async () => {
-    kbRepo.findOne.mockResolvedValue(makeKb());
-    const qb = makeDocQb();
-    docRepo.createQueryBuilder.mockReturnValue(qb);
-    const cursor = encodeCursor(
-      new Date('2026-01-01T00:00:00.000Z'),
-      OTHER_ID,
-      'createdAt',
-    );
-    await docService.listDocuments('u1', 'kb1', { cursor, limit: 5 });
-    expect(qb.take).toHaveBeenCalledWith(6);
-    expect(qb.orderBy).toHaveBeenCalledWith('d.created_at', 'DESC');
-    expect(qb.addOrderBy).toHaveBeenCalledWith('d.id', 'DESC');
-    expect(qb.andWhere).toHaveBeenCalledWith(
-      '(d.created_at, d.id) < (:cursorTs, :cursorId)',
-      {
-        cursorTs: new Date('2026-01-01T00:00:00.000Z'),
-        cursorId: OTHER_ID,
-      },
-    );
-    // 毫秒截断会包裹排序列与过滤列，使索引失效
-    expect(
-      sqlOf(qb.where, qb.andWhere, qb.orderBy, qb.addOrderBy),
-    ).not.toContain('date_trunc');
-  });
-
-  it('listDocuments 结果多于 limit 时游标编码基于 createdAt', async () => {
-    kbRepo.findOne.mockResolvedValue(makeKb());
-    const qb = makeDocQb();
-    const rows = Array.from({ length: 3 }, (_, i) =>
-      makeDoc({ id: uuid(i), createdAt: new Date(2026, 0, 1, 0, 0, i) }),
-    );
-    qb.getMany.mockResolvedValue(rows);
-    docRepo.createQueryBuilder.mockReturnValue(qb);
-    const result = await docService.listDocuments('u1', 'kb1', { limit: 2 });
-    expect(result.list).toHaveLength(2);
-    const decoded = decodeCursor(result.nextCursor!, 'createdAt');
-    expect(decoded.id).toBe(uuid(1));
-    expect(decoded.timestamp.toISOString()).toBe(
-      rows[1].createdAt.toISOString(),
-    );
+    expect(result.list[0]).toMatchObject({
+      originalName: 'a.pdf',
+      ext: '.pdf',
+      mime: 'application/pdf',
+      size: 1024,
+    });
   });
 
   it('listDocuments 带 keyword 追加 ILIKE 过滤', async () => {
@@ -457,7 +452,7 @@ describe('KnowledgeDocumentService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('getDocument 属主可读，返回详情契约视图（含 content，非实体）', async () => {
+  it('getDocument 属主可读，返回详情契约视图（含 content 与文件元数据，非实体）', async () => {
     kbRepo.findOne.mockResolvedValue(makeKb());
     docRepo.findOne.mockResolvedValue(makeDoc({ content: '正文' }));
     const result = await docService.getDocument('u1', 'kb1', 'd1');
@@ -467,12 +462,18 @@ describe('KnowledgeDocumentService', () => {
       knowledgeBaseId: 'kb1',
       fileId: 'f1',
       title: 'a',
+      originalName: 'a.pdf',
+      ext: '.pdf',
+      mime: 'application/pdf',
+      size: 1024,
       content: '正文',
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     });
+    // 详情契约含文件元数据：必须显式加载 file 关系，否则文件名会静默变成空串
     expect(docRepo.findOne).toHaveBeenCalledWith({
       where: { id: 'd1', knowledgeBaseId: 'kb1' },
+      relations: { file: true },
     });
   });
 

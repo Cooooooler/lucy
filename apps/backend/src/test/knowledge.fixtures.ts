@@ -1,4 +1,5 @@
 import { vi, type Mock } from 'vitest';
+import type { BackendFileEntity } from '../knowledge/entities/backend-file.entity.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
@@ -34,12 +35,31 @@ export const makeKb = (over: Partial<KnowledgeBase> = {}): KnowledgeBase => ({
   ...over,
 });
 
+/** 文件元数据实体夹具：文档列表/详情契约的 `originalName`/`ext`/`mime`/`size` 来源 */
+export const makeFile = (
+  over: Partial<BackendFileEntity> = {},
+): BackendFileEntity => ({
+  id: 'f1',
+  ownerId: 'u1',
+  originalName: 'a.pdf',
+  ext: '.pdf',
+  mime: 'application/pdf',
+  size: 1024,
+  key: 'kb-e2e/f1.pdf',
+  hash: 'a'.repeat(64),
+  storage: 'local',
+  createdAt: EPOCH,
+  updatedAt: EPOCH,
+  ...over,
+});
+
 export const makeDoc = (
   over: Partial<KnowledgeDocument> = {},
 ): KnowledgeDocument => ({
   id: DOC_ID,
   knowledgeBaseId: 'kb1',
   fileId: 'f1',
+  file: makeFile(),
   title: 'a',
   content: null,
   createdAt: EPOCH,
@@ -188,37 +208,44 @@ export const makeKbQb = (): KbQb => {
   return qb;
 };
 
-/** 文档列表用的 QueryBuilder stub 形状 */
+/** 文档列表用的 QueryBuilder stub 形状（页码分页：skip/take + getManyAndCount） */
 type DocQb = {
-  expressionMap: { mainAlias: ReturnType<typeof aliasStub> };
   select: Mock;
+  addSelect: Mock;
+  innerJoin: Mock;
   where: Mock;
   andWhere: Mock;
   orderBy: Mock;
   addOrderBy: Mock;
+  skip: Mock;
   take: Mock;
-  getMany: Mock;
+  getManyAndCount: Mock;
 };
 
 /** 可链式 QueryBuilder mock：供文档 list 用（docRepo） */
 export const makeDocQb = (): DocQb => {
   const qb = {
-    expressionMap: { mainAlias: aliasStub('d') },
     select: vi.fn(),
+    addSelect: vi.fn(),
+    innerJoin: vi.fn(),
     where: vi.fn(),
     andWhere: vi.fn(),
     orderBy: vi.fn(),
     addOrderBy: vi.fn(),
+    skip: vi.fn(),
     take: vi.fn(),
-    getMany: vi.fn(),
+    getManyAndCount: vi.fn(),
   };
   qb.select.mockReturnValue(qb);
+  qb.addSelect.mockReturnValue(qb);
+  qb.innerJoin.mockReturnValue(qb);
   qb.where.mockReturnValue(qb);
   qb.andWhere.mockReturnValue(qb);
   qb.orderBy.mockReturnValue(qb);
   qb.addOrderBy.mockReturnValue(qb);
+  qb.skip.mockReturnValue(qb);
   qb.take.mockReturnValue(qb);
-  qb.getMany.mockResolvedValue([makeDoc()]);
+  qb.getManyAndCount.mockResolvedValue([[makeDoc()], 1]);
   return qb;
 };
 

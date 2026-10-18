@@ -15,7 +15,7 @@ import {
   useDeleteDocument,
   useDeleteKnowledgeBase,
   useDocument,
-  useInfiniteDocumentList,
+  useDocumentList,
   useInfiniteKnowledgeBaseList,
   useKnowledgeBase,
   useLikeKnowledgeBase,
@@ -56,7 +56,7 @@ function makeBase(overrides: Partial<KnowledgeBase> = {}): KnowledgeBase {
   };
 }
 
-/** 文档数据工厂（详情/上传返回，含解析全文） */
+/** 文档数据工厂（详情/上传返回，含解析全文与文件元数据） */
 function makeDoc(
   overrides: Partial<KnowledgeDocument> = {},
 ): KnowledgeDocument {
@@ -65,6 +65,10 @@ function makeDoc(
     knowledgeBaseId: 'kb1',
     fileId: 'f1',
     title: 'intro',
+    originalName: 'intro.md',
+    ext: '.md',
+    mime: 'text/markdown',
+    size: 1024,
     content: null,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
@@ -72,7 +76,7 @@ function makeDoc(
   };
 }
 
-/** 文档**列表项**工厂：列表契约不含 content（服务端做列投影） */
+/** 文档**列表项**工厂：不含 content（服务端做列投影），含文件元数据 */
 function makeDocListItem(
   overrides: Partial<KnowledgeDocumentListItem> = {},
 ): KnowledgeDocumentListItem {
@@ -81,6 +85,10 @@ function makeDocListItem(
     knowledgeBaseId: 'kb1',
     fileId: 'f1',
     title: 'intro',
+    originalName: 'intro.md',
+    ext: '.md',
+    mime: 'text/markdown',
+    size: 1024,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
     ...overrides,
@@ -612,41 +620,39 @@ describe('useLikeKnowledgeBase 乐观计数', () => {
   });
 });
 
-describe('useInfiniteDocumentList', () => {
+describe('useDocumentList', () => {
   it('kbId 为空时禁用请求', () => {
-    const { result } = renderHook(() => useInfiniteDocumentList(undefined), {
+    const { result } = renderHook(() => useDocumentList(undefined, {}), {
       wrapper: createWrapper(),
     });
     expect(result.current.isPending).toBe(true);
     expect(api.listDocumentsApi).not.toHaveBeenCalled();
   });
 
-  it('以游标请求首页并按 nextCursor 翻页', async () => {
-    api.listDocumentsApi.mockImplementation(
-      (_kbId: string, query: { cursor?: string } = {}) =>
-        Promise.resolve(
-          query.cursor
-            ? cursorPage([makeDocListItem({ id: 'd2' })], null)
-            : cursorPage([makeDocListItem({ id: 'd1' })], 'dc1'),
-        ),
-    );
-    const { result } = renderHook(() => useInfiniteDocumentList('kb1'), {
-      wrapper: createWrapper(),
+  it('按页码请求并返回 total；分页参数进 queryKey（换页不命中上一页缓存）', async () => {
+    api.listDocumentsApi.mockResolvedValue({
+      list: [makeDocListItem()],
+      total: 42,
+      page: 2,
+      pageSize: 20,
     });
+    const client = createTestQueryClient();
+    const { result } = renderHook(
+      () => useDocumentList('kb1', { page: 2, pageSize: 20, keyword: 'x' }),
+      { wrapper: createWrapperWithClient(client) },
+    );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(api.listDocumentsApi).toHaveBeenCalledWith('kb1', {
-      limit: KNOWLEDGE_PAGE_SIZE,
-      cursor: undefined,
+      page: 2,
+      pageSize: 20,
+      keyword: 'x',
     });
-    await waitFor(() => expect(result.current.hasNextPage).toBe(true));
-    await act(async () => {
-      await result.current.fetchNextPage();
-    });
-    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
-    expect(api.listDocumentsApi).toHaveBeenLastCalledWith('kb1', {
-      limit: KNOWLEDGE_PAGE_SIZE,
-      cursor: 'dc1',
-    });
+    expect(result.current.data?.total).toBe(42);
+    expect(
+      client.getQueryData(
+        knowledgeKeys.documentList('kb1', { page: 1, pageSize: 20 }),
+      ),
+    ).toBeUndefined();
   });
 });
 

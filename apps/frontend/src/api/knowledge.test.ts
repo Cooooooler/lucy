@@ -55,6 +55,10 @@ function makeDocument(
     knowledgeBaseId: 'kb1',
     fileId: 'f1',
     title: 'intro',
+    originalName: 'intro.md',
+    ext: '.md',
+    mime: 'text/markdown',
+    size: 1024,
     content: null,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
@@ -62,7 +66,7 @@ function makeDocument(
   };
 }
 
-/** 列表项工厂：文档列表契约不含 content（服务端做列投影） */
+/** 列表项工厂：文档列表契约不含 content（服务端做列投影），但含文件元数据 */
 function makeDocumentListItem(
   overrides: Partial<KnowledgeDocumentListItem> = {},
 ): KnowledgeDocumentListItem {
@@ -71,6 +75,10 @@ function makeDocumentListItem(
     knowledgeBaseId: 'kb1',
     fileId: 'f1',
     title: 'intro',
+    originalName: 'intro.md',
+    ext: '.md',
+    mime: 'text/markdown',
+    size: 1024,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
     ...overrides,
@@ -179,17 +187,22 @@ describe('api/knowledge', () => {
     expect(new Headers(init.headers).get('Content-Type')).toBeNull();
   });
 
-  it('listDocumentsApi 携带游标/每页条数/关键字参数', async () => {
-    const data = { list: [makeDocumentListItem()], nextCursor: null };
+  it('listDocumentsApi 携带页码/每页条数/关键字参数', async () => {
+    const data = {
+      list: [makeDocumentListItem()],
+      total: 1,
+      page: 2,
+      pageSize: 20,
+    };
     fetchMock.mockResolvedValueOnce(okEnvelope(data));
     const result = await listDocumentsApi('kb1', {
-      limit: 20,
-      cursor: 'xyz',
+      page: 2,
+      pageSize: 20,
       keyword: 'hello',
     });
     expect(result).toEqual(data);
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/v1/knowledge/kb1/documents?limit=20&cursor=xyz&keyword=hello',
+      '/api/v1/knowledge/kb1/documents?page=2&pageSize=20&keyword=hello',
       expect.objectContaining({ method: 'GET' }),
     );
   });
