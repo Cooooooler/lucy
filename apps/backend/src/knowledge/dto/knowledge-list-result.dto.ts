@@ -1,4 +1,4 @@
-import type { CursorPageResult } from '@lucy/shared';
+import type { CursorPageResult, PageResult } from '@lucy/shared';
 import { ApiProperty } from '@nestjs/swagger';
 import { KnowledgeBaseVisibility } from '../entities/knowledge-base.entity.js';
 
@@ -66,10 +66,15 @@ export class KnowledgeListResultDto implements CursorPageResult<KnowledgeBaseIte
 /**
  * 文档列表项：同样是一份显式允许式白名单。
  *
- * 关键差异是刻意**不含 `content`**：它是解析出的纯文本，可达 MB 级，列表页只用标题/时间；
+ * 关键差异是刻意**不含 `content`**：它是解析出的纯文本，可达 MB 级，列表只用文件元信息；
  * `content` 只由 `GET /knowledge/:kbId/documents/:id` 详情接口返回。
- * 列表查询同时做了列投影（见 `KnowledgeService.listDocuments`），避免把整列读出来。
+ * 列表查询同时做了列投影（见 `KnowledgeDocumentService.listDocuments`），避免把整列读出来。
  * 这样一来「列表误带全文」不是靠记得加 `@Exclude()` 来避免，而是类型上就不存在。
+ *
+ * `originalName`/`ext`/`mime`/`size` 来自 `files` 表（查询 `innerJoin` 后投影而来）：
+ * 文件表格要文件名/类型/大小，逐个再查一次详情就是 N+1。
+ * 这四个字段在详情契约里**同样存在**——详情字段集 = 列表字段集 + content，
+ * 由 `scripts/gen-openapi.spec.ts` 钉住。
  */
 export class KnowledgeDocumentListItemDto {
   @ApiProperty({ description: '文档 ID' })
@@ -84,6 +89,18 @@ export class KnowledgeDocumentListItemDto {
   @ApiProperty({ description: '标题' })
   title: string;
 
+  @ApiProperty({ description: '原始文件名' })
+  originalName: string;
+
+  @ApiProperty({ description: '扩展名（含点，如 .pdf）' })
+  ext: string;
+
+  @ApiProperty({ description: 'MIME 类型' })
+  mime: string;
+
+  @ApiProperty({ description: '文件大小（字节）' })
+  size: number;
+
   @ApiProperty({ description: '创建时间' })
   createdAt: Date;
 
@@ -91,20 +108,22 @@ export class KnowledgeDocumentListItemDto {
   updatedAt: Date;
 }
 
-/** 文档列表响应：游标分页的 list + nextCursor（形状由共享 `CursorPageResult` 编译期约束） */
-export class DocumentListResultDto implements CursorPageResult<KnowledgeDocumentListItemDto> {
+/** 文档列表响应：页码分页（形状由共享 `PageResult` 编译期约束，与用户列表一致） */
+export class DocumentListResultDto implements PageResult<KnowledgeDocumentListItemDto> {
   @ApiProperty({
     description: '文档列表（不含解析全文 content）',
     type: () => [KnowledgeDocumentListItemDto],
   })
   list: KnowledgeDocumentListItemDto[];
 
-  @ApiProperty({
-    description: '下一页游标；null 表示已到末页',
-    type: String,
-    nullable: true,
-  })
-  nextCursor: string | null;
+  @ApiProperty({ description: '总条数', example: 0 })
+  total: number;
+
+  @ApiProperty({ description: '当前页码', example: 1 })
+  page: number;
+
+  @ApiProperty({ description: '每页条数', example: 20 })
+  pageSize: number;
 }
 
 /**
@@ -127,6 +146,18 @@ export class KnowledgeDocumentDetailDto {
 
   @ApiProperty({ description: '标题' })
   title: string;
+
+  @ApiProperty({ description: '原始文件名' })
+  originalName: string;
+
+  @ApiProperty({ description: '扩展名（含点，如 .pdf）' })
+  ext: string;
+
+  @ApiProperty({ description: 'MIME 类型' })
+  mime: string;
+
+  @ApiProperty({ description: '文件大小（字节）' })
+  size: number;
 
   @ApiProperty({
     description: '解析出的纯文本',

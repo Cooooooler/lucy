@@ -79,7 +79,7 @@ describe('KnowledgeController', () => {
   });
 
   it('listDocuments 转发 userId、kbId、query', async () => {
-    const query = { keyword: 'x' };
+    const query = { keyword: 'x', page: 1, pageSize: 20 };
     await controller.listDocuments(user, 'kb1', query);
     expect(documentService.listDocuments).toHaveBeenCalledWith(
       'u1',

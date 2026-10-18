@@ -19,7 +19,11 @@ import type {
   KnowledgeDocumentListItem,
   UpdateKnowledgeBaseRequest,
 } from '@/api/types';
-import type { KnowledgeListQuery } from '@lucy/shared';
+import type {
+  DocumentListQuery,
+  KnowledgeListQuery,
+  PageResult,
+} from '@lucy/shared';
 import type { QueryClient } from '@tanstack/react-query';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -44,7 +48,7 @@ export type KnowledgeListFilter = {
   visibility?: KnowledgeBaseVisibility;
 };
 
-/** 文档列表过滤条件 */
+/** 文档列表过滤条件（页码与每页条数由调用方给，这里只表达业务筛选） */
 export type DocumentListFilter = {
   keyword?: string;
 };
@@ -66,13 +70,12 @@ export const knowledgeKeys = {
   /** 某知识库文档列表的失效前缀（key 含 kbId，不误伤其它知识库） */
   documentListAll: (kbId: string) =>
     [...knowledgeKeys.documents(kbId), 'list'] as const,
-  documentList: (kbId: string, query: DocumentListQueryShape = {}) =>
+  /** 文档列表查询 key：携带页码/每页条数与关键字（与后端 PageQueryDto 参数同形） */
+  documentList: (kbId: string, query: DocumentListQuery = {}) =>
     [...knowledgeKeys.documentListAll(kbId), query] as const,
   document: (kbId: string, id: string) =>
     [...knowledgeKeys.documents(kbId), id] as const,
 };
-
-type DocumentListQueryShape = DocumentListFilter & { limit?: number };
 
 /** 知识库的列表前缀 + 详情 key：缓存操作只需这两个 */
 const baseCacheKeys = (id: string): ListCacheKeys => ({
@@ -295,22 +298,23 @@ export function useUnlikeKnowledgeBase() {
 // ==== 文档查询 ============================================================
 
 /**
- * 游标分页文档列表（无限滚动）。
- * 与知识库列表同策略（保留缓存、不在重挂载/重连时重放分页），但不做换筛选占位：
- * 文档列表嵌在某个知识库下，kbId 变更时整块内容本就该重取。
+ * 页码分页的文档列表（知识库详情页的文件表格用）。
+ *
+ * 与用户管理列表同一策略：`placeholderData` 保留上一页数据，翻页时不闪骨架；
+ * 30 秒内切路由复用缓存，上传/删除经 invalidate 立即刷新。
+ * kbId 或分页/筛选参数变化时 queryKey 整块变化，内容自然重取。
  */
-export function useInfiniteDocumentList(
+export function useDocumentList(
   kbId: string | undefined,
-  filter: DocumentListFilter = {},
-  limit = KNOWLEDGE_PAGE_SIZE,
+  query: DocumentListQuery = {},
 ) {
-  return useCursorList<KnowledgeDocumentListItem>({
-    queryKey: knowledgeKeys.documentList(kbId ?? '', { ...filter, limit }),
-    fetchPage: (cursor) =>
-      listDocumentsApi(kbId!, { ...filter, limit, cursor }),
+  return useQuery<PageResult<KnowledgeDocumentListItem>>({
+    queryKey: knowledgeKeys.documentList(kbId ?? '', query),
+    queryFn: () => listDocumentsApi(kbId!, query),
     enabled: !!kbId,
-    staleTime: 0,
-    keepPreviousData: false,
+    placeholderData: (prev) => prev,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
   });
 }
 

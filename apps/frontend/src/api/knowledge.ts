@@ -2,6 +2,7 @@ import type {
   CursorPageResult,
   DocumentListQuery,
   KnowledgeListQuery,
+  PageResult,
   components,
 } from '@lucy/shared';
 import { http } from './client.js';
@@ -69,10 +70,11 @@ export function addDocumentApi(kbId: string, file: File) {
     .json();
 }
 
-// 列表返回的是列表项（不含解析全文 content），详情接口才返回 KnowledgeDocument
+// 列表返回的是列表项（不含解析全文 content，但含文件名/类型/大小等文件元数据），
+// 详情接口才返回 KnowledgeDocument；分页是页码式（page/pageSize/total），与用户管理列表同一形状
 export function listDocumentsApi(kbId: string, query: DocumentListQuery = {}) {
   return http
-    .get<CursorPageResult<KnowledgeDocumentListItem>>(
+    .get<PageResult<KnowledgeDocumentListItem>>(
       `knowledge/${kbId}/documents`,
       query,
     )

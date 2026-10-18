@@ -8,7 +8,26 @@ import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
 import type { FC, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Route as KnowledgeRoute } from './knowledge';
+import { Route as KnowledgeRoute } from './index';
+
+/**
+ * 卡片热区是路由注入的 `<Link>`：本文件沿用 `routes/_layout.test.tsx` 的约定，
+ * 只替换需要的部分（`createFileRoute` 与 `Route.options.component` 保持真实），
+ * 把 Link 渲染成裸 `<a>`，从而不必为 22 条用例套一整个 RouterProvider。
+ */
+vi.mock('@tanstack/react-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-router')>()),
+  Link: ({
+    to,
+    params,
+    ...rest
+  }: {
+    to: string;
+    params?: { kbId?: string };
+  }) => (
+    <a href={params?.kbId ? to.replace('$kbId', params.kbId) : to} {...rest} />
+  ),
+}));
 
 /**
  * 本地 message.success 的调用 spy：路由不再自己弹成功提示（改由后端 message
@@ -453,5 +472,17 @@ describe('routes/_layout/knowledge', () => {
     await userEvent.click(screen.getByRole('button', { name: '编辑知识库' }));
 
     expect(await screen.findByDisplayValue('产品文档')).toBeInTheDocument();
+  });
+
+  it('卡片注入打开热区：指向该知识库详情，且不影响既有操作', () => {
+    mockItems([makeKb('kb1', '产品文档')]);
+    renderRoute();
+
+    const link = screen.getByRole('link', { name: '打开知识库：产品文档' });
+    expect(link).toHaveAttribute('href', '/knowledge/kb1');
+    // 热区覆盖整卡（定位类由路由给），角标与操作按钮仍在
+    expect(link).toHaveClass('absolute', 'inset-0');
+    expect(screen.getByRole('button', { name: '编辑知识库' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '删除知识库' })).toBeEnabled();
   });
 });

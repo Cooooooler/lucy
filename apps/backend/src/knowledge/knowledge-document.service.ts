@@ -12,7 +12,10 @@ import { basename, extname } from 'node:path';
 import { DataSource, In, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
-import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
+import {
+  resolvePageNumber,
+  resolvePageSize,
+} from '../common/pagination/page-params.js';
 import {
   extractContent,
   SUPPORTED_DOCUMENT_EXTS,
@@ -48,7 +51,6 @@ export class KnowledgeDocumentService {
     private readonly docRepo: Repository<KnowledgeDocument>,
     private readonly fileService: FileService,
     private readonly config: ConfigService,
-    private readonly paginator: KeysetPaginator,
   ) {}
 
   /**
@@ -122,12 +124,14 @@ export class KnowledgeDocumentService {
           storage: stored.storage,
         });
 
-        return docRepo.save({
+        const saved = await docRepo.save({
           knowledgeBaseId: kbId,
           fileId: fileEntity.id,
           title,
           content,
         });
+        // 详情契约含文件元数据：把刚保存的 file 实体挂回返回对象，避免再查一次
+        return { ...saved, file: fileEntity };
       });
     } catch (err) {
       // DB 失败：清理已上传的底层文件（best-effort），原始错误原样上抛
@@ -146,13 +150,14 @@ export class KnowledgeDocumentService {
   }
 
   /**
-   * 游标分页查询某知识库下的文档。
-   * 按**不可变**的 (created_at, id) 降序做 keyset 分页；
+   * 分页查询某知识库下的文档（**页码分页**，与用户管理列表共用同一套边界策略）。
+   * 按**不可变**的 (created_at, id) 降序排序，`skip/take` 由归一化后的 page/pageSize 派生。
    * 可按 `keyword` 模糊匹配标题或解析出的纯文本。
-   * 排序与过滤均直接使用原始列，谓词为行比较，可走索引。
    *
    * 列表**不返回 `content`**（解析出的全文，可达 MB 级）：查询做显式列投影，
    * 返回前经 `toDocumentListItem` 收敛成列表项契约，`content` 只由详情接口给出。
+   * 文件元数据（文件名/扩展名/MIME/大小）随 `innerJoin` `files` 一起取，
+   * 前端表格因此不必逐行再请求详情（N+1）。
    * @throws NotFoundException / ForbiddenException
    */
   async listDocuments(
@@ -162,8 +167,14 @@ export class KnowledgeDocumentService {
   ): Promise<DocumentListResultDto> {
     await resolveReadableKb(this.kbRepo, kbId, userId);
 
+    // 入参归一化：DTO 的 @Min/@Max 只作用于 HTTP 入参路径，越界 pageSize 会变成一次全量 LIMIT 扫描
+    const page = resolvePageNumber(query.page);
+    const pageSize = resolvePageSize(query.pageSize);
+
     const qb = this.docRepo
       .createQueryBuilder('d')
+      // file_id 是 NOT NULL 外键（onDelete CASCADE），内连接不可能丢行；比 leftJoin 更贴合数据事实
+      .innerJoin('d.file', 'f')
       // 显式列投影：直接把 content 挡在 SELECT 之外（keyword 对 content 的 ILIKE 仍在 WHERE 里，
       // 那是过滤、不读取整列回传），避免每页把 20 篇全文一次拉回
       .select([
@@ -174,21 +185,31 @@ export class KnowledgeDocumentService {
         'd.createdAt',
         'd.updatedAt',
       ])
+      .addSelect(['f.originalName', 'f.ext', 'f.mime', 'f.size'])
       .where('d.knowledgeBaseId = :kbId', { kbId });
     if (query.keyword) {
       qb.andWhere('(d.title ILIKE :kw OR d.content ILIKE :kw)', {
         kw: `%${escapeLikePattern(query.keyword)}%`,
       });
     }
-    const page = await this.paginator.fetchPage(qb, query.cursor, query.limit);
+    // 排序键取不可变列：OFFSET 分页下用可变键会让被更新的行越过窗口、在后续页被永久漏掉。
+    // `IDX_knowledge_documents_kb_created_id` 提供 (knowledge_base_id, created_at DESC, id DESC)
+    // 的有序扫描，OFFSET 同样走它，无需新增迁移。
+    qb.orderBy('d.created_at', 'DESC')
+      .addOrderBy('d.id', 'DESC')
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+    const [rows, total] = await qb.getManyAndCount();
     return {
-      list: page.list.map(toDocumentListItem),
-      nextCursor: page.nextCursor,
+      list: rows.map(toDocumentListItem),
+      total,
+      page,
+      pageSize,
     };
   }
 
   /**
-   * 获取文档详情（含解析文本）。
+   * 获取文档详情（含解析文本与文件元数据）。
    * @throws NotFoundException / ForbiddenException
    */
   async getDocument(
@@ -197,8 +218,10 @@ export class KnowledgeDocumentService {
     id: string,
   ): Promise<KnowledgeDocumentDetailDto> {
     await resolveReadableKb(this.kbRepo, kbId, userId);
+    // 详情契约含文件元数据：必须显式加载 file 关系（否则文件名/大小会是空值）
     const doc = await this.docRepo.findOne({
       where: { id, knowledgeBaseId: kbId },
+      relations: { file: true },
     });
     if (!doc) throw new NotFoundException('文档不存在');
     return toDocumentDetail(doc);

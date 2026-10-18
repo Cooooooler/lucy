@@ -235,6 +235,10 @@ describe('gen-openapi', () => {
         'knowledgeBaseId',
         'fileId',
         'title',
+        'originalName',
+        'ext',
+        'mime',
+        'size',
         'content',
         'createdAt',
         'updatedAt',
@@ -276,11 +280,7 @@ describe('gen-openapi', () => {
     };
 
     // 分页参数（CursorQueryDto / PageQueryDto）：默认值与上下界在文档可见
-    for (const path of [
-      '/knowledge',
-      '/knowledge/{kbId}/documents',
-      '/ai/conversations',
-    ]) {
+    for (const path of ['/knowledge', '/ai/conversations']) {
       expect(paramOf(path, 'limit')).toMatchObject({
         default: DEFAULT_PAGE_SIZE,
         minimum: 1,
@@ -291,14 +291,15 @@ describe('gen-openapi', () => {
         pattern: CURSOR_PATTERN.source,
       });
     }
-    // 会话列表已随 keyset 重构改用游标分页（page/pageSize 在该端点不存在），
-    // 只剩用户列表仍走 PageQueryDto
-    expect(paramOf('/users', 'pageSize')).toMatchObject({
-      default: DEFAULT_PAGE_SIZE,
-      minimum: 1,
-      maximum: MAX_PAGE_SIZE,
-    });
-    expect(paramOf('/users', 'page')).toMatchObject({ default: 1, minimum: 1 });
+    // 走 PageQueryDto 的列表：用户管理，以及文档列表（详情页表格要页码与总数）
+    for (const path of ['/users', '/knowledge/{kbId}/documents']) {
+      expect(paramOf(path, 'pageSize')).toMatchObject({
+        default: DEFAULT_PAGE_SIZE,
+        minimum: 1,
+        maximum: MAX_PAGE_SIZE,
+      });
+      expect(paramOf(path, 'page')).toMatchObject({ default: 1, minimum: 1 });
+    }
 
     // 各列表自己的过滤关键字：@MaxLength 只写在装饰器时文档是无边界字符串
     expect(paramOf('/knowledge', 'name')).toMatchObject({

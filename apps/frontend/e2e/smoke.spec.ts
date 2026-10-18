@@ -43,6 +43,20 @@ const fakeKnowledgeBase = (i: number) => ({
   isLiked: false,
 });
 
+/** 文档列表项（详情页文件表格）：字段集与 KnowledgeDocumentListItemDto 一致 */
+const fakeDocument = () => ({
+  id: 'd1',
+  knowledgeBaseId: 'kb1',
+  fileId: 'f1',
+  title: 'intro',
+  originalName: 'intro.md',
+  ext: '.md',
+  mime: 'text/markdown',
+  size: 1024,
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z',
+});
+
 const fakeModelProvider = (i: number) => ({
   id: `m${i}`,
   ownerId: FAKE_USER.id,
@@ -100,6 +114,21 @@ async function stubApi(page: Page, authenticated: boolean) {
     if (url.includes('/auth/me')) {
       return route.fulfill(envelope(FAKE_USER));
     }
+    // 顺序要紧：/knowledge/{id}/documents 与 /knowledge/{id} 都包含 '/knowledge'
+    if (url.includes('/documents')) {
+      return route.fulfill(
+        envelope({
+          list: [fakeDocument()],
+          total: 1,
+          page: 1,
+          pageSize: 20,
+        }),
+      );
+    }
+    // 单个知识库详情：/knowledge/{id}（列表是 /knowledge 或 /knowledge?…）
+    if (/\/knowledge\/[^/?]+$/.test(url)) {
+      return route.fulfill(envelope(fakeKnowledgeBase(1)));
+    }
     if (url.includes('/knowledge')) {
       return route.fulfill(
         envelope({ ...EMPTY_PAGE, list: [1, 2, 3].map(fakeKnowledgeBase) }),
@@ -146,6 +175,13 @@ const ROUTES: RouteCase[] = [
   },
   { path: '/', title: '首页 - Lucy', anchor: 'text=用户数' },
   { path: '/knowledge', title: '知识库 - Lucy', anchor: 'text=新增知识库' },
+  {
+    path: '/knowledge/kb1',
+    // ProLayout 的文档标题按菜单路径**精确**匹配，/knowledge/kb1 不是菜单项，回落到应用名
+    title: 'Lucy',
+    // 「上传文档」是详情页工具条里的固定入口，白屏/运行时异常会让它超时失败
+    anchor: 'text=上传文档',
+  },
   {
     path: '/chat',
     title: '聊天机器人 - Lucy',

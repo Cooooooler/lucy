@@ -120,32 +120,41 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
   }
 
   /**
-   * 用游标逐页翻完某个知识库的**文档**列表，收集全部 id。
-   * 与 sweep() 同构：走真实 HTTP，顺带断言列表项不带解析全文（列投影 + 分页在真实 SQL 上一起验）。
+   * 用页码逐页翻完某个知识库的**文档**列表，收集全部 id 与 total。
+   * 走真实 HTTP，顺带断言列表项不带解析全文、带文件元数据（列投影 + 分页 + join files 一起验）。
    */
-  async function sweepDocuments(limit: number): Promise<string[]> {
+  async function sweepDocuments(
+    pageSize: number,
+  ): Promise<{ ids: string[]; total: number }> {
     const ids: string[] = [];
-    let cursor: string | null = null;
-    for (let i = 0; i < 1000; i++) {
-      const query: Record<string, string> = { limit: String(limit) };
-      if (cursor) query.cursor = cursor;
+    for (let page = 1; page <= 1000; page++) {
       const res = await request(server)
         .get(`/v1/knowledge/${docsPageKbId}/documents`)
-        .query(query)
+        .query({ page: String(page), pageSize: String(pageSize) })
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
       const body = res.body as ApiBody<{
         list: Record<string, unknown>[];
-        nextCursor: string | null;
+        total: number;
+        page: number;
+        pageSize: number;
       }>;
+      // 响应回显本次分页参数：契约里的 page/pageSize 必须与请求一致
+      expect(body.data.page).toBe(page);
+      expect(body.data.pageSize).toBe(pageSize);
       for (const item of body.data.list) {
         expect(item).not.toHaveProperty('content');
+        expect(item).not.toHaveProperty('file');
+        expect(typeof item.originalName).toBe('string');
+        expect(typeof item.size).toBe('number');
         ids.push(item.id as string);
       }
-      cursor = body.data.nextCursor;
-      if (!cursor) return ids;
+      // 末页（不足一页）即收敛：total 从这一页取即可，翻页过程中它不会变
+      if (body.data.list.length < pageSize) {
+        return { ids, total: body.data.total };
+      }
     }
-    throw new Error('文档分页未收敛：nextCursor 始终非 null');
+    throw new Error('文档分页未收敛：页码翻到 1000 页仍未取完');
   }
 
   /** 文档列表的权威顺序（与生产路径同一语义）：(created_at DESC, id DESC) */
@@ -343,17 +352,32 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
     expect(item.isLiked).toBe(false);
   });
 
-  it('文档列表 keyset 分页：同毫秒按 id 决胜、逐页不重不漏（真实 SQL + 列投影）', async () => {
+  it('文档列表页码分页：同毫秒按 id 决胜、逐页不重不漏（真实 SQL + 列投影 + join files）', async () => {
     const expected = await expectedDocumentOrder();
     expect(expected).toHaveLength(10);
 
-    // limit 取 1/2/3：1 与 2 会落在同毫秒并列组内部（游标必须用 id 决胜），3 覆盖跨页裁剪
-    for (const limit of [1, 2, 3]) {
-      expect(await sweepDocuments(limit), `limit=${limit}`).toEqual(expected);
+    // pageSize 取 1/2/3：1 与 2 会落在同毫秒并列组内部（排序必须用 id 决胜），3 覆盖跨页裁剪
+    for (const pageSize of [1, 2, 3]) {
+      const { ids, total } = await sweepDocuments(pageSize);
+      expect(ids, `pageSize=${pageSize}`).toEqual(expected);
+      // 无重复：翻页没有把同一行返回两次
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(total).toBe(expected.length);
     }
   });
 
-  it('文档列表做列投影：不含解析全文 content，详情才返回 content', async () => {
+  it('文档列表页码越界：返回空 list，total 不变', async () => {
+    const res = await request(server)
+      .get(`/v1/knowledge/${docsPageKbId}/documents`)
+      .query({ page: '99', pageSize: '3' })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const body = res.body as ApiBody<{ list: unknown[]; total: number }>;
+    expect(body.data.list).toEqual([]);
+    expect(body.data.total).toBe(10);
+  });
+
+  it('文档列表做列投影：不含解析全文 content，带文件元数据；详情才返回 content', async () => {
     const auth = `Bearer ${token}`;
 
     const list = await request(server)
@@ -364,12 +388,22 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
       .data.list[0];
     expect(item.title).toBe('文档标题');
     expect(item).not.toHaveProperty('content');
+    expect(item).not.toHaveProperty('file');
+    // 文件元数据来自 join 的 files 表（不是关系对象）
+    expect(item.originalName).toBe('a.txt');
+    expect(item.ext).toBe('.txt');
+    expect(item.mime).toBe('text/plain');
+    expect(item.size).toBe(12);
     expect(Object.keys(item).sort()).toEqual(
       [
         'id',
         'knowledgeBaseId',
         'fileId',
         'title',
+        'originalName',
+        'ext',
+        'mime',
+        'size',
         'createdAt',
         'updatedAt',
       ].sort(),
@@ -381,6 +415,9 @@ describe('Knowledge keyset pagination & serialization (e2e)', () => {
       .expect(200);
     const detailItem = (detail.body as ApiBody<Record<string, unknown>>).data;
     expect(detailItem.content).toBe('正文内容');
+    // 详情与列表同一套文件元数据（详情 = 列表 + content）
+    expect(detailItem.originalName).toBe('a.txt');
+    expect(detailItem.size).toBe(12);
   });
 
   it('GET /knowledge/:id、PATCH /knowledge/:id 与列表项同形且不含 owner', async () => {
@@ -577,7 +614,9 @@ describe('Knowledge serialization strips populated internal relations (e2e)', ()
       .data.list[0];
     expect(docItem).not.toHaveProperty('knowledgeBase');
     expect(docItem).not.toHaveProperty('file');
-    // 列表项不含解析全文：content 只由详情接口返回
+    // 本组用例把 KnowledgeDocumentService 换成了桩，它直接返回**实体**（不经 `toDocumentListItem` 映射），
+    // 所以这里的字段集是实体的那几列——契约形状（文件元数据 / 不含 content）由上面第一组用例
+    // 在真实服务上验证。本用例要钉的是另一件事：无论哪条路径出网，内部关系对象都被 @Exclude 剔除。
     expect(docItem).not.toHaveProperty('content');
     expect(Object.keys(docItem).sort()).toEqual(
       [
