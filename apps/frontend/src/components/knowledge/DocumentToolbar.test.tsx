@@ -1,6 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { DocumentToolbar } from './DocumentToolbar';
 
 type ToolbarProps = Parameters<typeof DocumentToolbar>[0];
@@ -10,9 +9,6 @@ function renderToolbar(overrides: Partial<ToolbarProps> = {}) {
     kbName: '产品文档',
     kbDescription: '这是一段描述',
     backLink: <a href="/knowledge">返回</a>,
-    onSearch: vi.fn(),
-    onUpload: vi.fn(),
-    isUploading: false,
     ...overrides,
   };
   return { ...render(<DocumentToolbar {...props} />), props };
@@ -40,43 +36,5 @@ describe('DocumentToolbar', () => {
     renderToolbar({ kbDescription: undefined });
 
     expect(screen.queryByText('这是一段描述')).not.toBeInTheDocument();
-  });
-
-  it('搜索回调收到 trim 后的关键字', async () => {
-    const { props } = renderToolbar();
-
-    await userEvent.type(
-      screen.getByPlaceholderText('按文件名或内容搜索'),
-      '  正文  ',
-    );
-    await userEvent.keyboard('{Enter}');
-
-    expect(props.onSearch).toHaveBeenCalledWith('正文');
-  });
-
-  it('选择文件后回调 onUpload（beforeUpload 返回 false，不自动发请求）', async () => {
-    const { props, container } = renderToolbar();
-    const input = container.querySelector('input[type="file"]');
-    expect(input).not.toBeNull();
-    const file = new File(['hello'], 'intro.md', { type: 'text/markdown' });
-
-    await userEvent.upload(input as HTMLInputElement, file);
-
-    expect(props.onUpload).toHaveBeenCalledWith(file);
-  });
-
-  it('上传入口限定可解析的文档类型', () => {
-    const { container } = renderToolbar();
-
-    expect(container.querySelector('input[type="file"]')).toHaveAttribute(
-      'accept',
-      '.txt,.md,.pdf,.docx',
-    );
-  });
-
-  it('上传中禁用上传按钮（避免并发上传同一个知识库）', () => {
-    renderToolbar({ isUploading: true });
-
-    expect(screen.getByRole('button', { name: /上传文档/ })).toBeDisabled();
   });
 });

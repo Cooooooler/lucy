@@ -59,6 +59,10 @@ vi.mock('antd', async (importOriginal) => {
   return { ...mod, App: { ...mod.App, useApp } };
 });
 
+/** 关闭 pointer-events 检查：jsdom 里 ProTable 注入的样式表很大，默认检查会对每次交互
+ * 遍历祖先调用 getComputedStyle，整套用例被拖到分钟级；测试环境不依赖真实 CSS 遮挡。 */
+const user = userEvent.setup({ pointerEventsCheck: 0 });
+
 const mockedKb = vi.mocked(useKnowledgeBase);
 const mockedList = vi.mocked(useDocumentList);
 const mockedDoc = vi.mocked(useDocument);
@@ -102,7 +106,7 @@ function renderPage() {
 async function uploadFile(file: File) {
   const input = document.querySelector('input[type="file"]');
   if (!input) throw new Error('未找到上传入口');
-  await userEvent.upload(input as HTMLInputElement, file);
+  await user.upload(input as HTMLInputElement, file);
 }
 
 describe('routes/_layout/knowledge/$kbId', () => {
@@ -158,11 +162,11 @@ describe('routes/_layout/knowledge/$kbId', () => {
   it('搜索：回到第 1 页并把 trim 后的关键字交给查询', async () => {
     renderPage();
 
-    await userEvent.type(
+    await user.type(
       screen.getByPlaceholderText('按文件名或内容搜索'),
       ' 正文 ',
     );
-    await userEvent.keyboard('{Enter}');
+    await user.keyboard('{Enter}');
 
     await waitFor(() =>
       expect(mockedList).toHaveBeenLastCalledWith('kb1', {
@@ -180,7 +184,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     );
     renderPage();
 
-    await userEvent.click(screen.getByTitle('2'));
+    await user.click(screen.getByTitle('2'));
 
     await waitFor(() =>
       expect(mockedList).toHaveBeenLastCalledWith('kb1', {
@@ -197,7 +201,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     );
     renderPage();
 
-    await userEvent.click(screen.getByRole('button', { name: '删除' }));
+    await user.click(screen.getByRole('button', { name: '删除' }));
 
     expect(
       screen.getByText('确定要删除「intro.md」吗？此操作不可恢复。'),
@@ -218,8 +222,8 @@ describe('routes/_layout/knowledge/$kbId', () => {
   it('删除确认框取消时不调接口', async () => {
     renderPage();
 
-    await userEvent.click(screen.getByRole('button', { name: '删除' }));
-    await userEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
+    await user.click(screen.getByRole('button', { name: '删除' }));
+    await user.click(screen.getByRole('button', { name: /取\s*消/ }));
 
     expect(deleteHandle.mutateAsync).not.toHaveBeenCalled();
   });
@@ -229,7 +233,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     mockList([makeRow({ id: 'last' })], 21);
     renderPage();
 
-    await userEvent.click(screen.getByTitle('2'));
+    await user.click(screen.getByTitle('2'));
     await waitFor(() =>
       expect(mockedList).toHaveBeenLastCalledWith(
         'kb1',
@@ -237,8 +241,8 @@ describe('routes/_layout/knowledge/$kbId', () => {
       ),
     );
 
-    await userEvent.click(screen.getByRole('button', { name: '删除' }));
-    await userEvent.click(screen.getByRole('button', { name: '确认删除' }));
+    await user.click(screen.getByRole('button', { name: '删除' }));
+    await user.click(screen.getByRole('button', { name: '确认删除' }));
 
     await waitFor(() =>
       expect(deleteHandle.mutateAsync).toHaveBeenCalledWith({
@@ -259,7 +263,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     mockList([makeRow({ id: 'last' })], 21);
     renderPage();
 
-    await userEvent.click(screen.getByTitle('2'));
+    await user.click(screen.getByTitle('2'));
     await waitFor(() =>
       expect(mockedList).toHaveBeenLastCalledWith(
         'kb1',
@@ -310,7 +314,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     } as never);
     renderPage();
 
-    await userEvent.click(screen.getByRole('button', { name: '查看' }));
+    await user.click(screen.getByRole('button', { name: '查看' }));
 
     expect(await screen.findByText('解析正文')).toBeInTheDocument();
     expect(mockedDoc).toHaveBeenCalledWith('kb1', 'd1');
@@ -330,7 +334,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     renderPage();
 
     expect(screen.getByText('文档加载失败')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: '重试' }));
+    await user.click(screen.getByRole('button', { name: '重试' }));
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
@@ -353,7 +357,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     expect(screen.getByText('文档列表加载失败')).toBeInTheDocument();
     expect(screen.queryByText('文档加载失败')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: '重试' }));
+    await user.click(screen.getByRole('button', { name: '重试' }));
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
@@ -384,11 +388,11 @@ describe('routes/_layout/knowledge/$kbId', () => {
     expect(screen.getByText('暂无文档，可上传')).toBeInTheDocument();
 
     // 有搜索词但没命中：换个措辞，避免让人以为库里是空的
-    await userEvent.type(
+    await user.type(
       screen.getByPlaceholderText('按文件名或内容搜索'),
       '不存在',
     );
-    await userEvent.keyboard('{Enter}');
+    await user.keyboard('{Enter}');
 
     expect(await screen.findByText('没有匹配的文档')).toBeInTheDocument();
   });

@@ -57,6 +57,20 @@ describe('DocumentTextDrawer', () => {
     expect(screen.getByText('解析出来的正文')).toBeInTheDocument();
   });
 
+  it('解析全文按 Markdown 渲染（标题、列表等语法生效）', async () => {
+    mockedUseDocument.mockReturnValue({
+      ...noopQuery(),
+      data: { ...row, content: '# 文档标题\n\n- 条目一\n- 条目二' },
+    } as unknown as ReturnType<typeof useDocument>);
+
+    renderDrawer(row);
+
+    expect(
+      await screen.findByRole('heading', { name: '文档标题' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('条目一')).toBeInTheDocument();
+  });
+
   it('解析文本为空时给出占位文案', async () => {
     mockedUseDocument.mockReturnValue({
       ...noopQuery(),

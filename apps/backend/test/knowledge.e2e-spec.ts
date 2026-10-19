@@ -462,6 +462,35 @@ describe('Knowledge pagination (keyset + page) & serialization (e2e)', () => {
       expect(Object.keys(item).sort()).toEqual(kbListKeys);
     }
   });
+
+  it('上传文档：中文文件名按 UTF-8 解码（multer 默认 latin1 会解成乱码）', async () => {
+    const auth = `Bearer ${token}`;
+    const created = await request(server)
+      .post('/v1/knowledge')
+      .set('Authorization', auth)
+      .send({ name: `${scopeToken}-upload`, description: 'd' })
+      .expect(201);
+    const uploadKbId = (created.body as ApiBody<{ id: string }>).data.id;
+
+    try {
+      const res = await request(server)
+        .post(`/v1/knowledge/${uploadKbId}/documents`)
+        .set('Authorization', auth)
+        // form-data 以 UTF-8 原样写 filename（不带 filename*），正是浏览器与前端 FormData 的行为
+        .attach('file', Buffer.from('正文内容', 'utf8'), '产品文档.md')
+        .expect(201);
+      const doc = (res.body as ApiBody<{ originalName: string; title: string }>)
+        .data;
+      expect(doc.originalName).toBe('产品文档.md');
+      expect(doc.title).toBe('产品文档');
+    } finally {
+      // 级联删除知识库：文档行、文件行与已落盘的底层文件一并清理
+      await request(server)
+        .delete(`/v1/knowledge/${uploadKbId}`)
+        .set('Authorization', auth)
+        .expect(200);
+    }
+  });
 });
 
 /**
