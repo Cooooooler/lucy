@@ -1,4 +1,4 @@
-import { FullBleedBar } from '@/components/full-bleed-bar';
+import { PageToolbar } from '@/components/page-toolbar';
 import { ReloadOutlined } from '@ant-design/icons';
 import { Button, Input, Segmented } from 'antd';
 import type { FC } from 'react';
@@ -32,39 +32,32 @@ export const KnowledgeToolbar: FC<KnowledgeToolbarProps> = ({
   defaultKeyword,
   onCreate,
 }) => (
-  // 与 PageShell 平级（自带 .lucy-page-gutter）：盒子已占满内容区，不能再补 100vw 伪元素。
-  // 本页无副菜单、伪元素当前恰好也铺对，但机制上不该依赖「盒子与视口同宽」这个前提。
-  // z-10：下方 PageShell 是滚动容器，虚拟列表项带定位/transform，按树序会盖在工具条之上，
-  // 卡片滚到工具条下缘时把 shadow-lg 整条吃掉（实测滚动后工具条像被切平）。抬一层即可。
-  <FullBleedBar
-    bleedToViewport={false}
-    className="lucy-page-gutter z-10 shrink-0 py-6 shadow-lg"
-  >
-    <div className="flex items-center gap-4">
-      <Segmented<VisibilityFilter>
-        options={VISIBILITY_OPTIONS}
-        value={visibility}
-        onChange={onVisibilityChange}
-      />
-      {/* 刷新：丢弃全部列表缓存并重新加载当前筛选（见 useRefreshKnowledgeBaseList） */}
-      <Button
-        type="text"
-        icon={<ReloadOutlined />}
-        onClick={onRefresh}
-        aria-label="刷新"
-        title="刷新"
-      />
-    </div>
-    <div className="w-sm">
-      <div className="flex gap-4">
-        <Button onClick={onCreate}>新增知识库</Button>
-        <Input.Search
-          allowClear
-          defaultValue={defaultKeyword}
-          placeholder="按名称搜索知识库"
-          onSearch={(value) => onSearch(value.trim())}
+  <PageToolbar
+    left={
+      <div className="flex items-center gap-4">
+        <Segmented<VisibilityFilter>
+          options={VISIBILITY_OPTIONS}
+          value={visibility}
+          onChange={onVisibilityChange}
+        />
+        {/* 刷新：丢弃全部列表缓存并重新加载当前筛选（见 useRefreshKnowledgeBaseList） */}
+        <Button
+          type="text"
+          icon={<ReloadOutlined />}
+          onClick={onRefresh}
+          aria-label="刷新"
+          title="刷新"
         />
       </div>
-    </div>
-  </FullBleedBar>
+    }
+    actions={<Button onClick={onCreate}>新增知识库</Button>}
+    search={
+      <Input.Search
+        allowClear
+        defaultValue={defaultKeyword}
+        placeholder="按名称搜索知识库"
+        onSearch={(value) => onSearch(value.trim())}
+      />
+    }
+  />
 );

@@ -44,6 +44,15 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// jsdom 不实现伪元素的 getComputedStyle（第二参），而 antd / rc-motion 测量动效时会带
+// '::before' / '::after' 调用，测试输出因此刷满 "Not implemented" 警告。伪元素样式在
+// jsdom 里本来也取不到，忽略第二参、退回元素自身的计算样式即可。
+if (typeof window !== 'undefined') {
+  const nativeGetComputedStyle = window.getComputedStyle.bind(window);
+  window.getComputedStyle = ((element: Element) =>
+    nativeGetComputedStyle(element)) as typeof window.getComputedStyle;
+}
+
 // antd 6 / pro-components 在多处读 matchMedia（如 responsiveObserver、
 // useBreakpoint、StatisticsCard）。jsdom 不实现，统一桩为「无匹配 + 无监听」，
 // 不影响任何渲染路径（生产 CSS 媒体查询仍由浏览器负责）。

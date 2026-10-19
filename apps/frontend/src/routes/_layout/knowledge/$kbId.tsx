@@ -2,6 +2,7 @@ import { errorMessageOf } from '@/api/client';
 import type { KnowledgeDocumentListItem } from '@/api/types';
 import { DocumentTextDrawer } from '@/components/knowledge/DocumentTextDrawer';
 import { DocumentToolbar } from '@/components/knowledge/DocumentToolbar';
+import { DocumentUploadButton } from '@/components/knowledge/DocumentUploadButton';
 import { formatBytes } from '@/components/lib/utils';
 import { PageShell } from '@/components/page-shell';
 import {
@@ -82,17 +83,19 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
         okText: '确认删除',
         okType: 'danger',
         cancelText: '取消',
-        onOk: () => {
+        onOk: async () => {
           // 末页最后一条被删时先回退页码再删：invalidate 的重拉直接命中目标页，
           // 避免先拉空页再翻页的闪动
           if (rowsRef.current.length <= 1 && pageRef.current > 1) {
             setPage(pageRef.current - 1);
           }
           // 成功提示（「文档已删除」）由后端 message 经全局桥弹出
-          return removeDocument({ kbId, id: doc.id }).catch((e: unknown) => {
+          try {
+            return await removeDocument({ kbId, id: doc.id });
+          } catch (e) {
             message.error(errorMessageOf(e, '删除失败，请稍后重试'));
             throw e;
-          });
+          }
         },
       });
     },
@@ -116,18 +119,33 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
 
   const columns: ProColumns<KnowledgeDocumentListItem>[] = useMemo(
     () => [
-      { title: '文件名', dataIndex: 'originalName', ellipsis: true },
-      { title: '类型', dataIndex: 'ext', width: 100 },
+      // 仅供 ProTable 查询表单使用：后端 keyword 同时匹配标题与解析全文，
+      // 因此表格列各自 search: false，只留这一个搜索项。
+      {
+        title: '关键字',
+        dataIndex: 'keyword',
+        hideInTable: true,
+        fieldProps: { placeholder: '按文件名或内容搜索' },
+      },
+      {
+        title: '文件名',
+        dataIndex: 'originalName',
+        ellipsis: true,
+        search: false,
+      },
+      { title: '类型', dataIndex: 'ext', width: 100, search: false },
       {
         title: '大小',
         dataIndex: 'size',
         width: 120,
+        search: false,
         render: (_, record) => formatBytes(record.size),
       },
       {
         title: '上传时间',
         dataIndex: 'createdAt',
         width: 180,
+        search: false,
         render: (_, record) =>
           dayjs(record.createdAt).format('YYYY-MM-DD HH:mm'),
       },
@@ -135,6 +153,7 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
         title: '操作',
         valueType: 'option',
         width: 140,
+        search: false,
         render: (_, record) => [
           <Button
             key="view"
@@ -178,7 +197,7 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
   }
 
   return (
-    <PageShell height="fill">
+    <>
       <DocumentToolbar
         kbName={kbQuery.data?.name}
         kbDescription={kbQuery.data?.description}
@@ -192,77 +211,91 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
             <ArrowLeftOutlined />
           </Link>
         }
-        onSearch={(value) => {
-          setKeyword(value);
-          setPage(1);
-        }}
-        onUpload={(file) => void handleUpload(file)}
-        isUploading={uploading}
       />
-      {/* 与列表页同一结构：工具条占满内容区，表格在下方自然高度容器里 */}
-      <div className="min-h-0 flex-1 py-4">
-        {/* 失败就地提示：列表带 placeholderData（翻页保留上一页），整页错误态会把已渲染的表格
+      {/* 与列表页同一结构：工具条是 PageShell 的兄弟节点（自带 gutter），
+          表格在 PageShell 内的剩余高度容器里 */}
+      <PageShell height="fill">
+        <div className="min-h-0 flex-1 py-4">
+          {/* 失败就地提示：列表带 placeholderData（翻页保留上一页），整页错误态会把已渲染的表格
             连同页码与关键字一起吞掉——同 VirtualCardGrid 的约定「失败就地提示 + 重试，
             不能走整页 isError 分支」。只有首次加载就失败、手上一条数据都没有时才整页报错。 */}
-        {query.isError && rows.length > 0 ? (
-          <Alert
-            type="error"
-            showIcon
-            className="mb-4"
-            // antd 6 起 Alert 的 message 弃用（改叫 title）
-            title="文档列表加载失败"
-            description={errorMessageOf(query.error, '请稍后重试')}
-            action={
-              <Button type="link" onClick={() => void query.refetch()}>
-                重试
-              </Button>
-            }
-          />
-        ) : null}
-        {query.isError && rows.length === 0 ? (
-          <Result
-            status="error"
-            title="文档加载失败"
-            subTitle={errorMessageOf(query.error, '请稍后重试')}
-            extra={
-              <Button type="link" onClick={() => void query.refetch()}>
-                重试
-              </Button>
-            }
-          />
-        ) : (
-          <ProTable<KnowledgeDocumentListItem>
-            rowKey="id"
-            loading={query.isLoading}
-            dataSource={rows}
-            columns={columns}
-            search={false}
-            options={false}
-            dateFormatter="string"
-            pagination={{
-              current: page,
-              pageSize: KNOWLEDGE_PAGE_SIZE,
-              total: query.data?.total ?? 0,
-              showSizeChanger: false,
-              onChange: (next) => setPage(next),
-            }}
-            locale={{
-              emptyText: (
-                <Empty
-                  className="py-16"
-                  description={keyword ? '没有匹配的文档' : '暂无文档，可上传'}
-                />
-              ),
-            }}
-          />
-        )}
-      </div>
-      <DocumentTextDrawer
-        kbId={kbId}
-        doc={viewing}
-        onClose={() => setViewing(null)}
-      />
-    </PageShell>
+          {query.isError && rows.length > 0 ? (
+            <Alert
+              type="error"
+              showIcon
+              className="mb-4"
+              // antd 6 起 Alert 的 message 弃用（改叫 title）
+              title="文档列表加载失败"
+              description={errorMessageOf(query.error, '请稍后重试')}
+              action={
+                <Button type="link" onClick={() => void query.refetch()}>
+                  重试
+                </Button>
+              }
+            />
+          ) : null}
+          {query.isError && rows.length === 0 ? (
+            <Result
+              status="error"
+              title="文档加载失败"
+              subTitle={errorMessageOf(query.error, '请稍后重试')}
+              extra={
+                <Button type="link" onClick={() => void query.refetch()}>
+                  重试
+                </Button>
+              }
+            />
+          ) : (
+            <ProTable<KnowledgeDocumentListItem, { keyword?: string }>
+              rowKey="id"
+              loading={query.isLoading}
+              dataSource={rows}
+              columns={columns}
+              search={{ labelWidth: 'auto' }}
+              options={{ reload: () => void query.refetch() }}
+              toolBarRender={() => [
+                <DocumentUploadButton
+                  key="upload"
+                  onUpload={(file) => void handleUpload(file)}
+                  isUploading={uploading}
+                />,
+              ]}
+              dateFormatter="string"
+              onSubmit={(params) => {
+                setKeyword(String(params.keyword ?? '').trim());
+                setPage(1);
+              }}
+              onReset={() => {
+                setKeyword('');
+                setPage(1);
+              }}
+              pagination={{
+                current: page,
+                pageSize: KNOWLEDGE_PAGE_SIZE,
+                total: query.data?.total ?? 0,
+                showSizeChanger: false,
+                onChange: (next) => setPage(next),
+              }}
+              locale={{
+                emptyText: (
+                  <Empty
+                    className="py-16"
+                    description={
+                      keyword ? '没有匹配的文档' : '暂无文档，可上传'
+                    }
+                  />
+                ),
+              }}
+            />
+          )}
+        </div>
+        <DocumentTextDrawer
+          kbId={kbId}
+          doc={viewing}
+          onClose={() => setViewing(null)}
+        />
+      </PageShell>
+    </>
   );
 };
 

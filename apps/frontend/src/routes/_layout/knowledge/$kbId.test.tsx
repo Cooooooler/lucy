@@ -9,8 +9,7 @@ import {
 } from '@/hooks/use-knowledge';
 // 文档夹具与 api/knowledge.test.ts、hooks 用例共用（见 src/test/fixtures.ts）
 import { makeDocumentListItem as makeRow } from '@/test/fixtures';
-import { render, screen, waitFor } from '@testing-library/react';
-import { userEvent } from '@testing-library/user-event';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
 import dayjs from 'dayjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -98,14 +97,27 @@ function renderPage() {
   );
 }
 
-/** 输入文件（上传入口是 antd Upload 内部的 input[type=file]） */
-async function uploadFile(file: File) {
+/**
+ * 输入文件（上传入口是 antd Upload 内部的 input[type=file]）。
+ * 用 fireEvent 而非 user-event：ProTable 注入的样式表让 jsdom 的 getComputedStyle 极慢，
+ * 带覆盖率插桩时单次 user-event 交互可达数秒，整份用例会超时。
+ */
+function uploadFile(file: File) {
   const input = document.querySelector('input[type="file"]');
   if (!input) throw new Error('未找到上传入口');
-  await userEvent.upload(input as HTMLInputElement, file);
+  fireEvent.change(input, { target: { files: [file] } });
 }
 
-describe('routes/_layout/knowledge/$kbId', () => {
+/** 在 ProTable 内置查询表单里输入并提交（jsdom 下 Enter 不等于表单提交，直接触发 submit） */
+function submitSearch(value: string) {
+  const input = screen.getByPlaceholderText('按文件名或内容搜索');
+  fireEvent.change(input, { target: { value } });
+  fireEvent.submit(input.closest('form')!);
+}
+
+// 打开 Modal / Drawer 的用例在 v8 覆盖率插桩下约 5s（jsdom 的样式计算被放大），
+// 默认 5s 会卡在边界上；这里给整份用例放宽到 15s，普通交互仍在 1s 内。
+describe('routes/_layout/knowledge/$kbId', { timeout: 15_000 }, () => {
   let addHandle: ReturnType<typeof mockMutation>;
   let deleteHandle: ReturnType<typeof mockMutation>;
 
@@ -158,11 +170,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
   it('搜索：回到第 1 页并把 trim 后的关键字交给查询', async () => {
     renderPage();
 
-    await userEvent.type(
-      screen.getByPlaceholderText('按文件名或内容搜索'),
-      ' 正文 ',
-    );
-    await userEvent.keyboard('{Enter}');
+    submitSearch(' 正文 ');
 
     await waitFor(() =>
       expect(mockedList).toHaveBeenLastCalledWith('kb1', {
@@ -180,7 +188,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     );
     renderPage();
 
-    await userEvent.click(screen.getByTitle('2'));
+    fireEvent.click(screen.getByTitle('2'));
 
     await waitFor(() =>
       expect(mockedList).toHaveBeenLastCalledWith('kb1', {
@@ -197,7 +205,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     );
     renderPage();
 
-    await userEvent.click(screen.getByRole('button', { name: '删除' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除' }));
 
     expect(
       screen.getByText('确定要删除「intro.md」吗？此操作不可恢复。'),
@@ -218,8 +226,8 @@ describe('routes/_layout/knowledge/$kbId', () => {
   it('删除确认框取消时不调接口', async () => {
     renderPage();
 
-    await userEvent.click(screen.getByRole('button', { name: '删除' }));
-    await userEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
+    fireEvent.click(screen.getByRole('button', { name: '删除' }));
+    fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
 
     expect(deleteHandle.mutateAsync).not.toHaveBeenCalled();
   });
@@ -229,7 +237,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     mockList([makeRow({ id: 'last' })], 21);
     renderPage();
 
-    await userEvent.click(screen.getByTitle('2'));
+    fireEvent.click(screen.getByTitle('2'));
     await waitFor(() =>
       expect(mockedList).toHaveBeenLastCalledWith(
         'kb1',
@@ -237,8 +245,8 @@ describe('routes/_layout/knowledge/$kbId', () => {
       ),
     );
 
-    await userEvent.click(screen.getByRole('button', { name: '删除' }));
-    await userEvent.click(screen.getByRole('button', { name: '确认删除' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
 
     await waitFor(() =>
       expect(deleteHandle.mutateAsync).toHaveBeenCalledWith({
@@ -259,7 +267,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     mockList([makeRow({ id: 'last' })], 21);
     renderPage();
 
-    await userEvent.click(screen.getByTitle('2'));
+    fireEvent.click(screen.getByTitle('2'));
     await waitFor(() =>
       expect(mockedList).toHaveBeenLastCalledWith(
         'kb1',
@@ -268,7 +276,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     );
 
     const file = new File(['hi'], 'a.md', { type: 'text/markdown' });
-    await uploadFile(file);
+    uploadFile(file);
 
     await waitFor(() =>
       expect(addHandle.mutateAsync).toHaveBeenCalledWith({ kbId: 'kb1', file }),
@@ -291,9 +299,8 @@ describe('routes/_layout/knowledge/$kbId', () => {
     );
     renderPage();
 
-    // 文件名必须落在 accept 白名单内：userEvent.upload 会按 accept 过滤掉不匹配的文件，
-    // 用 .exe 的话连 beforeUpload 都不会触发（解析失败由后端返回，不是前端拦下的）
-    await uploadFile(new File(['hi'], 'a.md', { type: 'text/markdown' }));
+    // 用后端支持的类型：解析失败由后端返回，不是前端拦下的
+    uploadFile(new File(['hi'], 'a.md', { type: 'text/markdown' }));
 
     expect(await screen.findByText('文档解析失败')).toBeInTheDocument();
   });
@@ -310,7 +317,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     } as never);
     renderPage();
 
-    await userEvent.click(screen.getByRole('button', { name: '查看' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看' }));
 
     expect(await screen.findByText('解析正文')).toBeInTheDocument();
     expect(mockedDoc).toHaveBeenCalledWith('kb1', 'd1');
@@ -330,7 +337,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     renderPage();
 
     expect(screen.getByText('文档加载失败')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: '重试' }));
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
@@ -353,7 +360,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     expect(screen.getByText('文档列表加载失败')).toBeInTheDocument();
     expect(screen.queryByText('文档加载失败')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: '重试' }));
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
@@ -384,11 +391,7 @@ describe('routes/_layout/knowledge/$kbId', () => {
     expect(screen.getByText('暂无文档，可上传')).toBeInTheDocument();
 
     // 有搜索词但没命中：换个措辞，避免让人以为库里是空的
-    await userEvent.type(
-      screen.getByPlaceholderText('按文件名或内容搜索'),
-      '不存在',
-    );
-    await userEvent.keyboard('{Enter}');
+    submitSearch('不存在');
 
     expect(await screen.findByText('没有匹配的文档')).toBeInTheDocument();
   });
