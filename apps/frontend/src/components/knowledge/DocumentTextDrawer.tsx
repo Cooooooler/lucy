@@ -1,9 +1,12 @@
 import { errorMessageOf } from '@/api/client';
 import type { KnowledgeDocumentListItem } from '@/api/types';
 import { useDocument } from '@/hooks/use-knowledge';
-import XMarkdown from '@ant-design/x-markdown';
 import { Drawer, Result, Spin } from 'antd';
-import type { FC } from 'react';
+import { lazy, Suspense, useDeferredValue, type FC } from 'react';
+
+// Markdown 引擎（marked + dompurify 等，约 44KB gzip）只在点开「查看」后需要，
+// 按需加载避免详情页首屏为抽屉里可能用不到的能力买单。
+const XMarkdown = lazy(() => import('@ant-design/x-markdown'));
 
 export type DocumentTextDrawerProps = {
   kbId: string;
@@ -24,6 +27,8 @@ export const DocumentTextDrawer: FC<DocumentTextDrawerProps> = ({
   onClose,
 }) => {
   const query = useDocument(kbId, doc?.id);
+  // 正文可达 MB 级：让抽屉先提交，Markdown 解析放到 transition 里，避免打开时整段卡住
+  const content = useDeferredValue(query.data?.content);
 
   return (
     <Drawer
@@ -47,13 +52,24 @@ export const DocumentTextDrawer: FC<DocumentTextDrawerProps> = ({
           title="解析文本加载失败"
           subTitle={errorMessageOf(query.error, '请稍后重试')}
         />
-      ) : query.data?.content ? (
-        <XMarkdown
-          content={query.data.content}
-          className="text-sm break-words"
-          openLinksInNewTab
-          escapeRawHtml
-        />
+      ) : content ? (
+        <Suspense
+          fallback={
+            <div
+              data-testid="document-text-loading"
+              className="flex justify-center py-16"
+            >
+              <Spin />
+            </div>
+          }
+        >
+          <XMarkdown
+            content={content}
+            className="text-sm break-words"
+            openLinksInNewTab
+            escapeRawHtml
+          />
+        </Suspense>
       ) : (
         <div className="text-sm">（没有可展示的解析文本）</div>
       )}

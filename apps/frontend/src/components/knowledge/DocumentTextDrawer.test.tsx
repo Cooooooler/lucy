@@ -54,7 +54,8 @@ describe('DocumentTextDrawer', () => {
     renderDrawer(row);
 
     expect(await screen.findByText('intro.md')).toBeInTheDocument();
-    expect(screen.getByText('解析出来的正文')).toBeInTheDocument();
+    // XMarkdown 为懒加载：正文经 Suspense 后才提交
+    expect(await screen.findByText('解析出来的正文')).toBeInTheDocument();
   });
 
   it('解析全文按 Markdown 渲染（标题、列表等语法生效）', async () => {
