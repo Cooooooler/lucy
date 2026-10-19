@@ -2,7 +2,13 @@ import { errorMessageOf } from '@/api/client';
 import type { KnowledgeDocumentListItem } from '@/api/types';
 import { useDocument } from '@/hooks/use-knowledge';
 import { Drawer, Result, Spin } from 'antd';
-import { lazy, Suspense, useDeferredValue, type FC } from 'react';
+import {
+  lazy,
+  Suspense,
+  useDeferredValue,
+  type FC,
+  type ReactNode,
+} from 'react';
 
 // Markdown 引擎（marked + dompurify 等，约 44KB gzip）只在点开「查看」后需要，
 // 按需加载避免详情页首屏为抽屉里可能用不到的能力买单。
@@ -30,6 +36,43 @@ export const DocumentTextDrawer: FC<DocumentTextDrawerProps> = ({
   // 正文可达 MB 级：让抽屉先提交，Markdown 解析放到 transition 里，避免打开时整段卡住
   const content = useDeferredValue(query.data?.content);
 
+  // 查询加载与懒加载 chunk 共用同一个占位
+  const loadingNode = (
+    <div
+      data-testid="document-text-loading"
+      className="flex justify-center py-16"
+    >
+      <Spin />
+    </div>
+  );
+
+  // 显式分支而非嵌套三元（sonar S3358）：四种状态各自独立，读起来也更容易扩展
+  let body: ReactNode;
+  if (query.isLoading) {
+    body = loadingNode;
+  } else if (query.isError) {
+    body = (
+      <Result
+        status="error"
+        title="解析文本加载失败"
+        subTitle={errorMessageOf(query.error, '请稍后重试')}
+      />
+    );
+  } else if (content) {
+    body = (
+      <Suspense fallback={loadingNode}>
+        <XMarkdown
+          content={content}
+          className="text-sm break-words"
+          openLinksInNewTab
+          escapeRawHtml
+        />
+      </Suspense>
+    );
+  } else {
+    body = <div className="text-sm">（没有可展示的解析文本）</div>;
+  }
+
   return (
     <Drawer
       title={doc?.originalName ?? ''}
@@ -39,40 +82,7 @@ export const DocumentTextDrawer: FC<DocumentTextDrawerProps> = ({
       // antd 6 起 width 弃用（Drawer 已合并到 size）
       size={640}
     >
-      {query.isLoading ? (
-        <div
-          data-testid="document-text-loading"
-          className="flex justify-center py-16"
-        >
-          <Spin />
-        </div>
-      ) : query.isError ? (
-        <Result
-          status="error"
-          title="解析文本加载失败"
-          subTitle={errorMessageOf(query.error, '请稍后重试')}
-        />
-      ) : content ? (
-        <Suspense
-          fallback={
-            <div
-              data-testid="document-text-loading"
-              className="flex justify-center py-16"
-            >
-              <Spin />
-            </div>
-          }
-        >
-          <XMarkdown
-            content={content}
-            className="text-sm break-words"
-            openLinksInNewTab
-            escapeRawHtml
-          />
-        </Suspense>
-      ) : (
-        <div className="text-sm">（没有可展示的解析文本）</div>
-      )}
+      {body}
     </Drawer>
   );
 };
