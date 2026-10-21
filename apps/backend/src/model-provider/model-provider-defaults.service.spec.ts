@@ -7,7 +7,12 @@ import { UserDefaultModel } from './entities/user-default-model.entity.js';
 import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
 
 describe('ModelProviderDefaultsService', () => {
-  const manager = { find: vi.fn(), delete: vi.fn(), save: vi.fn() };
+  const providers = { find: vi.fn() };
+  const manager = {
+    getRepository: vi.fn(() => providers),
+    delete: vi.fn(),
+    save: vi.fn(),
+  };
   const repo = {
     find: vi.fn(),
     manager: { transaction: vi.fn() },
@@ -60,7 +65,7 @@ describe('ModelProviderDefaultsService', () => {
   });
 
   it('replace 拒绝不存在或非属主的模型', async () => {
-    manager.find.mockResolvedValue([]);
+    providers.find.mockResolvedValue([]);
 
     await expect(
       service.replace('u1', {
@@ -71,7 +76,9 @@ describe('ModelProviderDefaultsService', () => {
   });
 
   it('replace 拒绝类型不匹配的模型', async () => {
-    manager.find.mockResolvedValue([{ id: 'm1', type: ModelProviderType.Tts }]);
+    providers.find.mockResolvedValue([
+      { id: 'm1', type: ModelProviderType.Tts },
+    ]);
 
     await expect(
       service.replace('u1', {
@@ -81,7 +88,9 @@ describe('ModelProviderDefaultsService', () => {
   });
 
   it('replace 整体替换：先清空再写入非空项', async () => {
-    manager.find.mockResolvedValue([{ id: 'm1', type: ModelProviderType.Llm }]);
+    providers.find.mockResolvedValue([
+      { id: 'm1', type: ModelProviderType.Llm },
+    ]);
     repo.find.mockResolvedValue([
       {
         modelProviderId: 'm1',
@@ -102,6 +111,9 @@ describe('ModelProviderDefaultsService', () => {
     expect(manager.save).toHaveBeenCalledWith(UserDefaultModel, [
       { ownerId: 'u1', modelProviderId: 'm1' },
     ]);
+    expect(providers.find).toHaveBeenCalledWith(
+      expect.objectContaining({ lock: { mode: 'pessimistic_read' } }),
+    );
     expect(result.defaults).toContainEqual({
       type: ModelProviderType.Llm,
       modelProviderId: 'm1',
@@ -115,7 +127,7 @@ describe('ModelProviderDefaultsService', () => {
       defaults: [{ type: ModelProviderType.Llm, modelProviderId: null }],
     });
 
-    expect(manager.find).not.toHaveBeenCalled();
+    expect(providers.find).not.toHaveBeenCalled();
     expect(manager.delete).toHaveBeenCalledWith(UserDefaultModel, {
       ownerId: 'u1',
     });

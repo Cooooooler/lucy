@@ -65,9 +65,12 @@ export const DefaultModelSettingsModal: FC<DefaultModelSettingsModalProps> = ({
     return values;
   }, [defaultsQuery.data]);
 
+  const canSave = defaultsQuery.isSuccess;
+
   const handleSubmit = async () => {
-    // 读取完成前表单还是空的，此时提交（整体替换语义）会把已有默认项全部清成 null
-    if (defaultsQuery.isLoading) return;
+    // 只有读取成功才允许提交：失败/加载中时表单是空的，而保存是整体替换语义，
+    // 会把已有默认项全部清成 null
+    if (!canSave) return;
     const values = form.getFieldsValue();
     try {
       await updateMutation.mutateAsync({
@@ -88,7 +91,7 @@ export const DefaultModelSettingsModal: FC<DefaultModelSettingsModalProps> = ({
       open={open}
       destroyOnHidden
       confirmLoading={updateMutation.isPending}
-      okButtonProps={{ disabled: defaultsQuery.isLoading }}
+      okButtonProps={{ disabled: !canSave }}
       okText="保存"
       cancelText="取消"
       onOk={handleSubmit}

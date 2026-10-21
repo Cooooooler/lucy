@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, type Repository } from 'typeorm';
+import { In, type EntityManager, type Repository } from 'typeorm';
 import {
   ModelProviderDefaultsDto,
   UpdateModelProviderDefaultsDto,
@@ -13,6 +13,21 @@ import { UserDefaultModel } from './entities/user-default-model.entity.js';
 
 /** 契约里列出的全部模型类型（顺序即前端展示顺序） */
 const MODEL_PROVIDER_TYPES = Object.values(ModelProviderType);
+
+/**
+ * 清除指向某个模型的默认设置。
+ *
+ * 类型由关联模型派生：模型改类型后，这条默认项在旧类型下已失效。清理逻辑收敛在这里，
+ * 任何改动模型类型的入口都复用同一处条件，不会各自拼一套删除谓词。
+ * `manager` 由调用方的写事务传入，保证类型变更与清理同生共死。
+ */
+export async function clearDefaultsForProvider(
+  manager: EntityManager,
+  ownerId: string,
+  modelProviderId: string,
+): Promise<void> {
+  await manager.delete(UserDefaultModel, { ownerId, modelProviderId });
+}
 
 /**
  * 用户默认模型：按模型类型各存一条。
@@ -84,9 +99,13 @@ export class ModelProviderDefaultsService {
       // 校验与写入放在同一事务：先查后写若跨事务，校验通过后模型可能被删/改类型，
       // 写进去的就是一条 FK 失败或类型不匹配的默认设置
       const owned = ids.length
-        ? await manager.find(ModelProvider, {
+        ? await manager.getRepository(ModelProvider).find({
             select: { id: true, type: true },
             where: { id: In(ids), ownerId: userId },
+            // 共享行锁：仅把校验挪进事务并不提供隔离性（默认 READ COMMITTED），
+            // 校验通过后并发 PATCH 仍可改类型。FOR SHARE 与改类型时的 UPDATE 行锁互斥，
+            // 两者互斥后「默认项的类型必然与模型当前类型一致」才成立
+            lock: { mode: 'pessimistic_read' },
           })
         : [];
       const ownedById = new Map(

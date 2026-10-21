@@ -23,8 +23,8 @@ import {
   ModelProviderType,
   ModelProviderVendor,
 } from './entities/model-provider.entity.js';
-import { UserDefaultModel } from './entities/user-default-model.entity.js';
 import { resolveOwnedModelProvider } from './model-provider-access.js';
+import { clearDefaultsForProvider } from './model-provider-defaults.service.js';
 import { toModelProviderItem } from './model-provider.mapper.js';
 
 /**
@@ -184,10 +184,7 @@ export class ModelProviderService {
           // 返回结果取决于数据库行序——等于静默丢掉一条设置。保存与清理放在同一事务里。
           await this.repo.manager.transaction(async (manager) => {
             const updated = await manager.save(provider);
-            await manager.delete(UserDefaultModel, {
-              ownerId: userId,
-              modelProviderId: id,
-            });
+            await clearDefaultsForProvider(manager, userId, id);
             return updated;
           });
     this.logger.log(

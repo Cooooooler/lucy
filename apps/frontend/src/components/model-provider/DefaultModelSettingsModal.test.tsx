@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
 import type { ReactNode } from 'react';
@@ -71,6 +71,21 @@ describe('DefaultModelSettingsModal', () => {
     render(<DefaultModelSettingsModal open onClose={vi.fn()} />, { wrapper });
 
     expect(screen.getByRole('button', { name: /保\s*存/ })).toBeDisabled();
+  });
+
+  it('默认设置读取失败时禁用保存', async () => {
+    api.getModelProviderDefaultsApi.mockRejectedValue(new Error('boom'));
+    api.listModelProvidersApi.mockResolvedValue({
+      list: [],
+      nextCursor: null,
+    });
+
+    render(<DefaultModelSettingsModal open onClose={vi.fn()} />, { wrapper });
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /保\s*存/ })).toBeDisabled(),
+    );
+    expect(api.updateModelProviderDefaultsApi).not.toHaveBeenCalled();
   });
 
   it('保存后关闭再打开仍然回显', async () => {
