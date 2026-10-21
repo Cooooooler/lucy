@@ -298,6 +298,33 @@ describe('ModelProvider CRUD & connection test (e2e)', () => {
       .expect(400);
   });
 
+  it('默认模型的类型被修改后，该默认设置被清除', async () => {
+    const created = await createModel();
+    await request(server)
+      .put('/v1/model-providers/defaults')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ defaults: [{ type: 'llm', modelProviderId: created.id }] })
+      .expect(200);
+
+    // 默认项的类型由关联模型派生；改类型会让旧类型设置失效，必须清除而不是留成歧义行
+    await request(server)
+      .patch(`/v1/model-providers/${created.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ type: 'text-embedding' })
+      .expect(200);
+
+    const res = await request(server)
+      .get('/v1/model-providers/defaults')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const body = res.body as ApiBody<{
+      defaults: { type: string; modelProviderId: string | null }[];
+    }>;
+    expect(
+      body.data.defaults.every((item) => item.modelProviderId === null),
+    ).toBe(true);
+  });
+
   it('删除模型时级联清除其默认设置', async () => {
     const created = await createModel();
     await request(server)

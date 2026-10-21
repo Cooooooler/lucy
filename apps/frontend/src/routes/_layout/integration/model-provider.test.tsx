@@ -162,6 +162,7 @@ describe('routes/_layout/integration/model-provider', () => {
     mockedDefaults.mockReturnValue({
       data: { defaults: [] },
       isLoading: false,
+      isSuccess: true,
     } as unknown as ReturnType<typeof useModelProviderDefaults>);
     mockedModelsByType.mockReturnValue({ models: [], isLoading: false });
   });

@@ -17,8 +17,10 @@ import { ModelProvider } from './model-provider.entity.js';
 /**
  * 用户默认模型：每种模型类型至多一条（由服务层整体替换保证）。
  *
- * 刻意不存 `type` 列——类型由关联的 `ModelProvider` 派生。这样把某个模型从 LLM 改成
- * 嵌入模型时，默认设置自动跟随，不会留下「类型写死、指向另一个类型」的不一致行。
+ * 刻意不存 `type` 列——类型由关联的 `ModelProvider` 派生，不会留下「类型写死、指向
+ * 另一个类型」的行。代价是模型改类型后，旧类型下的默认设置失去意义；因此改类型时由
+ * 服务层在同一事务里删除指向该模型的默认项（见 `ModelProviderDefaultsService.clearForProvider`），
+ * 否则它会与同类型的另一条默认项派生出重复的 `type`。
  * 唯一键只约束同一模型不重复成为默认项。
  *
  * `model_provider_id` 的 FK 需要独立索引：删除模型时 ON DELETE CASCADE 要按该列定位

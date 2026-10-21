@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import type { Repository } from 'typeorm';
+import type { FindOneOptions, Repository } from 'typeorm';
 import type { ModelProvider } from './entities/model-provider.entity.js';
 
 /**
@@ -12,8 +12,12 @@ export async function resolveOwnedModelProvider(
   repo: Repository<ModelProvider>,
   id: string,
   userId: string,
+  options: { lock?: FindOneOptions<ModelProvider>['lock'] } = {},
 ): Promise<ModelProvider> {
-  const provider = await repo.findOne({ where: { id, ownerId: userId } });
+  const provider = await repo.findOne({
+    where: { id, ownerId: userId },
+    ...options,
+  });
   if (!provider) throw new NotFoundException('模型不存在');
   return provider;
 }

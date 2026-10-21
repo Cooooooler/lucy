@@ -2,20 +2,22 @@ import { BadRequestException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  ModelProvider,
-  ModelProviderType,
-} from './entities/model-provider.entity.js';
+import { ModelProviderType } from './entities/model-provider.entity.js';
 import { UserDefaultModel } from './entities/user-default-model.entity.js';
 import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
 
 describe('ModelProviderDefaultsService', () => {
-  const manager = { delete: vi.fn(), save: vi.fn() };
+  const providers = { find: vi.fn() };
+  const manager = {
+    query: vi.fn(),
+    getRepository: vi.fn(() => providers),
+    delete: vi.fn(),
+    save: vi.fn(),
+  };
   const repo = {
     find: vi.fn(),
     manager: { transaction: vi.fn() },
   };
-  const providers = { find: vi.fn() };
   let service: ModelProviderDefaultsService;
 
   beforeEach(async () => {
@@ -27,7 +29,6 @@ describe('ModelProviderDefaultsService', () => {
       providers: [
         ModelProviderDefaultsService,
         { provide: getRepositoryToken(UserDefaultModel), useValue: repo },
-        { provide: getRepositoryToken(ModelProvider), useValue: providers },
       ],
     }).compile();
     service = moduleRef.get(ModelProviderDefaultsService);
@@ -48,6 +49,10 @@ describe('ModelProviderDefaultsService', () => {
     const result = await service.list('u1');
 
     expect(repo.find).toHaveBeenCalledWith({
+      select: {
+        modelProviderId: true,
+        modelProvider: { id: true, type: true },
+      },
       where: { ownerId: 'u1' },
       relations: { modelProvider: true },
     });
@@ -68,7 +73,7 @@ describe('ModelProviderDefaultsService', () => {
         defaults: [{ type: ModelProviderType.Llm, modelProviderId: 'm-other' }],
       }),
     ).rejects.toThrow(BadRequestException);
-    expect(repo.manager.transaction).not.toHaveBeenCalled();
+    expect(manager.delete).not.toHaveBeenCalled();
   });
 
   it('replace 拒绝类型不匹配的模型', async () => {
@@ -107,6 +112,13 @@ describe('ModelProviderDefaultsService', () => {
     expect(manager.save).toHaveBeenCalledWith(UserDefaultModel, [
       { ownerId: 'u1', modelProviderId: 'm1' },
     ]);
+    expect(providers.find).toHaveBeenCalledWith(
+      expect.objectContaining({ lock: { mode: 'pessimistic_read' } }),
+    );
+    expect(manager.query).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock(hashtext($1))',
+      ['user-default-models:u1'],
+    );
     expect(result.defaults).toContainEqual({
       type: ModelProviderType.Llm,
       modelProviderId: 'm1',
