@@ -9,8 +9,11 @@ import {
   useCreateModelProvider,
   useDeleteModelProvider,
   useInfiniteModelProviderList,
+  useModelProviderDefaults,
+  useModelProvidersByType,
   useTestModelProviderConnection,
   useUpdateModelProvider,
+  useUpdateModelProviderDefaults,
 } from './use-model-provider.js';
 
 const api = vi.hoisted(() => ({
@@ -19,6 +22,8 @@ const api = vi.hoisted(() => ({
   updateModelProviderApi: vi.fn(),
   deleteModelProviderApi: vi.fn(),
   testModelProviderConnectionApi: vi.fn(),
+  getModelProviderDefaultsApi: vi.fn(),
+  updateModelProviderDefaultsApi: vi.fn(),
 }));
 
 vi.mock('@/api/model-provider', () => api);
@@ -254,5 +259,52 @@ describe('use-model-provider', () => {
       await result.current.mutateAsync('m1');
     });
     expect(api.testModelProviderConnectionApi).toHaveBeenCalledWith('m1');
+  });
+
+  it('useModelProvidersByType 取该类型的全部模型', async () => {
+    api.listModelProvidersApi.mockResolvedValue(
+      cursorPage([makeModel()], null),
+    );
+    const client = createTestQueryClient();
+    const { result } = renderHook(() => useModelProvidersByType('llm'), {
+      wrapper: createWrapperWithClient(client),
+    });
+
+    await waitFor(() => expect(result.current.models).toHaveLength(1));
+    expect(api.listModelProvidersApi).toHaveBeenCalledWith({
+      type: 'llm',
+      limit: 100,
+      cursor: undefined,
+    });
+  });
+
+  it('useModelProviderDefaults 在 enabled=false 时不请求', () => {
+    const client = createTestQueryClient();
+    renderHook(() => useModelProviderDefaults(false), {
+      wrapper: createWrapperWithClient(client),
+    });
+    expect(api.getModelProviderDefaultsApi).not.toHaveBeenCalled();
+  });
+
+  it('useUpdateModelProviderDefaults 成功后写回默认模型缓存', async () => {
+    const data = {
+      defaults: [{ type: 'llm' as const, modelProviderId: 'm1' }],
+    };
+    api.updateModelProviderDefaultsApi.mockResolvedValue(data);
+    const client = createTestQueryClient();
+    const { result } = renderHook(() => useUpdateModelProviderDefaults(), {
+      wrapper: createWrapperWithClient(client),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        defaults: [{ type: 'llm', modelProviderId: 'm1' }],
+      });
+    });
+
+    expect(api.updateModelProviderDefaultsApi.mock.calls[0]?.[0]).toEqual({
+      defaults: [{ type: 'llm', modelProviderId: 'm1' }],
+    });
+    expect(client.getQueryData(modelProviderKeys.defaults())).toEqual(data);
   });
 });

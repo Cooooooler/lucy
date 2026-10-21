@@ -309,6 +309,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/model-providers/defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 默认模型设置 */
+        get: operations["ModelProviderController_getDefaults"];
+        /**
+         * 保存默认模型设置
+         * @description 整体替换：提交未包含的类型视为清除
+         */
+        put: operations["ModelProviderController_replaceDefaults"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/model-providers/{id}": {
         parameters: {
             query?: never;
@@ -798,6 +819,32 @@ export interface components {
             list: components["schemas"]["ModelProviderItemDto"][];
             /** @description 下一页游标；null 表示已到末页 */
             nextCursor: string | null;
+        };
+        ModelProviderDefaultItemDto: {
+            /**
+             * @description 模型类型
+             * @enum {string}
+             */
+            type: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+            /** @description 默认模型配置 ID；null 表示该类型未设置默认模型 */
+            modelProviderId: string | null;
+        };
+        ModelProviderDefaultsDto: {
+            /** @description 各模型类型的默认模型 */
+            defaults: components["schemas"]["ModelProviderDefaultItemDto"][];
+        };
+        UpdateModelProviderDefaultItemDto: {
+            /**
+             * @description 模型类型
+             * @enum {string}
+             */
+            type: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+            /** @description 默认模型配置 ID；null 表示清除 */
+            modelProviderId: string | null;
+        };
+        UpdateModelProviderDefaultsDto: {
+            /** @description 各模型类型的默认模型（整体替换，未列出的类型视为清除） */
+            defaults: components["schemas"]["UpdateModelProviderDefaultItemDto"][];
         };
         UpdateModelProviderDto: {
             /** @description 模型名称 */
@@ -1512,6 +1559,8 @@ export interface operations {
                 limit?: number;
                 /** @description 按模型类型过滤 */
                 type?: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+                /** @description 按模型供应商过滤 */
+                vendor?: "ollama" | "openai" | "anthropic";
                 /** @description 名称关键字（最多 100 字符） */
                 name?: string;
             };
@@ -1551,6 +1600,55 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ModelProviderItemDto"];
                 };
+            };
+        };
+    };
+    ModelProviderController_getDefaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderDefaultsDto"];
+                };
+            };
+        };
+    };
+    ModelProviderController_replaceDefaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateModelProviderDefaultsDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderDefaultsDto"];
+                };
+            };
+            /** @description 模型不存在、非属主或类型不匹配 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

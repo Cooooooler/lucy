@@ -1,7 +1,11 @@
 import type { ModelProvider } from '@/api/types.ts';
 import { VirtualCardGrid } from '@/components/card-list/VirtualCardGrid.tsx';
 import { makeModel } from '@/components/model-provider/model-provider-test-fixture.ts';
-import { useInfiniteModelProviderList } from '@/hooks/use-model-provider';
+import {
+  useInfiniteModelProviderList,
+  useModelProviderDefaults,
+  useModelProvidersByType,
+} from '@/hooks/use-model-provider';
 import { useModelProviderViewState } from '@/hooks/use-model-provider-view-state';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
@@ -41,6 +45,7 @@ const mutationMocks = vi.hoisted(() => {
     update: makeMutation(),
     delete: makeMutation(),
     test: makeMutation(),
+    updateDefaults: makeMutation(),
   };
 });
 
@@ -50,6 +55,9 @@ vi.mock('@/hooks/use-model-provider', () => ({
   useUpdateModelProvider: vi.fn(() => mutationMocks.update),
   useDeleteModelProvider: vi.fn(() => mutationMocks.delete),
   useTestModelProviderConnection: vi.fn(() => mutationMocks.test),
+  useModelProviderDefaults: vi.fn(),
+  useModelProvidersByType: vi.fn(),
+  useUpdateModelProviderDefaults: vi.fn(() => mutationMocks.updateDefaults),
 }));
 
 /**
@@ -82,6 +90,8 @@ vi.mock('@/hooks/use-model-provider-view-state', () => ({
 }));
 
 const mockedList = vi.mocked(useInfiniteModelProviderList);
+const mockedDefaults = vi.mocked(useModelProviderDefaults);
+const mockedModelsByType = vi.mocked(useModelProvidersByType);
 const mockedGrid = vi.mocked(VirtualCardGrid);
 const mockedViewState = vi.mocked(useModelProviderViewState);
 
@@ -109,7 +119,7 @@ function mockItems(items: ModelProvider[]) {
 }
 
 function mockViewState(
-  initialFilter: { name?: string; type?: ModelProvider['type'] } = {},
+  initialFilter: { name?: string; vendor?: ModelProvider['vendor'] } = {},
   initialRestoreIndex = 0,
 ) {
   const saveFilter = vi.fn();
@@ -149,17 +159,25 @@ describe('routes/_layout/integration/model-provider', () => {
       mutation.mutateAsync.mockResolvedValue(undefined);
     }
     mockViewState();
+    mockedDefaults.mockReturnValue({
+      data: { defaults: [] },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useModelProviderDefaults>);
+    mockedModelsByType.mockReturnValue({ models: [], isLoading: false });
   });
 
   it('用 store 中冻结的筛选与恢复索引初始化', () => {
     const { saveFirstVisibleIndex } = mockViewState(
-      { name: 'gpt', type: 'llm' },
+      { name: 'gpt', vendor: 'openai' },
       7,
     );
 
     renderRoute();
 
-    expect(mockedList).toHaveBeenLastCalledWith({ name: 'gpt', type: 'llm' });
+    expect(mockedList).toHaveBeenLastCalledWith({
+      name: 'gpt',
+      vendor: 'openai',
+    });
     expect(screen.getByPlaceholderText('按名称搜索模型')).toHaveValue('gpt');
     expect(lastGridProps()).toMatchObject({
       initialRestoreIndex: 7,
@@ -174,6 +192,32 @@ describe('routes/_layout/integration/model-provider', () => {
     await userEvent.click(screen.getByText('新增模型'));
     expect(await screen.findByLabelText('模型名称')).toBeInTheDocument();
     expect(screen.getByLabelText('API Key')).toBeInTheDocument();
+  });
+
+  it('点击「默认模型设置」打开弹窗，保存时提交全部模型类型', async () => {
+    renderRoute();
+    await userEvent.click(screen.getByText('默认模型设置'));
+    expect(await screen.findByText('文本嵌入')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
+
+    await waitFor(() =>
+      expect(mutationMocks.updateDefaults.mutateAsync).toHaveBeenCalledTimes(1),
+    );
+    const payload = mutationMocks.updateDefaults.mutateAsync.mock
+      .calls[0][0] as {
+      defaults: Array<{ type: string; modelProviderId: string | null }>;
+    };
+    expect(payload.defaults.map((item) => item.type)).toEqual([
+      'llm',
+      'text-embedding',
+      'speech2text',
+      'tts',
+      'moderation',
+    ]);
+    expect(
+      payload.defaults.every((item) => item.modelProviderId === null),
+    ).toBe(true);
   });
 
   it('卡片的编辑意图打开编辑抽屉并预填', async () => {
@@ -252,8 +296,8 @@ describe('routes/_layout/integration/model-provider', () => {
     const { saveFilter } = mockViewState({}, 5);
     renderRoute();
 
-    await userEvent.click(screen.getByText('文本嵌入'));
-    expect(saveFilter).toHaveBeenCalledWith({ type: 'text-embedding' });
+    await userEvent.click(screen.getByText('OpenAI'));
+    expect(saveFilter).toHaveBeenCalledWith({ vendor: 'openai' });
     expect(lastGridProps().initialRestoreIndex).toBe(0);
 
     const input = screen.getByPlaceholderText('按名称搜索模型');

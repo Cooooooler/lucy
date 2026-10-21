@@ -58,3 +58,9 @@ export type UpdateModelProviderRequest =
   components['schemas']['UpdateModelProviderDto'];
 export type TestConnectionResult =
   components['schemas']['ModelProviderTestResultDto'];
+export type ModelProviderDefaultItem =
+  components['schemas']['ModelProviderDefaultItemDto'];
+export type ModelProviderDefaults =
+  components['schemas']['ModelProviderDefaultsDto'];
+export type UpdateModelProviderDefaultsRequest =
+  components['schemas']['UpdateModelProviderDefaultsDto'];

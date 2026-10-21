@@ -8,6 +8,7 @@ import {
   HttpStatus,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import {
@@ -24,6 +25,10 @@ import {
 import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
 import { UUIDParam } from '../common/pipes/uuid-param.js';
 import { CreateModelProviderDto } from './dto/create-model-provider.dto.js';
+import {
+  ModelProviderDefaultsDto,
+  UpdateModelProviderDefaultsDto,
+} from './dto/model-provider-defaults.dto.js';
 import { ModelProviderListQueryDto } from './dto/model-provider-list-query.dto.js';
 import {
   ModelProviderItemDto,
@@ -32,6 +37,7 @@ import {
 import { ModelProviderTestResultDto } from './dto/model-provider-test-result.dto.js';
 import { UpdateModelProviderDto } from './dto/update-model-provider.dto.js';
 import { ModelConnectionService } from './model-connection.service.js';
+import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
 import { ModelProviderService } from './model-provider.service.js';
 
 @ApiTags('model-provider')
@@ -42,6 +48,8 @@ import { ModelProviderService } from './model-provider.service.js';
 export class ModelProviderController {
   constructor(
     private readonly service: ModelProviderService,
+    // 默认模型是按类型聚合的另一份数据，与模型元信息 CRUD 分开
+    private readonly defaults: ModelProviderDefaultsService,
     // 连接测试会真实发起外部调用，与元信息 CRUD 分属两件事，控制器分别注入
     private readonly connection: ModelConnectionService,
   ) {}
@@ -68,6 +76,31 @@ export class ModelProviderController {
     @Query() query: ModelProviderListQueryDto,
   ): Promise<ModelProviderListResultDto> {
     return this.service.list(user.userId, query);
+  }
+
+  // 静态路径必须声明在 `:id` 之前：否则 /model-providers/defaults 会被详情路由当成 id
+  @Get('defaults')
+  @ApiOperation({ summary: '默认模型设置' })
+  @ApiResponse({ status: 200, type: ModelProviderDefaultsDto })
+  getDefaults(
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ModelProviderDefaultsDto> {
+    return this.defaults.list(user.userId);
+  }
+
+  @Put('defaults')
+  @SuccessMessage('默认模型设置已保存')
+  @ApiOperation({
+    summary: '保存默认模型设置',
+    description: '整体替换：提交未包含的类型视为清除',
+  })
+  @ApiResponse({ status: 200, type: ModelProviderDefaultsDto })
+  @ApiResponse({ status: 400, description: '模型不存在、非属主或类型不匹配' })
+  replaceDefaults(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: UpdateModelProviderDefaultsDto,
+  ): Promise<ModelProviderDefaultsDto> {
+    return this.defaults.replace(user.userId, dto);
   }
 
   @Get(':id')
