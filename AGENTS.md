@@ -62,7 +62,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 - `COMMAND_CODE_API_KEY` —— 仅 Skill Review 用，仓库 owner 的 Command Code 账号 key；headless 下 CLI 据此登录，模型调用走该账号额度、经网关（`SKILL_REVIEW_MODEL` 固定 `deepseek/deepseek-v4.1-flash`，不再走 BYOK）。在 Studio 生成。
 
 - **PR-Agent**（`.github/workflows/pr-agent.yml` + `.pr_agent.toml`）：评论触发（`/review`、`/describe`、`/improve`、`/ask`），配置从默认分支读取。它原生支持 `[skills]`，但为单次模型调用、没有文件读取工具，技能只能静态内联、受 `max_skills_tokens` 限制，因此**未启用**。
-- **Skill Review**（`.github/workflows/pr-skill-review.yml`）：**只有手动入口**——在 PR 上评论 **`/skill-review`** 触发（`issue_comment` 事件，限 `OWNER`/`MEMBER`/`COLLABORATOR` 且非 bot，避免外部贡献者用一句评论消耗 owner 的账号额度；该入口由默认分支的工作流响应，以 master 上的版本为准）。**曾经的 `pull_request`（`opened`/`ready_for_review`/`reopened`）自动触发连同同仓库 / fork 路径过滤都已删除**：SonarCloud 机器人在 PR 创建/更新后数分钟内会发一条质量门禁评论（#80 约 3~~4 分钟，#104/#105 约 5~~6 分钟），落进同一个 concurrency group，把正在跑的评审取消（一轮评审要 4~~5 分钟，两者时间窗稳定重叠），于是整轮零产出（实测 #80）；job 级 `if` 拦不住——排队先发生、`if` 后求值，被取消的 run 只显示 `skipped`（更早还因每次 push 都评审会堆出重叠评论、实测 #53 五条 / #55 四条，刻意不订阅 `synchronize`）。**并发组现已按评论是否以 `/skill-review` 开头分桶（`-review` / `-skip`）**：机器人评论进 `-skip` 组，不再取消 `-review` 组里正在跑的评审；上面的竞态只影响「自动触发」的历史方案（手动补跑时仍撞过 #104/#105）。触发时机现由人决定（跑完 CI、看完 diff 再评），也不再消耗自动触发的额度；**没有路径过滤**——作业内部按 `git diff <base>...HEAD -- apps/frontend` 与 `-- apps/backend` 切出两侧补丁，某侧为空则跳过该侧评审，两侧都空则不发评论。用 Command Code CLI headless（`COMMAND_CODE_API_KEY` 鉴权，走账号额度、模型固定 `deepseek/deepseek-v4.1-flash`）**按路径加载完整技能**，模型先看 `name + description`，再按需读 `SKILL.md` 与 `rules/*.md`：前端 `vercel-react-best-practices`，后端 `nestjs-best-practices`。结果**每次运行都新发一条评论**（不再编辑旧评论——编辑不产生通知，评审容易被漏看；marker `<!-- pr-skill-review -->` 保留仅作标识），评论末尾带本轮评审的 commit 与 run 链接以便区分。评审经 `.github/skill-review/scripts/review-with-retry.sh` 做早停校验：输出过短（<500 字节）或汉字过少（<30）判为模型早停，重试 1 次，两次不合格判空、不发残缺评论；「未发现需要修改的问题」这类干净结论不算早停，并按规范句式照常写入评论（模型换个说法的“无问题”也会被识别并归一，避免明明没问题却什么都不发）。
+- **Skill Review**（`.github/workflows/pr-skill-review.yml`）：**只有手动入口**——在 PR 上评论 **`/skill-review`** 触发（`issue_comment` 事件，限 `OWNER`/`MEMBER`/`COLLABORATOR` 且非 bot，避免外部贡献者用一句评论消耗 owner 的账号额度；该入口由默认分支的工作流响应，以 master 上的版本为准）。**曾经的 `pull_request`（`opened`/`ready_for_review`/`reopened`）自动触发连同同仓库 / fork 路径过滤都已删除**：SonarCloud 机器人在 PR 创建/更新后数分钟内会发一条质量门禁评论（#80 约 3~~4 分钟，#104/#105 约 5~~6 分钟），落进同一个 concurrency group，把正在跑的评审取消（一轮评审要 4~~5 分钟，两者时间窗稳定重叠），于是整轮零产出（实测 #80）；job 级 `if` 拦不住——排队先发生、`if` 后求值，被取消的 run 只显示 `skipped`（更早还因每次 push 都评审会堆出重叠评论、实测 #53 五条 / #55 四条，刻意不订阅 `synchronize`）。**并发组现已按评论是否以 `/skill-review` 开头分桶（`-review` / `-skip`）**：机器人评论进 `-skip` 组，不再取消 `-review` 组里正在跑的评审；上面的竞态只影响「自动触发」的历史方案（手动补跑时仍撞过 #104/#105）。**评审结束时会在 head SHA 上写 `skill-review` commit status**（pending → success/failure；两侧补丁都为空时直接 success/N/A 并跳过 CLI 安装），master 的 ruleset 把它作为必需检查，因此「没评审」「评审的是旧 head」都无法合并。触发时机现由人决定（跑完 CI、看完 diff 再评），也不再消耗自动触发的额度；**没有路径过滤**——作业内部按 `git diff <base>...HEAD -- apps/frontend` 与 `-- apps/backend` 切出两侧补丁，某侧为空则跳过该侧评审，两侧都空则不发评论。用 Command Code CLI headless（`COMMAND_CODE_API_KEY` 鉴权，走账号额度、模型固定 `deepseek/deepseek-v4.1-flash`）**按路径加载完整技能**，模型先看 `name + description`，再按需读 `SKILL.md` 与 `rules/*.md`：前端 `vercel-react-best-practices`，后端 `nestjs-best-practices`。结果**每次运行都新发一条评论**（不再编辑旧评论——编辑不产生通知，评审容易被漏看；marker `<!-- pr-skill-review -->` 保留仅作标识），评论末尾带本轮评审的 commit 与 run 链接以便区分。评审经 `.github/skill-review/scripts/review-with-retry.sh` 做早停校验：输出过短（<500 字节）或汉字过少（<30）判为模型早停，重试 1 次，两次不合格判空、不发残缺评论；「未发现需要修改的问题」这类干净结论不算早停，并按规范句式照常写入评论（模型换个说法的“无问题”也会被识别并归一，避免明明没问题却什么都不发）。
 
 技能放在 `.github/skill-review/skills/`（入库；`.commandcode/` 与 `.claude/` 已被 gitignore，CI 用不了）。该目录已加入 `.prettierignore`，上游规则文件保持原样。更新技能直接替换目录内容即可。
 
@@ -124,10 +124,11 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 **评审前置（合并硬门槛，适用于所有 PR）**：
 
+- **GitHub 侧硬约束**：`pr-skill-review` 会在 head SHA 上写 `skill-review` commit status；master 的 ruleset `lucy` 把它设为 required check。没有该状态、状态为 `failure`，或状态写在上一个 SHA 上，都无法合并。push 新提交会产生新 SHA、没有状态，必须重新触发评审。
 - 改动涉及 `apps/frontend/**` 或 `apps/backend/**`：合并前必须有一轮针对**当前 head** 的 `/skill-review`。核对最新一条 `<!-- pr-skill-review -->` 评论里的「评审 commit」等于 `gh pr view <n> --json headRefOid`；**没有评审 ≠ 没有阻塞项**，未触发就不得合并。
 - 评审发现问题的一轮：改完并 push 后重新触发 `/skill-review`，以最新一轮为准；旧评论里已修好的问题不算阻塞项。
 - **禁止合并后补跑**：`pr-skill-review` 用 `origin/<base>` 做 diff 基准，合并后 base 已包含改动，补跑只会得到 0 字节补丁并被跳过。评审只能在合并前做。
-- 只改 `.github/**`、文档、脚本等非 `apps/**` 路径的 PR：工作流切出的前后端补丁为空，技能评审无法覆盖——在 PR 正文显式写「技能评审 N/A」，以 CI + 人工核对为准；不要把这个豁免扩大到 apps 改动。
+- 只改 `.github/**`、文档、脚本等非 `apps/**` 路径的 PR：workflow 会直接写 `success`（N/A）并跳过评审；仍需在 PR 正文显式写「技能评审 N/A」。不要把这个豁免扩大到 apps 改动。
 - 触发评审后确认 run 成功；若被并发组取消（`cancelled`），等机器人评论落地后重触发（并发组已按 `-review` / `-skip` 分桶，正常情况下不会再撞）。
 
 合并前逐项核对：
@@ -139,7 +140,7 @@ gh api repos/<owner>/<repo>/issues/<n>/comments --jq '.[-1].body'  # marker + �
 ```
 
 - 用 merge commit（与本仓历史一致）并**锁定 head SHA**：`merge_pull_request{merge_method:'merge', expectedHeadSha:<head>}`，避免合并窗口内被推新提交
-- 合并条件：CI 全绿 + 门禁 OK + **满足上面的「评审前置」**。master **没有生效的分支保护**（API 404；仅有一个 `enforcement=disabled` 的 ruleset，无必需检查），纪律靠自觉，**别把红门禁合进去**
+- 合并条件：CI 全绿 + 门禁 OK + **满足上面的「评审前置」**。master 的 ruleset `lucy` 已启用，`skill-review` 是 required check；管理员只在紧急情况下 bypass，**不要用它跳过正常评审**
 - 栈式 PR：先合底层，再把上层 PR 的 `base` **手动 retarget 到 master**（GitHub 不会自动改），随后把新 master 合进上层分支（生成物常需重跑 `pnpm typegen`）
 - 合并后确认 master 的 `Build` 变绿（head SHA = 合并 commit）；随后**删除该分支**：远端 `git push origin --delete <branch>`、本地 `git branch -d <branch>`（被 worktree 占用时先 `git worktree remove`）。每个已合并分支都删，不留历史分支
 - 转跟进的小项：开一个收口 PR，正文逐条注明来源 PR；需要独立迁移/设计决策的另开 issue
