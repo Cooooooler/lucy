@@ -159,12 +159,13 @@ export class ModelProviderService {
     // 事务外读到的快照会被并发 PATCH 覆盖（save 按快照差异把旧 type 写回去），
     // 「类型是否变了」也会基于陈旧值误判，进而多删或漏删默认设置。
     const saved = await this.repo.manager.transaction(async (manager) => {
-      const provider = await manager.getRepository(ModelProvider).findOne({
-        where: { id, ownerId: userId },
+      const provider = await resolveOwnedModelProvider(
+        manager.getRepository(ModelProvider),
+        id,
+        userId,
         // 写锁：与 replace() 校验时的共享锁互斥，串行化同一模型的并发修改
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!provider) throw new NotFoundException('模型不存在');
+        { lock: { mode: 'pessimistic_write' } },
+      );
 
       const previousType = provider.type;
       if (dto.name !== undefined) provider.name = dto.name;

@@ -287,6 +287,10 @@ describe('ModelProviderService', () => {
     });
 
     expect(tx.save).toHaveBeenCalledWith(existing);
+    expect(txProviders.findOne).toHaveBeenCalledWith({
+      where: { id: MODEL_ID, ownerId: 'u1' },
+      lock: { mode: 'pessimistic_write' },
+    });
     expect(defaults.clearForProvider).toHaveBeenCalledWith(tx, 'u1', MODEL_ID);
   });
 

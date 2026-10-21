@@ -96,6 +96,12 @@ export class ModelProviderDefaultsService {
       }));
 
     await this.repo.manager.transaction(async (manager) => {
+      // 同一用户的默认设置写入串行化：两次并发 PUT 的「按属主全删 + 重插」若交错，
+      // 轻则唯一索引冲突冒成 500，重则两条同类型默认项同时提交、list() 静默丢弃一条。
+      // 事务级 advisory lock 随提交/回滚自动释放，且不像锁 users 行那样阻塞无关的用户写入。
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        `user-default-models:${userId}`,
+      ]);
       // 校验与写入放在同一事务：先查后写若跨事务，校验通过后模型可能被删/改类型，
       // 写进去的就是一条 FK 失败或类型不匹配的默认设置
       const owned = ids.length

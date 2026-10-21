@@ -9,6 +9,7 @@ import { ModelProviderDefaultsService } from './model-provider-defaults.service.
 describe('ModelProviderDefaultsService', () => {
   const providers = { find: vi.fn() };
   const manager = {
+    query: vi.fn(),
     getRepository: vi.fn(() => providers),
     delete: vi.fn(),
     save: vi.fn(),
@@ -113,6 +114,10 @@ describe('ModelProviderDefaultsService', () => {
     ]);
     expect(providers.find).toHaveBeenCalledWith(
       expect.objectContaining({ lock: { mode: 'pessimistic_read' } }),
+    );
+    expect(manager.query).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock(hashtext($1))',
+      ['user-default-models:u1'],
     );
     expect(result.defaults).toContainEqual({
       type: ModelProviderType.Llm,
