@@ -177,18 +177,22 @@ describe('ModelProviderService', () => {
     expect(repo.save).not.toHaveBeenCalled();
   });
 
-  it('list 按属主过滤，并透传类型/名称条件', async () => {
+  it('list 按属主过滤，并透传类型/供应商/名称条件', async () => {
     const qb = makeModelQb();
     repo.createQueryBuilder.mockReturnValue(qb);
 
     const result = await service.list('u1', {
       type: ModelProviderType.Llm,
+      vendor: ModelProviderVendor.OpenAI,
       name: 'gpt',
     });
 
     expect(qb.where).toHaveBeenCalledWith('m.ownerId = :uid', { uid: 'u1' });
     expect(qb.andWhere).toHaveBeenCalledWith('m.type = :type', {
       type: ModelProviderType.Llm,
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith('m.vendor = :vendor', {
+      vendor: ModelProviderVendor.OpenAI,
     });
     expect(qb.andWhere).toHaveBeenCalledWith('m.name ILIKE :name', {
       name: '%gpt%',

@@ -3,9 +3,11 @@ import {
   createModelProviderApi,
   deleteModelProviderApi,
   getModelProviderApi,
+  getModelProviderDefaultsApi,
   listModelProvidersApi,
   testModelProviderConnectionApi,
   updateModelProviderApi,
+  updateModelProviderDefaultsApi,
 } from './model-provider.js';
 import type { ModelProvider } from './types.js';
 
@@ -125,6 +127,34 @@ describe('api/model-provider', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/model-providers/m1',
       expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('getModelProviderDefaultsApi 调用 GET 默认模型设置', async () => {
+    const data = {
+      defaults: [{ type: 'llm', modelProviderId: 'm1' }],
+    };
+    fetchMock.mockResolvedValueOnce(okEnvelope(data));
+    await expect(getModelProviderDefaultsApi()).resolves.toEqual(data);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/model-providers/defaults',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('updateModelProviderDefaultsApi 调用 PUT 整体替换', async () => {
+    const input = {
+      defaults: [{ type: 'llm' as const, modelProviderId: null }],
+    };
+    const data = { defaults: [{ type: 'llm', modelProviderId: null }] };
+    fetchMock.mockResolvedValueOnce(okEnvelope(data));
+    await expect(updateModelProviderDefaultsApi(input)).resolves.toEqual(data);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/model-providers/defaults',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
     );
   });
 

@@ -4,11 +4,12 @@ import {
   VirtualCardGrid,
   type CardGridEmptyLabel,
 } from '@/components/card-list/VirtualCardGrid.tsx';
+import { DefaultModelSettingsModal } from '@/components/model-provider/DefaultModelSettingsModal.tsx';
 import { ModelProviderCard } from '@/components/model-provider/ModelProviderCard.tsx';
 import { ModelProviderFormDrawer } from '@/components/model-provider/ModelProviderFormDrawer.tsx';
 import {
   ModelProviderToolbar,
-  type ModelTypeFilter,
+  type ModelVendorFilter,
 } from '@/components/model-provider/ModelProviderToolbar.tsx';
 import { PageShell } from '@/components/page-shell';
 import { pendingIdOf, useListPageChrome } from '@/hooks/use-list-page-chrome';
@@ -58,20 +59,21 @@ const ModelProviderComponent = () => {
   });
 
   const [committedName, setCommittedName] = useState(initialFilter.name ?? '');
-  const [type, setType] = useState<ModelTypeFilter>(
-    initialFilter.type ?? 'all',
+  const [vendor, setVendor] = useState<ModelVendorFilter>(
+    initialFilter.vendor ?? 'all',
   );
   /** 单例表单抽屉的目标：create / edit(model) / 关闭(null) */
   const [formTarget, setFormTarget] = useState<
     { mode: 'create' } | { mode: 'edit'; model: ModelProvider } | null
   >(null);
+  const [defaultsOpen, setDefaultsOpen] = useState(false);
 
   const filter = useMemo<ModelProviderListFilter>(
     () => ({
       name: committedName || undefined,
-      type: type === 'all' ? undefined : type,
+      vendor: vendor === 'all' ? undefined : vendor,
     }),
-    [committedName, type],
+    [committedName, vendor],
   );
 
   const query = useInfiniteModelProviderList(filter);
@@ -118,6 +120,8 @@ const ModelProviderComponent = () => {
     [],
   );
   const handleCreate = useCallback(() => setFormTarget({ mode: 'create' }), []);
+  const handleOpenDefaults = useCallback(() => setDefaultsOpen(true), []);
+  const handleCloseDefaults = useCallback(() => setDefaultsOpen(false), []);
 
   const handleTest = useCallback(
     async (model: ModelProvider) => {
@@ -167,10 +171,10 @@ const ModelProviderComponent = () => {
     [onFilterChange],
   );
 
-  const handleTypeChange = useCallback(
-    (value: ModelTypeFilter) => {
-      setType(value);
-      onFilterChange({ type: value === 'all' ? undefined : value });
+  const handleVendorChange = useCallback(
+    (value: ModelVendorFilter) => {
+      setVendor(value);
+      onFilterChange({ vendor: value === 'all' ? undefined : value });
     },
     [onFilterChange],
   );
@@ -195,11 +199,12 @@ const ModelProviderComponent = () => {
   return (
     <>
       <ModelProviderToolbar
-        type={type}
-        onTypeChange={handleTypeChange}
+        vendor={vendor}
+        onVendorChange={handleVendorChange}
         onSearch={handleSearch}
         defaultKeyword={initialFilter.name ?? ''}
         onCreate={handleCreate}
+        onOpenDefaults={handleOpenDefaults}
       />
       {/* 滚动交给 PageShell 自身：滚动条贴限宽容器右缘 */}
       <PageShell scrollable ref={setScrollElement}>
@@ -215,7 +220,7 @@ const ModelProviderComponent = () => {
           isPlaceholderData={query.isPlaceholderData}
           fetchNextPage={query.fetchNextPage}
           refetch={query.refetch}
-          hasFilter={Boolean(filter.name || filter.type)}
+          hasFilter={Boolean(filter.name || filter.vendor)}
           emptyLabel={EMPTY_LABEL}
           renderItem={renderItem}
           initialRestoreIndex={restoreIndex}
@@ -227,6 +232,10 @@ const ModelProviderComponent = () => {
           mode={formTarget?.mode ?? 'create'}
           model={formTarget?.mode === 'edit' ? formTarget.model : undefined}
           onClose={() => setFormTarget(null)}
+        />
+        <DefaultModelSettingsModal
+          open={defaultsOpen}
+          onClose={handleCloseDefaults}
         />
       </PageShell>
     </>

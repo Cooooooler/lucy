@@ -3,7 +3,10 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { CursorQueryDto } from '../../common/pagination/dto/cursor-query.dto.js';
-import { ModelProviderType } from '../entities/model-provider.entity.js';
+import {
+  ModelProviderType,
+  ModelProviderVendor,
+} from '../entities/model-provider.entity.js';
 
 /** 模型供应商列表请求参数：分页继承 `CursorQueryDto`，这里只声明本列表的过滤字段。 */
 export class ModelProviderListQueryDto extends CursorQueryDto {
@@ -14,6 +17,14 @@ export class ModelProviderListQueryDto extends CursorQueryDto {
   @IsOptional()
   @IsEnum(ModelProviderType)
   type?: ModelProviderType;
+
+  @ApiPropertyOptional({
+    description: '按模型供应商过滤',
+    enum: ModelProviderVendor,
+  })
+  @IsOptional()
+  @IsEnum(ModelProviderVendor)
+  vendor?: ModelProviderVendor;
 
   // 长度上限与 cursor 的边界策略一致：该关键字会拼成 `ILIKE '%…%'`，谓词无法走索引，
   // 超长输入是廉价的全表扫描放大器；顺带去掉首尾空白

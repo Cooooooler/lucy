@@ -101,6 +101,9 @@ export class ModelProviderService {
     if (query.type) {
       qb.andWhere('m.type = :type', { type: query.type });
     }
+    if (query.vendor) {
+      qb.andWhere('m.vendor = :vendor', { vendor: query.vendor });
+    }
     if (query.name) {
       qb.andWhere('m.name ILIKE :name', {
         name: `%${escapeLikePattern(query.name)}%`,

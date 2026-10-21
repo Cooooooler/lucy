@@ -7,11 +7,12 @@ type ToolbarProps = Parameters<typeof ModelProviderToolbar>[0];
 
 function renderToolbar(overrides: Partial<ToolbarProps> = {}) {
   const props: ToolbarProps = {
-    type: 'all',
-    onTypeChange: vi.fn(),
+    vendor: 'all',
+    onVendorChange: vi.fn(),
     onSearch: vi.fn(),
     defaultKeyword: '',
     onCreate: vi.fn(),
+    onOpenDefaults: vi.fn(),
     ...overrides,
   };
   return { ...render(<ModelProviderToolbar {...props} />), props };
@@ -24,6 +25,12 @@ describe('ModelProviderToolbar', () => {
     expect(props.onCreate).toHaveBeenCalledTimes(1);
   });
 
+  it('点击「默认模型设置」触发 onOpenDefaults', async () => {
+    const { props } = renderToolbar();
+    await userEvent.click(screen.getByText('默认模型设置'));
+    expect(props.onOpenDefaults).toHaveBeenCalledTimes(1);
+  });
+
   it('搜索会 trim 后上报', async () => {
     const { props } = renderToolbar();
     await userEvent.type(
@@ -33,10 +40,10 @@ describe('ModelProviderToolbar', () => {
     expect(props.onSearch).toHaveBeenCalledWith('gpt');
   });
 
-  it('切换类型过滤上报对应值', async () => {
+  it('切换供应商过滤上报对应值', async () => {
     const { props } = renderToolbar();
-    await userEvent.click(screen.getByText('文本嵌入'));
-    expect(props.onTypeChange).toHaveBeenCalledWith('text-embedding');
+    await userEvent.click(screen.getByText('OpenAI'));
+    expect(props.onVendorChange).toHaveBeenCalledWith('openai');
   });
 
   it('defaultKeyword 作为搜索框初始值', () => {

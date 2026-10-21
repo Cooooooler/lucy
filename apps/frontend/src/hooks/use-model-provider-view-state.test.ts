@@ -13,7 +13,7 @@ describe('useModelProviderViewState', () => {
   it('写入后再次挂载能读回筛选与首可见项索引', () => {
     const first = renderHook(() => useModelProviderViewState());
     act(() => {
-      first.result.current.saveFilter({ name: 'gpt', type: 'llm' });
+      first.result.current.saveFilter({ name: 'gpt', vendor: 'openai' });
       first.result.current.saveFirstVisibleIndex(42);
     });
     first.unmount();
@@ -21,7 +21,7 @@ describe('useModelProviderViewState', () => {
     const second = renderHook(() => useModelProviderViewState());
     expect(second.result.current.initialFilter).toEqual({
       name: 'gpt',
-      type: 'llm',
+      vendor: 'openai',
     });
     expect(second.result.current.initialRestoreIndex).toBe(42);
   });

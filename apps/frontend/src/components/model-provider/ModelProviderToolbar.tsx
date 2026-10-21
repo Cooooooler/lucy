@@ -1,42 +1,50 @@
-import type { ModelProviderType } from '@/api/types';
-import { MODEL_TYPE_OPTIONS } from '@/components/model-provider/model-provider-labels.ts';
+import type { ModelProviderVendor } from '@/api/types';
+import { VENDOR_OPTIONS } from '@/components/model-provider/model-provider-labels.ts';
 import { PageToolbar } from '@/components/page-toolbar';
 import { Button, Input, Segmented } from 'antd';
 import type { FC } from 'react';
 
-export type ModelTypeFilter = 'all' | ModelProviderType;
+export type ModelVendorFilter = 'all' | ModelProviderVendor;
 
-const TYPE_FILTER_OPTIONS: { label: string; value: ModelTypeFilter }[] = [
+const VENDOR_FILTER_OPTIONS: { label: string; value: ModelVendorFilter }[] = [
   { label: '全部', value: 'all' },
-  ...MODEL_TYPE_OPTIONS,
+  ...VENDOR_OPTIONS,
 ];
 
 type ModelProviderToolbarProps = {
-  type: ModelTypeFilter;
-  onTypeChange: (value: ModelTypeFilter) => void;
+  vendor: ModelVendorFilter;
+  onVendorChange: (value: ModelVendorFilter) => void;
   onSearch: (value: string) => void;
   /** 搜索框初始关键词：仅在挂载时作为非受控输入框的默认值（用于返回恢复） */
   defaultKeyword?: string;
   /** 点击「新增模型」时触发；表单抽屉由路由持有 */
   onCreate: () => void;
+  /** 点击「默认模型设置」时触发；Modal 由路由持有 */
+  onOpenDefaults: () => void;
 };
 
 export const ModelProviderToolbar: FC<ModelProviderToolbarProps> = ({
-  type,
-  onTypeChange,
+  vendor,
+  onVendorChange,
   onSearch,
   defaultKeyword,
   onCreate,
+  onOpenDefaults,
 }) => (
   <PageToolbar
     left={
-      <Segmented<ModelTypeFilter>
-        options={TYPE_FILTER_OPTIONS}
-        value={type}
-        onChange={onTypeChange}
+      <Segmented<ModelVendorFilter>
+        options={VENDOR_FILTER_OPTIONS}
+        value={vendor}
+        onChange={onVendorChange}
       />
     }
-    actions={<Button onClick={onCreate}>新增模型</Button>}
+    actions={
+      <>
+        <Button onClick={onOpenDefaults}>默认模型设置</Button>
+        <Button onClick={onCreate}>新增模型</Button>
+      </>
+    }
     search={
       <Input.Search
         allowClear

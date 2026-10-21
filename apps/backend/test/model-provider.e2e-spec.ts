@@ -231,4 +231,95 @@ describe('ModelProvider CRUD & connection test (e2e)', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(404);
   });
+
+  it('默认模型设置：保存、读取与整体替换清空', async () => {
+    const created = await createModel();
+
+    const saved = await request(server)
+      .put('/v1/model-providers/defaults')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ defaults: [{ type: 'llm', modelProviderId: created.id }] })
+      .expect(200);
+    const savedBody = saved.body as ApiBody<{
+      defaults: { type: string; modelProviderId: string | null }[];
+    }>;
+    expect(
+      savedBody.data.defaults.find((item) => item.type === 'llm')
+        ?.modelProviderId,
+    ).toBe(created.id);
+
+    // 保存后重新读取必须能回显（GET 走 relation 派生类型，不能只信 PUT 的返回）
+    const readBack = await request(server)
+      .get('/v1/model-providers/defaults')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(
+      (
+        readBack.body as ApiBody<{
+          defaults: { type: string; modelProviderId: string | null }[];
+        }>
+      ).data.defaults.find((item) => item.type === 'llm')?.modelProviderId,
+    ).toBe(created.id);
+
+    // 提交空值即清除
+    const cleared = await request(server)
+      .put('/v1/model-providers/defaults')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ defaults: [{ type: 'llm', modelProviderId: null }] })
+      .expect(200);
+    expect(
+      (
+        cleared.body as ApiBody<{
+          defaults: { type: string; modelProviderId: string | null }[];
+        }>
+      ).data.defaults.every((item) => item.modelProviderId === null),
+    ).toBe(true);
+  });
+
+  it('默认模型设置：拒绝他人的模型与类型不匹配', async () => {
+    const otherModel = await request(server)
+      .post('/v1/model-providers')
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send(createBody)
+      .expect(201);
+    const otherId = (otherModel.body as ApiBody<{ id: string }>).data.id;
+
+    await request(server)
+      .put('/v1/model-providers/defaults')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ defaults: [{ type: 'llm', modelProviderId: otherId }] })
+      .expect(400);
+
+    const created = await createModel();
+    await request(server)
+      .put('/v1/model-providers/defaults')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ defaults: [{ type: 'tts', modelProviderId: created.id }] })
+      .expect(400);
+  });
+
+  it('删除模型时级联清除其默认设置', async () => {
+    const created = await createModel();
+    await request(server)
+      .put('/v1/model-providers/defaults')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ defaults: [{ type: 'llm', modelProviderId: created.id }] })
+      .expect(200);
+
+    await request(server)
+      .delete(`/v1/model-providers/${created.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const res = await request(server)
+      .get('/v1/model-providers/defaults')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const body = res.body as ApiBody<{
+      defaults: { type: string; modelProviderId: string | null }[];
+    }>;
+    expect(
+      body.data.defaults.find((item) => item.type === 'llm')?.modelProviderId,
+    ).toBeNull();
+  });
 });

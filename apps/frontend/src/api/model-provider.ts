@@ -3,7 +3,9 @@ import { http } from './client.js';
 import type {
   CreateModelProviderRequest,
   ModelProvider,
+  ModelProviderDefaults,
   TestConnectionResult,
+  UpdateModelProviderDefaultsRequest,
   UpdateModelProviderRequest,
 } from './types.js';
 
@@ -34,6 +36,19 @@ export function updateModelProviderApi(
 
 export function deleteModelProviderApi(id: string) {
   return http.delete<null>(`model-providers/${id}`).json();
+}
+
+// 默认模型设置：按类型读取/整体替换（PUT 的语义即整体替换）
+export function getModelProviderDefaultsApi() {
+  return http.get<ModelProviderDefaults>('model-providers/defaults').json();
+}
+
+export function updateModelProviderDefaultsApi(
+  input: UpdateModelProviderDefaultsRequest,
+) {
+  return http
+    .put<ModelProviderDefaults>('model-providers/defaults', input)
+    .json();
 }
 
 // 连接测试：结果（ok/失败原因）由调用方按 ok 展示，跳过全局成功提示桥

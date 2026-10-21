@@ -123,6 +123,8 @@ const ALLOWED_OUTBOUND_KEYS: Record<string, readonly string[]> = {
     'createdAt',
     'updatedAt',
   ],
+  // 纯内部表：默认模型只有允许式 DTO（ModelProviderDefaultsDto）出网，实体字段全部 @Exclude
+  UserDefaultModel: [],
 };
 
 /** 查询期回写的视图字段：不在 TypeORM 元数据里，需单独填充才能被快照断言看到 */

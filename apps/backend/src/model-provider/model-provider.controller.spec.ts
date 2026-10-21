@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { ModelConnectionService } from './model-connection.service.js';
+import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
 import { ModelProviderController } from './model-provider.controller.js';
 import { ModelProviderService } from './model-provider.service.js';
 
@@ -15,6 +16,7 @@ describe('ModelProviderController', () => {
     remove: vi.fn(),
   };
   const connection = { test: vi.fn() };
+  const defaults = { list: vi.fn(), replace: vi.fn() };
 
   const user: CurrentUserPayload = { userId: 'u1', jti: 'j', role: 'user' };
 
@@ -24,6 +26,7 @@ describe('ModelProviderController', () => {
       controllers: [ModelProviderController],
       providers: [
         { provide: ModelProviderService, useValue: service },
+        { provide: ModelProviderDefaultsService, useValue: defaults },
         { provide: ModelConnectionService, useValue: connection },
       ],
     }).compile();
@@ -47,6 +50,17 @@ describe('ModelProviderController', () => {
     const query = { cursor: 'abc', limit: 10 };
     await controller.list(user, query);
     expect(service.list).toHaveBeenCalledWith('u1', query);
+  });
+
+  it('getDefaults 转发 userId', async () => {
+    await controller.getDefaults(user);
+    expect(defaults.list).toHaveBeenCalledWith('u1');
+  });
+
+  it('replaceDefaults 转发 userId 与 dto', async () => {
+    const dto = { defaults: [{ type: 'llm', modelProviderId: null }] } as never;
+    await controller.replaceDefaults(user, dto);
+    expect(defaults.replace).toHaveBeenCalledWith('u1', dto);
   });
 
   it('get 转发 userId 与 id', async () => {

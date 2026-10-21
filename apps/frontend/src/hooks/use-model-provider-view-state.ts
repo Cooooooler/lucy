@@ -1,4 +1,4 @@
-import type { ModelProviderType } from '@/api/types';
+import type { ModelProviderVendor } from '@/api/types';
 import {
   createListViewState,
   resetListViewState,
@@ -8,7 +8,7 @@ import {
 /** 视图筛选条件：与列表查询过滤条件同形，undefined 表示「不筛」 */
 export type ModelProviderViewFilter = {
   name?: string;
-  type?: ModelProviderType;
+  vendor?: ModelProviderVendor;
 };
 
 /** 模型供应商列表的会话内视图状态。store 必须建在模块作用域（原因见 useListViewState） */

@@ -1,19 +1,22 @@
 import {
   createModelProviderApi,
   deleteModelProviderApi,
+  getModelProviderDefaultsApi,
   listModelProvidersApi,
   testModelProviderConnectionApi,
   updateModelProviderApi,
+  updateModelProviderDefaultsApi,
 } from '@/api/model-provider';
 import type {
   CreateModelProviderRequest,
   ModelProvider,
   ModelProviderType,
+  ModelProviderVendor,
   UpdateModelProviderRequest,
 } from '@/api/types';
 import type { ModelProviderListQuery } from '@lucy/shared';
 import type { QueryClient } from '@tanstack/react-query';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   type ListCacheKeys,
   filterOutItem,
@@ -32,6 +35,7 @@ export const MODEL_PROVIDER_PAGE_SIZE = 20;
 export type ModelProviderListFilter = {
   name?: string;
   type?: ModelProviderType;
+  vendor?: ModelProviderVendor;
 };
 
 /** 查询 key 工厂，统一管理 queryKey 生成逻辑 */
@@ -41,6 +45,8 @@ export const modelProviderKeys = {
   listAll: () => [...modelProviderKeys.all, 'list'] as const,
   list: (query: ModelProviderListQuery = {}) =>
     [...modelProviderKeys.listAll(), query] as const,
+  /** 默认模型设置（每种类型一条） */
+  defaults: () => [...modelProviderKeys.all, 'defaults'] as const,
   item: (id: string) => [...modelProviderKeys.all, id] as const,
 };
 
@@ -54,6 +60,7 @@ const modelCacheKeys = (id: string): ListCacheKeys => ({
 function matchesFilter(item: ModelProvider, filter: unknown): boolean {
   const current = filter as ModelProviderListQuery | undefined;
   if (current?.type && item.type !== current.type) return false;
+  if (current?.vendor && item.vendor !== current.vendor) return false;
   if (
     current?.name &&
     !item.name.toLowerCase().includes(current.name.toLowerCase())
@@ -81,10 +88,45 @@ function patchModelInCache(
 export function useInfiniteModelProviderList(
   filter: ModelProviderListFilter = {},
   limit = MODEL_PROVIDER_PAGE_SIZE,
+  enabled = true,
 ) {
   return useCursorList<ModelProvider>({
     queryKey: modelProviderKeys.list({ ...filter, limit }),
     fetchPage: (cursor) => listModelProvidersApi({ ...filter, limit, cursor }),
+    enabled,
+  });
+}
+
+/**
+ * 某一类型下的全部模型（只用于「默认模型设置」的下拉选项）。
+ * 复用无限列表的查询与缓存形态，创建/修改/删除的乐观更新同样能命中。
+ */
+export function useModelProvidersByType(
+  type: ModelProviderType,
+  enabled = true,
+) {
+  const query = useInfiniteModelProviderList({ type }, 100, enabled);
+  const models = query.data?.pages.flatMap((page) => page.list) ?? [];
+  return { models, isLoading: query.isLoading };
+}
+
+/** 当前用户的默认模型设置（每种模型类型一条） */
+export function useModelProviderDefaults(enabled = true) {
+  return useQuery({
+    queryKey: modelProviderKeys.defaults(),
+    queryFn: getModelProviderDefaultsApi,
+    enabled,
+  });
+}
+
+/** 保存默认模型设置（整体替换），成功后直接写回缓存 */
+export function useUpdateModelProviderDefaults() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateModelProviderDefaultsApi,
+    onSuccess: (data) => {
+      queryClient.setQueryData(modelProviderKeys.defaults(), data);
+    },
   });
 }
 
