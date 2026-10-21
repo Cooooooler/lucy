@@ -24,7 +24,7 @@ import {
   ModelProviderVendor,
 } from './entities/model-provider.entity.js';
 import { resolveOwnedModelProvider } from './model-provider-access.js';
-import { clearDefaultsForProvider } from './model-provider-defaults.service.js';
+import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
 import { toModelProviderItem } from './model-provider.mapper.js';
 
 /**
@@ -41,6 +41,8 @@ export class ModelProviderService {
     private readonly repo: Repository<ModelProvider>,
     private readonly paginator: KeysetPaginator,
     private readonly cipher: ApiKeyCipher,
+    // 模型改类型会改变默认设置的含义，清理交给默认模型领域自己处理
+    private readonly defaults: ModelProviderDefaultsService,
   ) {}
 
   /**
@@ -153,40 +155,49 @@ export class ModelProviderService {
     id: string,
     dto: UpdateModelProviderDto,
   ): Promise<ModelProviderItemDto> {
-    const provider = await resolveOwnedModelProvider(this.repo, id, userId);
-    const previousType = provider.type;
-    if (dto.name !== undefined) provider.name = dto.name;
-    if (dto.type !== undefined) provider.type = dto.type;
-    if (dto.vendor !== undefined) provider.vendor = dto.vendor;
-    if (dto.baseUrl !== undefined) {
-      assertBaseUrlHostAllowed(dto.baseUrl);
-      provider.baseUrl = dto.baseUrl;
-    }
-    if (dto.protocol !== undefined) provider.protocol = dto.protocol;
-    if (dto.contextLength !== undefined) {
-      provider.contextLength = dto.contextLength;
-    }
-    if (dto.apiKey !== undefined) {
-      const apiKey = dto.apiKey.trim();
-      provider.apiKeyEncrypted = apiKey ? this.cipher.encrypt(apiKey) : '';
-      provider.apiKeyLast4 = apiKey ? this.cipher.last4(apiKey) : '';
-    }
-    // 换厂商（如 ollama → openai）而未补 Key 时，落库前拦下，避免存出永远调不通的配置
-    this.assertApiKeyForVendor(
-      provider.vendor,
-      provider.apiKeyEncrypted.length > 0,
-    );
-    const saved =
-      provider.type === previousType
-        ? await this.repo.save(provider)
-        : // 类型变了：该模型此前若被设为某类型的默认模型，旧类型的默认设置已失效。
-          // 不清理会与同类型的另一条默认项派生出同一个 type，list() 的 Map 只能保留一条，
-          // 返回结果取决于数据库行序——等于静默丢掉一条设置。保存与清理放在同一事务里。
-          await this.repo.manager.transaction(async (manager) => {
-            const updated = await manager.save(provider);
-            await clearDefaultsForProvider(manager, userId, id);
-            return updated;
-          });
+    // 读取、判据、写入、清理必须在同一事务里对着同一份当前值完成：
+    // 事务外读到的快照会被并发 PATCH 覆盖（save 按快照差异把旧 type 写回去），
+    // 「类型是否变了」也会基于陈旧值误判，进而多删或漏删默认设置。
+    const saved = await this.repo.manager.transaction(async (manager) => {
+      const provider = await manager.getRepository(ModelProvider).findOne({
+        where: { id, ownerId: userId },
+        // 写锁：与 replace() 校验时的共享锁互斥，串行化同一模型的并发修改
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!provider) throw new NotFoundException('模型不存在');
+
+      const previousType = provider.type;
+      if (dto.name !== undefined) provider.name = dto.name;
+      if (dto.type !== undefined) provider.type = dto.type;
+      if (dto.vendor !== undefined) provider.vendor = dto.vendor;
+      if (dto.baseUrl !== undefined) {
+        assertBaseUrlHostAllowed(dto.baseUrl);
+        provider.baseUrl = dto.baseUrl;
+      }
+      if (dto.protocol !== undefined) provider.protocol = dto.protocol;
+      if (dto.contextLength !== undefined) {
+        provider.contextLength = dto.contextLength;
+      }
+      if (dto.apiKey !== undefined) {
+        const apiKey = dto.apiKey.trim();
+        provider.apiKeyEncrypted = apiKey ? this.cipher.encrypt(apiKey) : '';
+        provider.apiKeyLast4 = apiKey ? this.cipher.last4(apiKey) : '';
+      }
+      // 换厂商（如 ollama → openai）而未补 Key 时，落库前拦下，避免存出永远调不通的配置
+      this.assertApiKeyForVendor(
+        provider.vendor,
+        provider.apiKeyEncrypted.length > 0,
+      );
+
+      const updated = await manager.save(provider);
+      if (provider.type !== previousType) {
+        // 类型变了：该模型此前若被设为某类型的默认模型，旧类型的默认设置已失效。
+        // 不清理会与同类型的另一条默认项派生出同一个 type，list() 的 Map 只能保留一条，
+        // 返回结果取决于数据库行序——等于静默丢掉一条设置。
+        await this.defaults.clearForProvider(manager, userId, id);
+      }
+      return updated;
+    });
     this.logger.log(
       `model provider update id=${id}`,
       ModelProviderService.name,

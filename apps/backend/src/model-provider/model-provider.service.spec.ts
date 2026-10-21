@@ -20,7 +20,7 @@ import {
   ModelProviderType,
   ModelProviderVendor,
 } from './entities/model-provider.entity.js';
-import { UserDefaultModel } from './entities/user-default-model.entity.js';
+import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
 import { ModelProviderService } from './model-provider.service.js';
 
 const SECRET = 'test-model-provider-secret-32-chars-long';
@@ -34,7 +34,9 @@ describe('ModelProviderService', () => {
     createQueryBuilder: vi.fn(),
     manager: { transaction: vi.fn() },
   };
-  const tx = { save: vi.fn(), delete: vi.fn() };
+  const txProviders = { findOne: vi.fn() };
+  const tx = { getRepository: vi.fn(() => txProviders), save: vi.fn() };
+  const defaults = { clearForProvider: vi.fn() };
   const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
   let cipher: ApiKeyCipher;
   let service: ModelProviderService;
@@ -48,6 +50,7 @@ describe('ModelProviderService', () => {
         { provide: AppLogger, useValue: logger },
         { provide: getRepositoryToken(ModelProvider), useValue: repo },
         { provide: ApiKeyCipher, useValue: cipher },
+        { provide: ModelProviderDefaultsService, useValue: defaults },
       ],
     }).compile();
     return moduleRef.get(ModelProviderService);
@@ -165,11 +168,11 @@ describe('ModelProviderService', () => {
   });
 
   it('update 拒绝把 baseUrl 改到链路本地', async () => {
-    repo.findOne.mockResolvedValue(makeModelProvider());
+    txProviders.findOne.mockResolvedValue(makeModelProvider());
     await expect(
       service.update('u1', MODEL_ID, { baseUrl: 'http://169.254.169.254/' }),
     ).rejects.toThrow(BadRequestException);
-    expect(repo.save).not.toHaveBeenCalled();
+    expect(tx.save).not.toHaveBeenCalled();
   });
 
   it('update 换到需要 Key 的供应商却无 Key → 400', async () => {
@@ -178,12 +181,12 @@ describe('ModelProviderService', () => {
       apiKeyEncrypted: '',
       apiKeyLast4: '',
     });
-    repo.findOne.mockResolvedValue(existing);
+    txProviders.findOne.mockResolvedValue(existing);
 
     await expect(
       service.update('u1', MODEL_ID, { vendor: ModelProviderVendor.OpenAI }),
     ).rejects.toThrow(BadRequestException);
-    expect(repo.save).not.toHaveBeenCalled();
+    expect(tx.save).not.toHaveBeenCalled();
   });
 
   it('list 按属主过滤，并透传类型/供应商/名称条件', async () => {
@@ -254,10 +257,11 @@ describe('ModelProviderService', () => {
 
   it('update 只改显式字段，省略 apiKey 时保留原密文', async () => {
     const existing = makeModelProvider();
-    repo.findOne.mockResolvedValue(existing);
+    txProviders.findOne.mockResolvedValue(existing);
 
     await service.update('u1', MODEL_ID, { name: 'new-name' });
 
+    expect(tx.save).toHaveBeenCalledWith(existing);
     expect(existing.name).toBe('new-name');
     expect(existing.apiKeyEncrypted).toBe('aXY.aXY.aXY');
     expect(existing.apiKeyLast4).toBe('abcd');
@@ -266,7 +270,7 @@ describe('ModelProviderService', () => {
 
   it('update 传入 apiKey 时重新加密并刷新尾号', async () => {
     const existing = makeModelProvider();
-    repo.findOne.mockResolvedValue(existing);
+    txProviders.findOne.mockResolvedValue(existing);
 
     await service.update('u1', MODEL_ID, { apiKey: 'sk-new-key-9999' });
 
@@ -276,37 +280,32 @@ describe('ModelProviderService', () => {
 
   it('update 改类型时在同一事务里清除该模型的默认设置', async () => {
     const existing = makeModelProvider();
-    repo.findOne.mockResolvedValue(existing);
+    txProviders.findOne.mockResolvedValue(existing);
 
     await service.update('u1', MODEL_ID, {
       type: ModelProviderType.TextEmbedding,
     });
 
-    expect(repo.save).not.toHaveBeenCalled();
-    expect(repo.manager.transaction).toHaveBeenCalledTimes(1);
     expect(tx.save).toHaveBeenCalledWith(existing);
-    expect(tx.delete).toHaveBeenCalledWith(UserDefaultModel, {
-      ownerId: 'u1',
-      modelProviderId: MODEL_ID,
-    });
+    expect(defaults.clearForProvider).toHaveBeenCalledWith(tx, 'u1', MODEL_ID);
   });
 
   it('update 类型未变时不清理默认设置', async () => {
     const existing = makeModelProvider();
-    repo.findOne.mockResolvedValue(existing);
+    txProviders.findOne.mockResolvedValue(existing);
 
     await service.update('u1', MODEL_ID, { type: ModelProviderType.Llm });
 
-    expect(repo.manager.transaction).not.toHaveBeenCalled();
-    expect(repo.save).toHaveBeenCalledWith(existing);
+    expect(tx.save).toHaveBeenCalledWith(existing);
+    expect(defaults.clearForProvider).not.toHaveBeenCalled();
   });
 
   it('update 不存在或非属主 404', async () => {
-    repo.findOne.mockResolvedValue(null);
+    txProviders.findOne.mockResolvedValue(null);
     await expect(service.update('u2', MODEL_ID, { name: 'x' })).rejects.toThrow(
       NotFoundException,
     );
-    expect(repo.save).not.toHaveBeenCalled();
+    expect(tx.save).not.toHaveBeenCalled();
   });
 
   it('remove 按属主删除；未命中 404', async () => {

@@ -15,21 +15,6 @@ import { UserDefaultModel } from './entities/user-default-model.entity.js';
 const MODEL_PROVIDER_TYPES = Object.values(ModelProviderType);
 
 /**
- * 清除指向某个模型的默认设置。
- *
- * 类型由关联模型派生：模型改类型后，这条默认项在旧类型下已失效。清理逻辑收敛在这里，
- * 任何改动模型类型的入口都复用同一处条件，不会各自拼一套删除谓词。
- * `manager` 由调用方的写事务传入，保证类型变更与清理同生共死。
- */
-export async function clearDefaultsForProvider(
-  manager: EntityManager,
-  ownerId: string,
-  modelProviderId: string,
-): Promise<void> {
-  await manager.delete(UserDefaultModel, { ownerId, modelProviderId });
-}
-
-/**
  * 用户默认模型：按模型类型各存一条。
  *
  * 写入是**整体替换**语义：一次请求提交完整的类型映射，未提交的类型一律清除。
@@ -41,6 +26,21 @@ export class ModelProviderDefaultsService {
     @InjectRepository(UserDefaultModel)
     private readonly repo: Repository<UserDefaultModel>,
   ) {}
+
+  /**
+   * 清除指向某个模型的默认设置。
+   *
+   * 类型由关联模型派生：模型改类型后，这条默认项在旧类型下已失效。清理逻辑收敛在默认
+   * 模型领域内，任何改动模型类型的入口都复用同一处条件。`manager` 由调用方的写事务
+   * 传入，保证类型变更与清理同生共死。
+   */
+  async clearForProvider(
+    manager: EntityManager,
+    ownerId: string,
+    modelProviderId: string,
+  ): Promise<void> {
+    await manager.delete(UserDefaultModel, { ownerId, modelProviderId });
+  }
 
   /** 读取当前用户的默认模型；未设置的类型返回 null */
   async list(userId: string): Promise<ModelProviderDefaultsDto> {
