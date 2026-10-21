@@ -54,11 +54,12 @@ concurrency:
   group: pr-skill-review-${{ github.event.issue.number }}-${{ startsWith(github.event.comment.body, '/skill-review') && 'review' || 'skip' }}
   cancel-in-progress: true
 
-# 读代码 + 发评论；本作业不会回推代码
+# 读代码 + 发评论 + 写 commit status；本作业不会回推代码
 permissions:
   contents: read
   issues: write
   pull-requests: write
+  statuses: write
 
 jobs:
   skill-review:
@@ -109,31 +110,11 @@ jobs:
           ref: ${{ steps.target.outputs.head_sha }}
           fetch-depth: 0
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-
-      - name: Install Command Code CLI
-        run: npm install -g command-code
-
-      - name: Pin installed CLI version
-        # CI 与网关模型目录保持一致：npm 装最新版 CLI，本步打印确切版本，
-        # 失败时排查“模型 id 不存在”先看这里的版本号。
-        run: |
-          command-code --version
-
-      - name: Preflight - verify model id
-        # 网关账号/模型 id 出问题时，这里能看到 CLI 的报错信息；失败不阻断后续
-        continue-on-error: true
-        env:
-          COMMAND_CODE_API_KEY: ${{ secrets.COMMAND_CODE_API_KEY }}
-        run: |
-          command-code --list-models | head -c 4000
-          echo
-
       - name: Prepare path-scoped diffs
         id: diff
-        # 生成按目录切分的补丁，让每次评审只看到自己那半边的改动
+        # 生成按目录切分的补丁，让每次评审只看到自己那半边的改动。
+        # 放在安装 CLI 之前：docs/CI-only PR 两侧补丁都为空，可以直接走 N/A 快路径，
+        # 不必白装一次 CLI。
         run: |
           set -euo pipefail
           BASE="origin/${{ steps.target.outputs.base_ref }}"
@@ -150,6 +131,57 @@ jobs:
           echo "fe_bytes=$FE" >> "$GITHUB_OUTPUT"
           echo "be_bytes=$BE" >> "$GITHUB_OUTPUT"
           echo "frontend patch: ${FE} bytes, backend patch: ${BE} bytes"
+
+      - name: Mark review status (pending / N/A)
+        id: status-start
+        # 把「评审是否跑过」变成 head SHA 上的 commit status，供 ruleset 作为必需检查：
+        # - 有 apps 补丁 → pending，评审结束后由最后一步改写
+        # - 两侧都为空 → success（N/A），并跳过后续 CLI/评审步骤
+        # 新 push 会产生新 SHA、没有状态，因此天然要求「对当前 head 重新评审」。
+        uses: actions/github-script@v9
+        env:
+          FE_BYTES: ${{ steps.diff.outputs.fe_bytes }}
+          BE_BYTES: ${{ steps.diff.outputs.be_bytes }}
+          HEAD_SHA: ${{ steps.target.outputs.head_sha }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const isNa = process.env.FE_BYTES === '0' && process.env.BE_BYTES === '0';
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: process.env.HEAD_SHA,
+              context: 'skill-review',
+              state: isNa ? 'success' : 'pending',
+              description: isNa ? 'N/A（无 apps 补丁）' : '技能评审进行中',
+            });
+            core.setOutput('skip', isNa ? 'true' : 'false');
+
+      - uses: actions/setup-node@v7
+        if: steps.status-start.outputs.skip != 'true'
+        with:
+          node-version: 22
+
+      - name: Install Command Code CLI
+        if: steps.status-start.outputs.skip != 'true'
+        run: npm install -g command-code
+
+      - name: Pin installed CLI version
+        if: steps.status-start.outputs.skip != 'true'
+        # CI 与网关模型目录保持一致：npm 装最新版 CLI，本步打印确切版本，
+        # 失败时排查“模型 id 不存在”先看这里的版本号。
+        run: |
+          command-code --version
+
+      - name: Preflight - verify model id
+        if: steps.status-start.outputs.skip != 'true'
+        # 网关账号/模型 id 出问题时，这里能看到 CLI 的报错信息；失败不阻断后续
+        continue-on-error: true
+        env:
+          COMMAND_CODE_API_KEY: ${{ secrets.COMMAND_CODE_API_KEY }}
+        run: |
+          command-code --list-models | head -c 4000
+          echo
 
       - name: Frontend review (vercel-react-best-practices)
         if: steps.diff.outputs.fe_bytes != '0'
@@ -236,9 +268,17 @@ jobs:
           fi
           FE=$(echo "$FE" | tr -d ' ')
           BE=$(echo "$BE" | tr -d ' ')
+          # 有补丁却拿不到有效输出 = 该侧评审失败/早停；与「这一侧本来就没改」区分开，
+          # 后者是正常的 N/A。最终 commit status 据此置 failure，强制重新触发评审。
+          FE_PATCH="${{ steps.diff.outputs.fe_bytes }}"
+          BE_PATCH="${{ steps.diff.outputs.be_bytes }}"
+          RESULT=ok
+          if [ "$FE_PATCH" != "0" ] && [ "$FE" = "0" ]; then RESULT=invalid; fi
+          if [ "$BE_PATCH" != "0" ] && [ "$BE" = "0" ]; then RESULT=invalid; fi
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
           if [ "$FE" = "0" ] && [ "$BE" = "0" ]; then
             echo "has_content=false" >> "$GITHUB_OUTPUT"
-            echo "no review output produced; skipping comment"
+            echo "no review output produced; skipping comment (result=$RESULT)"
             exit 0
           fi
           {
@@ -264,6 +304,7 @@ jobs:
           echo "comment body bytes: $(wc -c < .pr-skill-review/comment.md)"
 
       - name: Publish review comment
+        id: publish
         if: steps.body.outputs.has_content == 'true'
         # 每次运行都新发一条评论：编辑旧评论不会产生通知，评审结果容易被漏看。
         # marker 保留，仅用于标识本作业产出的评论（便于筛选/后续清理）。
@@ -282,3 +323,34 @@ jobs:
               body,
             });
             core.info(`created comment ${data.id}`);
+
+      - name: Publish review status
+        # `always()`：评审步骤即使失败（continue-on-error）也要把 pending 收尾成 failure，
+        # 否则必需检查会永远停在 pending，合并被无限期挡住。
+        # N/A 快路径已由 status-start 置 success，这里跳过。
+        if: always() && steps.status-start.outputs.skip != 'true'
+        uses: actions/github-script@v9
+        env:
+          HEAD_SHA: ${{ steps.target.outputs.head_sha }}
+          RESULT: ${{ steps.body.outputs.result }}
+          PUBLISH: ${{ steps.publish.outcome }}
+          RUN_ID: ${{ github.run_id }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            // result=ok 只说明评审产出了内容；评论没发出去时不能让检查变绿，
+            // 否则「评审过了」但 PR 上看不到任何结论。
+            const ok = process.env.RESULT === 'ok' && process.env.PUBLISH === 'success';
+            const short = (process.env.HEAD_SHA || '').slice(0, 7);
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: process.env.HEAD_SHA,
+              context: 'skill-review',
+              state: ok ? 'success' : 'failure',
+              description: ok
+                ? `已评审 ${short}`
+                : '评审未产出有效结果，请重试',
+              target_url: `https://github.com/${owner}/${repo}/actions/runs/${process.env.RUN_ID}`,
+            });
+            core.info(`skill-review status: ${ok ? 'success' : 'failure'} @ ${short}`);
