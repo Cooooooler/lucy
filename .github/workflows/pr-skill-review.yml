@@ -71,7 +71,7 @@ jobs:
     # fork 贡献者身份是 CONTRIBUTOR，不在名单内。）
     if: >-
       github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.sender.type != 'Bot' && startsWith(github.event.comment.body, '/skill-review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       # Command Code CLI 自身的鉴权。headless 下 CLI 必须先登录（实测：缺失时报

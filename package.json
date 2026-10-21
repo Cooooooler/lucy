@@ -13,6 +13,7 @@
     "dev:frontend": "turbo run dev --filter=@lucy/frontend",
     "format": "prettier --cache --write --ignore-unknown .",
     "lint": "turbo run lint",
+    "pr:gate": "node scripts/pr-merge-gate.mjs",
     "prepare": "husky",
     "release": "standard-version",
     "test": "turbo run test",

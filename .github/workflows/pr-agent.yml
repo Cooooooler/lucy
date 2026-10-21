@@ -35,7 +35,7 @@ jobs:
     # 是为了不误伤 PR-Agent 自己的其余命令（/help、/add_docs 等）。
     if: >-
       github.event.issue.pull_request && github.event.sender.type != 'Bot' && startsWith(github.event.comment.body, '/') && !startsWith(github.event.comment.body, '/skill-review')
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Run PR Agent

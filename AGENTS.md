@@ -128,15 +128,22 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 - 改动涉及 `apps/frontend/**` 或 `apps/backend/**`：合并前必须有一轮针对**当前 head** 的 `/skill-review`。核对最新一条 `<!-- pr-skill-review -->` 评论里的「评审 commit」等于 `gh pr view <n> --json headRefOid`；**没有评审 ≠ 没有阻塞项**，未触发就不得合并。
 - 评审发现问题的一轮：改完并 push 后重新触发 `/skill-review`，以最新一轮为准；旧评论里已修好的问题不算阻塞项。
 - **禁止合并后补跑**：`pr-skill-review` 用 `origin/<base>` 做 diff 基准，合并后 base 已包含改动，补跑只会得到 0 字节补丁并被跳过。评审只能在合并前做。
-- 只改 `.github/**`、文档、脚本等非 `apps/**` 路径的 PR：workflow 会直接写 `success`（N/A）并跳过评审；仍需在 PR 正文显式写「技能评审 N/A」。不要把这个豁免扩大到 apps 改动。
+- 只改 `.github/**`、文档、脚本等非 `apps/**` 路径的 PR：workflow 会直接写 `success`（N/A）并跳过评审；仍需在 PR 正文显式写「技能评审 N/A」，`pnpm pr:gate` 会核对这一点。不要把这个豁免扩大到 apps 改动。
 - 触发评审后确认 run 成功；若被并发组取消（`cancelled`），等机器人评论落地后重触发（并发组已按 `-review` / `-skip` 分桶，正常情况下不会再撞）。
 
-合并前逐项核对：
+合并前跑自检（封装了 head / checks / `skill-review` status / 评审评论 / N/A 的全部核对）：
+
+```bash
+pnpm pr:gate <n>
+```
+
+需要手工排查时，原始命令是：
 
 ```bash
 gh pr checks <n>                                                   # 全绿
 gh pr view <n> --json headRefOid,mergeable,mergeStateStatus        # head / CLEAN
 gh api repos/<owner>/<repo>/issues/<n>/comments --jq '.[-1].body'  # marker + 评审 commit = head
+gh api repos/<owner>/<repo>/commits/<head>/status                  # skill-review = success
 ```
 
 - 用 merge commit（与本仓历史一致）并**锁定 head SHA**：`merge_pull_request{merge_method:'merge', expectedHeadSha:<head>}`，避免合并窗口内被推新提交

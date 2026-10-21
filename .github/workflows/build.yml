@@ -19,7 +19,7 @@ permissions:
 jobs:
   lint-typecheck:
     name: Lint & Typecheck
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -43,7 +43,7 @@ jobs:
 
   backend-tests:
     name: Backend tests with coverage
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: ubuntu-latest
     services:
       redis:
         image: redis/redis-stack-server:7.2.0-v16
@@ -79,7 +79,7 @@ jobs:
 
   frontend-tests:
     name: Frontend tests with coverage
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -106,7 +106,7 @@ jobs:
 
   frontend-e2e:
     name: Frontend e2e smoke
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -134,7 +134,7 @@ jobs:
 
   redis-tests:
     name: Redis package tests with coverage
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: ubuntu-latest
     services:
       redis:
         image: redis/redis-stack-server:7.2.0-v16
@@ -164,7 +164,7 @@ jobs:
 
   shared-tests:
     name: Shared package tests with coverage
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -190,7 +190,7 @@ jobs:
   sonarqube:
     name: SonarCloud Scan
     needs: [backend-tests, frontend-tests, redis-tests, shared-tests]
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
