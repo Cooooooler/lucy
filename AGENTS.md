@@ -1,15 +1,16 @@
 # AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents (Command Code / Claude Code) when working with code in this repository.
 
 ## 项目概览
 
-pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/*`），全仓统一为 ESM：
+pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/*`），所有工作区包统一为 ESM（根 `package.json` 未声明 `type`，`commitlint.config.js` 仍是 CJS）：
 
-- `apps/backend` — NestJS 11（Express），TypeScript ESM（`type: module`，`nodenext`），Vitest 4（unplugin-swc 提供装饰器元数据），PostgreSQL + TypeORM + Redis（经 `@coool/redis-nest`，RedisBloom）
+- `apps/backend` — NestJS 11（Express），TypeScript ESM（`type: module`，`nodenext`），Vitest 4（unplugin-swc 提供装饰器元数据），PostgreSQL + TypeORM + Redis（经 `@coool/redis-nest`，RedisBloom）+ 文件存储（经 `@coool/file-nest`）
 - `apps/frontend` — Vite + React 19 + TypeScript，TanStack Router/Query/Store，antd 6 + ProComponents，Tailwind CSS 4，Vitest + jsdom
 - `packages/shared` — `@lucy/shared` 共享类型与常量，tsup 构建为纯 ESM（`dist/index.js` + `dist/index.d.ts`）
-- `packages/redis` — `@coool/redis-nest` 自研 NestJS Redis 集成模块（ioredis：连接管理/序列化/DI/多数据源/统一异常/`RedisService.raw` 逃生舱），后端 `RedisModule` 消费它；README 与 VitePress 文档见 `packages/redis/docs/`
+- `packages/redis` — `@coool/redis-nest` 自研 NestJS Redis 集成模块（ioredis：连接管理/序列化/DI/多数据源/统一异常/`RedisService.raw` 逃生舱），后端 `RedisModule` 消费它；`packages/redis/README.md` + VitePress 文档见 `packages/redis/docs/`
+- `packages/file-nest` — `@coool/file-nest` 文件存储集成模块（`StorageDriver` 抽象 + `LocalStorageDriver`，`FileService` 只处理字节并返回 `StoredFile`，不落库任何元数据；`FileModule.forRoot/forRootAsync` 全局注册），后端 `FileModule` 消费它；tsup 构建双格式（esm + cjs），VitePress 文档见 `packages/file-nest/docs/`
 
 ## 常用命令（根目录）
 
@@ -24,7 +25,7 @@ pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/
 | `pnpm typecheck` | Turbo 跑 typecheck（依赖 `^build`，先构建依赖包） |
 | `pnpm typegen` | 从后端 Swagger spec 重新生成共享契约类型（先 `gen:openapi` 出 spec，再 openapi-typescript） |
 | `pnpm format` | 根目录 prettier 全量格式化 |
-| `pnpm clean` | `scripts/clean.mjs` 清理各工作区 `dist/.umi/.mfsu/.swc/coverage/node_modules` 及 `.tsbuildinfo` |
+| `pnpm clean` | `scripts/clean.mjs` 清理各工作区 `dist/.umi/.umi-production/.mfsu/.swc/coverage/node_modules` 及 `.tsbuildinfo` |
 | `pnpm commit` | commitizen 交互式提交（遵循 Conventional Commits） |
 
 按包执行：
@@ -41,12 +42,12 @@ pnpm --filter @lucy/shared build                              # 构建 shared（
 pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 ```
 
-**filter 名**：backend=`@lucy/backend`、shared=`@lucy/shared`、frontend=`@lucy/frontend`、redis=`@coool/redis-nest`。
+**filter 名**：backend=`@lucy/backend`、shared=`@lucy/shared`、frontend=`@lucy/frontend`、redis=`@coool/redis-nest`、file-nest=`@coool/file-nest`。
 
 ## 关键约定与注意事项
 
-- **提交规范**：Conventional Commits。husky `pre-commit` 先跑 `pnpm typegen` 重新生成共享契约类型并 stage，再跑 `lint-staged` + `pnpm typecheck` + `pnpm test`，`commit-msg` 跑 commitlint（header ≤120、subject ≤100、type 小写）。提交前务必保证测试通过，否则 commit 会失败。
-- **全仓 ESM**：所有包 `"type": "module"`。后端 tsconfig 用 `module/moduleResolution: nodenext`，相对导入必须带 `.js` 后缀，`__dirname`/`__filename` 不存在，用 `import.meta.url` 派生（如 `src/db/data-source.ts`）。
+- **提交规范**：Conventional Commits。husky `pre-commit` 先跑 `pnpm typegen` 重新生成共享契约类型，再 `git add packages/shared/src/generated/openapi.ts`，随后 `lint-staged` + `pnpm typecheck` + `pnpm test`；`commit-msg` 跑 commitlint（header ≤120、subject ≤100、type 小写）。提交前务必保证测试通过，否则 commit 会失败。
+- **ESM**：所有工作区包 `"type": "module"`（根 `package.json` 未声明，`commitlint.config.js` 是 CJS）。后端 tsconfig 用 `module/moduleResolution: nodenext`，相对导入必须带 `.js` 后缀，`__dirname`/`__filename` 不存在，用 `import.meta.url` 派生（如 `src/db/data-source.ts`）。
 - **不要改动生成文件**：`dist/`、`.turbo/`、前端 `src/routeTree.gen.ts`（TanStack Router 插件生成，已提交但勿手改）、`.tanstack/`、`packages/shared/src/generated/openapi.ts`（openapi-typescript 从后端 Swagger 生成，已提交但勿手改；改后端 DTO/实体后跑 `pnpm typegen` 重新生成）。
 - **shared 是纯 ESM 包**：`exports.types` 指向 `src/index.ts`（类型直接读源码）、`exports.import` 指向 `dist/index.js`。backend（nodenext）与 frontend（bundler）**类型校验直接读源码，改动源码后 typecheck 无需先构建**；但消费方**构建/运行**（backend build、frontend build/test）仍须先 `pnpm --filter @lucy/shared build`（`import` 走 `dist`）。
 - 后端 lint 脚本自带 `--fix`（`eslint "{src,apps,libs,test,scripts}/**/*.ts" --fix`），前端 `pnpm lint` 同样带 `--fix`。
@@ -61,13 +62,17 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 - `COMMAND_CODE_API_KEY` —— 仅 Skill Review 用，仓库 owner 的 Command Code 账号 key；headless 下 CLI 据此登录，模型调用走该账号额度、经网关（`SKILL_REVIEW_MODEL` 固定 `deepseek/deepseek-v4.1-flash`，不再走 BYOK）。在 Studio 生成。
 
 - **PR-Agent**（`.github/workflows/pr-agent.yml` + `.pr_agent.toml`）：评论触发（`/review`、`/describe`、`/improve`、`/ask`），配置从默认分支读取。它原生支持 `[skills]`，但为单次模型调用、没有文件读取工具，技能只能静态内联、受 `max_skills_tokens` 限制，因此**未启用**。
-- **Skill Review**（`.github/workflows/pr-skill-review.yml`）：**只有手动入口**——在 PR 上评论 **`/skill-review`** 触发（`issue_comment` 事件，限 `OWNER`/`MEMBER`/`COLLABORATOR` 且非 bot，避免外部贡献者用一句评论消耗 owner 的账号额度；该入口由默认分支的工作流响应，以 master 上的版本为准）。**曾经的 `pull_request`（`opened`/`ready_for_review`/`reopened`）自动触发连同同仓库 / fork 路径过滤都已删除**：SonarCloud 机器人在 PR 创建后 3~~4 分钟会发一条质量门禁评论，落进同一个 concurrency group，把正在跑的评审取消（一轮评审要 4~~5 分钟，两者时间窗稳定重叠），于是整轮零产出（实测 #80）；job 级 `if` 拦不住——排队先发生、`if` 后求值，被取消的 run 只显示 `skipped`（更早还因每次 push 都评审会堆出重叠评论、实测 #53 五条 / #55 四条，刻意不订阅 `synchronize`）。**并发组现已按评论是否以 `/skill-review` 开头分桶（`-review` / `-skip`）**：机器人评论进 `-skip` 组，不再取消 `-review` 组里正在跑的评审；上面的竞态只影响「自动触发」的历史方案（手动补跑时仍撞过 #104/#105）。触发时机现由人决定（跑完 CI、看完 diff 再评），也不再消耗自动触发的额度；**没有路径过滤**——作业内部按 `git diff <base>...HEAD -- apps/frontend` 与 `-- apps/backend` 切出两侧补丁，某侧为空则跳过该侧评审，两侧都空则不发评论。用 Command Code CLI headless（`COMMAND_CODE_API_KEY` 鉴权，走账号额度、模型固定 `deepseek/deepseek-v4.1-flash`）**按路径加载完整技能**，模型先看 `name + description`，再按需读 `SKILL.md` 与 `rules/*.md`：前端 `vercel-react-best-practices`，后端 `nestjs-best-practices`。结果**每次运行都新发一条评论**（不再编辑旧评论——编辑不产生通知，评审容易被漏看；marker `<!-- pr-skill-review -->` 保留仅作标识），评论末尾带本轮评审的 commit 与 run 链接以便区分。评审经 `.github/skill-review/scripts/review-with-retry.sh` 做早停校验：输出过短（<500 字节）或汉字过少（<30）判为模型早停，重试 1 次，两次不合格判空、不发残缺评论；「未发现需要修改的问题」这类干净结论不算早停，并按规范句式照常写入评论（模型换个说法的“无问题”也会被识别并归一，避免明明没问题却什么都不发）。
+- **Skill Review**（`.github/workflows/pr-skill-review.yml`）：**只有手动入口**——在 PR 上评论 **`/skill-review`** 触发（`issue_comment` 事件，限 `OWNER`/`MEMBER`/`COLLABORATOR` 且非 bot，避免外部贡献者用一句评论消耗 owner 的账号额度；该入口由默认分支的工作流响应，以 master 上的版本为准）。**曾经的 `pull_request`（`opened`/`ready_for_review`/`reopened`）自动触发连同同仓库 / fork 路径过滤都已删除**：SonarCloud 机器人在 PR 创建/更新后数分钟内会发一条质量门禁评论（#80 约 3~~4 分钟，#104/#105 约 5~~6 分钟），落进同一个 concurrency group，把正在跑的评审取消（一轮评审要 4~~5 分钟，两者时间窗稳定重叠），于是整轮零产出（实测 #80）；job 级 `if` 拦不住——排队先发生、`if` 后求值，被取消的 run 只显示 `skipped`（更早还因每次 push 都评审会堆出重叠评论、实测 #53 五条 / #55 四条，刻意不订阅 `synchronize`）。**并发组现已按评论是否以 `/skill-review` 开头分桶（`-review` / `-skip`）**：机器人评论进 `-skip` 组，不再取消 `-review` 组里正在跑的评审；上面的竞态只影响「自动触发」的历史方案（手动补跑时仍撞过 #104/#105）。触发时机现由人决定（跑完 CI、看完 diff 再评），也不再消耗自动触发的额度；**没有路径过滤**——作业内部按 `git diff <base>...HEAD -- apps/frontend` 与 `-- apps/backend` 切出两侧补丁，某侧为空则跳过该侧评审，两侧都空则不发评论。用 Command Code CLI headless（`COMMAND_CODE_API_KEY` 鉴权，走账号额度、模型固定 `deepseek/deepseek-v4.1-flash`）**按路径加载完整技能**，模型先看 `name + description`，再按需读 `SKILL.md` 与 `rules/*.md`：前端 `vercel-react-best-practices`，后端 `nestjs-best-practices`。结果**每次运行都新发一条评论**（不再编辑旧评论——编辑不产生通知，评审容易被漏看；marker `<!-- pr-skill-review -->` 保留仅作标识），评论末尾带本轮评审的 commit 与 run 链接以便区分。评审经 `.github/skill-review/scripts/review-with-retry.sh` 做早停校验：输出过短（<500 字节）或汉字过少（<30）判为模型早停，重试 1 次，两次不合格判空、不发残缺评论；「未发现需要修改的问题」这类干净结论不算早停，并按规范句式照常写入评论（模型换个说法的“无问题”也会被识别并归一，避免明明没问题却什么都不发）。
 
 技能放在 `.github/skill-review/skills/`（入库；`.commandcode/` 与 `.claude/` 已被 gitignore，CI 用不了）。该目录已加入 `.prettierignore`，上游规则文件保持原样。更新技能直接替换目录内容即可。
 
-## PR 全流程协议（接到「提交 / 推送 / 创建 PR」时自动执行）
+## PR 全流程协议（接到「提交 / 推送 / 合并 / 创建 PR」指令时按本节执行）
 
-**协作约定**：用户说「提交 / 推送 / 创建 PR」= 授权按本节跑完整循环**直到合并**，不必逐步确认。只有下列情况停下来汇报：CI 或质量门禁红、评审存在未决的阻塞项、需要产品/契约决策、或要执行不可逆操作（强推、改 CI 流水线本身）。
+**协作约定**：
+
+- 「提交 / 推送 / 合并 / 走完流程」= 授权按本节跑完整循环**直到合并**，不必逐步确认。
+- 「创建 PR / 发起 PR」= 只做到 PR 创建并汇报，**默认不合并**；要合并请明确说「合并」或「走完流程」。
+- 无论哪种措辞，合并前都必须满足「5. 合并与收尾」里的**评审前置**。只有下列情况停下来汇报：CI 或质量门禁红、评审存在未决的阻塞项、需要产品/契约决策、或要执行不可逆操作（强推、改 CI 流水线本身）。
 
 ### 0. 起手
 
@@ -80,7 +85,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 - **先 `pnpm --filter @lucy/shared build`**：消费方「运行/构建」走 `exports.import` → `dist`，忘了构建会读到过期 `dist`，出现「常量是 undefined」这类假失败（typecheck 读 `src` 不受影响，所以更容易误判）
 - `pnpm lint` / `pnpm typecheck` / `pnpm test`
-- 改了 `apps/backend/test/**` 或后端启动装配 → **`pnpm --filter @lucy/backend test:e2e`**（真 Postgres + Redis；**Build 工作流不跑 e2e**，本地不跑等于没验）
+- 改了 `apps/backend/test/**` 或后端启动装配 → **`pnpm --filter @lucy/backend test:e2e`**（真 Postgres + Redis；**Build 工作流不跑后端 e2e**，本地不跑等于没验；前端 e2e 另在 Build 的 `frontend-e2e` job 跑）
 - 改了 `apps/frontend/**` 的页面、路由或组件 → **`pnpm --filter @lucy/frontend test:e2e`**（Playwright 冒烟，首次需 `playwright install chromium`；API 全部在网络层被拦截，不需要后端）
 - 改了 DTO/实体 → `pnpm typegen`，生成物一并提交（勿手改，见上文「不要改动生成文件」）
 - pre-commit 会跑 `typegen + lint-staged + typecheck + 全仓 test`，慢是正常的；**不要 `--no-verify`**
@@ -98,27 +103,43 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 | 反馈 | 位置 | 判读 |
 | --- | --- | --- |
-| CI（Build：lint / typecheck / 各包 test+coverage） | Actions `Build` | 全部 job 绿 |
-| Sonar 质量门禁 | SonarCloud 检查 / `get_project_quality_gate_status` | 本仓**会红的条件有两个**：**new_coverage ≥ 80**，以及 **new_duplicated_lines_density ≤ 3**（重复率的检测范围见 `sonar-project.properties` 的 `sonar.cpd.exclusions`——测试文件与后端 DTO 不参与重复率，但它们仍参与代码规范/漏洞扫描） |
+| CI（Build：lint / typecheck、backend/frontend/redis/shared 的 test+coverage、frontend e2e；**没有 file-nest 测试 job**） | Actions `Build` | 全部 job 绿 |
+| Sonar 质量门禁 | SonarCloud 检查 / `get_project_quality_gate_status` | 本仓门禁共 **6 条**：`new_reliability_rating ≤ 1`、`new_security_rating ≤ 1`、`new_maintainability_rating ≤ 1`、`new_coverage ≥ 80`、`new_duplicated_lines_density ≤ 3`、`new_security_hotspots_reviewed = 100%`。重复率的检测范围见 `sonar-project.properties` 的 `sonar.cpd.exclusions`——测试文件与后端 DTO 不参与重复率，但它们仍参与代码规范/漏洞扫描 |
 | 技能评审 | PR **会话评论**（不是行内 review thread） | **仅手动触发**（PR 里评论 `/skill-review`）后才有，未触发时该行恒为空；`gh api repos/<owner>/<repo>/issues/<n>/comments --jq '.[-1].body'` 读**最新一条**，并核对其「评审 commit」是否等于当前 head |
 
 要点：
 
 - 评审评论**每次运行都新发一条、且不会自动关闭**，旧评论里的问题可能早已修好——以最新一条 + head 为准
-- 新增了**没有覆盖率上报**的包内源文件会让门禁红：`packages/redis`、`packages/shared` 的 lcov 已接（见 `sonar-project.properties`），`packages/file-nest` 尚未；碰这类包要留意
+- 新增了**没有覆盖率上报**的包内源文件会让门禁红：`packages/redis`、`packages/shared` 的 lcov 已接（见 `sonar-project.properties`），`packages/file-nest` 虽然有自己的 Vitest 用例，但 Build 没有它的测试 job、lcov 也未接；碰这类包要留意
 - 用 `mergeable_state` 决定能否直接合：`clean` 可直接合；`dirty` 表示与 master 冲突，**在本地**合 master、解冲突、跑测试后再推；`unstable` 是检查未完成或失败
 
 ### 4. 处置评审（一轮改完，不要边审边改）
 
 - 逐条给结论，只有三种：**修** / **转跟进**（另开 issue 或并入收口 PR，写明理由）/ **不采纳**（必须写理由——评审会来回摆动，例如「某条恰是上一轮评审明确要求的写法」；结论有事实错误时也在此列出，如「该规则在 JS 中不成立」）
 - **把要改的攒齐一次 push**：每次 push 都可能引出新一轮评审，逐条改逐条推会把 PR 淹没在重叠评论里
-- 需要评审时：push **不会**触发（`pr-skill-review.yml` 现**只有手动入口**），改完后在 PR 里评论 **`/skill-review`** 手动要一轮（限 `OWNER`/`MEMBER`/`COLLABORATOR`）
+- 需要评审时：push **不会**触发（`pr-skill-review.yml` 现**只有手动入口**），改完后在 PR 里评论 **`/skill-review`** 手动要一轮（限 `OWNER`/`MEMBER`/`COLLABORATOR`）；合并前必须完成这一步（详见「5. 合并与收尾」的评审前置）
 - 评审轮次多、条目散时，补一条**处置表评论**（逐条：已修 / 转跟进 / 保留 + 理由，并指向跟进的 issue/PR），后来者不必翻评论历史
 
 ### 5. 合并与收尾
 
+**评审前置（合并硬门槛，适用于所有 PR）**：
+
+- 改动涉及 `apps/frontend/**` 或 `apps/backend/**`：合并前必须有一轮针对**当前 head** 的 `/skill-review`。核对最新一条 `<!-- pr-skill-review -->` 评论里的「评审 commit」等于 `gh pr view <n> --json headRefOid`；**没有评审 ≠ 没有阻塞项**，未触发就不得合并。
+- 评审发现问题的一轮：改完并 push 后重新触发 `/skill-review`，以最新一轮为准；旧评论里已修好的问题不算阻塞项。
+- **禁止合并后补跑**：`pr-skill-review` 用 `origin/<base>` 做 diff 基准，合并后 base 已包含改动，补跑只会得到 0 字节补丁并被跳过。评审只能在合并前做。
+- 只改 `.github/**`、文档、脚本等非 `apps/**` 路径的 PR：工作流切出的前后端补丁为空，技能评审无法覆盖——在 PR 正文显式写「技能评审 N/A」，以 CI + 人工核对为准；不要把这个豁免扩大到 apps 改动。
+- 触发评审后确认 run 成功；若被并发组取消（`cancelled`），等机器人评论落地后重触发（并发组已按 `-review` / `-skip` 分桶，正常情况下不会再撞）。
+
+合并前逐项核对：
+
+```bash
+gh pr checks <n>                                                   # 全绿
+gh pr view <n> --json headRefOid,mergeable,mergeStateStatus        # head / CLEAN
+gh api repos/<owner>/<repo>/issues/<n>/comments --jq '.[-1].body'  # marker + 评审 commit = head
+```
+
 - 用 merge commit（与本仓历史一致）并**锁定 head SHA**：`merge_pull_request{merge_method:'merge', expectedHeadSha:<head>}`，避免合并窗口内被推新提交
-- 合并条件：CI 全绿 + 门禁 OK + 评审无未决阻塞项。master **没有分支保护**（无必需检查），纪律靠自觉，**别把红门禁合进去**
+- 合并条件：CI 全绿 + 门禁 OK + **满足上面的「评审前置」**。master **没有生效的分支保护**（API 404；仅有一个 `enforcement=disabled` 的 ruleset，无必需检查），纪律靠自觉，**别把红门禁合进去**
 - 栈式 PR：先合底层，再把上层 PR 的 `base` **手动 retarget 到 master**（GitHub 不会自动改），随后把新 master 合进上层分支（生成物常需重跑 `pnpm typegen`）
 - 合并后确认 master 的 `Build` 变绿（head SHA = 合并 commit）；随后**删除该分支**：远端 `git push origin --delete <branch>`、本地 `git branch -d <branch>`（被 worktree 占用时先 `git worktree remove`）。每个已合并分支都删，不留历史分支
 - 转跟进的小项：开一个收口 PR，正文逐条注明来源 PR；需要独立迁移/设计决策的另开 issue
@@ -128,17 +149,17 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 ### apps/backend（NestJS）
 
-标准模块化结构，入口 `src/main.ts`，端口 `process.env.PORT ?? 3000`。单测与源码同目录（`*.spec.ts`），e2e 在 `test/`（`vitest.e2e.config.ts`）。`AppModule` 装配：`ConfigModule`（全局）、`CommonModule`、TypeORM（`forRootAsync` 读 `DB_*`）、`PasswordModule`、`UsersModule`、`RedisModule.forRootAsync`（来自 `@coool/redis-nest`，`useFactory: redisModuleOptions` 读 `REDIS_*`）、`AuthModule`、`AiModule`（LangChain + Ollama）。
+标准模块化结构，入口 `src/main.ts`，端口 `process.env.PORT ?? 3000`。单测与源码同目录（`*.spec.ts`），e2e 在 `test/`（`vitest.e2e.config.ts`）。`AppModule` 装配：`ConfigModule`（全局）、`LoggerModule`（nestjs-pino）、`CommonModule`、TypeORM（`forRootAsync` 读 `DB_*`）、`UsersModule`（内含并 re-export `PasswordModule`）、`RedisModule.forRootAsync`（来自 `@coool/redis-nest`，`useFactory: redisModuleOptions` 读 `REDIS_*`）、`AuthModule`、`AiModule`（依赖 `ModelProviderModule`，按用户配置的模型解析对话客户端；Ollama 仅 tokenizer 计数用）、`FileModule.forRootAsync`（来自 `@coool/file-nest`，读 `FILE_STORAGE`/`UPLOAD_DIR`）、`KnowledgeModule`、`ModelProviderModule`、`HealthModule`。`DocsModule` 由 `main.ts` 挂载（仅非生产环境）。
 
-- **ESM 约定**：见上文「全仓 ESM」。
-- **tsx 仅用于 CLI 脚本**（typeorm 迁移）；esbuild 不输出 `design:paramtypes`，Nest 应用本体与 vitest 需经 SWC（`unplugin-swc`）转换。
+- **ESM 约定**：见上文「ESM」。
+- **tsx 仅用于 CLI 脚本**（typeorm 迁移、e2e prepare）；`nest build`/`nest start` 走 tsc，会输出 `design:paramtypes`。esbuild 不输出该元数据，因此**后端单测与 e2e** 经 SWC（`unplugin-swc`）转换；Nest 应用本身不经过 SWC。
 - **Auth**：JWT access（`JWT_EXPIRES_IN`，默认 15m）+ refresh（`REFRESH_TTL_SECONDS`）；`DenylistService` 用 RedisBloom（`BF.ADD`/`BF.EXISTS`）做登出/换发后的令牌撤销，含双布隆过滤器轮换。
 - 公共装饰器：`@Public()`（跳过 JWT 守卫）、`@CurrentUser()`；`AllExceptionsFilter` 统一异常为 `{code,message,data}` 信封；`ApiResponseInterceptor` 包裹成功响应。
 - **Swagger 文档不解析 class-validator**：`@nestjs/swagger` 不读取 `@Min`/`@Max`/`@MinLength`/`@MaxLength`/`@Matches` 等装饰器（CLI 插件未启用），校验边界只在**同时**手写进 `@ApiProperty`/`@ApiPropertyOptional` 的 `minimum`/`maximum`/`minLength`/`maxLength`/`pattern`/`default` 选项时才进 `openapi.json` 与前端契约。分页参数的这组声明收敛在 `common/pagination/dto/` 的基类（`CursorQueryDto`/`PageQueryDto`），各列表 DTO 继承；其余请求 DTO 新增/修改校验时两处必须同步写，否则文档与实现静默漂移。`scripts/gen-openapi.spec.ts` 的「校验边界同步写进 Swagger」用例钉住了分页参数与主要请求体的文档边界，删注解会挂 CI。
 
 #### 数据库（PostgreSQL + TypeORM）
 
-连接配置走 `@nestjs/config`，从 `apps/backend/.env`（已 gitignore，参考 `.env.example`）读取：
+连接配置走 `@nestjs/config`，从 `apps/backend/.env`（已 gitignore，参考 `.env.example`）读取。**完整变量以 `.env.example` 与 `common/env-validation.schema.ts` 为准**，下表只列常用项：
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -149,6 +170,14 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 | `JWT_SECRET` | 无 | JWT 密钥（`openssl rand -hex 32` 生成） |
 | `JWT_EXPIRES_IN` / `REFRESH_TTL_SECONDS` | `15m` / `604800` | access / refresh 有效期 |
 | `BLOOM_ERROR_RATE` / `BLOOM_CAPACITY` / `BLOOM_ROTATION_SECONDS` | `0.01` / `1000000` / `900` | 布隆过滤器参数 |
+| `DB_STATEMENT_TIMEOUT_MS` / `DB_IDLE_TX_TIMEOUT_MS` | `30000` / `60000` | Postgres 语句 / 空闲事务上界（0=不限） |
+| `MODEL_PROVIDER_SECRET_KEY` | 无 | 模型 API Key 加密密钥（**必填**，≥32 字符；缺失时启动与 `pnpm typegen` 都会失败） |
+| `USER_STATUS_CACHE_TTL_SECONDS` | `30` | 用户状态缓存 TTL |
+| `REFRESH_ROTATION_MS` / `REUSE_GRACE_SECONDS` | `600000` / `10` | refresh 轮换阈值 / 复用宽限期 |
+| `REQUEST_TIMEOUT_MS` / `SHUTDOWN_GRACE_MS` | `120000` / `15000` | 读请求超时 / 停机宽限 |
+| `FILE_MAX_SIZE` / `UPLOAD_DIR` / `FILE_STORAGE` | `10485760` / `uploads` / `local` | 文件存储 |
+| `LOG_LEVEL` / `LOG_PRETTY` | `info` / 未设 | pino 日志 |
+| `OLLAMA_*` / `AI_*` / `MODEL_TEST_TIMEOUT_MS` | 见 `.env.example` | tokenizer、上下文预算、模型连接测试 |
 
 - `TypeOrmModule.forRootAsync` 读取上述变量，`synchronize: false`（schema 只由迁移改），`autoLoadEntities: true`；`uuidExtension: 'pgcrypto'` + `installExtensions: false` 让 uuid 主键默认值是内置的 `gen_random_uuid()` 而不是依赖 uuid-ossp 扩展的 `uuid_generate_v4()`。**这两项必须与 `src/db/data-source.ts` 保持一致**，否则 `migration:generate` 产出的 DDL 会和运行时实体对不上。
 - **迁移一律由 `migration:generate` 从实体生成，不手写 DDL**：实体是 schema 的唯一来源，改实体 → 生成迁移 → 审查 `up`/`down` → `db:migrate`。事务模式用 TypeORM 默认的 `all`，生成的文件不需要手工补声明。
@@ -173,16 +202,16 @@ Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite bui
 
 - **`vite dev` 与 `NODE_ENV`**：外部 shell / CI / IDE 若带着 `NODE_ENV=production`，Vite 会把 `import.meta.env.DEV` 判成 false（`DEV = !(NODE_ENV === 'production')`），前端于是改用 `/${API_VERSION}/` 而不经 `/api` 代理，登录等写请求被 SPA fallback 拦成 404。`vite.config.ts` 已在 `serve` 时把 NODE_ENV 钉回 `development`（`vite build` 的 production 语义不受影响）。同理 e2e 用例（如 docs）也不能继承外部 NODE_ENV，要显式设定。
 
-- **路由**：TanStack Router 文件式路由（`src/routes/`，`_auth/login|register`、`_layout/{about,chat,index,knowledge}`）；`src/routeTree.gen.ts` 由 `@tanstack/router-plugin` 自动生成，勿手改。
+- **路由**：TanStack Router 文件式路由（`src/routes/`）：`_auth/login|register`；`_layout/{index,chat,integration,knowledge,users}`；`_layout/integration/model-provider`；`_layout/knowledge/$kbId`。`src/routeTree.gen.ts` 由 `@tanstack/router-plugin` 自动生成，勿手改。
 - **状态/请求**：TanStack Store（`src/stores/auth.ts`）+ TanStack Query（`src/queryClient.ts`）；antd 6 + `@ant-design/pro-components` + ahooks。
-- **别名**（tsconfig paths + vite-tsconfig-paths）：`@`→`src/`、`@api`→`src/api/`、`@bg`→`src/backgrounds/index.ts`、`@components`→`src/components/index.ts`。
-- **目录**：`src/api`（ky HTTP 客户端）、`src/auth`（AuthProvider）、`src/backgrounds`（视觉特效）、`src/components`、`src/routes`、`src/stores`、`src/test`（fixtures + setup）。
-- **测试**：Vitest + jsdom + Testing Library，覆盖率门槛 80%（`vitest.config.ts` 排除视觉特效、路由、生成代码等非业务模块）。
-- **e2e 冒烟**（`e2e/smoke.spec.ts` + `playwright.config.ts`，CI 里是独立 job `frontend-e2e`）：逐个打开全部路由，断言文档标题 / 页面锚点 / 落地路径，并要求**控制台无 error、无未捕获异常**。全程在浏览器网络层拦掉 `/api/**`（连同 `/v1/**` 一起拦，以免隐式依赖上面那处 NODE_ENV 修正），不依赖后端进程。存在的理由：React Compiler 会把 `useCallback(fn, [])` 这类「不依赖响应式值」的回调提升到模块作用域，一旦它捕获了不该捕获的局部变量就只在运行时炸（`ReferenceError` + 整页白屏），而 tsc / lint / vitest 全都发现不了（vitest 走 SWC 不跑 Compiler）。本地首次跑需 `pnpm --filter @lucy/frontend exec playwright install chromium`；webServer 显式绑 `127.0.0.1`——vite 默认绑 IPv6，用 `localhost` 探测会看不到已在跑的 dev server，转而自己再启一个并撞端口。
+- **别名**：只在 `tsconfig.app.json` 定义 `@/*` → `./src/*`，由 Vite 8 内置的 `resolve.tsconfigPaths: true` 解析（没有 `vite-tsconfig-paths` 插件）；`@api`/`@bg`/`@components` 等短别名并不存在，统一用 `@/api/...` 这类路径。
+- **目录**：`src/api`（hook-fetch HTTP 客户端）、`src/auth`（AuthProvider）、`src/backgrounds`（视觉特效）、`src/components`、`src/hooks`、`src/routes`、`src/stores`、`src/test`（fixtures + setup）、`src/theme`、`src/assets`。
+- **测试**：Vitest + jsdom + Testing Library。前端覆盖率门槛 **60%**（`apps/frontend/vitest.config.ts`，排除视觉特效、路由、生成代码等非业务模块）；后端门槛 **80%**（`apps/backend/vitest.config.ts`）。
+- **e2e 冒烟**（`e2e/smoke.spec.ts` + `playwright.config.ts`，CI 里是独立 job `frontend-e2e`）：逐个打开全部路由，断言文档标题 / 页面锚点 / 落地路径，并要求**控制台无 error、无未捕获异常**。全程在浏览器网络层拦掉 `/api/**`（连同 `/v1/**` 一起拦，以免隐式依赖上面那处 NODE_ENV 修正），不依赖后端进程。存在的理由：React Compiler 会把 `useCallback(fn, [])` 这类「不依赖响应式值」的回调提升到模块作用域，一旦它捕获了不该捕获的局部变量就只在运行时炸（`ReferenceError` + 整页白屏），而 tsc / lint / vitest 全都发现不了（前端 vitest 用 `@vitejs/plugin-react`，没有加载 React Compiler preset）。本地首次跑需 `pnpm --filter @lucy/frontend exec playwright install chromium`；webServer 显式绑 `127.0.0.1`——vite 默认绑 IPv6，用 `localhost` 探测会看不到已在跑的 dev server，转而自己再启一个并撞端口。
 
 ### packages/shared（@lucy/shared）
 
-前后端共享的基础设施类型与常量：`ApiResponse`、`ErrorCode`/`ErrorCodeValue`、`PageQuery`、`PageResult`。接口契约类型（`User`/`AuthTokens`/`LoginResult` 等）由后端 Swagger spec 经 openapi-typescript 生成到 `src/generated/openapi.ts`（已提交、勿手改），通过 `components['schemas']['xxx']` 消费；改后端 DTO/实体后跑 `pnpm typegen`（内部先 `gen:openapi` 产出 `openapi.json` 再生成类型，`openapi.json` 已 gitignore）。tsup 构建纯 ESM（`--format esm --clean`），`exports.import` → `dist/index.js`。改动后 typecheck 可直接读 `src`（`exports` 的 `types`→`src/index.ts`）免构建；**构建/运行**消费方（backend build、frontend build/test）前先 `pnpm --filter @lucy/shared build`。
+前后端共享的基础设施类型与常量：`ApiResponse`、`ErrorCode`/`ErrorCodeValue`、`API_VERSION`、`PageQuery`、`PageResult`、`CursorPageResult`、查询参数类型与 `AiStreamEvent` 等（字段级常量在 `contract-limits.ts`）。接口契约类型（前端别名为 `User`/`LoginResult` 等，对应生成的 `UserListItemDto`/`LoginResultDto`）由后端 Swagger spec 经 openapi-typescript 生成到 `src/generated/openapi.ts`（已提交、勿手改），通过 `components['schemas']['xxx']` 消费；改后端 DTO/实体后跑 `pnpm typegen`（内部先 `gen:openapi` 产出 `openapi.json` 再生成类型，`openapi.json` 已 gitignore）。tsup 构建纯 ESM（`--format esm --clean`），`exports.import` → `dist/index.js`。改动后 typecheck 可直接读 `src`（`exports` 的 `types`→`src/index.ts`）免构建；**构建/运行**消费方（backend build、frontend build/test）前先 `pnpm --filter @lucy/shared build`。
 
 ### packages/redis（@coool/redis-nest）
 
@@ -190,7 +219,7 @@ Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite bui
 
 ### 数据流
 
-前端 `src/api/` 基于 `ky`：`publicHttp`（登录/注册/刷新）与 `http`（附加 Bearer，401 时单飞刷新并带新 token 重试一次）两个实例；统一解包 `{code,message,data}` 信封，非 0 / 非 2xx 抛 `ApiError`。`src/api/types.ts` 将生成的 `components['schemas']` 导出为易用别名（`LoginRequest`/`LoginResult`/`User` 等）。dev 环境经 Vite proxy 到后端；新增接口时改后端 DTO/实体、跑 `pnpm typegen`，再在 `src/api/` 加客户端函数。
+前端 `src/api/` 基于 `hook-fetch`：只有一个 `http` 实例（`authHeader` 附加 Bearer，`refreshOn401` 在 401 时单飞刷新并带新 token 重放一次；登录/注册/刷新/SSE 等通过 `extra.skipAuthRefresh` 跳过刷新）；统一解包 `{code,message,data}` 信封，非 0 / 非 2xx 抛 `ApiError`。`src/api/types.ts` 将生成的 `components['schemas']` 导出为易用别名（`LoginRequest`/`LoginResult`/`User` 等）。dev 环境经 Vite proxy 到后端；新增接口时改后端 DTO/实体、跑 `pnpm typegen`，再在 `src/api/` 加客户端函数。
 
 ## Superpowers-ZH 中文增强版
 
@@ -251,7 +280,7 @@ WebStorm IDE 已接入 MCP。当 WebStorm 可用时，**执行类操作优先走
 
 关键注意：
 
-- **分支 vs PR 上下文**：长/短命分支分析用 `branch`（可用 `list_branches` 发现，git 分支名也可用）；PR 分析用 `pullRequest`（key 来自 `list_pull_requests`，**绝不能传 git 分支名**）。两者不可同时传；都省略则查 main 分支。
+- **分支 vs PR 上下文**：长/短命分支分析用 `branch`（可用 `list_branches` 发现，git 分支名也可用）；PR 分析用 `pullRequest`（key 来自 `list_pull_requests`，**绝不能传 git 分支名**）。两者不可同时传；都省略则查项目默认分支（本仓为 `master`）。
 - **项目 key 解析**：直接使用 `Cooooooler_lucy`，无需搜索；不确定时再用 `search_my_sonarqube_projects`。
 - 修改代码后、提交/合并前，可先查质量门禁与新增 issue，避免引入回归。
 - **重复率只统计生产代码的「业务重复」**：`sonar-project.properties` 的 `sonar.cpd.exclusions` 把 migrations、测试文件（`*.spec.ts` / `*.test.ts` / `*.test.tsx`）与后端 `**/dto/**` 排除在 CPD 之外。测试的夹具与断言模板、以及「允许式白名单」DTO 的平铺字段声明天然成片重复，对它们设门槛只会逼出为过门禁而写的抽象；这份排除**不影响**代码规范、漏洞/安全热点与覆盖率（覆盖率另有 `sonar.coverage.exclusions`）。新增此类「结构性重复」的目录时，往 `sonar.cpd.exclusions` 里补一条并写清理由。
