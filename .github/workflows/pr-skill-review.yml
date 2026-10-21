@@ -30,9 +30,10 @@ name: PR Skill Review
 # #79 侥幸躲过（评审先跑完），#80 没躲过。竞态问题平时不会暴露，但代价是整轮评审白跑。
 #
 # 现在只保留手动入口：一次修复对应一次评审，触发时机由人决定（跑完 CI、看完 diff 再评），
-# 也不再消耗自动触发的额度。`cancel-in-progress: true` 保留——同一 PR 连续评论两次时
-# 后一次顶掉前一次，符合预期（两次针对同一 head 时结果相同，只留一轮即可）。
-#
+# 也不再消耗自动触发的额度。`cancel-in-progress: true` 保留——同一 PR 连续评论两次
+# `/skill-review` 时后一次顶掉前一次，符合预期（两次针对同一 head 时结果相同，只留一轮）。
+# 并发组按「是否是 /skill-review」分桶（见下方 concurrency），机器人评论不再取消在跑评审。
+
 # 鉴权：官方 headless 登录是 OAuth（不适合 CI）。这里用仓库 owner 的 Command Code
 # 账号 API key（COMMAND_CODE_API_KEY，headless 下 CLI 据此登录），模型调用走该账号
 # 额度、经 Command Code 网关，不再走 BYOK：网关模型由 CLI 自带目录解析窗口与输出
@@ -44,11 +45,13 @@ on:
   issue_comment:
     types: [created]
 
-# 同一 PR 的评审串行执行，反复触发时只保留最新一轮。
-# 此时并发组里只有「手动 /skill-review」一种触发源，不再有机器人评论混进来
-# 自动触发被删后曾出现过的「机器人评论取消在跑评审」竞态不复存在。
+# 同一 PR 的 /skill-review 评审串行执行，反复触发时只保留最新一轮。
+# 并发组按「是否 /skill-review」分桶：只有该评论进 -review 组；Sonar 等机器人的
+# 评论进 -skip 组，其 run 会被 job 级 if 判成 skipped，但不会再取消 -review 组里
+# 正在跑的评审。仅按 PR 编号分组时，机器人评论会进同一组、把在跑的评审 cancel 掉
+# （#104/#105 实测）；job 级 if 拦不住——排队先发生、if 后求值。
 concurrency:
-  group: pr-skill-review-${{ github.event.issue.number }}
+  group: pr-skill-review-${{ github.event.issue.number }}-${{ startsWith(github.event.comment.body, '/skill-review') && 'review' || 'skip' }}
   cancel-in-progress: true
 
 # 读代码 + 发评论；本作业不会回推代码
