@@ -61,6 +61,18 @@ describe('DefaultModelSettingsModal', () => {
     expect(await screen.findByText('gpt-4o-mini')).toBeInTheDocument();
   });
 
+  it('默认设置尚未加载完成时禁用保存，避免空表单覆盖已有设置', () => {
+    api.getModelProviderDefaultsApi.mockReturnValue(new Promise(() => {}));
+    api.listModelProvidersApi.mockResolvedValue({
+      list: [],
+      nextCursor: null,
+    });
+
+    render(<DefaultModelSettingsModal open onClose={vi.fn()} />, { wrapper });
+
+    expect(screen.getByRole('button', { name: /保\s*存/ })).toBeDisabled();
+  });
+
   it('保存后关闭再打开仍然回显', async () => {
     const defaults = {
       defaults: [{ type: 'llm', modelProviderId: 'm-llm' }],

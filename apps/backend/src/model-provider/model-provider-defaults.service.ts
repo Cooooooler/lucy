@@ -25,13 +25,17 @@ export class ModelProviderDefaultsService {
   constructor(
     @InjectRepository(UserDefaultModel)
     private readonly repo: Repository<UserDefaultModel>,
-    @InjectRepository(ModelProvider)
-    private readonly providers: Repository<ModelProvider>,
   ) {}
 
   /** 读取当前用户的默认模型；未设置的类型返回 null */
   async list(userId: string): Promise<ModelProviderDefaultsDto> {
     const rows = await this.repo.find({
+      // 只取派生类型所需的列：关联模型若整行取回会带上 api_key_encrypted（凭证材料），
+      // 默认模型设置完全用不到，没必要把它拉进内存
+      select: {
+        modelProviderId: true,
+        modelProvider: { id: true, type: true },
+      },
       where: { ownerId: userId },
       relations: { modelProvider: true },
     });
@@ -69,23 +73,6 @@ export class ModelProviderDefaultsService {
         [...selected.values()].filter((id): id is string => id !== null),
       ),
     ];
-    const owned = ids.length
-      ? await this.providers.find({
-          where: { id: In(ids), ownerId: userId },
-        })
-      : [];
-    const ownedById = new Map(owned.map((provider) => [provider.id, provider]));
-    for (const [type, id] of selected) {
-      if (id === null) continue;
-      const provider = ownedById.get(id);
-      if (!provider) {
-        throw new BadRequestException('默认模型不存在或不属于当前用户');
-      }
-      if (provider.type !== type) {
-        throw new BadRequestException('默认模型的类型与所设类型不一致');
-      }
-    }
-
     const rows = [...selected]
       .filter(([, id]) => id !== null)
       .map(([, modelProviderId]) => ({
@@ -94,6 +81,28 @@ export class ModelProviderDefaultsService {
       }));
 
     await this.repo.manager.transaction(async (manager) => {
+      // 校验与写入放在同一事务：先查后写若跨事务，校验通过后模型可能被删/改类型，
+      // 写进去的就是一条 FK 失败或类型不匹配的默认设置
+      const owned = ids.length
+        ? await manager.find(ModelProvider, {
+            select: { id: true, type: true },
+            where: { id: In(ids), ownerId: userId },
+          })
+        : [];
+      const ownedById = new Map(
+        owned.map((provider) => [provider.id, provider]),
+      );
+      for (const [type, id] of selected) {
+        if (id === null) continue;
+        const provider = ownedById.get(id);
+        if (!provider) {
+          throw new BadRequestException('默认模型不存在或不属于当前用户');
+        }
+        if (provider.type !== type) {
+          throw new BadRequestException('默认模型的类型与所设类型不一致');
+        }
+      }
+
       await manager.delete(UserDefaultModel, { ownerId: userId });
       if (rows.length > 0) {
         await manager.save(UserDefaultModel, rows);

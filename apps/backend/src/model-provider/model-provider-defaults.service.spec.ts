@@ -2,20 +2,16 @@ import { BadRequestException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  ModelProvider,
-  ModelProviderType,
-} from './entities/model-provider.entity.js';
+import { ModelProviderType } from './entities/model-provider.entity.js';
 import { UserDefaultModel } from './entities/user-default-model.entity.js';
 import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
 
 describe('ModelProviderDefaultsService', () => {
-  const manager = { delete: vi.fn(), save: vi.fn() };
+  const manager = { find: vi.fn(), delete: vi.fn(), save: vi.fn() };
   const repo = {
     find: vi.fn(),
     manager: { transaction: vi.fn() },
   };
-  const providers = { find: vi.fn() };
   let service: ModelProviderDefaultsService;
 
   beforeEach(async () => {
@@ -27,7 +23,6 @@ describe('ModelProviderDefaultsService', () => {
       providers: [
         ModelProviderDefaultsService,
         { provide: getRepositoryToken(UserDefaultModel), useValue: repo },
-        { provide: getRepositoryToken(ModelProvider), useValue: providers },
       ],
     }).compile();
     service = moduleRef.get(ModelProviderDefaultsService);
@@ -48,6 +43,10 @@ describe('ModelProviderDefaultsService', () => {
     const result = await service.list('u1');
 
     expect(repo.find).toHaveBeenCalledWith({
+      select: {
+        modelProviderId: true,
+        modelProvider: { id: true, type: true },
+      },
       where: { ownerId: 'u1' },
       relations: { modelProvider: true },
     });
@@ -61,20 +60,18 @@ describe('ModelProviderDefaultsService', () => {
   });
 
   it('replace 拒绝不存在或非属主的模型', async () => {
-    providers.find.mockResolvedValue([]);
+    manager.find.mockResolvedValue([]);
 
     await expect(
       service.replace('u1', {
         defaults: [{ type: ModelProviderType.Llm, modelProviderId: 'm-other' }],
       }),
     ).rejects.toThrow(BadRequestException);
-    expect(repo.manager.transaction).not.toHaveBeenCalled();
+    expect(manager.delete).not.toHaveBeenCalled();
   });
 
   it('replace 拒绝类型不匹配的模型', async () => {
-    providers.find.mockResolvedValue([
-      { id: 'm1', type: ModelProviderType.Tts },
-    ]);
+    manager.find.mockResolvedValue([{ id: 'm1', type: ModelProviderType.Tts }]);
 
     await expect(
       service.replace('u1', {
@@ -84,9 +81,7 @@ describe('ModelProviderDefaultsService', () => {
   });
 
   it('replace 整体替换：先清空再写入非空项', async () => {
-    providers.find.mockResolvedValue([
-      { id: 'm1', type: ModelProviderType.Llm },
-    ]);
+    manager.find.mockResolvedValue([{ id: 'm1', type: ModelProviderType.Llm }]);
     repo.find.mockResolvedValue([
       {
         modelProviderId: 'm1',
@@ -120,7 +115,7 @@ describe('ModelProviderDefaultsService', () => {
       defaults: [{ type: ModelProviderType.Llm, modelProviderId: null }],
     });
 
-    expect(providers.find).not.toHaveBeenCalled();
+    expect(manager.find).not.toHaveBeenCalled();
     expect(manager.delete).toHaveBeenCalledWith(UserDefaultModel, {
       ownerId: 'u1',
     });

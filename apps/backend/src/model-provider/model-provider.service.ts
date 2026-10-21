@@ -23,6 +23,7 @@ import {
   ModelProviderType,
   ModelProviderVendor,
 } from './entities/model-provider.entity.js';
+import { UserDefaultModel } from './entities/user-default-model.entity.js';
 import { resolveOwnedModelProvider } from './model-provider-access.js';
 import { toModelProviderItem } from './model-provider.mapper.js';
 
@@ -153,6 +154,7 @@ export class ModelProviderService {
     dto: UpdateModelProviderDto,
   ): Promise<ModelProviderItemDto> {
     const provider = await resolveOwnedModelProvider(this.repo, id, userId);
+    const previousType = provider.type;
     if (dto.name !== undefined) provider.name = dto.name;
     if (dto.type !== undefined) provider.type = dto.type;
     if (dto.vendor !== undefined) provider.vendor = dto.vendor;
@@ -174,7 +176,20 @@ export class ModelProviderService {
       provider.vendor,
       provider.apiKeyEncrypted.length > 0,
     );
-    const saved = await this.repo.save(provider);
+    const saved =
+      provider.type === previousType
+        ? await this.repo.save(provider)
+        : // 类型变了：该模型此前若被设为某类型的默认模型，旧类型的默认设置已失效。
+          // 不清理会与同类型的另一条默认项派生出同一个 type，list() 的 Map 只能保留一条，
+          // 返回结果取决于数据库行序——等于静默丢掉一条设置。保存与清理放在同一事务里。
+          await this.repo.manager.transaction(async (manager) => {
+            const updated = await manager.save(provider);
+            await manager.delete(UserDefaultModel, {
+              ownerId: userId,
+              modelProviderId: id,
+            });
+            return updated;
+          });
     this.logger.log(
       `model provider update id=${id}`,
       ModelProviderService.name,

@@ -66,6 +66,8 @@ export const DefaultModelSettingsModal: FC<DefaultModelSettingsModalProps> = ({
   }, [defaultsQuery.data]);
 
   const handleSubmit = async () => {
+    // 读取完成前表单还是空的，此时提交（整体替换语义）会把已有默认项全部清成 null
+    if (defaultsQuery.isLoading) return;
     const values = form.getFieldsValue();
     try {
       await updateMutation.mutateAsync({
@@ -86,6 +88,7 @@ export const DefaultModelSettingsModal: FC<DefaultModelSettingsModalProps> = ({
       open={open}
       destroyOnHidden
       confirmLoading={updateMutation.isPending}
+      okButtonProps={{ disabled: defaultsQuery.isLoading }}
       okText="保存"
       cancelText="取消"
       onOk={handleSubmit}

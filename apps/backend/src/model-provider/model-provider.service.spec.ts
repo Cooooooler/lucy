@@ -20,6 +20,7 @@ import {
   ModelProviderType,
   ModelProviderVendor,
 } from './entities/model-provider.entity.js';
+import { UserDefaultModel } from './entities/user-default-model.entity.js';
 import { ModelProviderService } from './model-provider.service.js';
 
 const SECRET = 'test-model-provider-secret-32-chars-long';
@@ -31,7 +32,9 @@ describe('ModelProviderService', () => {
     save: vi.fn(),
     delete: vi.fn(),
     createQueryBuilder: vi.fn(),
+    manager: { transaction: vi.fn() },
   };
+  const tx = { save: vi.fn(), delete: vi.fn() };
   const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
   let cipher: ApiKeyCipher;
   let service: ModelProviderService;
@@ -56,6 +59,12 @@ describe('ModelProviderService', () => {
     // save 回显入参（模拟落库返回），便于断言加解密后的字段
     repo.save.mockImplementation((entity: Partial<ModelProvider>) =>
       Promise.resolve({ ...makeModelProvider(), ...entity }),
+    );
+    tx.save.mockImplementation((entity: Partial<ModelProvider>) =>
+      Promise.resolve({ ...makeModelProvider(), ...entity }),
+    );
+    repo.manager.transaction.mockImplementation(
+      async (fn: (manager: typeof tx) => Promise<unknown>) => fn(tx),
     );
     repo.createQueryBuilder.mockReturnValue(makeModelQb());
     service = await buildService();
@@ -263,6 +272,33 @@ describe('ModelProviderService', () => {
 
     expect(existing.apiKeyLast4).toBe('9999');
     expect(cipher.decrypt(existing.apiKeyEncrypted)).toBe('sk-new-key-9999');
+  });
+
+  it('update 改类型时在同一事务里清除该模型的默认设置', async () => {
+    const existing = makeModelProvider();
+    repo.findOne.mockResolvedValue(existing);
+
+    await service.update('u1', MODEL_ID, {
+      type: ModelProviderType.TextEmbedding,
+    });
+
+    expect(repo.save).not.toHaveBeenCalled();
+    expect(repo.manager.transaction).toHaveBeenCalledTimes(1);
+    expect(tx.save).toHaveBeenCalledWith(existing);
+    expect(tx.delete).toHaveBeenCalledWith(UserDefaultModel, {
+      ownerId: 'u1',
+      modelProviderId: MODEL_ID,
+    });
+  });
+
+  it('update 类型未变时不清理默认设置', async () => {
+    const existing = makeModelProvider();
+    repo.findOne.mockResolvedValue(existing);
+
+    await service.update('u1', MODEL_ID, { type: ModelProviderType.Llm });
+
+    expect(repo.manager.transaction).not.toHaveBeenCalled();
+    expect(repo.save).toHaveBeenCalledWith(existing);
   });
 
   it('update 不存在或非属主 404', async () => {
