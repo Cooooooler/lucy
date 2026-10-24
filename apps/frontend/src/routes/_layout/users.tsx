@@ -3,7 +3,6 @@ import type { User } from '@/api/types';
 import type { UserListQuery } from '@/api/users';
 import { hasMinRole } from '@/auth/roles';
 import { PageShell } from '@/components/page-shell';
-import { UserToolbar, type StatusFilter } from '@/components/users/UserToolbar';
 import {
   useDeleteUser,
   useUpdateUserRole,
@@ -33,7 +32,6 @@ import {
   useRef,
   useState,
   type FC,
-  type ReactNode,
 } from 'react';
 
 const ROLE_TAG_COLOR: Record<User['role'], string> = {
@@ -47,6 +45,9 @@ const ROLE_LABEL: Record<User['role'], string> = {
   admin: '管理员',
   superadmin: '超级管理员',
 };
+
+/** 状态筛选：all 表示不向接口传 status */
+type StatusFilter = 'all' | 'enabled' | 'disabled';
 
 const RoleTag = ({ role }: { readonly role: User['role'] }) => {
   return <Tag color={ROLE_TAG_COLOR[role]}>{ROLE_LABEL[role]}</Tag>;
@@ -200,7 +201,7 @@ const UsersPage = () => {
     };
   }, [page, pageSize, keyword, status]);
 
-  const { data, isLoading } = useUserList(query);
+  const { data, isLoading, refetch } = useUserList(query);
   const rows = useMemo(() => data?.list ?? [], [data?.list]);
   // 删除确认框的 onOk 在闭包中执行：用 ref 读取最新页码与行数，
   // 保证 handleDelete 不依赖 page/rows 而每轮重建（连带 columns memo 失效）。
@@ -277,32 +278,61 @@ const UsersPage = () => {
 
   const columns: ProColumns<User>[] = useMemo(
     () => [
-      { title: '用户名', dataIndex: 'username', copyable: true },
+      // 仅供 ProTable 查询表单使用：关键字同时匹配用户名/邮箱/昵称，
+      // 因此表格列各自 search: false，只留这两个隐藏搜索项。
+      {
+        title: '关键字',
+        dataIndex: 'keyword',
+        hideInTable: true,
+        fieldProps: { placeholder: '按用户名 / 邮箱 / 昵称搜索' },
+      },
+      {
+        title: '状态',
+        dataIndex: 'statusFilter',
+        hideInTable: true,
+        valueEnum: {
+          all: { text: '全部状态' },
+          enabled: { text: '正常' },
+          disabled: { text: '已禁用' },
+        },
+        initialValue: 'all',
+      },
+      {
+        title: '用户名',
+        dataIndex: 'username',
+        copyable: true,
+        search: false,
+      },
       {
         title: '昵称',
         dataIndex: 'nickname',
+        search: false,
         render: (_, r) => r.nickname ?? '-',
       },
-      { title: '邮箱', dataIndex: 'email', copyable: true },
+      { title: '邮箱', dataIndex: 'email', copyable: true, search: false },
       {
         title: '角色',
         dataIndex: 'role',
+        search: false,
         render: (_, r) => <RoleTag role={r.role} />,
       },
       {
         title: '状态',
         dataIndex: 'status',
+        search: false,
         render: (_, r) => <StatusTag status={r.status} />,
       },
       {
         title: '创建时间',
         dataIndex: 'createdAt',
         valueType: 'dateTime',
+        search: false,
         render: (_, r) => dayjs(r.createdAt).format('YYYY-MM-DD HH:mm'),
       },
       {
         title: '操作',
         valueType: 'option',
+        search: false,
         render: (_, record) => {
           // 自己不可操作：后端同样会 403，前端直接禁用按钮
           const operable = record.id !== currentUser?.id;
@@ -355,55 +385,36 @@ const UsersPage = () => {
     [canChangeRole, currentUser?.id, handleDelete, handleToggleStatus],
   );
 
-  let content: ReactNode;
-  if (isLoading && rows.length === 0) {
-    content = (
-      <ProTable<User>
-        rowKey="id"
-        loading
-        dataSource={[]}
-        columns={columns}
-        search={false}
-        options={false}
-        dateFormatter="string"
-        pagination={false}
-      />
-    );
-  } else {
-    content = (
-      <ProTable<User>
-        rowKey="id"
-        loading={isLoading}
-        dataSource={rows}
-        columns={columns}
-        search={false}
-        options={false}
-        dateFormatter="string"
-        pagination={{
-          current: page,
-          pageSize,
-          total: data?.total ?? 0,
-          showSizeChanger: false,
-          onChange: (next) => setPage(next),
-        }}
-      />
-    );
-  }
-
   return (
     <PageShell height="fill">
-      <UserToolbar
-        status={status}
-        onStatusChange={(value) => {
-          setStatus(value);
-          setPage(1);
-        }}
-        onSearch={(value) => {
-          setKeyword(value);
-          setPage(1);
-        }}
-      />
-      <div className="min-h-0 flex-1 py-4">{content}</div>
+      <div className="min-h-0 flex-1 py-4">
+        <ProTable<User, { keyword?: string; statusFilter?: StatusFilter }>
+          rowKey="id"
+          loading={isLoading}
+          dataSource={rows}
+          columns={columns}
+          search={{ labelWidth: 'auto' }}
+          options={{ reload: () => void refetch() }}
+          dateFormatter="string"
+          onSubmit={(params) => {
+            setKeyword(String(params.keyword ?? '').trim());
+            setStatus(params.statusFilter ?? 'all');
+            setPage(1);
+          }}
+          onReset={() => {
+            setKeyword('');
+            setStatus('all');
+            setPage(1);
+          }}
+          pagination={{
+            current: page,
+            pageSize,
+            total: data?.total ?? 0,
+            showSizeChanger: false,
+            onChange: (next) => setPage(next),
+          }}
+        />
+      </div>
       <UserDetailModal
         user={detailUser}
         open={detailUser !== null}
