@@ -83,9 +83,9 @@ function submitSearch(value: string) {
   fireEvent.submit(input.closest('form')!);
 }
 
-// 打开 Modal 的用例在 v8 覆盖率插桩下约 5s（jsdom 的样式计算被放大），
-// 默认 5s 会卡在边界上；这里给整份用例放宽到 15s，普通交互仍在 1s 内。
-describe('routes/_layout/users', { timeout: 15_000 }, () => {
+// 打开 Modal 的用例在 v8 覆盖率插桩 + CI 低配 runner 下明显变慢（实测单测 15s 仍超时），
+// 这里给整份用例放宽到 45s，普通交互仍在 1s 内。
+describe('routes/_layout/users', { timeout: 45_000 }, () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authStore.setState(() => ({
