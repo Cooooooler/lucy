@@ -7,6 +7,7 @@ import {
   useDocumentList,
   useKnowledgeBase,
 } from '@/hooks/use-knowledge';
+import { useModelProvidersByType } from '@/hooks/use-model-provider';
 // 文档夹具与 api/knowledge.test.ts、hooks 用例共用（见 src/test/fixtures.ts）
 import { makeDocumentListItem as makeRow } from '@/test/fixtures';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -29,6 +30,11 @@ vi.mock('@/hooks/use-knowledge', () => ({
   useDocument: vi.fn(),
   useAddDocument: vi.fn(),
   useDeleteDocument: vi.fn(),
+}));
+
+// 页头摘要按 rerankModelId 解析模型名：默认没有重排模型，需要时在用例里覆盖
+vi.mock('@/hooks/use-model-provider', () => ({
+  useModelProvidersByType: vi.fn(() => ({ models: [], isLoading: false })),
 }));
 
 /**
@@ -138,6 +144,41 @@ describe('routes/_layout/knowledge/$kbId', { timeout: 45_000 }, () => {
     } as never);
     addHandle = mockMutation(mockedAdd);
     deleteHandle = mockMutation(mockedDelete);
+    vi.mocked(useModelProvidersByType).mockReturnValue({
+      models: [],
+      isLoading: false,
+    });
+  });
+
+  it('页头展示只读检索设置摘要（含按 id 解析出的重排模型名）', () => {
+    mockedKb.mockReturnValue({
+      data: {
+        ...makeKb('kb1', '产品文档'),
+        retrievalMode: 'hybrid',
+        topK: 8,
+        scoreThresholdEnabled: true,
+        scoreThreshold: 0.35,
+        semanticWeight: 70,
+        rerankModelId: 'r1',
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as never);
+    vi.mocked(useModelProvidersByType).mockReturnValue({
+      models: [{ id: 'r1', name: 'bge-reranker' }],
+      isLoading: false,
+    } as never);
+
+    renderPage();
+
+    expect(screen.getByText('混合检索')).toBeInTheDocument();
+    expect(screen.getByText('TopK 8')).toBeInTheDocument();
+    expect(screen.getByText('Score ≥ 0.35')).toBeInTheDocument();
+    expect(screen.getByText('语义 70% · 关键词 30%')).toBeInTheDocument();
+    expect(screen.getByText('重排：bge-reranker')).toBeInTheDocument();
+    // 该知识库引用了重排模型，才请求列表解析名称
+    expect(useModelProvidersByType).toHaveBeenCalledWith('rerank', true);
   });
 
   it('用 kbId 与默认分页参数查询，渲染页头与文件表格', () => {
@@ -148,6 +189,8 @@ describe('routes/_layout/knowledge/$kbId', { timeout: 45_000 }, () => {
       pageSize: 20,
       keyword: undefined,
     });
+    // 该知识库未引用重排模型：不发 rerank 列表请求
+    expect(useModelProvidersByType).toHaveBeenCalledWith('rerank', false);
     // 页头：返回入口 + 知识库信息
     expect(
       screen.getByRole('link', { name: '返回知识库列表' }),

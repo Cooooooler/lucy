@@ -212,6 +212,7 @@ describe('routes/_layout/integration/model-provider', () => {
     expect(payload.defaults.map((item) => item.type)).toEqual([
       'llm',
       'text-embedding',
+      'rerank',
       'speech2text',
       'tts',
       'moderation',

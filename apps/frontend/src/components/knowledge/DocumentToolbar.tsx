@@ -6,17 +6,20 @@ export type DocumentToolbarProps = {
   kbName?: string;
   /** 知识库描述：为空则不渲染描述行 */
   kbDescription?: string;
+  /** 检索设置摘要（详情就绪后由路由注入，只读） */
+  retrieval?: ReactNode;
   /** 返回列表的入口：由路由注入（工具条不认识路由，与卡片热区同一分工） */
   backLink: ReactNode;
 };
 
 /**
- * 知识库详情页的工具条：返回入口 + 知识库信息。
+ * 知识库详情页的工具条：返回入口 + 知识库信息（含只读的检索设置摘要）。
  * 关键字搜索与上传入口都由下方 ProTable 承担（内置查询表单 + `toolBarRender`）。
  */
 export const DocumentToolbar: FC<DocumentToolbarProps> = ({
   kbName,
   kbDescription,
+  retrieval,
   backLink,
 }) => (
   <PageToolbar
@@ -32,6 +35,7 @@ export const DocumentToolbar: FC<DocumentToolbarProps> = ({
               {kbDescription}
             </span>
           ) : null}
+          {retrieval ? <div className="mt-1 min-w-0">{retrieval}</div> : null}
         </div>
       </div>
     }

@@ -16,6 +16,7 @@ import { User } from '../../users/user.entity.js';
 export enum ModelProviderType {
   Llm = 'llm',
   TextEmbedding = 'text-embedding',
+  Rerank = 'rerank',
   Speech2Text = 'speech2text',
   Tts = 'tts',
   Moderation = 'moderation',

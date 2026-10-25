@@ -82,4 +82,96 @@ describe('知识库 DTO 经全局 ValidationPipe', () => {
     const dto = await update({ description: '  产品文档  ' });
     expect(dto.description).toBe('产品文档');
   });
+
+  it('创建：完整检索设置合法（三种模式 / 边界值）', async () => {
+    const rerankModelId = '0f8fad5b-d9cb-469f-a165-70867728950e';
+    for (const retrievalMode of ['fulltext', 'vector', 'hybrid'] as const) {
+      await expect(
+        create({
+          name: 'x',
+          description: 'd',
+          retrievalMode,
+          topK: 10,
+          scoreThresholdEnabled: true,
+          scoreThreshold: 0.35,
+          semanticWeight: 70,
+          rerankModelId,
+        }),
+      ).resolves.toBeInstanceOf(CreateKnowledgeBaseDto);
+    }
+    await expect(
+      create({
+        name: 'x',
+        description: 'd',
+        topK: 1,
+        scoreThreshold: 0,
+        semanticWeight: 0,
+        scoreThresholdEnabled: false,
+        rerankModelId: null,
+      }),
+    ).resolves.toBeInstanceOf(CreateKnowledgeBaseDto);
+  });
+
+  it('创建：省略检索设置合法（服务层落默认值）', async () => {
+    const dto = await create({ name: 'x', description: 'd' });
+    expect(dto.retrievalMode).toBeUndefined();
+    expect(dto.topK).toBeUndefined();
+    expect(dto.scoreThresholdEnabled).toBeUndefined();
+    expect(dto.scoreThreshold).toBeUndefined();
+    expect(dto.semanticWeight).toBeUndefined();
+    expect(dto.rerankModelId).toBeUndefined();
+  });
+
+  it('创建：非法检索模式 / 越界数值被 400', async () => {
+    const base = { name: 'x', description: 'd' };
+    await expect(
+      create({ ...base, retrievalMode: 'keyword' }),
+    ).rejects.toThrow();
+    for (const topK of [0, 11, 2.5]) {
+      await expect(create({ ...base, topK })).rejects.toThrow();
+    }
+    for (const scoreThreshold of [-0.1, 1.1, '0.5']) {
+      await expect(create({ ...base, scoreThreshold })).rejects.toThrow();
+    }
+    for (const semanticWeight of [-1, 101, 50.5]) {
+      await expect(create({ ...base, semanticWeight })).rejects.toThrow();
+    }
+    await expect(
+      create({ ...base, scoreThresholdEnabled: 'yes' }),
+    ).rejects.toThrow();
+  });
+
+  it('校验失败文案使用字段中文名（FIELD_LABELS 已登记）', async () => {
+    await expect(
+      create({ name: 'x', description: 'd', topK: 11 }),
+    ).rejects.toThrow(/召回条数/);
+    // 更新接口不声明检索字段：白名单报错也应给出中文名
+    await expect(update({ retrievalMode: 'hybrid' })).rejects.toThrow(
+      /检索模式/,
+    );
+  });
+
+  it('创建：rerankModelId 允许 null（不重排），非 UUID 被 400', async () => {
+    await expect(
+      create({ name: 'x', description: 'd', rerankModelId: null }),
+    ).resolves.toBeInstanceOf(CreateKnowledgeBaseDto);
+    await expect(
+      create({ name: 'x', description: 'd', rerankModelId: 'not-a-uuid' }),
+    ).rejects.toThrow();
+  });
+
+  it('更新：检索设置不可修改（不在更新白名单，400 而非静默忽略）', async () => {
+    // 「仅创建时设置」靠 Update DTO 不声明这些字段 + 全局 forbidNonWhitelisted 实现；
+    // 若有人把更新 DTO 改回继承 CreateKnowledgeBaseDto，这条会红
+    for (const patch of [
+      { retrievalMode: 'hybrid' },
+      { topK: 10 },
+      { scoreThresholdEnabled: true },
+      { scoreThreshold: 0.5 },
+      { semanticWeight: 70 },
+      { rerankModelId: null },
+    ]) {
+      await expect(update(patch)).rejects.toThrow();
+    }
+  });
 });

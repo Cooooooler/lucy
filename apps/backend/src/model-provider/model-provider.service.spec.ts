@@ -5,6 +5,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
+import { RERANK_REFERENCE_PORT } from '../common/ports/rerank-reference.port.js';
 import {
   MODEL_ID,
   MODEL_ITEM_KEYS,
@@ -34,8 +35,13 @@ describe('ModelProviderService', () => {
     createQueryBuilder: vi.fn(),
     manager: { transaction: vi.fn() },
   };
-  const txProviders = { findOne: vi.fn() };
-  const tx = { getRepository: vi.fn(() => txProviders), save: vi.fn() };
+  const txProviders = { findOne: vi.fn(), delete: vi.fn() };
+  const tx = {
+    getRepository: vi.fn(() => txProviders),
+    save: vi.fn(),
+  };
+  // 知识库重排引用的清理走窄端口（由知识库模块实现）
+  const rerankReferences = { clearForModel: vi.fn() };
   const defaults = { clearForProvider: vi.fn() };
   const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
   let cipher: ApiKeyCipher;
@@ -51,6 +57,7 @@ describe('ModelProviderService', () => {
         { provide: getRepositoryToken(ModelProvider), useValue: repo },
         { provide: ApiKeyCipher, useValue: cipher },
         { provide: ModelProviderDefaultsService, useValue: defaults },
+        { provide: RERANK_REFERENCE_PORT, useValue: rerankReferences },
       ],
     }).compile();
     return moduleRef.get(ModelProviderService);
@@ -278,6 +285,34 @@ describe('ModelProviderService', () => {
     expect(cipher.decrypt(existing.apiKeyEncrypted)).toBe('sk-new-key-9999');
   });
 
+  it('resolveOwnedRerankInTransaction 区分 ok / wrong-type / not-found', async () => {
+    const rerank = { id: MODEL_ID, type: ModelProviderType.Rerank };
+    txProviders.findOne.mockResolvedValue(rerank);
+    await expect(
+      service.resolveOwnedRerankInTransaction(tx as never, 'u1', MODEL_ID),
+    ).resolves.toEqual({ id: MODEL_ID });
+
+    txProviders.findOne.mockResolvedValue({
+      id: MODEL_ID,
+      type: ModelProviderType.Llm,
+    });
+    await expect(
+      service.resolveOwnedRerankInTransaction(tx as never, 'u1', MODEL_ID),
+    ).resolves.toBe('wrong-type');
+
+    txProviders.findOne.mockResolvedValue(null);
+    await expect(
+      service.resolveOwnedRerankInTransaction(tx as never, 'u1', MODEL_ID),
+    ).resolves.toBe('not-found');
+
+    // 事务内共享锁 + 只取 id/type，不读凭证材料
+    expect(txProviders.findOne).toHaveBeenCalledWith({
+      where: { id: MODEL_ID, ownerId: 'u1' },
+      select: { id: true, type: true },
+      lock: { mode: 'pessimistic_read' },
+    });
+  });
+
   it('update 改类型时在同一事务里清除该模型的默认设置', async () => {
     const existing = makeModelProvider();
     txProviders.findOne.mockResolvedValue(existing);
@@ -292,6 +327,8 @@ describe('ModelProviderService', () => {
       lock: { mode: 'pessimistic_write' },
     });
     expect(defaults.clearForProvider).toHaveBeenCalledWith(tx, 'u1', MODEL_ID);
+    // 知识库的重排模型引用也要在同一事务里清空（改类型不触发 FK SET NULL）
+    expect(rerankReferences.clearForModel).toHaveBeenCalledWith(tx, MODEL_ID);
   });
 
   it('update 类型未变时不清理默认设置', async () => {
@@ -302,6 +339,7 @@ describe('ModelProviderService', () => {
 
     expect(tx.save).toHaveBeenCalledWith(existing);
     expect(defaults.clearForProvider).not.toHaveBeenCalled();
+    expect(rerankReferences.clearForModel).not.toHaveBeenCalled();
   });
 
   it('update 不存在或非属主 404', async () => {
@@ -312,15 +350,21 @@ describe('ModelProviderService', () => {
     expect(tx.save).not.toHaveBeenCalled();
   });
 
-  it('remove 按属主删除；未命中 404', async () => {
-    repo.delete.mockResolvedValueOnce({ affected: 1 });
+  it('remove 按属主删除，并在同一事务里清空知识库引用；未命中 404', async () => {
+    txProviders.findOne.mockResolvedValue(makeModelProvider());
+    txProviders.delete.mockResolvedValueOnce({ affected: 1 });
     await expect(service.remove('u1', MODEL_ID)).resolves.toBeNull();
-    expect(repo.delete).toHaveBeenCalledWith({ id: MODEL_ID, ownerId: 'u1' });
+    expect(rerankReferences.clearForModel).toHaveBeenCalledWith(tx, MODEL_ID);
+    expect(txProviders.delete).toHaveBeenCalledWith({
+      id: MODEL_ID,
+      ownerId: 'u1',
+    });
 
-    repo.delete.mockResolvedValueOnce({ affected: 0 });
+    txProviders.findOne.mockResolvedValue(null);
     await expect(service.remove('u1', MODEL_ID)).rejects.toThrow(
       NotFoundException,
     );
+    expect(txProviders.delete).toHaveBeenCalledTimes(1);
   });
 
   it('create/get/list 字段集一致', async () => {

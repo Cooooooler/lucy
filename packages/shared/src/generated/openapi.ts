@@ -751,7 +751,7 @@ export interface components {
              * @description 模型类型
              * @enum {string}
              */
-            type: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+            type: "llm" | "text-embedding" | "rerank" | "speech2text" | "tts" | "moderation";
             /**
              * @description 模型供应商
              * @enum {string}
@@ -783,7 +783,7 @@ export interface components {
              * @description 模型类型
              * @enum {string}
              */
-            type: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+            type: "llm" | "text-embedding" | "rerank" | "speech2text" | "tts" | "moderation";
             /**
              * @description 模型供应商
              * @enum {string}
@@ -825,7 +825,7 @@ export interface components {
              * @description 模型类型
              * @enum {string}
              */
-            type: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+            type: "llm" | "text-embedding" | "rerank" | "speech2text" | "tts" | "moderation";
             /** @description 默认模型配置 ID；null 表示该类型未设置默认模型 */
             modelProviderId: string | null;
         };
@@ -838,7 +838,7 @@ export interface components {
              * @description 模型类型
              * @enum {string}
              */
-            type: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+            type: "llm" | "text-embedding" | "rerank" | "speech2text" | "tts" | "moderation";
             /** @description 默认模型配置 ID；null 表示清除 */
             modelProviderId: string | null;
         };
@@ -853,7 +853,7 @@ export interface components {
              * @description 模型类型
              * @enum {string}
              */
-            type?: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+            type?: "llm" | "text-embedding" | "rerank" | "speech2text" | "tts" | "moderation";
             /**
              * @description 模型供应商
              * @enum {string}
@@ -907,6 +907,24 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "public";
+            /**
+             * @description 检索模式（省略时默认 fulltext）
+             * @enum {string}
+             */
+            retrievalMode?: "fulltext" | "vector" | "hybrid";
+            /** @description 召回条数（省略时默认 5） */
+            topK?: number;
+            /** @description 是否启用 Score 阈值过滤（省略时默认关闭） */
+            scoreThresholdEnabled?: boolean;
+            /** @description Score 阈值（仅启用时生效，省略时默认 0；启用时必须大于 0） */
+            scoreThreshold?: number;
+            /** @description 混合检索的语义权重（关键词权重 = 100 - 该值，省略时默认 50） */
+            semanticWeight?: number;
+            /**
+             * Format: uuid
+             * @description 重排模型配置 ID；null 或省略表示不重排
+             */
+            rerankModelId?: string | null;
         };
         KnowledgeBaseItemDto: {
             /** @description 知识库 ID */
@@ -923,6 +941,33 @@ export interface components {
             name: string;
             /** @description 描述 */
             description: string;
+            /**
+             * @description 检索模式
+             * @enum {string}
+             */
+            retrievalMode: "fulltext" | "vector" | "hybrid";
+            /**
+             * @description 召回条数
+             * @example 5
+             */
+            topK: number;
+            /**
+             * @description 是否启用 Score 阈值过滤
+             * @example false
+             */
+            scoreThresholdEnabled: boolean;
+            /**
+             * @description Score 阈值
+             * @example 0
+             */
+            scoreThreshold: number;
+            /**
+             * @description 混合检索的语义权重（关键词权重 = 100 - 该值）
+             * @example 50
+             */
+            semanticWeight: number;
+            /** @description 重排模型配置 ID；null 表示不重排 */
+            rerankModelId: string | null;
             /**
              * Format: date-time
              * @description 创建时间
@@ -1558,7 +1603,7 @@ export interface operations {
                 /** @description 每页条数 */
                 limit?: number;
                 /** @description 按模型类型过滤 */
-                type?: "llm" | "text-embedding" | "speech2text" | "tts" | "moderation";
+                type?: "llm" | "text-embedding" | "rerank" | "speech2text" | "tts" | "moderation";
                 /** @description 按模型供应商过滤 */
                 vendor?: "ollama" | "openai" | "anthropic";
                 /** @description 名称关键字（最多 100 字符） */

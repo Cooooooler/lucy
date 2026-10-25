@@ -30,6 +30,7 @@ export type MessageStatus = Message['status'];
 // 字段集在所有端点一致，likeCount/isLiked 因此是必填而非可选。
 export type KnowledgeBase = components['schemas']['KnowledgeBaseItemDto'];
 export type KnowledgeBaseVisibility = KnowledgeBase['visibility'];
+export type KnowledgeRetrievalMode = KnowledgeBase['retrievalMode'];
 export type CreateKnowledgeBaseRequest =
   components['schemas']['CreateKnowledgeBaseDto'];
 export type UpdateKnowledgeBaseRequest =

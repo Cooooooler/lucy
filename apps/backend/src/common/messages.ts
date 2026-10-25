@@ -134,6 +134,13 @@ export const FIELD_LABELS: Record<string, string> = {
   visibility: '可见性',
   file: '文件',
   reasoning: '深度思考',
+  // 知识库检索设置
+  retrievalMode: '检索模式',
+  topK: '召回条数',
+  scoreThresholdEnabled: 'Score 阈值开关',
+  scoreThreshold: 'Score 阈值',
+  semanticWeight: '语义权重',
+  rerankModelId: '重排模型',
 };
 
 export function fieldLabel(property: string): string {

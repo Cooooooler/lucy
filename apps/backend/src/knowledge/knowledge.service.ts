@@ -1,9 +1,20 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  KNOWLEDGE_SCORE_THRESHOLD_DEFAULT,
+  KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
+  KNOWLEDGE_TOP_K_DEFAULT,
+} from '@lucy/shared';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
+import { ModelProviderService } from '../model-provider/model-provider.service.js';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
 import type {
@@ -14,6 +25,7 @@ import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
+  KnowledgeRetrievalMode,
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
 import { resolveOwnedKb, resolveReadableKb } from './knowledge-access.js';
@@ -38,6 +50,8 @@ export class KnowledgeService {
     private readonly paginator: KeysetPaginator,
     // 级联删除知识库时复用文档/文件的清理逻辑（底层文件 I/O 收在文档服务里）
     private readonly documentService: KnowledgeDocumentService,
+    // 创建时校验所选重排模型的属主与类型（模型领域 owns 该判据）
+    private readonly modelProviderService: ModelProviderService,
   ) {}
 
   /**
@@ -51,13 +65,48 @@ export class KnowledgeService {
     dto: CreateKnowledgeBaseDto,
   ): Promise<KnowledgeBaseItemDto> {
     this.logger.log(`kb create name=${dto.name}`, KnowledgeService.name);
-    const kb = await this.kbRepo.save({
-      ownerId: userId,
-      name: dto.name,
-      description: dto.description,
-      visibility: dto.visibility ?? KnowledgeBaseVisibility.Private,
+    const scoreThresholdEnabled = dto.scoreThresholdEnabled ?? false;
+    const scoreThreshold =
+      dto.scoreThreshold ?? KNOWLEDGE_SCORE_THRESHOLD_DEFAULT;
+    // 启用阈值却为 0 等于不过滤：检索设置创建后不可改，不能在落库后才发现是空转。
+    // 这里刻意判 `<= 0` 而非复用闭区间下界常量：DTO/前端允许的闭区间下界与
+    // 「启用时必须严格大于」是两个语义，绑在同一常量上会出现文档放行、服务层拒绝。
+    if (scoreThresholdEnabled && scoreThreshold <= 0) {
+      throw new BadRequestException('启用 Score 阈值时必须设置大于 0 的阈值');
+    }
+    // 重排模型校验与插入必须在同一事务里：校验通过后并发删除会撞 FK（23503 → 500），
+    // 并发改类型则会写入类型不符的引用；事务内的共享锁与删除/改类型互斥。
+    const kb = await this.kbRepo.manager.transaction(async (manager) => {
+      if (dto.rerankModelId) {
+        const rerank =
+          await this.modelProviderService.resolveOwnedRerankInTransaction(
+            manager,
+            userId,
+            dto.rerankModelId,
+          );
+        // 两种失败原因的修复动作不同：换一个模型 vs 改模型类型，文案必须分开
+        if (rerank === 'wrong-type') {
+          throw new BadRequestException('该模型类型不是重排模型');
+        }
+        if (rerank === 'not-found') {
+          throw new BadRequestException('重排模型不存在或不属于当前用户');
+        }
+      }
+      return manager.save(KnowledgeBase, {
+        ownerId: userId,
+        name: dto.name,
+        description: dto.description,
+        visibility: dto.visibility ?? KnowledgeBaseVisibility.Private,
+        // 检索设置只在创建时确定（更新 DTO 不含这些字段）
+        retrievalMode: dto.retrievalMode ?? KnowledgeRetrievalMode.FullText,
+        topK: dto.topK ?? KNOWLEDGE_TOP_K_DEFAULT,
+        scoreThresholdEnabled,
+        scoreThreshold,
+        semanticWeight: dto.semanticWeight ?? KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
+        rerankModelId: dto.rerankModelId ?? null,
+      });
     });
-    return toKnowledgeBaseItem(kb);
+    return toKnowledgeBaseItem(kb, userId);
   }
 
   /**
@@ -104,7 +153,7 @@ export class KnowledgeService {
     // 批量回写 likeCount / isLiked，单次聚合查询，避免 N+1
     await this.fillLikeInfo(userId, page.list);
     return {
-      list: page.list.map(toKnowledgeBaseItem),
+      list: page.list.map((kb) => toKnowledgeBaseItem(kb, userId)),
       nextCursor: page.nextCursor,
     };
   }
@@ -117,7 +166,7 @@ export class KnowledgeService {
   async get(userId: string, id: string): Promise<KnowledgeBaseItemDto> {
     const kb = await resolveReadableKb(this.kbRepo, id, userId);
     await this.fillLikeInfo(userId, [kb]);
-    return toKnowledgeBaseItem(kb);
+    return toKnowledgeBaseItem(kb, userId);
   }
 
   /**
@@ -206,6 +255,7 @@ export class KnowledgeService {
   /**
    * 更新知识库元信息。
    * 仅属主可操作；只更新 DTO 中显式提供的字段。
+   * 检索设置（模式/召回条数/阈值/权重/重排模型）有意不在此处：它们只在创建时确定。
    * @throws NotFoundException / ForbiddenException
    */
   async update(
@@ -214,15 +264,28 @@ export class KnowledgeService {
     dto: UpdateKnowledgeBaseDto,
   ): Promise<KnowledgeBaseItemDto> {
     const kb = await resolveOwnedKb(this.kbRepo, id, userId);
-    if (dto.name !== undefined) kb.name = dto.name;
-    if (dto.description !== undefined) kb.description = dto.description;
-    if (dto.visibility !== undefined) kb.visibility = dto.visibility;
-    const saved = await this.kbRepo.save(kb);
+    const patch: Partial<KnowledgeBase> = {};
+    if (dto.name !== undefined) patch.name = dto.name;
+    if (dto.description !== undefined) patch.description = dto.description;
+    if (dto.visibility !== undefined) patch.visibility = dto.visibility;
+    // 只写 DTO 中显式出现的列，不对整实体做 save：整实体 diff 会把读到的旧
+    // rerank_model_id 与「并发改模型类型已清空」的库值比较后判为变更并写回，
+    // 让刚失效的引用复活（检索设置创建后不可改，写回即无法修正）。
+    let saved = kb;
+    if (Object.keys(patch).length > 0) {
+      // affected=0 表示这一行在鉴权之后被并发删除：给 404 而不是让后续回读抛
+      // EntityNotFoundError（非 HTTP 异常会被兜成 500）
+      const { affected } = await this.kbRepo.update({ id: kb.id }, patch);
+      if (!affected) throw new NotFoundException('知识库不存在');
+      const reloaded = await this.kbRepo.findOne({ where: { id: kb.id } });
+      if (!reloaded) throw new NotFoundException('知识库不存在');
+      saved = reloaded;
+    }
     // 点赞态同样要回填：响应形状必须与 get/list 完全一致，
     // 否则 mapper 的兜底会把「已点赞」谎报成 0/false。
     await this.fillLikeInfo(userId, [saved]);
     this.logger.log(`kb update kb=${id}`, KnowledgeService.name);
-    return toKnowledgeBaseItem(saved);
+    return toKnowledgeBaseItem(saved, userId);
   }
 
   /**

@@ -16,6 +16,7 @@ import { ModelProviderService } from './model-provider.service.js';
     CommonModule,
     // KeysetPaginator 与领域无关，由 common 侧的模块提供，这里只消费
     PaginationModule,
+    // RERANK_REFERENCE_PORT 由全局模块 KnowledgeReferencesModule 提供（AppModule 注册）
     TypeOrmModule.forFeature([ModelProvider, UserDefaultModel]),
   ],
   controllers: [ModelProviderController],

@@ -1,13 +1,18 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import type { Repository } from 'typeorm';
+import type { EntityManager, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
+import {
+  RERANK_REFERENCE_PORT,
+  type RerankReferencePort,
+} from '../common/ports/rerank-reference.port.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import { assertBaseUrlHostAllowed } from './base-url-guard.js';
 import { CreateModelProviderDto } from './dto/create-model-provider.dto.js';
@@ -27,6 +32,9 @@ import { resolveOwnedModelProvider } from './model-provider-access.js';
 import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
 import { toModelProviderItem } from './model-provider.mapper.js';
 
+/** 重排模型解析结果：区分「查不到/非属主」与「类型不是 rerank」 */
+export type OwnedRerankResolution = { id: string } | 'not-found' | 'wrong-type';
+
 /**
  * 模型供应商领域服务：属主私有的 CRUD（create/list/get/update/remove）。
  *
@@ -43,6 +51,9 @@ export class ModelProviderService {
     private readonly cipher: ApiKeyCipher,
     // 模型改类型会改变默认设置的含义，清理交给默认模型领域自己处理
     private readonly defaults: ModelProviderDefaultsService,
+    // 知识库重排引用的清理由知识库领域实现，这里只发指令（不写别人的表）
+    @Inject(RERANK_REFERENCE_PORT)
+    private readonly rerankReferences: RerankReferencePort,
   ) {}
 
   /**
@@ -136,6 +147,31 @@ export class ModelProviderService {
   }
 
   /**
+   * 在调用方事务内解析属主私有且类型为 **重排（rerank）** 的模型配置，
+   * 并对该行加共享锁。
+   *
+   * 返回判据而不只是 null，让调用方能区分「不存在/非属主」与「类型不对」：
+   * 两者的修复动作完全不同（换模型 vs 改模型类型）。查询与随后的插入必须在
+   * 同一事务里，`pessimistic_read` 与并发删除/改类型互斥，避免写入悬空或类型
+   * 不符的引用；只取 `id`/`type`，不把凭证材料拉进内存。
+   */
+  async resolveOwnedRerankInTransaction(
+    manager: EntityManager,
+    userId: string,
+    id: string,
+  ): Promise<OwnedRerankResolution> {
+    const provider = await manager.getRepository(ModelProvider).findOne({
+      where: { id, ownerId: userId },
+      select: { id: true, type: true },
+      lock: { mode: 'pessimistic_read' },
+    });
+    if (!provider) return 'not-found';
+    return provider.type === ModelProviderType.Rerank
+      ? { id: provider.id }
+      : 'wrong-type';
+  }
+
+  /**
    * 获取模型详情。
    * @throws NotFoundException 不存在或非属主
    */
@@ -196,6 +232,10 @@ export class ModelProviderService {
         // 不清理会与同类型的另一条默认项派生出同一个 type，list() 的 Map 只能保留一条，
         // 返回结果取决于数据库行序——等于静默丢掉一条设置。
         await this.defaults.clearForProvider(manager, userId, id);
+        // 知识库的重排模型引用按「具体模型 + 创建后不可改」保存：删除由 FK ON DELETE
+        // SET NULL 兜底，但「改类型」不会触发 FK，需要同步清空，否则知识库会永久指向
+        // 一个已不是 rerank 的模型且无法通过 API 修正。落库仍由知识库领域负责。
+        await this.rerankReferences.clearForModel(manager, id);
       }
       return updated;
     });
@@ -211,8 +251,21 @@ export class ModelProviderService {
    * @throws NotFoundException 不存在或非属主
    */
   async remove(userId: string, id: string): Promise<null> {
-    const result = await this.repo.delete({ id, ownerId: userId });
-    if (!result.affected) throw new NotFoundException('模型不存在');
+    await this.repo.manager.transaction(async (manager) => {
+      // 先按属主锁行确认存在：清理引用是跨领域的写，不能给非属主的模型做
+      const provider = await manager.getRepository(ModelProvider).findOne({
+        where: { id, ownerId: userId },
+        select: { id: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!provider) throw new NotFoundException('模型不存在');
+      // 删除本可由 FK ON DELETE SET NULL 兜底，但 FK 动作不刷新 updated_at；
+      // 显式清空让「删除模型」与「改类型」两条失效路径对增量拉取的客户端一致可见。
+      await this.rerankReferences.clearForModel(manager, id);
+      await manager
+        .getRepository(ModelProvider)
+        .delete({ id, ownerId: userId });
+    });
     this.logger.log(
       `model provider remove id=${id}`,
       ModelProviderService.name,

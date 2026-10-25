@@ -3,6 +3,7 @@ import type { KnowledgeDocumentListItem } from '@/api/types';
 import { DocumentTextDrawer } from '@/components/knowledge/DocumentTextDrawer';
 import { DocumentToolbar } from '@/components/knowledge/DocumentToolbar';
 import { DocumentUploadButton } from '@/components/knowledge/DocumentUploadButton';
+import { KnowledgeRetrievalSummary } from '@/components/knowledge/KnowledgeRetrievalSummary';
 import { formatBytes } from '@/components/lib/utils';
 import { PageShell } from '@/components/page-shell';
 import {
@@ -12,6 +13,7 @@ import {
   useDocumentList,
   useKnowledgeBase,
 } from '@/hooks/use-knowledge';
+import { useModelProvidersByType } from '@/hooks/use-model-provider';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
@@ -51,6 +53,17 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
   const [uploading, setUploading] = useState(false);
 
   const kbQuery = useKnowledgeBase(kbId);
+  // 检索设置里只存了 rerank 模型 ID，展示名称需要按类型取一次模型列表。
+  // 页头摘要本身要等详情就绪才渲染，并行请求并不会让它更早出现；因此仅在确实
+  // 引用了重排模型时才请求，未配置重排的知识库（绝大多数）不付这次请求。
+  const { models: rerankModels } = useModelProvidersByType(
+    'rerank',
+    Boolean(kbQuery.data?.rerankModelId),
+  );
+  const kb = kbQuery.data;
+  const rerankModelName = rerankModels.find(
+    (model) => model.id === kb?.rerankModelId,
+  )?.name;
   const listQuery = useMemo(
     () => ({
       page,
@@ -199,8 +212,20 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
   return (
     <>
       <DocumentToolbar
-        kbName={kbQuery.data?.name}
-        kbDescription={kbQuery.data?.description}
+        kbName={kb?.name}
+        kbDescription={kb?.description}
+        retrieval={
+          kb ? (
+            <KnowledgeRetrievalSummary
+              retrievalMode={kb.retrievalMode}
+              topK={kb.topK}
+              scoreThresholdEnabled={kb.scoreThresholdEnabled}
+              scoreThreshold={kb.scoreThreshold}
+              semanticWeight={kb.semanticWeight}
+              rerankModelName={rerankModelName}
+            />
+          ) : undefined
+        }
         backLink={
           <Link
             to="/knowledge"

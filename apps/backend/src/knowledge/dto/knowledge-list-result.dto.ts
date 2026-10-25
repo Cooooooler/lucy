@@ -1,6 +1,9 @@
 import type { CursorPageResult, PageResult } from '@lucy/shared';
 import { ApiProperty } from '@nestjs/swagger';
-import { KnowledgeBaseVisibility } from '../entities/knowledge-base.entity.js';
+import {
+  KnowledgeBaseVisibility,
+  KnowledgeRetrievalMode,
+} from '../entities/knowledge-base.entity.js';
 
 /**
  * 知识库对外契约项（**允许式**白名单，同 users 模块的 `UserListItemDto`）。
@@ -33,6 +36,31 @@ export class KnowledgeBaseItemDto {
 
   @ApiProperty({ description: '描述', type: String })
   description: string;
+
+  @ApiProperty({ description: '检索模式', enum: KnowledgeRetrievalMode })
+  retrievalMode: KnowledgeRetrievalMode;
+
+  @ApiProperty({ description: '召回条数', example: 5 })
+  topK: number;
+
+  @ApiProperty({ description: '是否启用 Score 阈值过滤', example: false })
+  scoreThresholdEnabled: boolean;
+
+  @ApiProperty({ description: 'Score 阈值', example: 0 })
+  scoreThreshold: number;
+
+  @ApiProperty({
+    description: '混合检索的语义权重（关键词权重 = 100 - 该值）',
+    example: 50,
+  })
+  semanticWeight: number;
+
+  @ApiProperty({
+    description: '重排模型配置 ID；null 表示不重排',
+    type: String,
+    nullable: true,
+  })
+  rerankModelId: string | null;
 
   @ApiProperty({ description: '创建时间' })
   createdAt: Date;
