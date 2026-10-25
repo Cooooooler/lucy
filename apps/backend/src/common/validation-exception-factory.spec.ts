@@ -76,6 +76,12 @@ describe('validationExceptionFactory', () => {
     ).toBe(true);
   });
 
+  it('每个模板都以字段标签产出非空文案（模板整体可被工厂消费）', () => {
+    for (const [key, template] of Object.entries(VALIDATION_MESSAGES)) {
+      expect(template('名称'), key).toContain('名称');
+    }
+  });
+
   it('contexts 缺失时降级为不带数值的文案', () => {
     expect(
       messageOf([
