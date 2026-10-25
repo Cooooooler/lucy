@@ -7,6 +7,7 @@ import {
   encryptApiKey,
   maskApiKey,
 } from './api-key-cipher.js';
+import { ModelCredentialError } from './model-credential.error.js';
 
 /**
  * 把纯函数加密工具接进 DI：构造期从 ConfigService 读取 `MODEL_PROVIDER_SECRET_KEY` 并派生密钥，
@@ -30,9 +31,26 @@ export class ApiKeyCipher {
     return encryptApiKey(plain, this.key);
   }
 
-  /** 解密密文 API Key */
+  /**
+   * 解密密文 API Key。
+   *
+   * 解密失败（密文格式非法/认证失败）意味着 `MODEL_PROVIDER_SECRET_KEY` 已轮换或密文
+   * 被破坏——与 provider 的 baseUrl/类型无关，裸 Error 会让调用方（连接测试/对话链路）
+   * 把它跟「供应商不可达」归到同一句兜底文案。这里收成 `ModelCredentialError`，
+   * 连接测试即可单独映射出「平台密钥已变更，请重新保存 API Key」。
+   * @throws ModelCredentialError 解密失败
+   */
   decrypt(payload: string): string {
-    return decryptApiKey(payload, this.key);
+    try {
+      return decryptApiKey(payload, this.key);
+    } catch (error) {
+      throw new ModelCredentialError(
+        'decrypt-failed',
+        `API Key 解密失败：${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   /** 取明文尾号（用于落库，避免每次展示都解密） */

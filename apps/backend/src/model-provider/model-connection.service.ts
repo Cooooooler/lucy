@@ -12,6 +12,7 @@ import {
   ModelClientFactory,
   UnsupportedModelTypeError,
 } from './model-client.factory.js';
+import { ModelCredentialError } from './model-credential.error.js';
 import { resolveOwnedModelProvider } from './model-provider-access.js';
 
 /** 探针超时（由 `withTimeout` 抛出，用于与真实错误区分以给出「连接超时」文案） */
@@ -78,8 +79,11 @@ export class ModelConnectionService {
         detail,
       };
     } catch (error) {
+      // warn 带上错误类名：解密失败/限流/5xx 之类互不相干的失败各自有类可聚合，
+      // 只记 message 时线上难以区分「配置错」与「平台/供应商故障」
+      const errorType = error instanceof Error ? error.name : typeof error;
       this.logger.warn(
-        `model test failed id=${id} type=${provider.type} vendor=${provider.vendor}: ${
+        `model test failed id=${id} type=${provider.type} vendor=${provider.vendor}: [${errorType}] ${
           error instanceof Error ? error.message : String(error)
         }`,
         ModelConnectionService.name,
@@ -154,9 +158,21 @@ export class ModelConnectionService {
     if (error instanceof UnsupportedModelTypeError) {
       return '该模型类型暂不支持连通性测试';
     }
+    // 服务端凭证问题与供应商无关：解密失败＝平台密钥轮换/密文损坏，重存 Key 即恢复；
+    // 未配置 Key 则是数据/装配态的问题。都不能靠改 provider 的地址/类型解决，
+    // 落进「连接失败，请检查配置」会把用户引去反复改配置（issue #86 的归因错误）
+    if (error instanceof ModelCredentialError) {
+      return error.reason === 'decrypt-failed'
+        ? '平台密钥已变更，请重新保存 API Key'
+        : '该模型未配置 API Key，请保存后重试';
+    }
     const status = (error as { status?: unknown } | null)?.status;
     if (status === 401 || status === 403) return 'API Key 无效或无权限';
     if (status === 404) return '接口不存在，请检查 Base URL 与协议';
+    if (status === 429) return '供应商限流，请稍后重试';
+    if (typeof status === 'number' && status >= 500) {
+      return '供应商服务异常';
+    }
     const name = error instanceof Error ? error.name : '';
     const message = error instanceof Error ? error.message : '';
     if (

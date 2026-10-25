@@ -16,6 +16,7 @@ import {
   UnsupportedModelTypeError,
 } from './model-client.factory.js';
 import { ModelConnectionService } from './model-connection.service.js';
+import { ModelCredentialError } from './model-credential.error.js';
 
 describe('ModelConnectionService', () => {
   const repo = { findOne: vi.fn() };
@@ -152,6 +153,78 @@ describe('ModelConnectionService', () => {
 
     const result = await service.test('u1', MODEL_ID);
     expect(result.message).toBe('无法连接到 API Base URL');
+  });
+
+  it('解密失败：归因为平台密钥问题而非「检查配置」（Provider 密文与密钥不匹配）', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi
+        .fn()
+        .mockRejectedValue(
+          new ModelCredentialError(
+            'decrypt-failed',
+            'API Key 解密失败：tag 不匹配',
+          ),
+        ),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('平台密钥已变更，请重新保存 API Key');
+    expect(result.detail).toBeNull();
+  });
+
+  it('未配置 API Key：归因单独文案（不再落进连接失败兜底）', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi
+        .fn()
+        .mockRejectedValue(
+          new ModelCredentialError('missing', '模型 qwen 未配置 API Key'),
+        ),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.message).toBe('该模型未配置 API Key，请保存后重试');
+  });
+
+  it('供应商 429：归一为限流文案', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error(' rate limit'), { status: 429 }),
+        ),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.message).toBe('供应商限流，请稍后重试');
+  });
+
+  it('供应商 5xx：归一为供应商服务异常文案', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error('upstream error'), { status: 502 }),
+        ),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.message).toBe('供应商服务异常');
+  });
+
+  it('失败日志带错误类名（便于按类聚合「配置错 vs 平台/供应商故障」）', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi
+        .fn()
+        .mockRejectedValue(
+          new ModelCredentialError('decrypt-failed', 'API Key 解密失败'),
+        ),
+    });
+
+    await service.test('u1', MODEL_ID);
+    expect(loggerWarn).toHaveBeenCalled();
+    const arg = String(loggerWarn.mock.calls.at(-1)?.[0] ?? '');
+    expect(arg).toContain('[ModelCredentialError]');
   });
 
   it('其它错误：走通用兜底文案', async () => {

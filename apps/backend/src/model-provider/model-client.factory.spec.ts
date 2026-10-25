@@ -14,6 +14,7 @@ import {
   ModelClientFactory,
   UnsupportedModelTypeError,
 } from './model-client.factory.js';
+import { ModelCredentialError } from './model-credential.error.js';
 
 /** 用真实 cipher（密钥固定）构造工厂，验证解密路径与客户端参数 */
 const config = new ConfigService({
@@ -130,12 +131,13 @@ describe('ModelClientFactory', () => {
     ).not.toThrow();
   });
 
-  it('需要 Key 的供应商缺 Key 时构造客户端抛错', () => {
+  it('需要 Key 的供应商缺 Key 时抛 ModelCredentialError（连接测试可单独归因）', () => {
     const noKey = { ...provider, apiKeyEncrypted: '' };
+    expect(() => factory.buildOpenAiChat(noKey)).toThrow(ModelCredentialError);
     expect(() => factory.buildOpenAiChat(noKey)).toThrow(/未配置 API Key/);
     expect(() =>
       factory.buildChat({ ...noKey, vendor: ModelProviderVendor.Anthropic }),
-    ).toThrow(/未配置 API Key/);
+    ).toThrow(ModelCredentialError);
   });
 
   it('Ollama 未显式指定 numPredict 时取 AI_OUTPUT_MAX_TOKENS 默认', () => {
