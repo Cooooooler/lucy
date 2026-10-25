@@ -177,8 +177,8 @@ describe('routes/_layout/knowledge/$kbId', { timeout: 45_000 }, () => {
     expect(screen.getByText('Score ≥ 0.35')).toBeInTheDocument();
     expect(screen.getByText('语义 70% · 关键词 30%')).toBeInTheDocument();
     expect(screen.getByText('重排：bge-reranker')).toBeInTheDocument();
-    // 重排模型列表与详情并行请求（不依赖 kb 结果），避免页头两轮串行
-    expect(useModelProvidersByType).toHaveBeenCalledWith('rerank');
+    // 该知识库引用了重排模型，才请求列表解析名称
+    expect(useModelProvidersByType).toHaveBeenCalledWith('rerank', true);
   });
 
   it('用 kbId 与默认分页参数查询，渲染页头与文件表格', () => {
@@ -189,6 +189,8 @@ describe('routes/_layout/knowledge/$kbId', { timeout: 45_000 }, () => {
       pageSize: 20,
       keyword: undefined,
     });
+    // 该知识库未引用重排模型：不发 rerank 列表请求
+    expect(useModelProvidersByType).toHaveBeenCalledWith('rerank', false);
     // 页头：返回入口 + 知识库信息
     expect(
       screen.getByRole('link', { name: '返回知识库列表' }),

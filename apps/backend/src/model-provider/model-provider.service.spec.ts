@@ -5,7 +5,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
-import { KnowledgeBase } from '../knowledge/entities/knowledge-base.entity.js';
+import { RERANK_REFERENCE_PORT } from '../knowledge/rerank-reference.port.js';
 import {
   MODEL_ID,
   MODEL_ITEM_KEYS,
@@ -36,14 +36,12 @@ describe('ModelProviderService', () => {
     manager: { transaction: vi.fn() },
   };
   const txProviders = { findOne: vi.fn() };
-  // 改类型时还会用 KnowledgeBase 仓库清空重排引用
-  const txKnowledge = { update: vi.fn() };
   const tx = {
-    getRepository: vi.fn((entity: unknown) =>
-      entity === KnowledgeBase ? txKnowledge : txProviders,
-    ),
+    getRepository: vi.fn(() => txProviders),
     save: vi.fn(),
   };
+  // 知识库重排引用的清理走窄端口（由知识库模块实现）
+  const rerankReferences = { clearForModel: vi.fn() };
   const defaults = { clearForProvider: vi.fn() };
   const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
   let cipher: ApiKeyCipher;
@@ -59,6 +57,7 @@ describe('ModelProviderService', () => {
         { provide: getRepositoryToken(ModelProvider), useValue: repo },
         { provide: ApiKeyCipher, useValue: cipher },
         { provide: ModelProviderDefaultsService, useValue: defaults },
+        { provide: RERANK_REFERENCE_PORT, useValue: rerankReferences },
       ],
     }).compile();
     return moduleRef.get(ModelProviderService);
@@ -300,12 +299,8 @@ describe('ModelProviderService', () => {
       lock: { mode: 'pessimistic_write' },
     });
     expect(defaults.clearForProvider).toHaveBeenCalledWith(tx, 'u1', MODEL_ID);
-    // 知识库的重排模型引用也要在同一事务里清空（改类型不触发 FK SET NULL），
-    // 走实体仓库以便刷新 updated_at
-    expect(txKnowledge.update).toHaveBeenCalledWith(
-      { rerankModelId: MODEL_ID },
-      { rerankModelId: null },
-    );
+    // 知识库的重排模型引用也要在同一事务里清空（改类型不触发 FK SET NULL）
+    expect(rerankReferences.clearForModel).toHaveBeenCalledWith(tx, MODEL_ID);
   });
 
   it('update 类型未变时不清理默认设置', async () => {
@@ -316,7 +311,7 @@ describe('ModelProviderService', () => {
 
     expect(tx.save).toHaveBeenCalledWith(existing);
     expect(defaults.clearForProvider).not.toHaveBeenCalled();
-    expect(txKnowledge.update).not.toHaveBeenCalled();
+    expect(rerankReferences.clearForModel).not.toHaveBeenCalled();
   });
 
   it('update 不存在或非属主 404', async () => {

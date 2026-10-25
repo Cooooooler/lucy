@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,7 +9,8 @@ import type { EntityManager, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
-import { KnowledgeBase } from '../knowledge/entities/knowledge-base.entity.js';
+import type { RerankReferencePort } from '../knowledge/rerank-reference.port.js';
+import { RERANK_REFERENCE_PORT } from '../knowledge/rerank-reference.port.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import { assertBaseUrlHostAllowed } from './base-url-guard.js';
 import { CreateModelProviderDto } from './dto/create-model-provider.dto.js';
@@ -28,6 +30,9 @@ import { resolveOwnedModelProvider } from './model-provider-access.js';
 import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
 import { toModelProviderItem } from './model-provider.mapper.js';
 
+/** 重排模型解析结果：区分「查不到/非属主」与「类型不是 rerank」 */
+export type OwnedRerankResolution = { id: string } | 'not-found' | 'wrong-type';
+
 /**
  * 模型供应商领域服务：属主私有的 CRUD（create/list/get/update/remove）。
  *
@@ -44,6 +49,9 @@ export class ModelProviderService {
     private readonly cipher: ApiKeyCipher,
     // 模型改类型会改变默认设置的含义，清理交给默认模型领域自己处理
     private readonly defaults: ModelProviderDefaultsService,
+    // 知识库重排引用的清理由知识库领域实现，这里只发指令（不写别人的表）
+    @Inject(RERANK_REFERENCE_PORT)
+    private readonly rerankReferences: RerankReferencePort,
   ) {}
 
   /**
@@ -138,22 +146,27 @@ export class ModelProviderService {
 
   /**
    * 在调用方事务内解析属主私有且类型为 **重排（rerank）** 的模型配置，
-   * 并对该行加共享锁；不存在、非属主或类型不符一律返回 null。
+   * 并对该行加共享锁。
    *
-   * 供知识库创建时校验「所选重排模型可用」：查询与随后的插入必须在同一事务里，
-   * `pessimistic_read` 与并发删除/改类型互斥，避免写入悬空或类型不符的引用。
-   * 只取 `id`，不把 `api_key_encrypted` 等凭证材料拉进内存。
+   * 返回判据而不只是 null，让调用方能区分「不存在/非属主」与「类型不对」：
+   * 两者的修复动作完全不同（换模型 vs 改模型类型）。查询与随后的插入必须在
+   * 同一事务里，`pessimistic_read` 与并发删除/改类型互斥，避免写入悬空或类型
+   * 不符的引用；只取 `id`/`type`，不把凭证材料拉进内存。
    */
   async resolveOwnedRerankInTransaction(
     manager: EntityManager,
     userId: string,
     id: string,
-  ): Promise<{ id: string } | null> {
-    return manager.getRepository(ModelProvider).findOne({
-      where: { id, ownerId: userId, type: ModelProviderType.Rerank },
-      select: { id: true },
+  ): Promise<OwnedRerankResolution> {
+    const provider = await manager.getRepository(ModelProvider).findOne({
+      where: { id, ownerId: userId },
+      select: { id: true, type: true },
       lock: { mode: 'pessimistic_read' },
     });
+    if (!provider) return 'not-found';
+    return provider.type === ModelProviderType.Rerank
+      ? { id: provider.id }
+      : 'wrong-type';
   }
 
   /**
@@ -218,13 +231,9 @@ export class ModelProviderService {
         // 返回结果取决于数据库行序——等于静默丢掉一条设置。
         await this.defaults.clearForProvider(manager, userId, id);
         // 知识库的重排模型引用按「具体模型 + 创建后不可改」保存：删除由 FK ON DELETE
-        // SET NULL 兜底，但「改类型」不会触发 FK，需要在这里同步清空，否则知识库会
-        // 永久指向一个已不是 rerank 的模型且无法通过 API 修正。
-        // 用实体仓库而不是裸 SQL：表/列改名能被编译期发现，且 repository.update 会
-        // 同步刷新 @UpdateDateColumn（裸 SQL 不会），避免按 updatedAt 增量拉取的客户端漏掉变更。
-        await manager
-          .getRepository(KnowledgeBase)
-          .update({ rerankModelId: id }, { rerankModelId: null });
+        // SET NULL 兜底，但「改类型」不会触发 FK，需要同步清空，否则知识库会永久指向
+        // 一个已不是 rerank 的模型且无法通过 API 修正。落库仍由知识库领域负责。
+        await this.rerankReferences.clearForModel(manager, id);
       }
       return updated;
     });

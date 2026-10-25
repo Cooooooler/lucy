@@ -1,6 +1,5 @@
 import {
   KNOWLEDGE_SCORE_THRESHOLD_DEFAULT,
-  KNOWLEDGE_SCORE_THRESHOLD_MIN,
   KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
   KNOWLEDGE_TOP_K_DEFAULT,
 } from '@lucy/shared';
@@ -68,11 +67,10 @@ export class KnowledgeService {
     const scoreThresholdEnabled = dto.scoreThresholdEnabled ?? false;
     const scoreThreshold =
       dto.scoreThreshold ?? KNOWLEDGE_SCORE_THRESHOLD_DEFAULT;
-    // 启用阈值却为 0 等于不过滤：检索设置创建后不可改，不能在落库后才发现是空转
-    if (
-      scoreThresholdEnabled &&
-      scoreThreshold <= KNOWLEDGE_SCORE_THRESHOLD_MIN
-    ) {
+    // 启用阈值却为 0 等于不过滤：检索设置创建后不可改，不能在落库后才发现是空转。
+    // 这里刻意判 `<= 0` 而非复用闭区间下界常量：DTO/前端允许的闭区间下界与
+    // 「启用时必须严格大于」是两个语义，绑在同一常量上会出现文档放行、服务层拒绝。
+    if (scoreThresholdEnabled && scoreThreshold <= 0) {
       throw new BadRequestException('启用 Score 阈值时必须设置大于 0 的阈值');
     }
     // 重排模型校验与插入必须在同一事务里：校验通过后并发删除会撞 FK（23503 → 500），
@@ -85,7 +83,11 @@ export class KnowledgeService {
             userId,
             dto.rerankModelId,
           );
-        if (!rerank) {
+        // 两种失败原因的修复动作不同：换一个模型 vs 改模型类型，文案必须分开
+        if (rerank === 'wrong-type') {
+          throw new BadRequestException('该模型类型不是重排模型');
+        }
+        if (rerank === 'not-found') {
           throw new BadRequestException('重排模型不存在或不属于当前用户');
         }
       }

@@ -113,7 +113,9 @@ export class KnowledgeBase {
   })
   retrievalMode: KnowledgeRetrievalMode;
 
-  @ApiProperty({ description: '召回条数（1-10）', default: 5 })
+  // 数值边界由 `@lucy/shared` 常量 + 允许式 DTO 定义，实体不是对外契约：
+  // 在这里写死区间文案只会在常量调整时静默失准，故不参与 Swagger。
+  @ApiHideProperty()
   @Column({ name: 'top_k', type: 'int', default: 5 })
   topK: number;
 
@@ -121,14 +123,11 @@ export class KnowledgeBase {
   @Column({ name: 'score_threshold_enabled', type: 'boolean', default: false })
   scoreThresholdEnabled: boolean;
 
-  @ApiProperty({ description: 'Score 阈值（0-1，仅启用时生效）', default: 0 })
+  @ApiHideProperty()
   @Column({ name: 'score_threshold', type: 'real', default: 0 })
   scoreThreshold: number;
 
-  @ApiProperty({
-    description: '混合检索的语义权重（0-100，关键词权重 = 100 - 该值）',
-    default: 50,
-  })
+  @ApiHideProperty()
   @Column({ name: 'semantic_weight', type: 'int', default: 50 })
   semanticWeight: number;
 

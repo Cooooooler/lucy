@@ -182,9 +182,9 @@ describe('KnowledgeService', () => {
     });
   });
 
-  it('create 拒绝不存在/非属主/非重排的模型（400，不落库）', async () => {
+  it('create 拒绝不存在/非属主的重排模型（400，不落库）', async () => {
     modelProviderService.resolveOwnedRerankInTransaction.mockResolvedValue(
-      null,
+      'not-found',
     );
     await expect(
       service.create('u1', {
@@ -193,6 +193,20 @@ describe('KnowledgeService', () => {
         rerankModelId: uuid(9),
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.save).not.toHaveBeenCalled();
+  });
+
+  it('create 对类型不符给出明确文案（不再误报属主问题）', async () => {
+    modelProviderService.resolveOwnedRerankInTransaction.mockResolvedValue(
+      'wrong-type',
+    );
+    await expect(
+      service.create('u1', {
+        name: 'x',
+        description: 'd',
+        rerankModelId: uuid(9),
+      }),
+    ).rejects.toThrow('该模型类型不是重排模型');
     expect(tx.save).not.toHaveBeenCalled();
   });
 

@@ -1,5 +1,5 @@
 import { PartialType } from '@nestjs/swagger';
-import { KnowledgeBaseContentDto } from './create-knowledge-base.dto.js';
+import { KnowledgeBaseContentDto } from './knowledge-base-content.dto.js';
 
 /**
  * 更新知识库：所有字段可选，省略即不修改。

@@ -215,11 +215,10 @@ const RetrievalSettingsFields: FC<{
         initialValue={kb?.scoreThreshold ?? KNOWLEDGE_SCORE_THRESHOLD_DEFAULT}
         rules={[
           {
-            // 启用阈值却为 0 等于不过滤；检索设置创建后不可改，提交前必须拦下
+            // 启用阈值却为 0 等于不过滤；检索设置创建后不可改，提交前必须拦下。
+            // 这里用严格大于 0，而不是复用输入框闭区间下界常量（两者语义不同）。
             validator: (_rule, value: number | null | undefined) =>
-              !scoreThresholdEnabled ||
-              (typeof value === 'number' &&
-                value > KNOWLEDGE_SCORE_THRESHOLD_MIN)
+              !scoreThresholdEnabled || (typeof value === 'number' && value > 0)
                 ? Promise.resolve()
                 : Promise.reject(new Error('启用阈值时需大于 0')),
           },
