@@ -100,11 +100,9 @@ export class KnowledgeBase {
   // 默认值字面量与 `@lucy/shared` 的 KNOWLEDGE_*_DEFAULT 常量对齐；此处写字面量是为了让
   // `migration:generate` 产出稳定的 DDL，不依赖 shared 的构建产物。
 
-  @ApiProperty({
-    description: '检索模式',
-    enum: KnowledgeRetrievalMode,
-    default: KnowledgeRetrievalMode.FullText,
-  })
+  // 检索字段的契约由 KnowledgeBaseItemDto / CreateKnowledgeBaseDto 定义，
+  // 实体只负责 schema；这里不再维护第二份 Swagger 描述（会与 DTO 漂移）。
+  @ApiHideProperty()
   @Column({
     name: 'retrieval_mode',
     type: 'varchar',
@@ -119,7 +117,7 @@ export class KnowledgeBase {
   @Column({ name: 'top_k', type: 'int', default: 5 })
   topK: number;
 
-  @ApiProperty({ description: '是否启用 Score 阈值过滤', default: false })
+  @ApiHideProperty()
   @Column({ name: 'score_threshold_enabled', type: 'boolean', default: false })
   scoreThresholdEnabled: boolean;
 
@@ -131,11 +129,7 @@ export class KnowledgeBase {
   @Column({ name: 'semantic_weight', type: 'int', default: 50 })
   semanticWeight: number;
 
-  @ApiProperty({
-    description: '重排模型配置 ID；null 表示不重排',
-    type: String,
-    nullable: true,
-  })
+  @ApiHideProperty()
   // 自有列声明关系：服务层读写只碰 id，不 populate 关系（契约里也只有 id）
   @Column({ name: 'rerank_model_id', type: 'uuid', nullable: true })
   rerankModelId: string | null;
@@ -162,7 +156,10 @@ export class KnowledgeBase {
   createdAt: Date;
 
   @ApiProperty({ description: '更新时间' })
-  // 同上，必须与 created_at 的精度保持一致
+  // 插入时的列默认值与 created_at 一样按毫秒对齐；但 UPDATE 路径（`repository.update`，
+  // 包括 `save` 之外的列级更新与跨领域清理）由 TypeORM 写 `CURRENT_TIMESTAMP`，
+  // Postgres 精度是**微秒**。因此 updated_at **不得**用作 keyset/增量游标
+  // （同一毫秒内的多行会被整批跳过）；排序/游标一律用不可变的 created_at。
   @UpdateDateColumn({
     name: 'updated_at',
     type: 'timestamptz',

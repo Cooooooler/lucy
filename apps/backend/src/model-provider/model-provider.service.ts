@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { EntityManager, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
@@ -252,13 +247,14 @@ export class ModelProviderService {
    */
   async remove(userId: string, id: string): Promise<null> {
     await this.repo.manager.transaction(async (manager) => {
-      // 先按属主锁行确认存在：清理引用是跨领域的写，不能给非属主的模型做
-      const provider = await manager.getRepository(ModelProvider).findOne({
-        where: { id, ownerId: userId },
-        select: { id: true },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!provider) throw new NotFoundException('模型不存在');
+      // 复用领域内唯一的属主判据（where + 404 文案）；select 只取 id，不拉凭证密文。
+      // 先锁行确认属主：清理引用是跨领域的写，不能给非属主的模型做。
+      await resolveOwnedModelProvider(
+        manager.getRepository(ModelProvider),
+        id,
+        userId,
+        { select: { id: true }, lock: { mode: 'pessimistic_write' } },
+      );
       // 删除本可由 FK ON DELETE SET NULL 兜底，但 FK 动作不刷新 updated_at；
       // 显式清空让「删除模型」与「改类型」两条失效路径对增量拉取的客户端一致可见。
       await this.rerankReferences.clearForModel(manager, id);

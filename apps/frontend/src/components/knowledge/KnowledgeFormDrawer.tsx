@@ -35,7 +35,7 @@ import {
   Switch,
   Tooltip,
 } from 'antd';
-import type { FC } from 'react';
+import { type FC, useMemo } from 'react';
 import { RETRIEVAL_MODE_OPTIONS } from './knowledge-labels';
 
 /** 表单抽屉的可见性选项（不含"全部"，默认 private） */
@@ -132,6 +132,85 @@ const NumberSliderControl: FC<{
 );
 
 /**
+ * 语义/关键词权重：语义在左、关键词在右，此消彼长（合计 100%）。
+ *
+ * 独立成组件，让 `useWatch('semanticWeight')` 的订阅范围只覆盖这两个字段：
+ * 拖动滑块时不会连带重渲染检索模式、重排模型、TopK、Score 阈值。
+ */
+const SemanticKeywordWeights: FC<{
+  kb?: KnowledgeBase;
+  disabled: boolean;
+}> = ({ kb, disabled }) => {
+  const form = Form.useFormInstance<KnowledgeFormValues>();
+  // 语义权重：编辑态字段的 initialValue 不会触发 useWatch 重渲染，回落到知识库当前值；
+  // 关键词权重是派生值（后端只存 semanticWeight），两者互补、合计 100%
+  const semanticWeight =
+    Form.useWatch('semanticWeight', form) ??
+    kb?.semanticWeight ??
+    KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT;
+  const keywordWeight = KNOWLEDGE_SEMANTIC_WEIGHT_MAX - semanticWeight;
+
+  return (
+    <div className="flex gap-4">
+      <Form.Item
+        name="semanticWeight"
+        className="flex-1"
+        label={
+          <span className="inline-flex items-center gap-1">
+            语义权重（%）
+            <HelpIcon
+              help="语义召回结果的权重。与关键词权重此消彼长，合计 100%。"
+              label="语义权重说明"
+            />
+          </span>
+        }
+        // 条件渲染 + preserve={false}：字段切走后值会被丢弃，重新挂载时靠 initialValue 复位
+        // （因此它不在表单级 initialValues 里，避免 antd 报「无法覆盖已有 initialValues」）
+        initialValue={kb?.semanticWeight ?? KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT}
+        rules={[{ required: true, message: '请输入语义权重' }]}
+      >
+        <NumberSliderControl
+          min={KNOWLEDGE_SEMANTIC_WEIGHT_MIN}
+          max={KNOWLEDGE_SEMANTIC_WEIGHT_MAX}
+          precision={0}
+          label="语义权重（%）"
+          disabled={disabled}
+        />
+      </Form.Item>
+      <Form.Item
+        className="flex-1"
+        htmlFor="keywordWeight"
+        label={
+          <span className="inline-flex items-center gap-1">
+            关键词权重（%）
+            <HelpIcon
+              help="关键词召回结果的权重。与语义权重此消彼长，合计 100%。"
+              label="关键词权重说明"
+            />
+          </span>
+        }
+      >
+        <NumberSliderControl
+          id="keywordWeight"
+          min={KNOWLEDGE_SEMANTIC_WEIGHT_MIN}
+          max={KNOWLEDGE_SEMANTIC_WEIGHT_MAX}
+          precision={0}
+          label="关键词权重（%）"
+          value={keywordWeight}
+          disabled={disabled}
+          onChange={(value) =>
+            form.setFieldValue(
+              'semanticWeight',
+              KNOWLEDGE_SEMANTIC_WEIGHT_MAX - value,
+            )
+          }
+        />
+      </Form.Item>
+    </div>
+  );
+};
+
+/**
  * 检索设置字段：创建态可编辑，编辑态**只读展示**（全部控件 disabled）。
  *
  * 单独抽成组件是为了把 `useModelProvidersByType` 的请求挂在「抽屉真正打开」之后：
@@ -151,13 +230,11 @@ const RetrievalSettingsFields: FC<{
     'rerank',
     rerankEnabled === true || Boolean(kb?.rerankModelId),
   );
-  // 语义权重：编辑态字段的 initialValue 不会触发 useWatch 重渲染，回落到知识库当前值；
-  // 关键词权重是派生值（后端只存 semanticWeight），两者互补、合计 100%
-  const semanticWeight =
-    Form.useWatch('semanticWeight', form) ??
-    kb?.semanticWeight ??
-    KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT;
-  const keywordWeight = KNOWLEDGE_SEMANTIC_WEIGHT_MAX - semanticWeight;
+  // options 只在模型列表变化时重建：拖动其它字段引发的重渲染不再让 rc-select 失效
+  const modelOptions = useMemo(
+    () => models.map((model) => ({ label: model.name, value: model.id })),
+    [models],
+  );
 
   return (
     <>
@@ -191,10 +268,7 @@ const RetrievalSettingsFields: FC<{
           placeholder="请选择重排模型"
           // 隐藏但保持挂载：关闭再打开时保留上次选择
           style={{ display: rerankEnabled ? undefined : 'none' }}
-          options={models.map((model) => ({
-            label: model.name,
-            value: model.id,
-          }))}
+          options={modelOptions}
         />
       </Form.Item>
       <Form.Item
@@ -257,65 +331,7 @@ const RetrievalSettingsFields: FC<{
         />
       </Form.Item>
       {retrievalMode === 'hybrid' ? (
-        // 语义在左、关键词在右；两者此消彼长（合计 100%），拖动任一侧另一侧反向跟随
-        <div className="flex gap-4">
-          <Form.Item
-            name="semanticWeight"
-            className="flex-1"
-            label={
-              <span className="inline-flex items-center gap-1">
-                语义权重（%）
-                <HelpIcon
-                  help="语义召回结果的权重。与关键词权重此消彼长，合计 100%。"
-                  label="语义权重说明"
-                />
-              </span>
-            }
-            // 条件渲染 + preserve={false}：字段切走后值会被丢弃，重新挂载时靠 initialValue 复位
-            // （因此它不在表单级 initialValues 里，避免 antd 报「无法覆盖已有 initialValues」）
-            initialValue={
-              kb?.semanticWeight ?? KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT
-            }
-            rules={[{ required: true, message: '请输入语义权重' }]}
-          >
-            <NumberSliderControl
-              min={KNOWLEDGE_SEMANTIC_WEIGHT_MIN}
-              max={KNOWLEDGE_SEMANTIC_WEIGHT_MAX}
-              precision={0}
-              label="语义权重（%）"
-              disabled={disabled}
-            />
-          </Form.Item>
-          <Form.Item
-            className="flex-1"
-            htmlFor="keywordWeight"
-            label={
-              <span className="inline-flex items-center gap-1">
-                关键词权重（%）
-                <HelpIcon
-                  help="关键词召回结果的权重。与语义权重此消彼长，合计 100%。"
-                  label="关键词权重说明"
-                />
-              </span>
-            }
-          >
-            <NumberSliderControl
-              id="keywordWeight"
-              min={KNOWLEDGE_SEMANTIC_WEIGHT_MIN}
-              max={KNOWLEDGE_SEMANTIC_WEIGHT_MAX}
-              precision={0}
-              label="关键词权重（%）"
-              value={keywordWeight}
-              disabled={disabled}
-              onChange={(value) =>
-                form.setFieldValue(
-                  'semanticWeight',
-                  KNOWLEDGE_SEMANTIC_WEIGHT_MAX - value,
-                )
-              }
-            />
-          </Form.Item>
-        </div>
+        <SemanticKeywordWeights kb={kb} disabled={disabled} />
       ) : null}
     </>
   );

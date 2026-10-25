@@ -12,7 +12,7 @@ export async function resolveOwnedModelProvider(
   repo: Repository<ModelProvider>,
   id: string,
   userId: string,
-  options: { lock?: FindOneOptions<ModelProvider>['lock'] } = {},
+  options: Pick<FindOneOptions<ModelProvider>, 'lock' | 'select'> = {},
 ): Promise<ModelProvider> {
   const provider = await repo.findOne({
     where: { id, ownerId: userId },

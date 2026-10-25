@@ -17,6 +17,7 @@ import type {
 import type { ModelProviderListQuery } from '@lucy/shared';
 import type { QueryClient } from '@tanstack/react-query';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import {
   type ListCacheKeys,
   filterOutItem,
@@ -106,7 +107,11 @@ export function useModelProvidersByType(
   enabled = true,
 ) {
   const query = useInfiniteModelProviderList({ type }, 100, enabled);
-  const models = query.data?.pages.flatMap((page) => page.list) ?? [];
+  // flatMap 每次渲染都会返回新数组：按 data 记忆化，消费方的 options/useMemo 才有效
+  const models = useMemo(
+    () => query.data?.pages.flatMap((page) => page.list) ?? [],
+    [query.data],
+  );
   return { models, isLoading: query.isLoading };
 }
 
@@ -136,7 +141,10 @@ export function useUpdateModelProviderDefaults() {
  */
 export function useLlmModelProviders(limit = 100) {
   const query = useInfiniteModelProviderList({ type: 'llm' }, limit);
-  const models = query.data?.pages.flatMap((page) => page.list) ?? [];
+  const models = useMemo(
+    () => query.data?.pages.flatMap((page) => page.list) ?? [],
+    [query.data],
+  );
   return { models, isLoading: query.isLoading };
 }
 
