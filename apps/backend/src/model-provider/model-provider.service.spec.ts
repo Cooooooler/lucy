@@ -35,7 +35,11 @@ describe('ModelProviderService', () => {
     manager: { transaction: vi.fn() },
   };
   const txProviders = { findOne: vi.fn() };
-  const tx = { getRepository: vi.fn(() => txProviders), save: vi.fn() };
+  const tx = {
+    getRepository: vi.fn(() => txProviders),
+    save: vi.fn(),
+    query: vi.fn(),
+  };
   const defaults = { clearForProvider: vi.fn() };
   const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
   let cipher: ApiKeyCipher;
@@ -292,6 +296,11 @@ describe('ModelProviderService', () => {
       lock: { mode: 'pessimistic_write' },
     });
     expect(defaults.clearForProvider).toHaveBeenCalledWith(tx, 'u1', MODEL_ID);
+    // 知识库的重排模型引用也要在同一事务里清空（改类型不触发 FK SET NULL）
+    expect(tx.query).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE knowledge_bases'),
+      [MODEL_ID],
+    );
   });
 
   it('update 类型未变时不清理默认设置', async () => {
@@ -302,6 +311,7 @@ describe('ModelProviderService', () => {
 
     expect(tx.save).toHaveBeenCalledWith(existing);
     expect(defaults.clearForProvider).not.toHaveBeenCalled();
+    expect(tx.query).not.toHaveBeenCalled();
   });
 
   it('update 不存在或非属主 404', async () => {

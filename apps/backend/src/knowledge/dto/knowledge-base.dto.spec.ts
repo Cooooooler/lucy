@@ -141,6 +141,16 @@ describe('知识库 DTO 经全局 ValidationPipe', () => {
     ).rejects.toThrow();
   });
 
+  it('校验失败文案使用字段中文名（FIELD_LABELS 已登记）', async () => {
+    await expect(
+      create({ name: 'x', description: 'd', topK: 11 }),
+    ).rejects.toThrow(/召回条数/);
+    // 更新接口不声明检索字段：白名单报错也应给出中文名
+    await expect(update({ retrievalMode: 'hybrid' })).rejects.toThrow(
+      /检索模式/,
+    );
+  });
+
   it('创建：rerankModelId 允许 null（不重排），非 UUID 被 400', async () => {
     await expect(
       create({ name: 'x', description: 'd', rerankModelId: null }),

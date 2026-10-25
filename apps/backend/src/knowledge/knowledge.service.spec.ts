@@ -31,10 +31,16 @@ import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 describe('KnowledgeService', () => {
+  // 创建走事务：校验重排模型与插入在同一事务内完成
+  const tx = {
+    save: vi.fn(),
+    getRepository: vi.fn(),
+  };
   const kbRepo = {
     findOne: vi.fn(),
     save: vi.fn(),
     createQueryBuilder: vi.fn(),
+    manager: { transaction: vi.fn() },
   };
   const likeRepo = {
     findOneBy: vi.fn(),
@@ -50,7 +56,7 @@ describe('KnowledgeService', () => {
   };
   // 重排模型的存在性/属主/类型判据由模型领域负责，本 spec 只断言「创建时调用并据结果拒绝」
   const modelProviderService = {
-    resolveOwnedRerank: vi.fn(),
+    resolveOwnedRerankInTransaction: vi.fn(),
   };
   const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
 
@@ -81,16 +87,21 @@ describe('KnowledgeService', () => {
     // 点赞态回填（fillLikeInfo）被 get/list/update 共用：默认给一个空结果的可链式 stub，
     // 避免依赖「上个用例遗留的 mockReturnValue」——clearAllMocks 只清调用记录不清实现
     likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
+    // 事务直接执行回调，回调内的 manager 即 tx
+    kbRepo.manager.transaction.mockImplementation(
+      async (fn: (manager: typeof tx) => Promise<unknown>) => fn(tx),
+    );
     service = await buildService();
   });
 
   it('create 保存知识库（默认 private）并返回契约视图', async () => {
-    kbRepo.save.mockResolvedValue(makeKb());
+    tx.save.mockResolvedValue(makeKb());
     const result = await service.create('u1', { name: 'x', description: 'd' });
     expect(result).toEqual(makeKbItem());
     // 契约项是普通视图对象，不携带实体上的内部关系（owner 等）
     expect(result).not.toBeInstanceOf(KnowledgeBase);
-    expect(kbRepo.save).toHaveBeenCalledWith(
+    expect(tx.save).toHaveBeenCalledWith(
+      KnowledgeBase,
       expect.objectContaining({
         ownerId: 'u1',
         name: 'x',
@@ -101,9 +112,10 @@ describe('KnowledgeService', () => {
   });
 
   it('create 未提供检索设置时落默认值（全文 / 5 / 阈值关闭且为 0 / 语义 50 / 不重排）', async () => {
-    kbRepo.save.mockResolvedValue(makeKb());
+    tx.save.mockResolvedValue(makeKb());
     await service.create('u1', { name: 'x', description: 'd' });
-    expect(kbRepo.save).toHaveBeenCalledWith(
+    expect(tx.save).toHaveBeenCalledWith(
+      KnowledgeBase,
       expect.objectContaining({
         retrievalMode: KnowledgeRetrievalMode.FullText,
         topK: 5,
@@ -114,13 +126,17 @@ describe('KnowledgeService', () => {
       }),
     );
     // 未选重排模型时不产生模型查询
-    expect(modelProviderService.resolveOwnedRerank).not.toHaveBeenCalled();
+    expect(
+      modelProviderService.resolveOwnedRerankInTransaction,
+    ).not.toHaveBeenCalled();
   });
 
   it('create 落显式检索设置，并校验重排模型属主与类型', async () => {
     const rerankId = uuid(9);
-    modelProviderService.resolveOwnedRerank.mockResolvedValue({ id: rerankId });
-    kbRepo.save.mockResolvedValue(
+    modelProviderService.resolveOwnedRerankInTransaction.mockResolvedValue({
+      id: rerankId,
+    });
+    tx.save.mockResolvedValue(
       makeKb({
         retrievalMode: KnowledgeRetrievalMode.Hybrid,
         topK: 8,
@@ -142,11 +158,11 @@ describe('KnowledgeService', () => {
       rerankModelId: rerankId,
     });
 
-    expect(modelProviderService.resolveOwnedRerank).toHaveBeenCalledWith(
-      'u1',
-      rerankId,
-    );
-    expect(kbRepo.save).toHaveBeenCalledWith(
+    expect(
+      modelProviderService.resolveOwnedRerankInTransaction,
+    ).toHaveBeenCalledWith(tx, 'u1', rerankId);
+    expect(tx.save).toHaveBeenCalledWith(
+      KnowledgeBase,
       expect.objectContaining({
         retrievalMode: KnowledgeRetrievalMode.Hybrid,
         topK: 8,
@@ -167,7 +183,9 @@ describe('KnowledgeService', () => {
   });
 
   it('create 拒绝不存在/非属主/非重排的模型（400，不落库）', async () => {
-    modelProviderService.resolveOwnedRerank.mockResolvedValue(null);
+    modelProviderService.resolveOwnedRerankInTransaction.mockResolvedValue(
+      null,
+    );
     await expect(
       service.create('u1', {
         name: 'x',
@@ -175,7 +193,7 @@ describe('KnowledgeService', () => {
         rerankModelId: uuid(9),
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(kbRepo.save).not.toHaveBeenCalled();
+    expect(tx.save).not.toHaveBeenCalled();
   });
 
   it('update 不修改检索设置（只动内容字段）', async () => {
@@ -213,7 +231,7 @@ describe('KnowledgeService', () => {
   });
 
   it('create/get/list/update 字段集完全一致（契约不随端点漂移）', async () => {
-    kbRepo.save.mockResolvedValue(makeKb());
+    tx.save.mockResolvedValue(makeKb());
     const created = await service.create('u1', { name: 'x', description: 'd' });
 
     kbRepo.findOne.mockResolvedValue(makeKb());

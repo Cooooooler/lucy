@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import type { Repository } from 'typeorm';
+import type { EntityManager, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
@@ -136,17 +136,22 @@ export class ModelProviderService {
   }
 
   /**
-   * 解析属主私有且类型为 **重排（rerank）** 的模型配置；不存在、非属主或类型不符一律返回 null。
+   * 在调用方事务内解析属主私有且类型为 **重排（rerank）** 的模型配置，
+   * 并对该行加共享锁；不存在、非属主或类型不符一律返回 null。
    *
-   * 供知识库在创建时校验「所选重排模型可用」：引用的是具体模型配置（同
-   * `ai_conversations.model_provider_id`），而非用户级默认模型，因此每个知识库可以不同。
+   * 供知识库创建时校验「所选重排模型可用」：查询与随后的插入必须在同一事务里，
+   * `pessimistic_read` 与并发删除/改类型互斥，避免写入悬空或类型不符的引用。
+   * 只取 `id`，不把 `api_key_encrypted` 等凭证材料拉进内存。
    */
-  async resolveOwnedRerank(
+  async resolveOwnedRerankInTransaction(
+    manager: EntityManager,
     userId: string,
     id: string,
-  ): Promise<ModelProvider | null> {
-    return this.repo.findOne({
+  ): Promise<{ id: string } | null> {
+    return manager.getRepository(ModelProvider).findOne({
       where: { id, ownerId: userId, type: ModelProviderType.Rerank },
+      select: { id: true },
+      lock: { mode: 'pessimistic_read' },
     });
   }
 
@@ -211,6 +216,13 @@ export class ModelProviderService {
         // 不清理会与同类型的另一条默认项派生出同一个 type，list() 的 Map 只能保留一条，
         // 返回结果取决于数据库行序——等于静默丢掉一条设置。
         await this.defaults.clearForProvider(manager, userId, id);
+        // 知识库的重排模型引用按「具体模型 + 创建后不可改」保存：删除由 FK ON DELETE
+        // SET NULL 兜底，但「改类型」不会触发 FK，需要在这里同步清空，否则知识库会
+        // 永久指向一个已不是 rerank 的模型且无法通过 API 修正。
+        await manager.query(
+          'UPDATE knowledge_bases SET rerank_model_id = NULL WHERE rerank_model_id = $1',
+          [id],
+        );
       }
       return updated;
     });

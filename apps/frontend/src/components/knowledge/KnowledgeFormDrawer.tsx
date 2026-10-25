@@ -145,8 +145,12 @@ const RetrievalSettingsFields: FC<{
   const retrievalMode = Form.useWatch('retrievalMode', form);
   const scoreThresholdEnabled = Form.useWatch('scoreThresholdEnabled', form);
   const rerankEnabled = Form.useWatch('rerankEnabled', form);
-  // 重排模型按类型取（模型管理里 type=rerank 的配置），未配置时下拉为空 = 不重排
-  const { models, isLoading } = useModelProvidersByType('rerank');
+  // 重排模型按类型取（模型管理里 type=rerank 的配置），未配置时下拉为空 = 不重排。
+  // 创建态需要选项，始终请求；编辑态只读，仅在确有重排模型时才需要拿名字
+  const { models, isLoading } = useModelProvidersByType(
+    'rerank',
+    !disabled || Boolean(kb?.rerankModelId),
+  );
   // 语义权重：编辑态字段的 initialValue 不会触发 useWatch 重渲染，回落到知识库当前值；
   // 关键词权重是派生值（后端只存 semanticWeight），两者互补、合计 100%
   const semanticWeight =

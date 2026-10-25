@@ -54,10 +54,10 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
 
   const kbQuery = useKnowledgeBase(kbId);
   // 检索设置里只存了 rerank 模型 ID，展示名称需要按类型取一次模型列表；
-  // 详情就绪后再请求，避免在错误态/加载态白白拉取
+  // 只有真的引用了重排模型才请求，没有配置重排的知识库不白拉列表
   const { models: rerankModels } = useModelProvidersByType(
     'rerank',
-    Boolean(kbQuery.data),
+    Boolean(kbQuery.data?.rerankModelId),
   );
   const kb = kbQuery.data;
   const rerankModelName = rerankModels.find(

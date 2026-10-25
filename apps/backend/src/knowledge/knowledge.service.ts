@@ -63,30 +63,34 @@ export class KnowledgeService {
     userId: string,
     dto: CreateKnowledgeBaseDto,
   ): Promise<KnowledgeBaseItemDto> {
-    // 重排模型引用的是具体模型配置：属主 + 类型（rerank）必须在写入前判定，
-    // FK 只保证「存在」，不保证「属于当前用户且确实是重排模型」
-    if (dto.rerankModelId) {
-      const rerank = await this.modelProviderService.resolveOwnedRerank(
-        userId,
-        dto.rerankModelId,
-      );
-      if (!rerank) {
-        throw new BadRequestException('重排模型不存在或不属于当前用户');
-      }
-    }
     this.logger.log(`kb create name=${dto.name}`, KnowledgeService.name);
-    const kb = await this.kbRepo.save({
-      ownerId: userId,
-      name: dto.name,
-      description: dto.description,
-      visibility: dto.visibility ?? KnowledgeBaseVisibility.Private,
-      // 检索设置只在创建时确定（更新 DTO 不含这些字段）
-      retrievalMode: dto.retrievalMode ?? KnowledgeRetrievalMode.FullText,
-      topK: dto.topK ?? KNOWLEDGE_TOP_K_DEFAULT,
-      scoreThresholdEnabled: dto.scoreThresholdEnabled ?? false,
-      scoreThreshold: dto.scoreThreshold ?? KNOWLEDGE_SCORE_THRESHOLD_DEFAULT,
-      semanticWeight: dto.semanticWeight ?? KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
-      rerankModelId: dto.rerankModelId ?? null,
+    // 重排模型校验与插入必须在同一事务里：校验通过后并发删除会撞 FK（23503 → 500），
+    // 并发改类型则会写入类型不符的引用；事务内的共享锁与删除/改类型互斥。
+    const kb = await this.kbRepo.manager.transaction(async (manager) => {
+      if (dto.rerankModelId) {
+        const rerank =
+          await this.modelProviderService.resolveOwnedRerankInTransaction(
+            manager,
+            userId,
+            dto.rerankModelId,
+          );
+        if (!rerank) {
+          throw new BadRequestException('重排模型不存在或不属于当前用户');
+        }
+      }
+      return manager.save(KnowledgeBase, {
+        ownerId: userId,
+        name: dto.name,
+        description: dto.description,
+        visibility: dto.visibility ?? KnowledgeBaseVisibility.Private,
+        // 检索设置只在创建时确定（更新 DTO 不含这些字段）
+        retrievalMode: dto.retrievalMode ?? KnowledgeRetrievalMode.FullText,
+        topK: dto.topK ?? KNOWLEDGE_TOP_K_DEFAULT,
+        scoreThresholdEnabled: dto.scoreThresholdEnabled ?? false,
+        scoreThreshold: dto.scoreThreshold ?? KNOWLEDGE_SCORE_THRESHOLD_DEFAULT,
+        semanticWeight: dto.semanticWeight ?? KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
+        rerankModelId: dto.rerankModelId ?? null,
+      });
     });
     return toKnowledgeBaseItem(kb);
   }

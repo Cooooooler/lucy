@@ -211,6 +211,8 @@ describe('KnowledgeFormDrawer', () => {
 
     expect(screen.getByLabelText('名称')).toHaveValue('产品文档');
     expect(screen.getByLabelText('描述')).toHaveValue('这是一段描述');
+    // 编辑态只读且该知识库没有重排模型：不白拉 rerank 模型列表
+    expect(useModelProvidersByType).toHaveBeenCalledWith('rerank', false);
 
     await userEvent.clear(screen.getByLabelText('名称'));
     await userEvent.type(screen.getByLabelText('名称'), '新名称');
@@ -418,7 +420,8 @@ describe('KnowledgeFormDrawer', () => {
     setCreateMock(mutationMock({ mutateAsync }));
     renderDrawer({ mode: 'create' });
 
-    expect(useModelProvidersByType).toHaveBeenCalledWith('rerank');
+    // 创建态需要下拉选项，因此始终启用该查询
+    expect(useModelProvidersByType).toHaveBeenCalledWith('rerank', true);
 
     // 开关关闭时模型下拉不进入可访问树
     expect(
