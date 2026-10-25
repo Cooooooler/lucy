@@ -209,6 +209,48 @@ const CODE_HIGHLIGHT_PROPS = { style: CODE_THEME };
 const LANGUAGE_CLASS = /language-([\w+#.-]+)/;
 
 /**
+ * prism 按需加载按文件名拼路径（`languages/prism/${lang}`），而 XMarkdown 交来的 `lang`
+ * 是 fenced code 的 info string（可能是 `ts title="x"`、`js {1,3}` 或大写 `TS`），
+ * 直接透传会让动态导入失败并回落成无高亮纯文本。这里只取首个词、转小写并映射常用别名；
+ * 未收录的语言返回空串，CodeHighlighter 会直接渲染纯 `<code>`，不会触发导入。
+ */
+const PRISM_LANG_ALIASES: Record<string, string> = {
+  ts: 'typescript',
+  typescript: 'typescript',
+  tsx: 'tsx',
+  js: 'javascript',
+  jsx: 'jsx',
+  mjs: 'javascript',
+  javascript: 'javascript',
+  json: 'json',
+  bash: 'bash',
+  sh: 'bash',
+  shell: 'bash',
+  zsh: 'bash',
+  python: 'python',
+  py: 'python',
+  java: 'java',
+  go: 'go',
+  rust: 'rust',
+  sql: 'sql',
+  css: 'css',
+  scss: 'scss',
+  html: 'markup',
+  xml: 'markup',
+  yml: 'yaml',
+  yaml: 'yaml',
+  md: 'markdown',
+  markdown: 'markdown',
+  diff: 'diff',
+  dockerfile: 'docker',
+};
+
+function normalizeLang(info: string | undefined): string {
+  const key = (info ?? '').trim().toLowerCase().split(/\s+/)[0];
+  return PRISM_LANG_ALIASES[key] ?? '';
+}
+
+/**
  * 代码块渲染：块级 code 交给 CodeHighlighter（语法高亮 + 语言标签 + 复制按钮），
  * 行内 code 保持原样。组件与映射表都放在模块级，避免每次渲染产生新引用导致子树重建。
  */
@@ -223,7 +265,9 @@ const MarkdownCode: FC<ComponentProps> = ({
   if (!block || !code) {
     return <code className={className}>{children}</code>;
   }
-  const language = lang ?? LANGUAGE_CLASS.exec(className ?? '')?.[1] ?? '';
+  const language = normalizeLang(
+    lang || LANGUAGE_CLASS.exec(className ?? '')?.[1],
+  );
   return (
     <CodeHighlighter
       lang={language}

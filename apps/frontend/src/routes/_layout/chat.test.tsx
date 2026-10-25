@@ -152,6 +152,36 @@ describe('routes/_layout/chat', () => {
     expect(mocks.useChatStream).toHaveBeenCalled();
   });
 
+  it('代码块 info string 规范化：别名/参数仍高亮，未知语言回落纯文本', async () => {
+    const content = [
+      '```ts title="a"',
+      'const x = 1;',
+      '```',
+      '',
+      '```foo bar',
+      'plain',
+      '```',
+    ].join('\n');
+    mockChat({
+      messages: [
+        {
+          id: 'm1',
+          role: 'ai',
+          content,
+          status: 'complete',
+          createdAt: '2026-10-24T09:00:00Z',
+        },
+      ],
+    });
+    const { container } = renderChat({ id: 'c1' });
+
+    // `ts title="a"` → 别名 ts 映射为 typescript，参数被丢弃
+    expect(await screen.findByText('typescript')).toBeInTheDocument();
+    // 未收录的 `foo bar` 不触发高亮（也就不会有失败的动态导入），按纯文本渲染
+    expect(screen.getByText('plain')).toBeInTheDocument();
+    expect(container.querySelectorAll('.ant-codeHighlighter')).toHaveLength(1);
+  });
+
   it('无可用模型：显示配置提示且发送框禁用', () => {
     mocks.useLlmModelProviders.mockReturnValue({
       models: [],
