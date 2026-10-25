@@ -219,10 +219,6 @@ const MarkdownCode: FC<ComponentProps> = ({
   lang,
 }) => {
   const code = typeof children === 'string' ? children : '';
-  // 流式输出时每条 delta 都会改动 children，而 CodeHighlighter 是 node_modules 里的
-  // forwardRef 组件（不受 React Compiler 优化），会为每个 token 重新分词整块代码（长块近似 O(n²)）。
-  // 用 deferred 值把高亮让出主线程，连续 delta 只保留最后一次结果。
-  const deferredCode = useDeferredValue(code);
 
   if (!block || !code) {
     return <code className={className}>{children}</code>;
@@ -235,7 +231,7 @@ const MarkdownCode: FC<ComponentProps> = ({
       // 气泡底色也是灰的，加一道极浅描边 + 圆角把代码块和正文分开
       className="my-1 overflow-hidden rounded-lg border border-solid border-(--ant-color-border-secondary)"
     >
-      {deferredCode}
+      {code}
     </CodeHighlighter>
   );
 };
@@ -274,16 +270,20 @@ const MessageBody: FC<{
   streaming?: boolean;
   truncated?: boolean;
 }> = ({ content, thinking, streaming, truncated }) => {
-  // 流式期间每条 delta 都会改动 content，整篇 markdown 解析是主要开销；
+  // 流式期间每条 delta 都会改动 content / thinking，整篇 markdown 解析是主要开销；
   // 用 deferred 值让输入等交互优先响应，连续 delta 只渲染最后一次
   const deferredContent = useDeferredValue(content);
-  // 思考进行中 = 还在流式且尚未产出回答
+  const deferredThinking = useDeferredValue(thinking);
+  // 思考进行中 = 还在流式且尚未产出回答（用原始值判断，避免 defer 造成状态滞后）
   const thinkingActive = Boolean(thinking) && Boolean(streaming) && !content;
   return (
     <div className={'flex flex-col gap-2'}>
       {thinking ? (
         <ThinkingBlock thinkingActive={thinkingActive}>
-          <XMarkdown content={thinking} components={MARKDOWN_COMPONENTS} />
+          <XMarkdown
+            content={deferredThinking}
+            components={MARKDOWN_COMPONENTS}
+          />
         </ThinkingBlock>
       ) : null}
       <XMarkdown content={deferredContent} components={MARKDOWN_COMPONENTS} />
