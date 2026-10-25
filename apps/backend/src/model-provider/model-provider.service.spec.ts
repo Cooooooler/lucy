@@ -5,6 +5,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
+import { KnowledgeBase } from '../knowledge/entities/knowledge-base.entity.js';
 import {
   MODEL_ID,
   MODEL_ITEM_KEYS,
@@ -35,10 +36,13 @@ describe('ModelProviderService', () => {
     manager: { transaction: vi.fn() },
   };
   const txProviders = { findOne: vi.fn() };
+  // 改类型时还会用 KnowledgeBase 仓库清空重排引用
+  const txKnowledge = { update: vi.fn() };
   const tx = {
-    getRepository: vi.fn(() => txProviders),
+    getRepository: vi.fn((entity: unknown) =>
+      entity === KnowledgeBase ? txKnowledge : txProviders,
+    ),
     save: vi.fn(),
-    query: vi.fn(),
   };
   const defaults = { clearForProvider: vi.fn() };
   const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
@@ -296,10 +300,11 @@ describe('ModelProviderService', () => {
       lock: { mode: 'pessimistic_write' },
     });
     expect(defaults.clearForProvider).toHaveBeenCalledWith(tx, 'u1', MODEL_ID);
-    // 知识库的重排模型引用也要在同一事务里清空（改类型不触发 FK SET NULL）
-    expect(tx.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE knowledge_bases'),
-      [MODEL_ID],
+    // 知识库的重排模型引用也要在同一事务里清空（改类型不触发 FK SET NULL），
+    // 走实体仓库以便刷新 updated_at
+    expect(txKnowledge.update).toHaveBeenCalledWith(
+      { rerankModelId: MODEL_ID },
+      { rerankModelId: null },
     );
   });
 
@@ -311,7 +316,7 @@ describe('ModelProviderService', () => {
 
     expect(tx.save).toHaveBeenCalledWith(existing);
     expect(defaults.clearForProvider).not.toHaveBeenCalled();
-    expect(tx.query).not.toHaveBeenCalled();
+    expect(txKnowledge.update).not.toHaveBeenCalled();
   });
 
   it('update 不存在或非属主 404', async () => {

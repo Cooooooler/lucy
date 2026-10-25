@@ -53,12 +53,10 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
   const [uploading, setUploading] = useState(false);
 
   const kbQuery = useKnowledgeBase(kbId);
-  // 检索设置里只存了 rerank 模型 ID，展示名称需要按类型取一次模型列表；
-  // 只有真的引用了重排模型才请求，没有配置重排的知识库不白拉列表
-  const { models: rerankModels } = useModelProvidersByType(
-    'rerank',
-    Boolean(kbQuery.data?.rerankModelId),
-  );
+  // 检索设置里只存了 rerank 模型 ID，展示名称需要按类型取一次模型列表。
+  // 与详情并行请求（不依赖 kb 结果，避免两轮串行）；该列表 staleTime 为 Infinity
+  // 且 refetchOnMount=false，没有重排的知识库最多只付一次请求。
+  const { models: rerankModels } = useModelProvidersByType('rerank');
   const kb = kbQuery.data;
   const rerankModelName = rerankModels.find(
     (model) => model.id === kb?.rerankModelId,

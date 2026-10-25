@@ -196,6 +196,33 @@ describe('KnowledgeService', () => {
     expect(tx.save).not.toHaveBeenCalled();
   });
 
+  it('create 拒绝启用 Score 阈值却把阈值留为 0（400，不落库）', async () => {
+    await expect(
+      service.create('u1', {
+        name: 'x',
+        description: 'd',
+        scoreThresholdEnabled: true,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.save).not.toHaveBeenCalled();
+  });
+
+  it('公开库被非属主读取时隐藏 rerankModelId（属主私有资源标识）', async () => {
+    const rerankId = uuid(9);
+    kbRepo.findOne.mockResolvedValue(
+      makeKb({
+        visibility: KnowledgeBaseVisibility.Public,
+        rerankModelId: rerankId,
+      }),
+    );
+
+    const asOwner = await service.get('u1', KB_ID);
+    expect(asOwner.rerankModelId).toBe(rerankId);
+
+    const asOther = await service.get('u2', KB_ID);
+    expect(asOther.rerankModelId).toBeNull();
+  });
+
   it('update 不修改检索设置（只动内容字段）', async () => {
     kbRepo.findOne.mockResolvedValue(makeKb());
     kbRepo.save.mockResolvedValue(makeKb({ name: 'y' }));

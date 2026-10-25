@@ -411,6 +411,21 @@ describe('KnowledgeFormDrawer', () => {
     });
   });
 
+  it('启用 Score 阈值却为 0 时校验失败，不提交', async () => {
+    const createMock = setCreateMock(mutationMock());
+    renderDrawer({ mode: 'create' });
+
+    await userEvent.type(screen.getByLabelText('名称'), '阈值库');
+    await userEvent.type(screen.getByLabelText('描述'), '阈值描述');
+    await userEvent.click(
+      screen.getByRole('switch', { name: '启用 Score 阈值' }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: /创\s*建/ }));
+
+    expect(await screen.findByText('启用阈值时需大于 0')).toBeInTheDocument();
+    expect(createMock.mutateAsync).not.toHaveBeenCalled();
+  });
+
   it('检索设置：重排模型由开关控制，开启后选择并提交模型 ID', async () => {
     vi.mocked(useModelProvidersByType).mockReturnValue({
       models: [{ id: 'r1', name: 'bge-reranker' }],
@@ -420,14 +435,16 @@ describe('KnowledgeFormDrawer', () => {
     setCreateMock(mutationMock({ mutateAsync }));
     renderDrawer({ mode: 'create' });
 
-    // 创建态需要下拉选项，因此始终启用该查询
-    expect(useModelProvidersByType).toHaveBeenCalledWith('rerank', true);
+    // 开关关闭且没有引用时不请求 rerank 列表
+    expect(useModelProvidersByType).toHaveBeenLastCalledWith('rerank', false);
 
     // 开关关闭时模型下拉不进入可访问树
     expect(
       screen.queryByRole('combobox', { name: /重排模型/ }),
     ).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('switch', { name: '启用重排模型' }));
+    // 打开开关后才启用该查询
+    expect(useModelProvidersByType).toHaveBeenLastCalledWith('rerank', true);
 
     const select = screen.getByRole('combobox', { name: /重排模型/ });
     expect(select).toBeVisible();

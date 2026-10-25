@@ -45,6 +45,9 @@ describe('Knowledge pagination (keyset + page) & serialization (e2e)', () => {
   let dataSource: DataSource;
   let token: string;
   let userId: string;
+  /** 第二个用户：仅用于「重排模型属主校验」用例 */
+  let otherToken: string;
+  let otherUserId: string;
   const suffix = randomUUID().slice(0, 8);
   /**
    * 用名称里唯一前缀把「本用例造的数据」从库里其它数据中隔离出来：list 的 `name`
@@ -181,6 +184,9 @@ describe('Knowledge pagination (keyset + page) & serialization (e2e)', () => {
     const login = await registerAndLogin(server, `e2e_kb_${suffix}`);
     token = login.accessToken;
     userId = login.user.id;
+    const other = await registerAndLogin(server, `e2e_kb_other_${suffix}`);
+    otherToken = other.accessToken;
+    otherUserId = other.user.id;
 
     // 独立测试数据：6 条同毫秒并列 + 4 条不同毫秒，均为该测试用户私有的知识库。
     // 直写 created_at（绕过 CreateDateColumn 的 now()），以精确制造同毫秒并列。
@@ -281,6 +287,7 @@ describe('Knowledge pagination (keyset + page) & serialization (e2e)', () => {
 
   afterAll(async () => {
     await deleteTestUserData(dataSource, userId);
+    await deleteTestUserData(dataSource, otherUserId);
     await app.close();
   });
 
@@ -407,6 +414,139 @@ describe('Knowledge pagination (keyset + page) & serialization (e2e)', () => {
         .send(patch)
         .expect(400);
     }
+  });
+
+  it('重排模型校验：指向他人或非 rerank 的模型返回 400，且知识库未创建', async () => {
+    const auth = `Bearer ${token}`;
+    const modelBody = {
+      vendor: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      protocol: 'chat-completions',
+      contextLength: 8192,
+      apiKey: `sk-e2e-${suffix}-abcd`,
+    };
+    // 自己的 llm 模型（类型不符）
+    const llm = await request(server)
+      .post('/v1/model-providers')
+      .set('Authorization', auth)
+      .send({ ...modelBody, name: `llm_${suffix}`, type: 'llm' })
+      .expect(201);
+    const llmId = (llm.body as ApiBody<{ id: string }>).data.id;
+
+    // 他人的 rerank 模型（属主不符）
+    const other = await request(server)
+      .post('/v1/model-providers')
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({ ...modelBody, name: `rerank_other_${suffix}`, type: 'rerank' })
+      .expect(201);
+    const otherId = (other.body as ApiBody<{ id: string }>).data.id;
+
+    for (const rerankModelId of [llmId, otherId]) {
+      await request(server)
+        .post('/v1/knowledge')
+        .set('Authorization', auth)
+        .send({
+          name: `${scopeToken}-bad-rerank`,
+          description: 'd',
+          rerankModelId,
+        })
+        .expect(400);
+    }
+
+    const list = await request(server)
+      .get('/v1/knowledge')
+      .set('Authorization', auth)
+      .query({ name: `${scopeToken}-bad-rerank` })
+      .expect(200);
+    expect((list.body as ApiBody<{ list: unknown[] }>).data.list).toHaveLength(
+      0,
+    );
+  });
+
+  it('删除重排模型后知识库的 rerankModelId 置空（FK ON DELETE SET NULL）', async () => {
+    const auth = `Bearer ${token}`;
+    const model = await request(server)
+      .post('/v1/model-providers')
+      .set('Authorization', auth)
+      .send({
+        name: `rerank_${suffix}`,
+        type: 'rerank',
+        vendor: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        protocol: 'chat-completions',
+        contextLength: 8192,
+        apiKey: `sk-e2e-${suffix}-abcd`,
+      })
+      .expect(201);
+    const rerankId = (model.body as ApiBody<{ id: string }>).data.id;
+
+    const created = await request(server)
+      .post('/v1/knowledge')
+      .set('Authorization', auth)
+      .send({
+        name: `${scopeToken}-rerank-ref`,
+        description: 'd',
+        rerankModelId: rerankId,
+      })
+      .expect(201);
+    const kb = (created.body as ApiBody<Record<string, unknown>>).data;
+    expect(kb.rerankModelId).toBe(rerankId);
+
+    await request(server)
+      .delete(`/v1/model-providers/${rerankId}`)
+      .set('Authorization', auth)
+      .expect(200);
+
+    const detail = await request(server)
+      .get(`/v1/knowledge/${String(kb.id)}`)
+      .set('Authorization', auth)
+      .expect(200);
+    expect(
+      (detail.body as ApiBody<Record<string, unknown>>).data.rerankModelId,
+    ).toBeNull();
+  });
+
+  it('重排模型被改成其他类型后，知识库引用在同一事务里被清空', async () => {
+    const auth = `Bearer ${token}`;
+    const model = await request(server)
+      .post('/v1/model-providers')
+      .set('Authorization', auth)
+      .send({
+        name: `rerank-type-${suffix}`,
+        type: 'rerank',
+        vendor: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        protocol: 'chat-completions',
+        contextLength: 8192,
+        apiKey: `sk-e2e-${suffix}-abcd`,
+      })
+      .expect(201);
+    const rerankId = (model.body as ApiBody<{ id: string }>).data.id;
+
+    const created = await request(server)
+      .post('/v1/knowledge')
+      .set('Authorization', auth)
+      .send({
+        name: `${scopeToken}-rerank-type`,
+        description: 'd',
+        rerankModelId: rerankId,
+      })
+      .expect(201);
+    const kbId = (created.body as ApiBody<{ id: string }>).data.id;
+
+    await request(server)
+      .patch(`/v1/model-providers/${rerankId}`)
+      .set('Authorization', auth)
+      .send({ type: 'llm' })
+      .expect(200);
+
+    const detail = await request(server)
+      .get(`/v1/knowledge/${kbId}`)
+      .set('Authorization', auth)
+      .expect(200);
+    expect(
+      (detail.body as ApiBody<Record<string, unknown>>).data.rerankModelId,
+    ).toBeNull();
   });
 
   it('文档列表页码分页：同毫秒按 id 决胜、逐页不重不漏（真实 SQL + 列投影 + join files）', async () => {

@@ -1,5 +1,6 @@
 import {
   KNOWLEDGE_SCORE_THRESHOLD_DEFAULT,
+  KNOWLEDGE_SCORE_THRESHOLD_MIN,
   KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
   KNOWLEDGE_TOP_K_DEFAULT,
 } from '@lucy/shared';
@@ -64,6 +65,16 @@ export class KnowledgeService {
     dto: CreateKnowledgeBaseDto,
   ): Promise<KnowledgeBaseItemDto> {
     this.logger.log(`kb create name=${dto.name}`, KnowledgeService.name);
+    const scoreThresholdEnabled = dto.scoreThresholdEnabled ?? false;
+    const scoreThreshold =
+      dto.scoreThreshold ?? KNOWLEDGE_SCORE_THRESHOLD_DEFAULT;
+    // 启用阈值却为 0 等于不过滤：检索设置创建后不可改，不能在落库后才发现是空转
+    if (
+      scoreThresholdEnabled &&
+      scoreThreshold <= KNOWLEDGE_SCORE_THRESHOLD_MIN
+    ) {
+      throw new BadRequestException('启用 Score 阈值时必须设置大于 0 的阈值');
+    }
     // 重排模型校验与插入必须在同一事务里：校验通过后并发删除会撞 FK（23503 → 500），
     // 并发改类型则会写入类型不符的引用；事务内的共享锁与删除/改类型互斥。
     const kb = await this.kbRepo.manager.transaction(async (manager) => {
@@ -86,13 +97,13 @@ export class KnowledgeService {
         // 检索设置只在创建时确定（更新 DTO 不含这些字段）
         retrievalMode: dto.retrievalMode ?? KnowledgeRetrievalMode.FullText,
         topK: dto.topK ?? KNOWLEDGE_TOP_K_DEFAULT,
-        scoreThresholdEnabled: dto.scoreThresholdEnabled ?? false,
-        scoreThreshold: dto.scoreThreshold ?? KNOWLEDGE_SCORE_THRESHOLD_DEFAULT,
+        scoreThresholdEnabled,
+        scoreThreshold,
         semanticWeight: dto.semanticWeight ?? KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
         rerankModelId: dto.rerankModelId ?? null,
       });
     });
-    return toKnowledgeBaseItem(kb);
+    return toKnowledgeBaseItem(kb, userId);
   }
 
   /**
@@ -139,7 +150,7 @@ export class KnowledgeService {
     // 批量回写 likeCount / isLiked，单次聚合查询，避免 N+1
     await this.fillLikeInfo(userId, page.list);
     return {
-      list: page.list.map(toKnowledgeBaseItem),
+      list: page.list.map((kb) => toKnowledgeBaseItem(kb, userId)),
       nextCursor: page.nextCursor,
     };
   }
@@ -152,7 +163,7 @@ export class KnowledgeService {
   async get(userId: string, id: string): Promise<KnowledgeBaseItemDto> {
     const kb = await resolveReadableKb(this.kbRepo, id, userId);
     await this.fillLikeInfo(userId, [kb]);
-    return toKnowledgeBaseItem(kb);
+    return toKnowledgeBaseItem(kb, userId);
   }
 
   /**
@@ -258,7 +269,7 @@ export class KnowledgeService {
     // 否则 mapper 的兜底会把「已点赞」谎报成 0/false。
     await this.fillLikeInfo(userId, [saved]);
     this.logger.log(`kb update kb=${id}`, KnowledgeService.name);
-    return toKnowledgeBaseItem(saved);
+    return toKnowledgeBaseItem(saved, userId);
   }
 
   /**

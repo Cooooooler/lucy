@@ -146,10 +146,10 @@ const RetrievalSettingsFields: FC<{
   const scoreThresholdEnabled = Form.useWatch('scoreThresholdEnabled', form);
   const rerankEnabled = Form.useWatch('rerankEnabled', form);
   // 重排模型按类型取（模型管理里 type=rerank 的配置），未配置时下拉为空 = 不重排。
-  // 创建态需要选项，始终请求；编辑态只读，仅在确有重排模型时才需要拿名字
+  // 只在开关打开（或编辑态确有引用）时才请求；下拉已接 loading，打开瞬间自然有加载态。
   const { models, isLoading } = useModelProvidersByType(
     'rerank',
-    !disabled || Boolean(kb?.rerankModelId),
+    rerankEnabled === true || Boolean(kb?.rerankModelId),
   );
   // 语义权重：编辑态字段的 initialValue 不会触发 useWatch 重渲染，回落到知识库当前值；
   // 关键词权重是派生值（后端只存 semanticWeight），两者互补、合计 100%
@@ -213,6 +213,17 @@ const RetrievalSettingsFields: FC<{
       <Form.Item
         name="scoreThreshold"
         initialValue={kb?.scoreThreshold ?? KNOWLEDGE_SCORE_THRESHOLD_DEFAULT}
+        rules={[
+          {
+            // 启用阈值却为 0 等于不过滤；检索设置创建后不可改，提交前必须拦下
+            validator: (_rule, value: number | null | undefined) =>
+              !scoreThresholdEnabled ||
+              (typeof value === 'number' &&
+                value > KNOWLEDGE_SCORE_THRESHOLD_MIN)
+                ? Promise.resolve()
+                : Promise.reject(new Error('启用阈值时需大于 0')),
+          },
+        ]}
         // 未启用时控件被隐藏，同样收起控制区最小高度
         className={
           scoreThresholdEnabled ? undefined : 'form-item-control-collapsed'

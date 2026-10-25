@@ -916,7 +916,7 @@ export interface components {
             topK?: number;
             /** @description 是否启用 Score 阈值过滤（省略时默认关闭） */
             scoreThresholdEnabled?: boolean;
-            /** @description Score 阈值（仅启用时生效，省略时默认 0） */
+            /** @description Score 阈值（仅启用时生效，省略时默认 0；启用时必须大于 0） */
             scoreThreshold?: number;
             /** @description 混合检索的语义权重（关键词权重 = 100 - 该值，省略时默认 50） */
             semanticWeight?: number;

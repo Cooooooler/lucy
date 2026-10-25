@@ -177,8 +177,8 @@ describe('routes/_layout/knowledge/$kbId', { timeout: 45_000 }, () => {
     expect(screen.getByText('Score ≥ 0.35')).toBeInTheDocument();
     expect(screen.getByText('语义 70% · 关键词 30%')).toBeInTheDocument();
     expect(screen.getByText('重排：bge-reranker')).toBeInTheDocument();
-    // 只有详情就绪后才请求重排模型列表
-    expect(useModelProvidersByType).toHaveBeenCalledWith('rerank', true);
+    // 重排模型列表与详情并行请求（不依赖 kb 结果），避免页头两轮串行
+    expect(useModelProvidersByType).toHaveBeenCalledWith('rerank');
   });
 
   it('用 kbId 与默认分页参数查询，渲染页头与文件表格', () => {

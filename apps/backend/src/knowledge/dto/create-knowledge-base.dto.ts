@@ -103,7 +103,7 @@ export class CreateKnowledgeBaseDto extends KnowledgeBaseContentDto {
   scoreThresholdEnabled?: boolean;
 
   @ApiPropertyOptional({
-    description: `Score 阈值（仅启用时生效，省略时默认 ${KNOWLEDGE_SCORE_THRESHOLD_DEFAULT}）`,
+    description: `Score 阈值（仅启用时生效，省略时默认 ${KNOWLEDGE_SCORE_THRESHOLD_DEFAULT}；启用时必须大于 0）`,
     minimum: KNOWLEDGE_SCORE_THRESHOLD_MIN,
     maximum: KNOWLEDGE_SCORE_THRESHOLD_MAX,
   })

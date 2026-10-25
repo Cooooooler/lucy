@@ -8,6 +8,7 @@ import type { EntityManager, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
+import { KnowledgeBase } from '../knowledge/entities/knowledge-base.entity.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import { assertBaseUrlHostAllowed } from './base-url-guard.js';
 import { CreateModelProviderDto } from './dto/create-model-provider.dto.js';
@@ -219,10 +220,11 @@ export class ModelProviderService {
         // 知识库的重排模型引用按「具体模型 + 创建后不可改」保存：删除由 FK ON DELETE
         // SET NULL 兜底，但「改类型」不会触发 FK，需要在这里同步清空，否则知识库会
         // 永久指向一个已不是 rerank 的模型且无法通过 API 修正。
-        await manager.query(
-          'UPDATE knowledge_bases SET rerank_model_id = NULL WHERE rerank_model_id = $1',
-          [id],
-        );
+        // 用实体仓库而不是裸 SQL：表/列改名能被编译期发现，且 repository.update 会
+        // 同步刷新 @UpdateDateColumn（裸 SQL 不会），避免按 updatedAt 增量拉取的客户端漏掉变更。
+        await manager
+          .getRepository(KnowledgeBase)
+          .update({ rerankModelId: id }, { rerankModelId: null });
       }
       return updated;
     });
