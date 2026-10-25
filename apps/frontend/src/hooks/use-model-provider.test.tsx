@@ -9,6 +9,7 @@ import {
   useCreateModelProvider,
   useDeleteModelProvider,
   useInfiniteModelProviderList,
+  useLlmModelProviders,
   useModelProviderDefaults,
   useModelProvidersByType,
   useTestModelProviderConnection,
@@ -276,6 +277,28 @@ describe('use-model-provider', () => {
       limit: 100,
       cursor: undefined,
     });
+  });
+
+  it('useLlmModelProviders 只取 llm 模型，且 models 引用在不同渲染间保持稳定', async () => {
+    api.listModelProvidersApi.mockResolvedValue(
+      cursorPage([makeModel()], null),
+    );
+    const client = createTestQueryClient();
+    const { result, rerender } = renderHook(() => useLlmModelProviders(), {
+      wrapper: createWrapperWithClient(client),
+    });
+
+    await waitFor(() => expect(result.current.models).toHaveLength(1));
+    expect(api.listModelProvidersApi).toHaveBeenCalledWith({
+      type: 'llm',
+      limit: 100,
+      cursor: undefined,
+    });
+
+    // 数据未变时重渲染不重建 models：下游据此记忆化的菜单项才不会每次重算
+    const first = result.current.models;
+    rerender();
+    expect(result.current.models).toBe(first);
   });
 
   it('useModelProviderDefaults 在 enabled=false 时不请求', () => {
