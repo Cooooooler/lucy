@@ -56,6 +56,27 @@ describe('validationExceptionFactory', () => {
     ).toBe('用户名长度应在 3-50 个字符之间');
   });
 
+  it('类型类约束优先：null 命中 isString 而非注册在前的 min/max/length', () => {
+    // 模拟 `{"name": null}` 的真实约束序（装饰器自下而上注册，maxLength 在前）：
+    // 旧行为取第一个键报「名称过长」，对 null 是误导文案
+    const maxWidthLengthName = error('name', {
+      maxLength: 'name must be shorter than or equal to 100 characters',
+      minLength: 'name must be longer than or equal to 1 characters',
+      isString: 'name must be a string',
+    });
+    expect(messageOf([maxWidthLengthName])).toBe('名称应为文本');
+    // 模拟注册序 min/max 在前、无任何类型类约束命中（matches 不属于类型类）：
+    // 仍取第一个键，行为不变
+    expect(
+      messageOf([
+        error('title', {
+          maxLength: 'title must be shorter than or equal to 10 characters',
+          matches: 'title must match a pattern',
+        }),
+      ]),
+    ).toBe('标题过长');
+  });
+
   it('contexts 缺失时降级为不带数值的文案', () => {
     expect(
       messageOf([

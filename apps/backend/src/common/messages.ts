@@ -169,6 +169,7 @@ export const VALIDATION_MESSAGES: Record<string, ValidationMessageFn> = {
   isBoolean: (label) => `${label}应为 true 或 false`,
   isEmail: (label) => `${label}格式不正确`,
   isUUID: (label) => `${label}格式不正确`,
+  isUrl: (label) => `${label}格式不正确`,
   isEnum: (label) => `${label}取值不合法`,
   isIn: (label) => `${label}取值不合法`,
   isArray: (label) => `${label}应为数组`,

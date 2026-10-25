@@ -31,22 +31,24 @@ const update = (value: unknown): Promise<UpdateModelProviderDto> =>
     metatype: UpdateModelProviderDto,
   }) as Promise<UpdateModelProviderDto>;
 
-// 全局异常工厂按属性生成中文文案（如 name → 「名称过长/过短」），字段与文案片段一一对应
+// 全局异常工厂优先报类型类约束（isString/isEnum/isInt...），null 的真实原因（形态错）
+// 会以类型文案呈现，而不是注册在前的 min/max/length 误导文案；baseUrl 用 DTO 自带的
+// 中文自定义提示。字段与期望文案片段一一对应，语义断言而非仅字段名。
 const FAILURE_TEXT: Record<string, string> = {
-  name: '名称',
-  type: 'type',
-  vendor: 'vendor',
-  baseUrl: 'baseUrl',
-  contextLength: 'contextLength',
-  apiKey: 'apiKey',
-  protocol: 'protocol',
+  name: '名称应为文本',
+  type: 'type取值不合法',
+  vendor: 'vendor取值不合法',
+  baseUrl: 'Base URL',
+  contextLength: 'contextLength应为整数',
+  apiKey: 'apiKey应为文本',
+  protocol: 'protocol取值不合法',
 };
 
-/** 断言被全局管道以 BadRequestException（= 路由层 400）拒绝，且失败落到指定字段 */
+/** 断言被全局管道以 BadRequestException（= 路由层 400）拒绝，且失败文案落在指定期望片段上 */
 async function expectBadRequestOn(
   dto: typeof CreateModelProviderDto | typeof UpdateModelProviderDto,
   value: unknown,
-  field: keyof typeof FAILURE_TEXT,
+  expectText: string,
 ): Promise<void> {
   let caught: unknown;
   try {
@@ -61,7 +63,7 @@ async function expectBadRequestOn(
   const text = Array.isArray(body.message)
     ? body.message.join('; ')
     : ((body.message as string) ?? '');
-  expect(text).toContain(FAILURE_TEXT[field]);
+  expect(text).toContain(expectText);
 }
 
 /**
@@ -85,12 +87,12 @@ describe('模型供应商 DTO 经全局 ValidationPipe', () => {
     await expectBadRequestOn(
       CreateModelProviderDto,
       { ...BASE_CREATE, protocol: null },
-      'protocol',
+      FAILURE_TEXT.protocol,
     );
     await expectBadRequestOn(
       CreateModelProviderDto,
       { ...BASE_CREATE, apiKey: null },
-      'apiKey',
+      FAILURE_TEXT.apiKey,
     );
   });
 
@@ -113,24 +115,33 @@ describe('模型供应商 DTO 经全局 ValidationPipe', () => {
       await expectBadRequestOn(
         UpdateModelProviderDto,
         { name: 'keep', [field]: null },
-        field,
+        FAILURE_TEXT[field],
       );
     }
     await expectBadRequestOn(
       UpdateModelProviderDto,
       { apiKey: null },
-      'apiKey',
+      FAILURE_TEXT.apiKey,
     );
     await expectBadRequestOn(
       UpdateModelProviderDto,
       { protocol: null },
-      'protocol',
+      FAILURE_TEXT.protocol,
     );
   });
 
   it('更新：空串与纯空白串被 400（留空必须表现为不发送该字段）', async () => {
-    await expectBadRequestOn(UpdateModelProviderDto, { name: '' }, 'name');
-    await expectBadRequestOn(UpdateModelProviderDto, { name: '   ' }, 'name');
-    await expectBadRequestOn(UpdateModelProviderDto, { apiKey: '' }, 'apiKey');
+    // 空串是合法 string，IsString 通过，由 minLength 报「过短」——与 null 报「应为文本」区分开
+    await expectBadRequestOn(UpdateModelProviderDto, { name: '' }, '名称过短');
+    await expectBadRequestOn(
+      UpdateModelProviderDto,
+      { name: '   ' },
+      '名称过短',
+    );
+    await expectBadRequestOn(
+      UpdateModelProviderDto,
+      { apiKey: '' },
+      'apiKey过短',
+    );
   });
 });
