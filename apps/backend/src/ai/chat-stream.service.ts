@@ -123,15 +123,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
           subscriber.next({
             type: 'error',
             requestId,
-            data: {
-              code: ErrorCode.AI_GENERATE_FAILED,
-              message:
-                err instanceof ModelCredentialError
-                  ? err.reason === 'decrypt-failed'
-                    ? '平台密钥已变更，请重新保存 API Key'
-                    : '该模型未配置 API Key，请保存后重试'
-                  : '生成失败',
-            },
+            data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
           });
           subscriber.complete();
         })
@@ -203,17 +195,6 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     if (!prepared) return;
     const { history, provider } = prepared;
 
-    // 推理模型默认开启深度思考：推理模型以 think=false 运行，易产出退化/半途截断的
-    // 输出（如「先试着…」后即结束）。仅在调用方未显式指定时才按模型能力兜底，
-    // 显式 reasoning:{true|false} 仍被尊重。think 只对 Ollama 生效（工厂内部处理其它供应商）
-    const think = dto.reasoning ?? this.isReasoningModel(provider.name);
-    const client = this.modelClientFactory.buildChat(provider, { think });
-    const messages = await this.contextService.buildMessages(
-      history,
-      dto.content,
-      provider,
-    );
-
     // 空闲超时：模型持续无输出（含首 token 等待）超过阈值判为超时
     const timeoutMs = Number(this.config.get('OLLAMA_TIMEOUT_MS', 120000));
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -236,6 +217,19 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       finishReason?: string;
     } = { answer: '', thinkingAll: '' };
     try {
+      // 推理模型默认开启深度思考：推理模型以 think=false 运行，易产出退化/半途截断的
+      // 输出（如「先试着…」后即结束）。仅在调用方未显式指定时才按模型能力兜底，
+      // 显式 reasoning:{true|false} 仍被尊重。think 只对 Ollama 生效（工厂内部处理其它供应商）。
+      // buildChat 在 try 里：构造客户端即抛错（凭证问题等）也走 saveFailure——
+      // prepareRun 已落库用户消息，必须留一条 failed 的 AI 记录让归因随消息回来，
+      // 否则前端刷新后只剩无回应的用户消息
+      const think = dto.reasoning ?? this.isReasoningModel(provider.name);
+      const client = this.modelClientFactory.buildChat(provider, { think });
+      const messages = await this.contextService.buildMessages(
+        history,
+        dto.content,
+        provider,
+      );
       // 传入 signal：订阅取消（SSE 断线）时中止底层流，半截内容落 aborted
       const stream = (await client.stream(messages, { signal })) as
         AsyncIterable<unknown> | Iterable<unknown>;
@@ -526,6 +520,14 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         return { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' };
       }
       return { code: ErrorCode.AI_GENERATE_ABORTED, message: '生成中断' };
+    }
+    // 凭证错误：单独码 + 可执行提示（文案全仓单源在 ModelCredentialError.userMessage，
+    // 前端按未知码回退服务端 message，不进入 SSE_ERROR_TEXT 的按码覆盖表）
+    if (error instanceof ModelCredentialError) {
+      return {
+        code: ErrorCode.AI_CREDENTIAL_INVALID,
+        message: error.userMessage,
+      };
     }
     const name = error instanceof Error ? error.name : '';
     const message = error instanceof Error ? error.message : '';

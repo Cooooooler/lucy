@@ -675,11 +675,12 @@ describe('ChatStreamService', () => {
     expect(loggerMock.warn).toHaveBeenCalled();
   });
 
-  it('模型客户端构造抛出凭证错误（密钥轮换/未配 Key）：error 帧给可执行的恢复提示', async () => {
+  it('模型客户端构造抛出凭证错误（密钥轮换/未配 Key）：走 saveFailure 落库并给可执行恢复提示', async () => {
     conversationRepo.findOne.mockResolvedValue(conv());
     messageRepo.find.mockResolvedValue([]);
     contextService.buildMessages.mockResolvedValue([]);
-    // buildChat 构造期同步抛出（真实路径：requireApiKey / cipher.decrypt）
+    // buildChat 构造期同步抛出（真实路径：requireApiKey / cipher.decrypt）；
+    // 错误发生在 try 内，只能走 saveFailure——必须留下 failed 状态的 AI 记录
     modelClientFactory.buildChat.mockImplementation(() => {
       throw new ModelCredentialError(
         'decrypt-failed',
@@ -692,11 +693,15 @@ describe('ChatStreamService', () => {
     expect(result.at(-1)).toMatchObject({
       type: 'error',
       data: {
-        code: ErrorCode.AI_GENERATE_FAILED,
+        code: ErrorCode.AI_CREDENTIAL_INVALID,
         message: '平台密钥已变更，请重新保存 API Key',
       },
     });
+    // 原始细节不出网；失败了也要有 AI 记录（前端刷新后归因随消息回来）
     expect(JSON.stringify(result)).not.toContain('tag 不匹配');
+    expect(messageRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ status: MessageStatus.Failed }),
+    );
   });
 
   it('并发锁 key 含 userId：属主在途时其它用户不共享该锁', () => {

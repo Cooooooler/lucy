@@ -161,11 +161,7 @@ export class ModelConnectionService {
     // 服务端凭证问题与供应商无关：解密失败＝平台密钥轮换/密文损坏，重存 Key 即恢复；
     // 未配置 Key 则是数据/装配态的问题。都不能靠改 provider 的地址/类型解决，
     // 落进「连接失败，请检查配置」会把用户引去反复改配置（issue #86 的归因错误）
-    if (error instanceof ModelCredentialError) {
-      return error.reason === 'decrypt-failed'
-        ? '平台密钥已变更，请重新保存 API Key'
-        : '该模型未配置 API Key，请保存后重试';
-    }
+    if (error instanceof ModelCredentialError) return error.userMessage;
     const status = (error as { status?: unknown } | null)?.status;
     if (status === 401 || status === 403) return 'API Key 无效或无权限';
     if (status === 404) return '接口不存在，请检查 Base URL 与协议';

@@ -7,6 +7,10 @@
  *   撞到它说明数据或装配被打过补丁）。
  *
  * `options` 透传给 `Error`：调用方保留原始解密错误在 `cause` 与栈上，便于排查根因。
+ * 文案只有一个消费口径（错误上挂 `userMessage`），新增 reason 时 switch 穷尽校验会在
+ * 编译期报错——不允许隐式 else 兜出错误文案。SSE error 帧的 code 用
+ * `ErrorCode.AI_CREDENTIAL_INVALID`：前端按未知码回退 `event.data.message`，
+ * 该 code 不得进入 use-chat 的 SSE_ERROR_TEXT 映射表（理由见错误码注释）。
  */
 export class ModelCredentialError extends Error {
   constructor(
@@ -16,5 +20,20 @@ export class ModelCredentialError extends Error {
   ) {
     super(message, options);
     this.name = 'ModelCredentialError';
+  }
+
+  /** 按失败原因给用户可执行的恢复提示（供连接测试与 SSE error 帧共用） */
+  get userMessage(): string {
+    switch (this.reason) {
+      case 'decrypt-failed':
+        return '平台密钥已变更，请重新保存 API Key';
+      case 'missing':
+        return '该模型未配置 API Key，请保存后重试';
+      default: {
+        // 穷尽校验：新增 reason 而未补文案时，编译期在这里报错而不是静默漏归因
+        const exhaust: never = this.reason;
+        return exhaust;
+      }
+    }
   }
 }
