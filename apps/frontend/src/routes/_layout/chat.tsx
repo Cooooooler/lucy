@@ -65,6 +65,7 @@ import {
   type FC,
   type ReactNode,
   type UIEvent,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -98,6 +99,27 @@ type ChatAssistant = {
   slotConfig: NonNullable<SenderProps['slotConfig']>;
 };
 
+type SlotNode = NonNullable<SenderProps['slotConfig']>[number];
+
+/** 词槽节点构造器：模板里只写文案与选项，避免每个模板重复同一套对象字面量 */
+const slotText = (value: string): SlotNode => ({ type: 'text', value });
+
+const slotSelect = (
+  key: string,
+  options: string[],
+  placeholder: string,
+): SlotNode => ({
+  type: 'select',
+  key,
+  props: { defaultValue: options[0], options, placeholder },
+});
+
+const slotFill = (
+  key: string,
+  defaultValue: string,
+  placeholder: string,
+): SlotNode => ({ type: 'content', key, props: { defaultValue, placeholder } });
+
 const CHAT_ASSISTANTS: ChatAssistant[] = [
   {
     key: 'writing',
@@ -105,23 +127,11 @@ const CHAT_ASSISTANTS: ChatAssistant[] = [
     icon: <EditOutlined />,
     skill: { value: 'writing', title: '写作助手' },
     slotConfig: [
-      { type: 'text', value: '请帮我写一篇关于' },
-      {
-        type: 'select',
-        key: 'topic',
-        props: {
-          defaultValue: '校园',
-          options: ['校园', '旅行', '阅读'],
-          placeholder: '请输入主题',
-        },
-      },
-      { type: 'text', value: '的文章。要求是' },
-      {
-        type: 'content',
-        key: 'words',
-        props: { defaultValue: '800', placeholder: '[请输入字数]' },
-      },
-      { type: 'text', value: '字。' },
+      slotText('请帮我写一篇关于'),
+      slotSelect('topic', ['校园', '旅行', '阅读'], '请输入主题'),
+      slotText('的文章。要求是'),
+      slotFill('words', '800', '[请输入字数]'),
+      slotText('字。'),
     ],
   },
   {
@@ -130,23 +140,11 @@ const CHAT_ASSISTANTS: ChatAssistant[] = [
     icon: <CodeOutlined />,
     skill: { value: 'code', title: '代码助手' },
     slotConfig: [
-      { type: 'text', value: '请使用' },
-      {
-        type: 'select',
-        key: 'lang',
-        props: {
-          defaultValue: 'TypeScript',
-          options: ['TypeScript', 'Python', 'Java'],
-          placeholder: '请选择语言',
-        },
-      },
-      { type: 'text', value: '写一个' },
-      {
-        type: 'content',
-        key: 'target',
-        props: { defaultValue: '小游戏', placeholder: '[请输入要写的东西]' },
-      },
-      { type: 'text', value: '。' },
+      slotText('请使用'),
+      slotSelect('lang', ['TypeScript', 'Python', 'Java'], '请选择语言'),
+      slotText('写一个'),
+      slotFill('target', '小游戏', '[请输入要写的东西]'),
+      slotText('。'),
     ],
   },
   {
@@ -155,17 +153,9 @@ const CHAT_ASSISTANTS: ChatAssistant[] = [
     icon: <SearchOutlined />,
     skill: { value: 'search', title: '深度搜索' },
     slotConfig: [
-      { type: 'text', value: '请帮我搜索关于' },
-      {
-        type: 'select',
-        key: 'category',
-        props: {
-          defaultValue: 'AI',
-          options: ['AI', '技术', '娱乐'],
-          placeholder: '请选择类别',
-        },
-      },
-      { type: 'text', value: '的新闻，并给出要点总结。' },
+      slotText('请帮我搜索关于'),
+      slotSelect('category', ['AI', '技术', '娱乐'], '请选择类别'),
+      slotText('的新闻，并给出要点总结。'),
     ],
   },
 ];
@@ -208,6 +198,9 @@ const CODE_THEME: Record<string, CSSProperties> = {
 
 const CODE_HIGHLIGHT_PROPS = { style: CODE_THEME };
 
+/** 从 `language-xxx` 类名取语言标记（模块级，避免流式期间每帧重建 RegExp） */
+const LANGUAGE_CLASS = /language-([\w+#.-]+)/;
+
 /**
  * 代码块渲染：块级 code 交给 CodeHighlighter（语法高亮 + 语言标签 + 复制按钮），
  * 行内 code 保持原样。组件与映射表都放在模块级，避免每次渲染产生新引用导致子树重建。
@@ -218,10 +211,16 @@ const MarkdownCode: FC<ComponentProps> = ({
   block,
   lang,
 }) => {
-  if (!block || typeof children !== 'string') {
+  const code = typeof children === 'string' ? children : '';
+  // 流式输出时每条 delta 都会改动 children，而 CodeHighlighter 是 node_modules 里的
+  // forwardRef 组件（不受 React Compiler 优化），会为每个 token 重新分词整块代码（长块近似 O(n²)）。
+  // 用 deferred 值把高亮让出主线程，连续 delta 只保留最后一次结果。
+  const deferredCode = useDeferredValue(code);
+
+  if (!block || !code) {
     return <code className={className}>{children}</code>;
   }
-  const language = lang ?? className?.match(/language-([\w+#.-]+)/)?.[1] ?? '';
+  const language = lang ?? LANGUAGE_CLASS.exec(className ?? '')?.[1] ?? '';
   return (
     <CodeHighlighter
       lang={language}
@@ -229,7 +228,7 @@ const MarkdownCode: FC<ComponentProps> = ({
       // 气泡底色也是灰的，加一道极浅描边 + 圆角把代码块和正文分开
       className="my-1 overflow-hidden rounded-lg border border-solid border-(--ant-color-border-secondary)"
     >
-      {children.replace(/\n$/, '')}
+      {deferredCode}
     </CodeHighlighter>
   );
 };
