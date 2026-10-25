@@ -90,9 +90,21 @@ describe('routes/_layout/chat', () => {
   it('初始（无 id）渲染 Welcome + 发送框', () => {
     mockChat();
     renderChat({ id: undefined });
-    // Welcome 标题（英文通栏文案）
-    expect(screen.getByText(/Ant Design X/)).toBeInTheDocument();
+    // Welcome 标题（中文文案）
+    expect(screen.getByText('你好，我是 Lucy')).toBeInTheDocument();
+    // 空状态给出快捷提问入口
+    expect(screen.getByText('帮我排查一个线上报错')).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/输入消息/)).toBeInTheDocument();
+  });
+
+  it('点击快捷提问只填入输入框，不直接发送', () => {
+    const sendMock = vi.fn(async () => undefined);
+    mockChat({ send: sendMock });
+    renderChat({ id: undefined });
+    fireEvent.click(screen.getByText('帮我排查一个线上报错'));
+    const input = screen.getByPlaceholderText(/输入消息/) as HTMLInputElement;
+    expect(input.value).toBe('帮我排查一个线上报错');
+    expect(sendMock).not.toHaveBeenCalled();
   });
 
   it('loading 时渲染 Spin', () => {
@@ -138,6 +150,36 @@ describe('routes/_layout/chat', () => {
     fireEvent.change(input, { target: { value: '下一条' } });
     expect(input.value).toBe('下一条');
     expect(mocks.useChatStream).toHaveBeenCalled();
+  });
+
+  it('代码块 info string 规范化：别名/参数仍高亮，未知语言回落纯文本', async () => {
+    const content = [
+      '```ts title="a"',
+      'const x = 1;',
+      '```',
+      '',
+      '```foo bar',
+      'plain',
+      '```',
+    ].join('\n');
+    mockChat({
+      messages: [
+        {
+          id: 'm1',
+          role: 'ai',
+          content,
+          status: 'complete',
+          createdAt: '2026-10-24T09:00:00Z',
+        },
+      ],
+    });
+    const { container } = renderChat({ id: 'c1' });
+
+    // `ts title="a"` → 别名 ts 映射为 typescript，参数被丢弃
+    expect(await screen.findByText('typescript')).toBeInTheDocument();
+    // 未收录的 `foo bar` 不触发高亮（也就不会有失败的动态导入），按纯文本渲染
+    expect(screen.getByText('plain')).toBeInTheDocument();
+    expect(container.querySelectorAll('.ant-codeHighlighter')).toHaveLength(1);
   });
 
   it('无可用模型：显示配置提示且发送框禁用', () => {

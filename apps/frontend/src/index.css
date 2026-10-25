@@ -185,3 +185,28 @@
 *::-webkit-scrollbar-corner {
   background: var(--lucy-scrollbar-track);
 }
+
+/* 聊天消息里代码块的配色（见 chat.tsx 的 CODE_THEME）。
+   CodeHighlighter 内部写死 oneLight 主题，暗色下会是一块白底，因此改传自定义主题：
+   主题对象里只写 var(...)，亮/暗各给一份取值。键名对应 Prism 的 token 类名。 */
+:root {
+  --lucy-code-bg: #f6f7f9;
+  --lucy-code-text: #24292f;
+  --lucy-code-muted: #6e7781;
+  --lucy-code-keyword: #cf222e;
+  --lucy-code-string: #0a3069;
+  --lucy-code-function: #8250df;
+  --lucy-code-number: #0550ae;
+  --lucy-code-tag: #116329;
+}
+
+.dark {
+  --lucy-code-bg: #1b1b1f;
+  --lucy-code-text: #e6edf3;
+  --lucy-code-muted: #8b949e;
+  --lucy-code-keyword: #ff7b72;
+  --lucy-code-string: #a5d6ff;
+  --lucy-code-function: #d2a8ff;
+  --lucy-code-number: #79c0ff;
+  --lucy-code-tag: #7ee787;
+}
