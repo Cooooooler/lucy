@@ -33,8 +33,9 @@ const update = (value: unknown): Promise<UpdateModelProviderDto> =>
 
 // 全局异常工厂优先报类型类约束（isString/isEnum/isInt...），null 的真实原因（形态错）
 // 会以类型文案呈现，而不是注册在前的 min/max/length 误导文案；baseUrl 用 DTO 自带的
-// 中文自定义提示。字段与期望文案片段一一对应，语义断言而非仅字段名。
-const FAILURE_TEXT: Record<string, string> = {
+// 中文自定义提示。satisfies 让「进过编译期的键齐全性」兜底：BASE_CREATE/可写侧字段
+// 增删或改名时缺项在 typecheck 阶段就失败，而不是运行时 toContain(undefined)。
+const FAILURE_TEXT = {
   name: '名称应为文本',
   type: '类型取值不合法',
   vendor: '供应商取值不合法',
@@ -42,7 +43,7 @@ const FAILURE_TEXT: Record<string, string> = {
   contextLength: '上下文长度应为整数',
   apiKey: '接口密钥应为文本',
   protocol: '协议取值不合法',
-};
+} satisfies Record<keyof typeof BASE_CREATE | 'apiKey' | 'protocol', string>;
 
 /** 断言被全局管道以 BadRequestException（= 路由层 400）拒绝，且失败文案落在指定期望片段上 */
 async function expectBadRequestOn(
@@ -112,7 +113,9 @@ describe('模型供应商 DTO 经全局 ValidationPipe', () => {
   });
 
   it('更新：显式 null 被各字段自己的校验以 400 拒绝（默认 @IsOptional 会放行 null）', async () => {
-    for (const field of Object.keys(BASE_CREATE)) {
+    for (const field of Object.keys(
+      BASE_CREATE,
+    ) as (keyof typeof BASE_CREATE)[]) {
       await expectBadRequestOn(
         UpdateModelProviderDto,
         { name: 'keep', [field]: null },

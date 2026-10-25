@@ -1,4 +1,6 @@
 import type { ValidationError } from '@nestjs/common';
+import { describe, expect, it } from 'vitest';
+import { TYPE_CONSTRAINT_KEYS, VALIDATION_MESSAGES } from './messages.js';
 import { validationExceptionFactory } from './validation-exception-factory.js';
 
 function error(
@@ -75,6 +77,14 @@ describe('validationExceptionFactory', () => {
         }),
       ]),
     ).toBe('标题过长');
+  });
+
+  it('类型类约束优先清单与模板一一对应（遗漏会静默复发误导文案）', () => {
+    expect(
+      TYPE_CONSTRAINT_KEYS.every(
+        (key) => typeof VALIDATION_MESSAGES[key] === 'function',
+      ),
+    ).toBe(true);
   });
 
   it('contexts 缺失时降级为不带数值的文案', () => {

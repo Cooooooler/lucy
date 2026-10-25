@@ -1,8 +1,9 @@
 import { BadRequestException, type ValidationError } from '@nestjs/common';
 import {
   BAD_REQUEST_MESSAGE,
-  VALIDATION_MESSAGES,
   fieldLabel,
+  TYPE_CONSTRAINT_KEYS,
+  VALIDATION_MESSAGES,
 } from './messages.js';
 
 const CHINESE_RE = /[\u4e00-\u9fa5]/;
@@ -15,25 +16,12 @@ interface ResolvedConstraint {
 }
 
 /**
- * 类型类约束（描述「值的形态错了」）的优先级：`error.constraints` 的键序跟随**装饰器
- * 注册顺序**（自下而上），min/max/minLength/maxLength 常注册在前——`{"name": null}`
- * 这样「类型与长度都失败」的载荷会先命中长度约束，报「名称过长」这类误导文案。
- * 命中失败集合里最靠前的类型类约束优先报（类型错才是 null 的真实原因），其余仍取第一个。
+ * 失败约束里优先取类型类约束键（清单与文案模板集中在 messages.ts 一并维护）：
+ * `error.constraints` 的键序跟随**装饰器注册顺序**（自下而上），min/max/minLength/maxLength
+ * 常注册在前——`{"name": null}` 这样「类型与长度都失败」的载荷会先命中长度约束，
+ * 报「名称过长」这类误导文案；类型错才是 null 的真实原因。没有任何类型类约束命中时
+ * 仍取第一个键（原行为不变）。
  */
-const TYPE_CONSTRAINT_KEYS = [
-  'isString',
-  'isNumber',
-  'isInt',
-  'isBoolean',
-  'isEmail',
-  'isUUID',
-  'isUrl',
-  'isEnum',
-  'isIn',
-  'isArray',
-  'isObject',
-] as const;
-
 function pickConstraintKey(entries: [string, unknown][]): string {
   const keys = new Set(entries.map(([key]) => key));
   for (const preferred of TYPE_CONSTRAINT_KEYS) {

@@ -162,6 +162,29 @@ export type ValidationMessageFn = (
   constraints?: unknown[],
 ) => string;
 
+/**
+ * 类型类约束（描述「值的形态错了」）的优先级清单。
+ *
+ * 校验工厂在失败约束里优先取这里列出的键：`error.constraints` 的键序跟随装饰器注册顺序
+ * （自下而上），min/max/minLength/maxLength 常注册在前——`{"name": null}` 这类「类型与
+ * 长度都失败」的载荷会先命中长度约束，报「名称过大/过长」这类与真实原因无关的文案。
+ * 必须与下方 `VALIDATION_MESSAGES` 一一对应（见 validation-exception-factory.spec 的
+ * 一致性用例）；新增类型类模板时同步归类进来。
+ */
+export const TYPE_CONSTRAINT_KEYS = [
+  'isString',
+  'isNumber',
+  'isInt',
+  'isBoolean',
+  'isEmail',
+  'isUUID',
+  'isUrl',
+  'isEnum',
+  'isIn',
+  'isArray',
+  'isObject',
+] as const;
+
 function num(constraints: unknown[] | undefined, index: number): number | null {
   const raw = constraints?.[index];
   return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
