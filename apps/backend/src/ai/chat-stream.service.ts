@@ -112,18 +112,17 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         requestId,
       )
         .catch((err) => {
-          // 对外固定文案：这里逃逸出的错误来自 DB/事务/模型客户端，message 可能含主机端口、
-          // SQL 等基础设施细节（如 `connect ECONNREFUSED 127.0.0.1:5432`），不得出网；
-          // 原始错误只进日志（与 saveFailure 的固定文案保持一致）。
-          // 凭证错误除外：平台密钥轮换/未配 Key 给可执行的恢复提示，码仍为 AI_GENERATE_FAILED
+          // 对外文案由 classifyError 统一归因（prepareRun 等阶段抛出的错误也走这里）；
+          // warn 记录的是原始 err，message 可能含主机端口、SQL 等基础设施细节，不得出网
           this.logger.warn(
             `sendMessage failed conversation=${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
             ChatStreamService.name,
           );
+          const { code, message } = this.classifyError(err, controller.signal);
           subscriber.next({
             type: 'error',
             requestId,
-            data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+            data: { code, message },
           });
           subscriber.complete();
         })
@@ -221,8 +220,8 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       // 输出（如「先试着…」后即结束）。仅在调用方未显式指定时才按模型能力兜底，
       // 显式 reasoning:{true|false} 仍被尊重。think 只对 Ollama 生效（工厂内部处理其它供应商）。
       // buildChat 在 try 里：构造客户端即抛错（凭证问题等）也走 saveFailure——
-      // prepareRun 已落库用户消息，必须留一条 failed 的 AI 记录让归因随消息回来，
-      // 否则前端刷新后只剩无回应的用户消息
+      // prepareRun 已落库用户消息，必须留一条 failed 的 AI 记录，
+      // 避免前端刷新后只剩无回应的用户消息（历史污染由 ContextService 过滤兜住）
       const think = dto.reasoning ?? this.isReasoningModel(provider.name);
       const client = this.modelClientFactory.buildChat(provider, { think });
       const messages = await this.contextService.buildMessages(

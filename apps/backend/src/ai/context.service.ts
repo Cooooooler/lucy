@@ -7,7 +7,11 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
 import { resolveOutputMaxTokens } from '../model-provider/model-client.factory.js';
-import { Message, MessageRole } from './entities/message.entity.js';
+import {
+  Message,
+  MessageRole,
+  MessageStatus,
+} from './entities/message.entity.js';
 import { TokenizerService } from './tokenizer.service.js';
 
 @Injectable()
@@ -55,10 +59,21 @@ export class ContextService {
     const newTokens = await this.tokenizer.countTokens(newContent, model);
     const historyBudget = Math.max(0, budget - systemTokens - newTokens);
 
+    // 历史行先过滤再选：AI 行必须是 Complete 且内容非空——failed（如凭证错误落库的
+    // 记录）/aborted 行可能 content 为空串，Anthropic 对空 text block 直接 400，
+    // 不过滤会让一次失败把整个会话的历史链路打挂
+    const usable = history.filter(
+      (m) =>
+        m.role === MessageRole.User ||
+        (m.role === MessageRole.Ai &&
+          m.status === MessageStatus.Complete &&
+          m.content.length > 0),
+    );
+
     // 从最近往前累计，超预算即停
     const selected: Message[] = [];
     let used = 0;
-    for (const m of [...history].reverse()) {
+    for (const m of [...usable].reverse()) {
       const tokens = await this.tokenizer.countTokens(m.content, model);
       if (used + tokens > historyBudget) break;
       selected.push(m);

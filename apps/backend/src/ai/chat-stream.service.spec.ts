@@ -697,7 +697,7 @@ describe('ChatStreamService', () => {
         message: '平台密钥已变更，请重新保存 API Key',
       },
     });
-    // 原始细节不出网；失败了也要有 AI 记录（前端刷新后归因随消息回来）
+    // 原始细节不出网；失败了也要有 AI 记录（保持会话里用户消息有对应失败行）
     expect(JSON.stringify(result)).not.toContain('tag 不匹配');
     expect(messageRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({ status: MessageStatus.Failed }),

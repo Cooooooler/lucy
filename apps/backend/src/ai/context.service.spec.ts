@@ -6,7 +6,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { makeModelProvider } from '../test/model-provider.fixtures.js';
 import { ContextService } from './context.service.js';
-import { Message, MessageRole } from './entities/message.entity.js';
+import {
+  Message,
+  MessageRole,
+  MessageStatus,
+} from './entities/message.entity.js';
 import { TokenizerService } from './tokenizer.service.js';
 
 describe('ContextService', () => {
@@ -29,8 +33,12 @@ describe('ContextService', () => {
     return new ContextService(makeConfig(overrides), tokenizer);
   }
 
-  function msg(role: MessageRole, content: string): Message {
-    return { role, content } as Message;
+  function msg(
+    role: MessageRole,
+    content: string,
+    status: MessageStatus = MessageStatus.Complete,
+  ): Message {
+    return { role, content, status } as Message;
   }
 
   it('系统提示 + 预算内保留全部历史 + 新消息', async () => {
@@ -123,5 +131,19 @@ describe('ContextService', () => {
     expect(out).toHaveLength(2);
     expect(out[0]).toBeInstanceOf(SystemMessage);
     expect(out[1]).toBeInstanceOf(HumanMessage);
+  });
+
+  it('failed / aborted / 空内容的历史 AI 行不进上下文（Anthropic 拒空 text block）', async () => {
+    // 凭证错误等确定性失败经 saveFailure 落 content='' 的 failed AI 行；
+    // 不过滤会把空串作为 AIMessage 历史送回模型，后续每轮都被上游 400 打挂
+    const svc = makeSvc({ AI_SYSTEM_PROMPT: '' });
+    const history = [
+      msg(MessageRole.User, 'u1'),
+      msg(MessageRole.Ai, '', MessageStatus.Failed),
+      msg(MessageRole.Ai, 'aborted-content', MessageStatus.Aborted),
+      msg(MessageRole.Ai, 'ok-answer'),
+    ];
+    const out = await svc.buildMessages(history, 'new', provider);
+    expect(out.map((m) => m.content)).toEqual(['u1', 'ok-answer', 'new']);
   });
 });
