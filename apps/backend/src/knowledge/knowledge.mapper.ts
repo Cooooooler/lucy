@@ -13,14 +13,33 @@ import type { KnowledgeDocument } from './entities/knowledge-document.entity.js'
  * 服务层保证返回前已填充；未填充时按「无点赞」兜底，保证所有端点的响应形状一致。
  */
 export function toKnowledgeBaseItem(kb: KnowledgeBase): KnowledgeBaseItemDto {
-  const { id, ownerId, visibility, name, description, createdAt, updatedAt } =
-    kb;
+  const {
+    id,
+    ownerId,
+    visibility,
+    name,
+    description,
+    retrievalMode,
+    topK,
+    scoreThresholdEnabled,
+    scoreThreshold,
+    semanticWeight,
+    rerankModelId,
+    createdAt,
+    updatedAt,
+  } = kb;
   return {
     id,
     ownerId,
     visibility,
     name,
     description,
+    retrievalMode,
+    topK,
+    scoreThresholdEnabled,
+    scoreThreshold,
+    semanticWeight,
+    rerankModelId,
     createdAt,
     updatedAt,
     likeCount: kb.likeCount ?? 0,

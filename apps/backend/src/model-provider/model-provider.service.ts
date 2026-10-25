@@ -136,6 +136,21 @@ export class ModelProviderService {
   }
 
   /**
+   * 解析属主私有且类型为 **重排（rerank）** 的模型配置；不存在、非属主或类型不符一律返回 null。
+   *
+   * 供知识库在创建时校验「所选重排模型可用」：引用的是具体模型配置（同
+   * `ai_conversations.model_provider_id`），而非用户级默认模型，因此每个知识库可以不同。
+   */
+  async resolveOwnedRerank(
+    userId: string,
+    id: string,
+  ): Promise<ModelProvider | null> {
+    return this.repo.findOne({
+      where: { id, ownerId: userId, type: ModelProviderType.Rerank },
+    });
+  }
+
+  /**
    * 获取模型详情。
    * @throws NotFoundException 不存在或非属主
    */

@@ -1,9 +1,19 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  KNOWLEDGE_SCORE_THRESHOLD_DEFAULT,
+  KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
+  KNOWLEDGE_TOP_K_DEFAULT,
+} from '@lucy/shared';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
+import { ModelProviderService } from '../model-provider/model-provider.service.js';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
 import type {
@@ -14,6 +24,7 @@ import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
+  KnowledgeRetrievalMode,
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
 import { resolveOwnedKb, resolveReadableKb } from './knowledge-access.js';
@@ -38,6 +49,8 @@ export class KnowledgeService {
     private readonly paginator: KeysetPaginator,
     // 级联删除知识库时复用文档/文件的清理逻辑（底层文件 I/O 收在文档服务里）
     private readonly documentService: KnowledgeDocumentService,
+    // 创建时校验所选重排模型的属主与类型（模型领域 owns 该判据）
+    private readonly modelProviderService: ModelProviderService,
   ) {}
 
   /**
@@ -50,12 +63,30 @@ export class KnowledgeService {
     userId: string,
     dto: CreateKnowledgeBaseDto,
   ): Promise<KnowledgeBaseItemDto> {
+    // 重排模型引用的是具体模型配置：属主 + 类型（rerank）必须在写入前判定，
+    // FK 只保证「存在」，不保证「属于当前用户且确实是重排模型」
+    if (dto.rerankModelId) {
+      const rerank = await this.modelProviderService.resolveOwnedRerank(
+        userId,
+        dto.rerankModelId,
+      );
+      if (!rerank) {
+        throw new BadRequestException('重排模型不存在或不属于当前用户');
+      }
+    }
     this.logger.log(`kb create name=${dto.name}`, KnowledgeService.name);
     const kb = await this.kbRepo.save({
       ownerId: userId,
       name: dto.name,
       description: dto.description,
       visibility: dto.visibility ?? KnowledgeBaseVisibility.Private,
+      // 检索设置只在创建时确定（更新 DTO 不含这些字段）
+      retrievalMode: dto.retrievalMode ?? KnowledgeRetrievalMode.FullText,
+      topK: dto.topK ?? KNOWLEDGE_TOP_K_DEFAULT,
+      scoreThresholdEnabled: dto.scoreThresholdEnabled ?? false,
+      scoreThreshold: dto.scoreThreshold ?? KNOWLEDGE_SCORE_THRESHOLD_DEFAULT,
+      semanticWeight: dto.semanticWeight ?? KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
+      rerankModelId: dto.rerankModelId ?? null,
     });
     return toKnowledgeBaseItem(kb);
   }
@@ -206,6 +237,7 @@ export class KnowledgeService {
   /**
    * 更新知识库元信息。
    * 仅属主可操作；只更新 DTO 中显式提供的字段。
+   * 检索设置（模式/召回条数/阈值/权重/重排模型）有意不在此处：它们只在创建时确定。
    * @throws NotFoundException / ForbiddenException
    */
   async update(

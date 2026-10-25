@@ -1,10 +1,15 @@
-import { HttpStatus, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpStatus,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
 import { decodeCursor, encodeCursor } from '../common/pagination/cursor.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
+import { ModelProviderService } from '../model-provider/model-provider.service.js';
 import {
   KB_ID,
   KB_ITEM_KEYS,
@@ -19,6 +24,7 @@ import {
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
+  KnowledgeRetrievalMode,
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
 import { KnowledgeDocumentService } from './knowledge-document.service.js';
@@ -42,6 +48,10 @@ describe('KnowledgeService', () => {
   const documentService = {
     removeAllForKnowledgeBase: vi.fn(),
   };
+  // 重排模型的存在性/属主/类型判据由模型领域负责，本 spec 只断言「创建时调用并据结果拒绝」
+  const modelProviderService = {
+    resolveOwnedRerank: vi.fn(),
+  };
   const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
 
   let service: KnowledgeService;
@@ -60,6 +70,7 @@ describe('KnowledgeService', () => {
         { provide: getRepositoryToken(KnowledgeBase), useValue: kbRepo },
         { provide: getRepositoryToken(KnowledgeLike), useValue: likeRepo },
         { provide: KnowledgeDocumentService, useValue: documentService },
+        { provide: ModelProviderService, useValue: modelProviderService },
       ],
     }).compile();
     return moduleRef.get(KnowledgeService);
@@ -85,6 +96,101 @@ describe('KnowledgeService', () => {
         name: 'x',
         description: 'd',
         visibility: 'private',
+      }),
+    );
+  });
+
+  it('create 未提供检索设置时落默认值（全文 / 5 / 阈值关闭且为 0 / 语义 50 / 不重排）', async () => {
+    kbRepo.save.mockResolvedValue(makeKb());
+    await service.create('u1', { name: 'x', description: 'd' });
+    expect(kbRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retrievalMode: KnowledgeRetrievalMode.FullText,
+        topK: 5,
+        scoreThresholdEnabled: false,
+        scoreThreshold: 0,
+        semanticWeight: 50,
+        rerankModelId: null,
+      }),
+    );
+    // 未选重排模型时不产生模型查询
+    expect(modelProviderService.resolveOwnedRerank).not.toHaveBeenCalled();
+  });
+
+  it('create 落显式检索设置，并校验重排模型属主与类型', async () => {
+    const rerankId = uuid(9);
+    modelProviderService.resolveOwnedRerank.mockResolvedValue({ id: rerankId });
+    kbRepo.save.mockResolvedValue(
+      makeKb({
+        retrievalMode: KnowledgeRetrievalMode.Hybrid,
+        topK: 8,
+        scoreThresholdEnabled: true,
+        scoreThreshold: 0.35,
+        semanticWeight: 70,
+        rerankModelId: rerankId,
+      }),
+    );
+
+    const result = await service.create('u1', {
+      name: 'x',
+      description: 'd',
+      retrievalMode: KnowledgeRetrievalMode.Hybrid,
+      topK: 8,
+      scoreThresholdEnabled: true,
+      scoreThreshold: 0.35,
+      semanticWeight: 70,
+      rerankModelId: rerankId,
+    });
+
+    expect(modelProviderService.resolveOwnedRerank).toHaveBeenCalledWith(
+      'u1',
+      rerankId,
+    );
+    expect(kbRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retrievalMode: KnowledgeRetrievalMode.Hybrid,
+        topK: 8,
+        scoreThresholdEnabled: true,
+        scoreThreshold: 0.35,
+        semanticWeight: 70,
+        rerankModelId: rerankId,
+      }),
+    );
+    expect(result).toMatchObject({
+      retrievalMode: KnowledgeRetrievalMode.Hybrid,
+      topK: 8,
+      scoreThresholdEnabled: true,
+      scoreThreshold: 0.35,
+      semanticWeight: 70,
+      rerankModelId: rerankId,
+    });
+  });
+
+  it('create 拒绝不存在/非属主/非重排的模型（400，不落库）', async () => {
+    modelProviderService.resolveOwnedRerank.mockResolvedValue(null);
+    await expect(
+      service.create('u1', {
+        name: 'x',
+        description: 'd',
+        rerankModelId: uuid(9),
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(kbRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('update 不修改检索设置（只动内容字段）', async () => {
+    kbRepo.findOne.mockResolvedValue(makeKb());
+    kbRepo.save.mockResolvedValue(makeKb({ name: 'y' }));
+    await service.update('u1', KB_ID, { name: 'y' });
+    expect(kbRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'y',
+        retrievalMode: KnowledgeRetrievalMode.FullText,
+        topK: 5,
+        scoreThresholdEnabled: false,
+        scoreThreshold: 0,
+        semanticWeight: 50,
+        rerankModelId: null,
       }),
     );
   });

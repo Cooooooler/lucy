@@ -3,6 +3,7 @@ import type { BackendFileEntity } from '../knowledge/entities/backend-file.entit
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
+  KnowledgeRetrievalMode,
 } from '../knowledge/entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from '../knowledge/entities/knowledge-document.entity.js';
 
@@ -30,6 +31,12 @@ export const makeKb = (over: Partial<KnowledgeBase> = {}): KnowledgeBase => ({
   visibility: KnowledgeBaseVisibility.Private,
   name: '产品文档',
   description: '产品文档',
+  retrievalMode: KnowledgeRetrievalMode.FullText,
+  topK: 5,
+  scoreThresholdEnabled: false,
+  scoreThreshold: 0,
+  semanticWeight: 50,
+  rerankModelId: null,
   createdAt: EPOCH,
   updatedAt: EPOCH,
   ...over,
@@ -99,6 +106,12 @@ export const KB_ITEM_KEYS = [
   'likeCount',
   'name',
   'ownerId',
+  'rerankModelId',
+  'retrievalMode',
+  'scoreThreshold',
+  'scoreThresholdEnabled',
+  'semanticWeight',
+  'topK',
   'updatedAt',
   'visibility',
 ];
@@ -110,6 +123,12 @@ export type KbItem = {
   visibility: KnowledgeBaseVisibility;
   name: string;
   description: string;
+  retrievalMode: KnowledgeRetrievalMode;
+  topK: number;
+  scoreThresholdEnabled: boolean;
+  scoreThreshold: number;
+  semanticWeight: number;
+  rerankModelId: string | null;
   createdAt: Date;
   updatedAt: Date;
   likeCount: number;
@@ -122,6 +141,12 @@ export const makeKbItem = (over: Partial<KbItem> = {}): KbItem => ({
   visibility: KnowledgeBaseVisibility.Private,
   name: '产品文档',
   description: '产品文档',
+  retrievalMode: KnowledgeRetrievalMode.FullText,
+  topK: 5,
+  scoreThresholdEnabled: false,
+  scoreThreshold: 0,
+  semanticWeight: 50,
+  rerankModelId: null,
   createdAt: EPOCH,
   updatedAt: EPOCH,
   likeCount: 0,

@@ -10,11 +10,24 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { ModelProvider } from '../../model-provider/entities/model-provider.entity.js';
 import { User } from '../../users/user.entity.js';
 
 export enum KnowledgeBaseVisibility {
   Private = 'private',
   Public = 'public',
+}
+
+/**
+ * 检索模式：决定检索链路如何组合关键词与语义召回。
+ * - `fulltext`：仅全文（关键词）召回
+ * - `vector`：仅向量（语义）召回
+ * - `hybrid`：两者混合，权重由 `semanticWeight` 表达（关键词权重 = 100 - 语义权重）
+ */
+export enum KnowledgeRetrievalMode {
+  FullText = 'fulltext',
+  Vector = 'vector',
+  Hybrid = 'hybrid',
 }
 
 /**
@@ -40,6 +53,9 @@ export enum KnowledgeBaseVisibility {
   'createdAt',
   'id',
 ])
+// rerank_model_id 的 FK 需自带索引：删除模型时 ON DELETE SET NULL 会按该列定位引用行，
+// 无索引则退化为全表扫描（TypeORM 不会为 FK 列自动建索引）
+@Index('IDX_knowledge_bases_rerank_model', ['rerankModelId'])
 export class KnowledgeBase {
   @ApiProperty({ description: '知识库 ID' })
   @PrimaryGeneratedColumn('uuid')
@@ -79,6 +95,62 @@ export class KnowledgeBase {
   @ApiProperty({ description: '描述', type: 'string' })
   @Column({ type: 'varchar', length: 200 })
   description: string;
+
+  // ---- 检索设置：仅在创建时确定，之后只读（更新 DTO 不声明这些字段）----
+  // 默认值字面量与 `@lucy/shared` 的 KNOWLEDGE_*_DEFAULT 常量对齐；此处写字面量是为了让
+  // `migration:generate` 产出稳定的 DDL，不依赖 shared 的构建产物。
+
+  @ApiProperty({
+    description: '检索模式',
+    enum: KnowledgeRetrievalMode,
+    default: KnowledgeRetrievalMode.FullText,
+  })
+  @Column({
+    name: 'retrieval_mode',
+    type: 'varchar',
+    length: 10,
+    default: KnowledgeRetrievalMode.FullText,
+  })
+  retrievalMode: KnowledgeRetrievalMode;
+
+  @ApiProperty({ description: '召回条数（1-10）', default: 5 })
+  @Column({ name: 'top_k', type: 'int', default: 5 })
+  topK: number;
+
+  @ApiProperty({ description: '是否启用 Score 阈值过滤', default: false })
+  @Column({ name: 'score_threshold_enabled', type: 'boolean', default: false })
+  scoreThresholdEnabled: boolean;
+
+  @ApiProperty({ description: 'Score 阈值（0-1，仅启用时生效）', default: 0 })
+  @Column({ name: 'score_threshold', type: 'real', default: 0 })
+  scoreThreshold: number;
+
+  @ApiProperty({
+    description: '混合检索的语义权重（0-100，关键词权重 = 100 - 该值）',
+    default: 50,
+  })
+  @Column({ name: 'semantic_weight', type: 'int', default: 50 })
+  semanticWeight: number;
+
+  @ApiProperty({
+    description: '重排模型配置 ID；null 表示不重排',
+    type: String,
+    nullable: true,
+  })
+  // 自有列声明关系：服务层读写只碰 id，不 populate 关系（契约里也只有 id）
+  @Column({ name: 'rerank_model_id', type: 'uuid', nullable: true })
+  rerankModelId: string | null;
+
+  @ApiHideProperty()
+  // 关系对象不对外暴露（@Exclude 由全局序列化拦截器生效）。
+  // ON DELETE SET NULL：删除模型时只断开关联，不连带删除知识库。
+  @Exclude()
+  @ManyToOne(() => ModelProvider, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({
+    name: 'rerank_model_id',
+    foreignKeyConstraintName: 'FK_knowledge_bases_rerank_model',
+  })
+  rerankModel?: ModelProvider;
 
   @ApiProperty({ description: '创建时间' })
   // 毫秒对齐：keyset 游标是毫秒精度（JS Date 的固有精度），列默认值若落到微秒，

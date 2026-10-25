@@ -15,6 +15,14 @@
   display: none !important;
 }
 
+/* 收起 Form.Item 的控制区高度：antd 的 `.ant-form-item-control-input` 固定有
+   32px 最小高度，只把里面的控件 `display:none` 仍会留下一块空白。
+   用于「开关关闭时隐藏控件」的字段（重排模型、Score 阈值）：label 与下一个字段之间
+   保持正常的表单项间距，只是不再为隐藏的控件留位置。 */
+.form-item-control-collapsed .ant-form-item-control-input {
+  min-height: 0;
+}
+
 /* 页面限宽（见 components/page-shell.tsx）：用「居中内边距」表达等价于
    `max-width: 1600px; margin-inline: auto` 的限宽，但容器自身保持满宽（w-full）。
 

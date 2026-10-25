@@ -73,6 +73,12 @@ describe('Knowledge pagination (keyset + page) & serialization (e2e)', () => {
     'visibility',
     'name',
     'description',
+    'retrievalMode',
+    'topK',
+    'scoreThresholdEnabled',
+    'scoreThreshold',
+    'semanticWeight',
+    'rerankModelId',
     'createdAt',
     'updatedAt',
     'likeCount',
@@ -351,6 +357,56 @@ describe('Knowledge pagination (keyset + page) & serialization (e2e)', () => {
     expect(item.name).toBe(`${scopeToken}-created`);
     expect(item.likeCount).toBe(0);
     expect(item.isLiked).toBe(false);
+    // 未提供检索设置时落默认值（现存知识库的迁移回填口径与此一致）
+    expect(item).toMatchObject({
+      retrievalMode: 'fulltext',
+      topK: 5,
+      scoreThresholdEnabled: false,
+      scoreThreshold: 0,
+      semanticWeight: 50,
+      rerankModelId: null,
+    });
+  });
+
+  it('检索设置创建后不可改：PATCH 带这些字段被 400（forbidNonWhitelisted）', async () => {
+    const auth = `Bearer ${token}`;
+    const created = await request(server)
+      .post('/v1/knowledge')
+      .set('Authorization', auth)
+      .send({
+        name: `${scopeToken}-retrieval`,
+        description: 'd',
+        retrievalMode: 'hybrid',
+        topK: 8,
+        scoreThresholdEnabled: true,
+        scoreThreshold: 0.35,
+        semanticWeight: 70,
+      })
+      .expect(201);
+    const item = (created.body as ApiBody<Record<string, unknown>>).data;
+    expect(item).toMatchObject({
+      retrievalMode: 'hybrid',
+      topK: 8,
+      scoreThresholdEnabled: true,
+      scoreThreshold: 0.35,
+      semanticWeight: 70,
+    });
+    const id = item.id as string;
+
+    for (const patch of [
+      { retrievalMode: 'vector' },
+      { topK: 10 },
+      { scoreThresholdEnabled: false },
+      { scoreThreshold: 0.5 },
+      { semanticWeight: 30 },
+      { rerankModelId: null },
+    ]) {
+      await request(server)
+        .patch(`/v1/knowledge/${id}`)
+        .set('Authorization', auth)
+        .send(patch)
+        .expect(400);
+    }
   });
 
   it('文档列表页码分页：同毫秒按 id 决胜、逐页不重不漏（真实 SQL + 列投影 + join files）', async () => {
