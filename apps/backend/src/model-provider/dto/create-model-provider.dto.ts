@@ -72,7 +72,7 @@ export class CreateModelProviderDto {
   baseUrl: string;
 
   // 不写 Swagger 的 `default`：openapi-typescript 的 defaultNonNullable 会把带 default 的属性
-  // 判成必填（`protocol` 就变成 required），与 `@IsOptional` 的真实语义相悖。默认值由服务层
+  // 判成必填（`protocol` 就变成 required），与「省略时取默认值」的运行语义相悖。默认值由服务层
   // （create 的 `dto.protocol ?? ChatCompletions`）承担，文档里用描述说明即可。
   @ApiPropertyOptional({
     description: `API 协议（仅 LLM 有意义），省略时默认 ${ModelProviderProtocol.ChatCompletions}`,
