@@ -10,13 +10,13 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsEnum,
   IsInt,
-  IsOptional,
   IsString,
   IsUrl,
   Max,
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import {
   ModelProviderProtocol,
@@ -78,7 +78,10 @@ export class CreateModelProviderDto {
     description: `API 协议（仅 LLM 有意义），省略时默认 ${ModelProviderProtocol.ChatCompletions}`,
     enum: ModelProviderProtocol,
   })
-  @IsOptional()
+  // 用 @ValidateIf(value !== undefined) 而非 @IsOptional()：后者把 null 与 undefined 一视同仁地
+  // 跳过校验，且会被 PartialType 原样拷进更新 DTO——显式 `{"protocol": null}` 穿过校验进入服务层
+  //（撞协议列的 NOT NULL 约束被兜成 500）。这里只放行「省略」，显式 null 落到 400，创建/更新两侧同口径。
+  @ValidateIf((_object, value) => value !== undefined)
   @IsEnum(ModelProviderProtocol)
   protocol?: ModelProviderProtocol;
 
@@ -94,14 +97,15 @@ export class CreateModelProviderDto {
   @Max(MODEL_CONTEXT_LENGTH_MAX)
   contextLength: number;
 
-  // ollama 通常无鉴权，允许省略；openai/anthropic 的必填由服务层按 vendor 校验
-  // （class-validator 的 @IsOptional 只放行 undefined/null，空串仍会被 @MinLength 拦下）
+  // ollama 通常无鉴权，允许省略；openai/anthropic 的必填由服务层按 vendor 校验。
+  // 与上同理用 @ValidateIf 而非 @IsOptional：省略（undefined）不校验，空串仍被 @MinLength 拦下，
+  // 显式 null 落到 400，且不会作为 IsOptional 条件被 PartialType 拷进更新 DTO 放行 null。
   @ApiPropertyOptional({
     description: 'API Key（明文传入，服务端加密存储）；ollama 可省略',
     minLength: 1,
     maxLength: MODEL_API_KEY_MAX_LENGTH,
   })
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @MinLength(1)
   @MaxLength(MODEL_API_KEY_MAX_LENGTH)
