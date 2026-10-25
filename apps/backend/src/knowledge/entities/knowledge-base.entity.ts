@@ -130,6 +130,9 @@ export class KnowledgeBase {
   semanticWeight: number;
 
   @ApiHideProperty()
+  // 属主私有资源标识：契约只在属主视图里下发（mapper 对非属主置 null），
+  // 直接返回实体的路径必须靠序列化层剔除，不能只依赖 mapper
+  @Exclude()
   // 自有列声明关系：服务层读写只碰 id，不 populate 关系（契约里也只有 id）
   @Column({ name: 'rerank_model_id', type: 'uuid', nullable: true })
   rerankModelId: string | null;

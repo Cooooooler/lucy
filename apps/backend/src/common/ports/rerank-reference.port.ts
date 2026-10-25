@@ -7,11 +7,12 @@ import type { EntityManager } from 'typeorm';
  * `knowledge_bases` 的写入应由知识领域独占：模型域只依赖这个接口 + 注入 token。
  *
  * 实际接线（feature 级是双向依赖，靠拆分 module 保环）：
- * - `ModelProviderModule` → `KnowledgeReferencesModule`（拿实现）
- * - `KnowledgeModule` → `ModelProviderModule`（复用模型解析）
- * 两个 feature 模块互不直接引用对方的 `.module.ts` 之外的实体/服务，Nest 模块图
- * 因此无环；**不要**把 `KnowledgeReferencesModule` 并回 `KnowledgeModule` 或改回
- * `@Global`，前者会立刻形成循环模块依赖。
+ * - `ModelProviderModule` → import `KnowledgeReferencesModule`（拿实现）
+ * - `KnowledgeService` → 注入 `ModelProviderService`（复用重排模型解析）
+ * - `KnowledgeModule` → import `ModelProviderModule`
+ * `KnowledgeReferencesModule` 刻意不 import 任何 feature module，因此它是这两个
+ * 双向依赖之间唯一的「断点」。**不要**把它并回 `KnowledgeModule`、改回 `@Global`
+ * 或让它 import `ModelProviderModule`，任一改动都会形成循环模块依赖。
  */
 export const RERANK_REFERENCE_PORT = Symbol('RERANK_REFERENCE_PORT');
 

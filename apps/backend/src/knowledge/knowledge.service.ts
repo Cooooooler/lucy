@@ -263,7 +263,6 @@ export class KnowledgeService {
     id: string,
     dto: UpdateKnowledgeBaseDto,
   ): Promise<KnowledgeBaseItemDto> {
-    const kb = await resolveOwnedKb(this.kbRepo, id, userId);
     const patch: Partial<KnowledgeBase> = {};
     if (dto.name !== undefined) patch.name = dto.name;
     if (dto.description !== undefined) patch.description = dto.description;
@@ -271,16 +270,24 @@ export class KnowledgeService {
     // 只写 DTO 中显式出现的列，不对整实体做 save：整实体 diff 会把读到的旧
     // rerank_model_id 与「并发改模型类型已清空」的库值比较后判为变更并写回，
     // 让刚失效的引用复活（检索设置创建后不可改，写回即无法修正）。
-    let saved = kb;
-    if (Object.keys(patch).length > 0) {
-      // affected=0 表示这一行在鉴权之后被并发删除：给 404 而不是让后续回读抛
-      // EntityNotFoundError（非 HTTP 异常会被兜成 500）
-      const { affected } = await this.kbRepo.update({ id: kb.id }, patch);
-      if (!affected) throw new NotFoundException('知识库不存在');
-      const reloaded = await this.kbRepo.findOne({ where: { id: kb.id } });
-      if (!reloaded) throw new NotFoundException('知识库不存在');
-      saved = reloaded;
+    if (Object.keys(patch).length === 0) {
+      const kb = await resolveOwnedKb(this.kbRepo, id, userId);
+      await this.fillLikeInfo(userId, [kb]);
+      this.logger.log(`kb update kb=${id}`, KnowledgeService.name);
+      return toKnowledgeBaseItem(kb, userId);
     }
+    // 属主判据放进 UPDATE 的 where：常见路径只打 2 次库（UPDATE + 回读）
+    const { affected } = await this.kbRepo.update(
+      { id, ownerId: userId },
+      patch,
+    );
+    // 错误路径才多一次读：区分「不存在」(404) 与「非属主」(403)
+    if (!affected) {
+      await resolveOwnedKb(this.kbRepo, id, userId);
+      throw new NotFoundException('知识库不存在');
+    }
+    const saved = await this.kbRepo.findOne({ where: { id } });
+    if (!saved) throw new NotFoundException('知识库不存在');
     // 点赞态同样要回填：响应形状必须与 get/list 完全一致，
     // 否则 mapper 的兜底会把「已点赞」谎报成 0/false。
     await this.fillLikeInfo(userId, [saved]);

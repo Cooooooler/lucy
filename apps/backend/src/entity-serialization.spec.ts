@@ -98,7 +98,7 @@ const ALLOWED_OUTBOUND_KEYS: Record<string, readonly string[]> = {
     'scoreThresholdEnabled',
     'scoreThreshold',
     'semanticWeight',
-    'rerankModelId',
+    // rerankModelId 属主私有：非属主视图由 mapper 置 null，实体层 @Exclude 兜底
     'createdAt',
     'updatedAt',
     'likeCount',

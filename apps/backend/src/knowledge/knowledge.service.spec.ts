@@ -243,7 +243,10 @@ describe('KnowledgeService', () => {
     kbRepo.update.mockResolvedValue({ affected: 1 });
     await service.update('u1', KB_ID, { name: 'y' });
     // 整实体 save 会把并发清空后的 rerank_model_id 写回，这里必须只更新显式字段
-    expect(kbRepo.update).toHaveBeenCalledWith({ id: KB_ID }, { name: 'y' });
+    expect(kbRepo.update).toHaveBeenCalledWith(
+      { id: KB_ID, ownerId: 'u1' },
+      { name: 'y' },
+    );
     expect(kbRepo.save).not.toHaveBeenCalled();
   });
 
@@ -321,6 +324,8 @@ describe('KnowledgeService', () => {
   });
 
   it('update 非属主抛 FORBIDDEN', async () => {
+    // UPDATE 的 where 带 ownerId，非属主命中 0 行；错误路径再读一次区分 403/404
+    kbRepo.update.mockResolvedValue({ affected: 0 });
     kbRepo.findOne.mockResolvedValue(makeKb());
     await expect(
       service.update('u2', 'kb1', { name: 'y' }),
@@ -473,7 +478,7 @@ describe('KnowledgeService', () => {
       visibility: KnowledgeBaseVisibility.Public,
     });
     expect(kbRepo.update).toHaveBeenCalledWith(
-      { id: kbEntity.id },
+      { id: 'kb1', ownerId: 'u1' },
       {
         name: 'y',
         description: 'd',
@@ -484,6 +489,7 @@ describe('KnowledgeService', () => {
   });
 
   it('update 知识库不存在抛 404', async () => {
+    kbRepo.update.mockResolvedValue({ affected: 0 });
     kbRepo.findOne.mockResolvedValue(null);
     await expect(
       service.update('u1', 'kb1', { name: 'y' }),
