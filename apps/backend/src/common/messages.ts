@@ -173,7 +173,6 @@ export const VALIDATION_MESSAGES: Record<string, ValidationMessageFn> = {
   isNotEmpty: (label) => `${label}不能为空`,
   isInt: (label) => `${label}应为整数`,
   isNumber: (label) => `${label}应为数字`,
-  isPositive: (label) => `${label}应大于 0`,
   isBoolean: (label) => `${label}应为 true 或 false`,
   isEmail: (label) => `${label}格式不正确`,
   isUUID: (label) => `${label}格式不正确`,

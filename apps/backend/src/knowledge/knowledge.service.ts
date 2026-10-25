@@ -276,18 +276,21 @@ export class KnowledgeService {
       this.logger.log(`kb update kb=${id}`, KnowledgeService.name);
       return toKnowledgeBaseItem(kb, userId);
     }
-    // 属主判据放进 UPDATE 的 where：常见路径只打 2 次库（UPDATE + 回读）
-    const { affected } = await this.kbRepo.update(
-      { id, ownerId: userId },
-      patch,
-    );
-    // 错误路径才多一次读：区分「不存在」(404) 与「非属主」(403)
-    if (!affected) {
-      await resolveOwnedKb(this.kbRepo, id, userId);
-      throw new NotFoundException('知识库不存在');
-    }
-    const saved = await this.kbRepo.findOne({ where: { id } });
-    if (!saved) throw new NotFoundException('知识库不存在');
+    // 属主判据放进 UPDATE 的 where；UPDATE 与回读放进同一事务：
+    // UPDATE 持有行锁到提交，并发 DELETE 只能等，回读不会落在「已更新但已删除」
+    // 的夹缝里（否则一次成功的更新会被误报成 404）。常见路径仍是 2 条语句。
+    const saved = await this.kbRepo.manager.transaction(async (manager) => {
+      const repo = manager.getRepository(KnowledgeBase);
+      const { affected } = await repo.update({ id, ownerId: userId }, patch);
+      // 错误路径才多一次读：区分「不存在」(404) 与「非属主」(403)
+      if (!affected) {
+        await resolveOwnedKb(repo, id, userId);
+        throw new NotFoundException('知识库不存在');
+      }
+      const row = await repo.findOne({ where: { id } });
+      if (!row) throw new NotFoundException('知识库不存在');
+      return row;
+    });
     // 点赞态同样要回填：响应形状必须与 get/list 完全一致，
     // 否则 mapper 的兜底会把「已点赞」谎报成 0/false。
     await this.fillLikeInfo(userId, [saved]);

@@ -31,15 +31,15 @@ import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 describe('KnowledgeService', () => {
-  // 创建走事务：校验重排模型与插入在同一事务内完成
+  // 事务内的知识库仓库：创建走它插入，更新走它 UPDATE + 回读
+  const txKbRepo = { update: vi.fn(), findOne: vi.fn() };
   const tx = {
     save: vi.fn(),
-    getRepository: vi.fn(),
+    getRepository: vi.fn(() => txKbRepo),
   };
   const kbRepo = {
     findOne: vi.fn(),
     save: vi.fn(),
-    update: vi.fn(),
     createQueryBuilder: vi.fn(),
     manager: { transaction: vi.fn() },
   };
@@ -239,11 +239,11 @@ describe('KnowledgeService', () => {
   });
 
   it('update 只写 DTO 中出现的列，不碰检索设置', async () => {
-    kbRepo.findOne.mockResolvedValue(makeKb());
-    kbRepo.update.mockResolvedValue({ affected: 1 });
+    txKbRepo.update.mockResolvedValue({ affected: 1 });
+    txKbRepo.findOne.mockResolvedValue(makeKb());
     await service.update('u1', KB_ID, { name: 'y' });
     // 整实体 save 会把并发清空后的 rerank_model_id 写回，这里必须只更新显式字段
-    expect(kbRepo.update).toHaveBeenCalledWith(
+    expect(txKbRepo.update).toHaveBeenCalledWith(
       { id: KB_ID, ownerId: 'u1' },
       { name: 'y' },
     );
@@ -251,8 +251,8 @@ describe('KnowledgeService', () => {
   });
 
   it('update 并发删除（affected=0）返回 404 而不是 500', async () => {
-    kbRepo.findOne.mockResolvedValue(makeKb());
-    kbRepo.update.mockResolvedValue({ affected: 0 });
+    txKbRepo.findOne.mockResolvedValue(makeKb());
+    txKbRepo.update.mockResolvedValue({ affected: 0 });
     await expect(
       service.update('u1', KB_ID, { name: 'y' }),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -285,8 +285,8 @@ describe('KnowledgeService', () => {
     kbRepo.createQueryBuilder.mockReturnValue(makeKbQb());
     const listed = await service.list('u1', {});
 
-    kbRepo.findOne.mockResolvedValue(makeKb());
-    kbRepo.update.mockResolvedValue({ affected: 1 });
+    txKbRepo.findOne.mockResolvedValue(makeKb());
+    txKbRepo.update.mockResolvedValue({ affected: 1 });
     const updated = await service.update('u1', KB_ID, { name: 'y' });
 
     for (const [endpoint, item] of Object.entries({
@@ -303,8 +303,8 @@ describe('KnowledgeService', () => {
   });
 
   it('update 回填点赞态（更新后仍与 get/list 同形，不谎报 0/false）', async () => {
-    kbRepo.findOne.mockResolvedValue(makeKb());
-    kbRepo.update.mockResolvedValue({ affected: 1 });
+    txKbRepo.findOne.mockResolvedValue(makeKb());
+    txKbRepo.update.mockResolvedValue({ affected: 1 });
     const likeQb = makeLikeQb();
     likeQb.getRawMany.mockResolvedValue([{ kbId: KB_ID, cnt: '3' }]);
     likeRepo.createQueryBuilder.mockReturnValue(likeQb);
@@ -325,8 +325,8 @@ describe('KnowledgeService', () => {
 
   it('update 非属主抛 FORBIDDEN', async () => {
     // UPDATE 的 where 带 ownerId，非属主命中 0 行；错误路径再读一次区分 403/404
-    kbRepo.update.mockResolvedValue({ affected: 0 });
-    kbRepo.findOne.mockResolvedValue(makeKb());
+    txKbRepo.update.mockResolvedValue({ affected: 0 });
+    txKbRepo.findOne.mockResolvedValue(makeKb());
     await expect(
       service.update('u2', 'kb1', { name: 'y' }),
     ).rejects.toMatchObject({
@@ -470,14 +470,14 @@ describe('KnowledgeService', () => {
 
   it('update 属主按显式字段做列级更新并回读', async () => {
     const kbEntity = makeKb();
-    kbRepo.findOne.mockResolvedValue(kbEntity);
-    kbRepo.update.mockResolvedValue({ affected: 1 });
+    txKbRepo.findOne.mockResolvedValue(kbEntity);
+    txKbRepo.update.mockResolvedValue({ affected: 1 });
     await service.update('u1', 'kb1', {
       name: 'y',
       description: 'd',
       visibility: KnowledgeBaseVisibility.Public,
     });
-    expect(kbRepo.update).toHaveBeenCalledWith(
+    expect(txKbRepo.update).toHaveBeenCalledWith(
       { id: 'kb1', ownerId: 'u1' },
       {
         name: 'y',
@@ -489,8 +489,8 @@ describe('KnowledgeService', () => {
   });
 
   it('update 知识库不存在抛 404', async () => {
-    kbRepo.update.mockResolvedValue({ affected: 0 });
-    kbRepo.findOne.mockResolvedValue(null);
+    txKbRepo.update.mockResolvedValue({ affected: 0 });
+    txKbRepo.findOne.mockResolvedValue(null);
     await expect(
       service.update('u1', 'kb1', { name: 'y' }),
     ).rejects.toBeInstanceOf(NotFoundException);
