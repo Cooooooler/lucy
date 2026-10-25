@@ -9,6 +9,7 @@ import { AppLogger } from '../common/app-logger.service.js';
 import { ShutdownService } from '../common/shutdown.service.js';
 import type { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
 import { ModelClientFactory } from '../model-provider/model-client.factory.js';
+import { ModelCredentialError } from '../model-provider/model-credential.error.js';
 import { ModelProviderService } from '../model-provider/model-provider.service.js';
 import { ContextService } from './context.service.js';
 import { ConversationTitleService } from './conversation-title.service.js';
@@ -113,7 +114,8 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         .catch((err) => {
           // 对外固定文案：这里逃逸出的错误来自 DB/事务/模型客户端，message 可能含主机端口、
           // SQL 等基础设施细节（如 `connect ECONNREFUSED 127.0.0.1:5432`），不得出网；
-          // 原始错误只进日志（与 saveFailure 的固定文案保持一致）
+          // 原始错误只进日志（与 saveFailure 的固定文案保持一致）。
+          // 凭证错误除外：平台密钥轮换/未配 Key 给可执行的恢复提示，码仍为 AI_GENERATE_FAILED
           this.logger.warn(
             `sendMessage failed conversation=${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
             ChatStreamService.name,
@@ -121,7 +123,15 @@ export class ChatStreamService implements BeforeApplicationShutdown {
           subscriber.next({
             type: 'error',
             requestId,
-            data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+            data: {
+              code: ErrorCode.AI_GENERATE_FAILED,
+              message:
+                err instanceof ModelCredentialError
+                  ? err.reason === 'decrypt-failed'
+                    ? '平台密钥已变更，请重新保存 API Key'
+                    : '该模型未配置 API Key，请保存后重试'
+                  : '生成失败',
+            },
           });
           subscriber.complete();
         })

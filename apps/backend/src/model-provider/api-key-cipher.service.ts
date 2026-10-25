@@ -49,6 +49,8 @@ export class ApiKeyCipher {
         `API Key 解密失败：${
           error instanceof Error ? error.message : String(error)
         }`,
+        // 原始错误挂 cause（含栈）：排查看得到根因位置，而不是只剩一句拼接文案
+        { cause: error },
       );
     }
   }

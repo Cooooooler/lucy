@@ -236,6 +236,25 @@ describe('ModelConnectionService', () => {
     expect(result.message).toBe('连接失败，请检查配置');
   });
 
+  it('构造客户端阶段抛错（解密失败/缺 Key 的真实路径）：归因文案与日志类名仍生效', async () => {
+    // 生产路径是 buildChat 构造期同步抛出（requireApiKey/decrypt），不是 invoke 的
+    // rejection；该用例钉住「错误发生在 withTimeout 竞速之前」的构造期归因
+    factory.buildChat.mockImplementation(() => {
+      throw new ModelCredentialError(
+        'decrypt-failed',
+        'API Key 解密失败：tag 不匹配',
+      );
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('平台密钥已变更，请重新保存 API Key');
+    expect(loggerWarn).toHaveBeenCalled();
+    expect(String(loggerWarn.mock.calls.at(-1)?.[0] ?? '')).toContain(
+      '[ModelCredentialError]',
+    );
+  });
+
   it('非属主/不存在：repo 未命中即 404（不构造客户端）', async () => {
     repo.findOne.mockResolvedValue(null);
     await expect(service.test('u2', MODEL_ID)).rejects.toThrow();
