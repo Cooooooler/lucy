@@ -160,6 +160,13 @@ const CHAT_ASSISTANTS: ChatAssistant[] = [
   },
 ];
 
+/** 助手下拉菜单项：静态数据，放模块级避免每次渲染重建（Dropdown 会因此重渲染） */
+const ASSISTANT_MENU_ITEMS = CHAT_ASSISTANTS.map((a) => ({
+  key: a.key,
+  icon: a.icon,
+  label: a.label,
+}));
+
 /**
  * CodeHighlighter 内部写死 oneLight 主题（暗色下会是一块白底），这里覆写为自定义主题：
  * 颜色全部取 index.css 里的 --lucy-code-* 变量，亮/暗各一套，因此不必随主题切换。
@@ -267,6 +274,9 @@ const MessageBody: FC<{
   streaming?: boolean;
   truncated?: boolean;
 }> = ({ content, thinking, streaming, truncated }) => {
+  // 流式期间每条 delta 都会改动 content，整篇 markdown 解析是主要开销；
+  // 用 deferred 值让输入等交互优先响应，连续 delta 只渲染最后一次
+  const deferredContent = useDeferredValue(content);
   // 思考进行中 = 还在流式且尚未产出回答
   const thinkingActive = Boolean(thinking) && Boolean(streaming) && !content;
   return (
@@ -276,7 +286,7 @@ const MessageBody: FC<{
           <XMarkdown content={thinking} components={MARKDOWN_COMPONENTS} />
         </ThinkingBlock>
       ) : null}
-      <XMarkdown content={content} components={MARKDOWN_COMPONENTS} />
+      <XMarkdown content={deferredContent} components={MARKDOWN_COMPONENTS} />
       {truncated ? (
         <div className="text-xs text-amber-600">
           ⚠️ 回复被截断（已达长度上限），可重新发送后再试
@@ -485,24 +495,23 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
       ? modelOverride.id
       : defaultModelId;
   const currentModelName = models.find((m) => m.id === modelProviderId)?.name;
+  // 模型下拉项按 models 缓存：models 已在 hook 里保持引用稳定
+  const modelMenuItems = useMemo(
+    () => models.map((m) => ({ key: m.id, label: m.name })),
+    [models],
+  );
 
-  // 词槽模式：选中助手后输入框变成「skill 标签 + 内联填空」，关掉 skill 标签回到自由输入
+  // 词槽模式：选中助手后输入框变成「skill 标签 + 内联填空」，关掉 skill 标签回到自由输入。
+  // 这两个派生值不手工记忆化：项目启用 React Compiler，普通表达式同样会被缓存
   const [assistantKey, setAssistantKey] = useState<string | null>(null);
-  const assistant = useMemo(
-    () => CHAT_ASSISTANTS.find((a) => a.key === assistantKey),
-    [assistantKey],
-  );
-  // 关闭按钮要能回到自由输入，因此 onClose 在渲染处补上；模板本身放在模块级保持引用稳定
-  const skill = useMemo(
-    () =>
-      assistant
-        ? {
-            ...assistant.skill,
-            closable: { onClose: () => setAssistantKey(null) },
-          }
-        : undefined,
-    [assistant],
-  );
+  const assistant = CHAT_ASSISTANTS.find((a) => a.key === assistantKey);
+  // 关闭按钮要能回到自由输入，因此 onClose 在这里补上；模板本身放在模块级
+  const skill = assistant
+    ? {
+        ...assistant.skill,
+        closable: { onClose: () => setAssistantKey(null) },
+      }
+    : undefined;
   const senderRef = useRef<ComponentRef<typeof Sender>>(null);
 
   // 响应式订阅 user：登录态变化时 header 昵称即时更新（get() 读取不会随 store 变更重渲染）
@@ -709,11 +718,7 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
                   {/* 助手模板：选中即进入词槽模式，skill 标签上的 × 回到自由输入 */}
                   <Dropdown
                     menu={{
-                      items: CHAT_ASSISTANTS.map((a) => ({
-                        key: a.key,
-                        icon: a.icon,
-                        label: a.label,
-                      })),
+                      items: ASSISTANT_MENU_ITEMS,
                       selectedKeys: assistant ? [assistant.key] : [],
                       onClick: ({ key }) => setAssistantKey(key),
                     }}
@@ -729,10 +734,7 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
                   <Dropdown
                     disabled={modelsLoading || !hasModels}
                     menu={{
-                      items: models.map((m) => ({
-                        key: m.id,
-                        label: m.name,
-                      })),
+                      items: modelMenuItems,
                       selectedKeys: modelProviderId ? [modelProviderId] : [],
                       onClick: ({ key }) =>
                         setModelOverride({ conversationId: id, id: key }),
