@@ -32,7 +32,8 @@ describe('validationExceptionFactory', () => {
     ).toBe('标题应为文本');
   });
 
-  it('带约束数值：maxLength 生成含边界的文案', () => {
+  it('带约束数值的模板不可达：数值文案为常量（本仓 DTO 未声明 validationOptions.context）', () => {
+    // 手工构造 contexts 也不会有人消费：模板不再取约束数值，保持「过大/过长」常量文案
     expect(
       messageOf([
         error(
@@ -43,19 +44,7 @@ describe('validationExceptionFactory', () => {
           { contexts: { maxLength: { constraints: [100] } } },
         ),
       ]),
-    ).toBe('标题长度不能超过 100 个字符');
-  });
-
-  it('length 取 min/max 区间', () => {
-    expect(
-      messageOf([
-        error(
-          'username',
-          { length: 'username must be longer than or equal to 3 characters' },
-          { contexts: { length: { constraints: [3, 50] } } },
-        ),
-      ]),
-    ).toBe('用户名长度应在 3-50 个字符之间');
+    ).toBe('标题过长');
   });
 
   it('类型类约束优先：null 命中 isString 而非注册在前的 min/max/length', () => {

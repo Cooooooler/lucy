@@ -12,7 +12,6 @@ interface ResolvedConstraint {
   property: string;
   key: string;
   message: string;
-  constraints?: unknown[];
 }
 
 /**
@@ -48,10 +47,7 @@ function findFirst(
   if (!entries.length) return null;
   const key = pickConstraintKey(entries);
   const message = error.constraints?.[key] ?? entries[0][1];
-  const constraints = (
-    error.contexts?.[key] as { constraints?: unknown[] } | undefined
-  )?.constraints;
-  return { property: current, key, message, constraints };
+  return { property: current, key, message };
 }
 
 function toReadableMessage(resolved: ResolvedConstraint): string {
@@ -61,7 +57,7 @@ function toReadableMessage(resolved: ResolvedConstraint): string {
   const label = fieldLabel(leaf);
   const template = VALIDATION_MESSAGES[resolved.key];
   if (!template) return `「${label}」参数不合法`;
-  return template(label, resolved.constraints);
+  return template(label);
 }
 
 /**

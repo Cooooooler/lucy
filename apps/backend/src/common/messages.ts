@@ -140,6 +140,7 @@ export const FIELD_LABELS: Record<string, string> = {
   contextLength: '上下文长度',
   protocol: '协议',
   apiKey: '接口密钥',
+  baseUrl: 'Base URL',
 };
 
 export function fieldLabel(property: string): string {
@@ -154,13 +155,13 @@ export function fieldLabel(property: string): string {
 
 /**
  * class-validator 约束键 → 中文文案模板。
- * 约束值取自装饰器参数（如 MaxLength(100)），由 validation-exception-factory
- * 经 `error.contexts[key].constraints` 传入；取不到时用不带数值的文案。
+ *
+ * 全部为常量文案（只取字段标签）：class-validator 仅在装饰器显式声明
+ * `validationOptions.context` 时才把约束数值写进 `error.contexts`，本仓 DTO 均未声明，
+ * 数值分支在真实管道下不可达——需要「不能超过 100 个字符」这类带数值的文案时，
+ * 在对应 DTO 装饰器上写中文自定义 message（如「无效的分页游标」），由工厂原样透出。
  */
-export type ValidationMessageFn = (
-  label: string,
-  constraints?: unknown[],
-) => string;
+export type ValidationMessageFn = (label: string) => string;
 
 /**
  * 类型类约束（描述「值的形态错了」）的优先级清单。
@@ -185,11 +186,6 @@ export const TYPE_CONSTRAINT_KEYS = [
   'isObject',
 ] as const;
 
-function num(constraints: unknown[] | undefined, index: number): number | null {
-  const raw = constraints?.[index];
-  return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
-}
-
 export const VALIDATION_MESSAGES: Record<string, ValidationMessageFn> = {
   isString: (label) => `${label}应为文本`,
   isNotEmpty: (label) => `${label}不能为空`,
@@ -204,33 +200,11 @@ export const VALIDATION_MESSAGES: Record<string, ValidationMessageFn> = {
   isArray: (label) => `${label}应为数组`,
   isObject: (label) => `${label}应为对象`,
   arrayNotEmpty: (label) => `${label}不能为空数组`,
-  min: (label, constraints) => {
-    const bound = num(constraints, 0);
-    return bound === null ? `${label}过小` : `${label}不能小于 ${bound}`;
-  },
-  max: (label, constraints) => {
-    const bound = num(constraints, 0);
-    return bound === null ? `${label}过大` : `${label}不能大于 ${bound}`;
-  },
-  minLength: (label, constraints) => {
-    const bound = num(constraints, 0);
-    return bound === null
-      ? `${label}过短`
-      : `${label}长度不能少于 ${bound} 个字符`;
-  },
-  maxLength: (label, constraints) => {
-    const bound = num(constraints, 0);
-    return bound === null
-      ? `${label}过长`
-      : `${label}长度不能超过 ${bound} 个字符`;
-  },
-  length: (label, constraints) => {
-    const minValue = num(constraints, 0);
-    const maxValue = num(constraints, 1);
-    return minValue === null || maxValue === null
-      ? `${label}长度不符合要求`
-      : `${label}长度应在 ${minValue}-${maxValue} 个字符之间`;
-  },
+  min: (label) => `${label}过小`,
+  max: (label) => `${label}过大`,
+  minLength: (label) => `${label}过短`,
+  maxLength: (label) => `${label}过长`,
+  length: (label) => `${label}长度不符合要求`,
   matches: (label) => `${label}格式不正确`,
   // whitelist/forbidNonWhitelisted 产出的是带 `property xxx should not exist` 的键：
   // 此处匹配约束键本身（`whitelistValidation`），属性名仍按 error.property 取。
