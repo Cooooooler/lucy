@@ -1,4 +1,10 @@
 import type { ValidationError } from '@nestjs/common';
+import { describe, expect, it } from 'vitest';
+import {
+  TYPE_CONSTRAINT_KEYS,
+  TYPE_CONSTRAINT_MESSAGES,
+  VALIDATION_MESSAGES,
+} from './messages.js';
 import { validationExceptionFactory } from './validation-exception-factory.js';
 
 function error(
@@ -30,7 +36,8 @@ describe('validationExceptionFactory', () => {
     ).toBe('标题应为文本');
   });
 
-  it('带约束数值：maxLength 生成含边界的文案', () => {
+  it('带约束数值的模板不可达：数值文案为常量（本仓 DTO 未声明 validationOptions.context）', () => {
+    // 手工构造 contexts 也不会有人消费：模板不再取约束数值，保持「过大/过长」常量文案
     expect(
       messageOf([
         error(
@@ -41,19 +48,58 @@ describe('validationExceptionFactory', () => {
           { contexts: { maxLength: { constraints: [100] } } },
         ),
       ]),
-    ).toBe('标题长度不能超过 100 个字符');
+    ).toBe('标题过长');
   });
 
-  it('length 取 min/max 区间', () => {
+  it('类型类约束优先：null 命中 isString 而非注册在前的 min/max/length', () => {
+    // 模拟 `{"name": null}` 的真实约束序（装饰器自下而上注册，maxLength 在前）：
+    // 旧行为取第一个键报「名称过长」，对 null 是误导文案
+    const maxWidthLengthName = error('name', {
+      maxLength: 'name must be shorter than or equal to 100 characters',
+      minLength: 'name must be longer than or equal to 1 characters',
+      isString: 'name must be a string',
+    });
+    expect(messageOf([maxWidthLengthName])).toBe('名称应为文本');
+    // 模拟注册序 min/max 在前、无任何类型类约束命中（matches 不属于类型类）：
+    // 仍取第一个键，行为不变
     expect(
       messageOf([
-        error(
-          'username',
-          { length: 'username must be longer than or equal to 3 characters' },
-          { contexts: { length: { constraints: [3, 50] } } },
-        ),
+        error('title', {
+          maxLength: 'title must be shorter than or equal to 10 characters',
+          matches: 'title must match a pattern',
+        }),
       ]),
-    ).toBe('用户名长度应在 3-50 个字符之间');
+    ).toBe('标题过长');
+  });
+
+  it('缺失字段报「不能为空」而非「应为文本」（isNotEmpty 优先于 isString）', () => {
+    // 模拟 POST {account: undefined}（装饰器自下而上注册，IsString 在前）：
+    // isNotEmpty 与 isString 同失败，缺失比形态错更接近真实原因
+    expect(
+      messageOf([
+        error('account', {
+          isString: 'account must be a string',
+          isNotEmpty: 'account should not be empty',
+        }),
+      ]),
+    ).toBe('账号不能为空');
+  });
+
+  it('类型类优先清单由模板对象派生（不存在第二份需人工同步的表）', () => {
+    expect([...TYPE_CONSTRAINT_KEYS]).toEqual(
+      Object.keys(TYPE_CONSTRAINT_MESSAGES),
+    );
+    expect(
+      TYPE_CONSTRAINT_KEYS.every(
+        (key) => typeof VALIDATION_MESSAGES[key] === 'function',
+      ),
+    ).toBe(true);
+  });
+
+  it('每个模板都以字段标签产出非空文案（模板整体可被工厂消费）', () => {
+    for (const [key, template] of Object.entries(VALIDATION_MESSAGES)) {
+      expect(template('名称'), key).toContain('名称');
+    }
   });
 
   it('contexts 缺失时降级为不带数值的文案', () => {
