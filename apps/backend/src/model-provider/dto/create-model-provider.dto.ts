@@ -98,13 +98,18 @@ export class CreateModelProviderDto {
   contextLength: number;
 
   // ollama 通常无鉴权，允许省略；openai/anthropic 的必填由服务层按 vendor 校验。
-  // 与上同理用 @ValidateIf 而非 @IsOptional：省略（undefined）不校验，空串仍被 @MinLength 拦下，
-  // 显式 null 落到 400，且不会作为 IsOptional 条件被 PartialType 拷进更新 DTO 放行 null。
+  // 与上同理用 @ValidateIf 而非 @IsOptional：省略（undefined）不校验，显式 null 落到 400，
+  // 且不会作为 IsOptional 条件被 PartialType 拷进更新 DTO 放行 null。
+  // @Transform trim 后再校验：纯空白串是合法 string 且长度 ≥1，不 trim 会穿过
+  // @MinLength(1)，创建时在服务层变成「领域提示的 400」，更新时则静默清空已存 Key。
   @ApiPropertyOptional({
     description: 'API Key（明文传入，服务端加密存储）；ollama 可省略',
     minLength: 1,
     maxLength: MODEL_API_KEY_MAX_LENGTH,
   })
+  @Transform(({ value }): unknown =>
+    typeof value === 'string' ? value.trim() : (value as unknown),
+  )
   @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @MinLength(1)

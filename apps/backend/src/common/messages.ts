@@ -134,6 +134,12 @@ export const FIELD_LABELS: Record<string, string> = {
   visibility: '可见性',
   file: '文件',
   reasoning: '深度思考',
+  // 模型供应商
+  type: '类型',
+  vendor: '供应商',
+  contextLength: '上下文长度',
+  protocol: '协议',
+  apiKey: 'API Key',
 };
 
 export function fieldLabel(property: string): string {

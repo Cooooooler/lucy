@@ -36,12 +36,12 @@ const update = (value: unknown): Promise<UpdateModelProviderDto> =>
 // 中文自定义提示。字段与期望文案片段一一对应，语义断言而非仅字段名。
 const FAILURE_TEXT: Record<string, string> = {
   name: '名称应为文本',
-  type: 'type取值不合法',
-  vendor: 'vendor取值不合法',
+  type: '类型取值不合法',
+  vendor: '供应商取值不合法',
   baseUrl: 'Base URL',
-  contextLength: 'contextLength应为整数',
-  apiKey: 'apiKey应为文本',
-  protocol: 'protocol取值不合法',
+  contextLength: '上下文长度应为整数',
+  apiKey: 'API Key应为文本',
+  protocol: '协议取值不合法',
 };
 
 /** 断言被全局管道以 BadRequestException（= 路由层 400）拒绝，且失败文案落在指定期望片段上 */
@@ -96,10 +96,11 @@ describe('模型供应商 DTO 经全局 ValidationPipe', () => {
     );
   });
 
-  it('更新：合法值仍可经 PartialType 校验通过', async () => {
+  it('更新：合法值仍可经 PartialType 校验通过（基类 @Transform trim 随继承生效）', async () => {
     const dto = await update({ ...BASE_CREATE, name: '  qwen2  ' });
     expect(dto).toBeInstanceOf(UpdateModelProviderDto);
-    expect(dto.name?.trim()).toBe('qwen2');
+    // 断言不加 trim：恒真的期望值测不出 transformation metadata 是否随 PartialType 继承
+    expect(dto.name).toBe('qwen2');
     expect(dto.type).toBe(ModelProviderType.Llm);
     expect(dto.apiKey).toBeUndefined();
   });
@@ -131,7 +132,8 @@ describe('模型供应商 DTO 经全局 ValidationPipe', () => {
   });
 
   it('更新：空串与纯空白串被 400（留空必须表现为不发送该字段）', async () => {
-    // 空串是合法 string，IsString 通过，由 minLength 报「过短」——与 null 报「应为文本」区分开
+    // 空串/纯空白串（trim 后为空）是 IsString 的合法取值，由 minLength 报「过短」
+    // ——与 null 报「应为文本」区分开；apiKey trim 防止空白串穿过校验静默清空已存 Key
     await expectBadRequestOn(UpdateModelProviderDto, { name: '' }, '名称过短');
     await expectBadRequestOn(
       UpdateModelProviderDto,
@@ -141,7 +143,12 @@ describe('模型供应商 DTO 经全局 ValidationPipe', () => {
     await expectBadRequestOn(
       UpdateModelProviderDto,
       { apiKey: '' },
-      'apiKey过短',
+      'API Key过短',
+    );
+    await expectBadRequestOn(
+      UpdateModelProviderDto,
+      { apiKey: '   ' },
+      'API Key过短',
     );
   });
 });
