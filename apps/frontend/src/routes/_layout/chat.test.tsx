@@ -90,9 +90,21 @@ describe('routes/_layout/chat', () => {
   it('初始（无 id）渲染 Welcome + 发送框', () => {
     mockChat();
     renderChat({ id: undefined });
-    // Welcome 标题（英文通栏文案）
-    expect(screen.getByText(/Ant Design X/)).toBeInTheDocument();
+    // Welcome 标题（中文文案）
+    expect(screen.getByText('你好，我是 Lucy')).toBeInTheDocument();
+    // 空状态给出快捷提问入口
+    expect(screen.getByText('帮我排查一个线上报错')).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/输入消息/)).toBeInTheDocument();
+  });
+
+  it('点击快捷提问只填入输入框，不直接发送', () => {
+    const sendMock = vi.fn(async () => undefined);
+    mockChat({ send: sendMock });
+    renderChat({ id: undefined });
+    fireEvent.click(screen.getByText('帮我排查一个线上报错'));
+    const input = screen.getByPlaceholderText(/输入消息/) as HTMLInputElement;
+    expect(input.value).toBe('帮我排查一个线上报错');
+    expect(sendMock).not.toHaveBeenCalled();
   });
 
   it('loading 时渲染 Spin', () => {
