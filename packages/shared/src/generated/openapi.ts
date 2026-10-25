@@ -966,7 +966,10 @@ export interface components {
              * @example 50
              */
             semanticWeight: number;
-            /** @description 重排模型配置 ID；null 表示不重排 */
+            /**
+             * Format: uuid
+             * @description 重排模型配置 ID；null 表示不重排
+             */
             rerankModelId: string | null;
             /**
              * Format: date-time

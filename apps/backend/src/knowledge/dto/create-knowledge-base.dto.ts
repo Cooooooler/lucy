@@ -19,10 +19,34 @@ import {
   IsUUID,
   Max,
   Min,
+  Validate,
   ValidateIf,
+  ValidationArguments,
+  ValidatorConstraint,
+  type ValidatorConstraintInterface,
 } from 'class-validator';
+import { fieldLabel } from '../../common/messages.js';
 import { KnowledgeRetrievalMode } from '../entities/knowledge-base.entity.js';
 import { KnowledgeBaseContentDto } from './knowledge-base-content.dto.js';
+
+/**
+ * 「启用 Score 阈值 ⇒ 阈值严格大于 0」的跨字段规则。
+ *
+ * 不能直接用 `@IsPositive` + `@ValidateIf(enabled)`：那会让「关闭阈值时显式传 0」
+ * 也失败，而 0 正是列默认值。这里在同一个校验器里读同一对象的开关。
+ */
+@ValidatorConstraint({ name: 'scoreThresholdWhenEnabled' })
+class ScoreThresholdWhenEnabled implements ValidatorConstraintInterface {
+  validate(value: unknown, args: ValidationArguments): boolean {
+    const object = args.object as CreateKnowledgeBaseDto;
+    if (object.scoreThresholdEnabled !== true) return true;
+    return typeof value === 'number' && value > KNOWLEDGE_SCORE_THRESHOLD_MIN;
+  }
+
+  defaultMessage(args: ValidationArguments): string {
+    return `${fieldLabel(args.property)}应大于 0`;
+  }
+}
 
 /**
  * 创建知识库参数：内容字段 + 检索设置（检索设置仅创建时可写）。
@@ -62,10 +86,18 @@ export class CreateKnowledgeBaseDto extends KnowledgeBaseContentDto {
   @ApiPropertyOptional({
     description: `Score 阈值（仅启用时生效，省略时默认 ${KNOWLEDGE_SCORE_THRESHOLD_DEFAULT}；启用时必须大于 0）`,
     minimum: KNOWLEDGE_SCORE_THRESHOLD_MIN,
+    // OpenAPI 3.0：minimum + exclusiveMinimum=true 表示开区间 (0, max]
+    exclusiveMinimum: true,
     maximum: KNOWLEDGE_SCORE_THRESHOLD_MAX,
   })
-  @ValidateIf((_object, value) => value !== undefined)
+  // 提供值就校验；或虽然省略但启用了阈值——此时必须在 DTO 层拦下 Required/Positive，
+  // 否则错误只能由服务层兜底，拿不到字段级中文文案
+  @ValidateIf(
+    (object: CreateKnowledgeBaseDto, value) =>
+      value !== undefined || object.scoreThresholdEnabled === true,
+  )
   @IsNumber()
+  @Validate(ScoreThresholdWhenEnabled)
   @Min(KNOWLEDGE_SCORE_THRESHOLD_MIN)
   @Max(KNOWLEDGE_SCORE_THRESHOLD_MAX)
   scoreThreshold?: number;

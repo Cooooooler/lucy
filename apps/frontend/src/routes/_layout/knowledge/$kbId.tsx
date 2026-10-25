@@ -54,10 +54,12 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
 
   const kbQuery = useKnowledgeBase(kbId);
   // 检索设置里只存了 rerank 模型 ID，展示名称需要按类型取一次模型列表。
-  // 无条件请求、与详情并行：该 queryKey 与模型管理页共享（staleTime Infinity +
-  // refetchOnMount=false），命中缓存时 0 请求；若按 kb 的引用门控，其余标签先到、
-  // 「重排：xxx」要晚一个 RTT 才补上，页头会二次跳动。
-  const { models: rerankModels } = useModelProvidersByType('rerank');
+  // 只有真的引用了重排模型才请求：默认 rerankModelId 为 null，此时按 id 找名字
+  // 永远不会命中；而模型管理页的列表 limit=20、这里是 100，缓存 key 不同，不共享。
+  const { models: rerankModels } = useModelProvidersByType(
+    'rerank',
+    Boolean(kbQuery.data?.rerankModelId),
+  );
   const kb = kbQuery.data;
   const rerankModelName = rerankModels.find(
     (model) => model.id === kb?.rerankModelId,

@@ -398,6 +398,8 @@ describe('gen-openapi', () => {
     });
     expect(propOf('CreateKnowledgeBaseDto', 'scoreThreshold')).toMatchObject({
       minimum: KNOWLEDGE_SCORE_THRESHOLD_MIN,
+      // 启用阈值时下界是开区间（0 只用于「关闭」的默认值）
+      exclusiveMinimum: true,
       maximum: KNOWLEDGE_SCORE_THRESHOLD_MAX,
     });
     expect(propOf('CreateKnowledgeBaseDto', 'semanticWeight')).toMatchObject({
@@ -406,6 +408,11 @@ describe('gen-openapi', () => {
     });
     expect(propOf('CreateKnowledgeBaseDto', 'rerankModelId')).toMatchObject({
       format: 'uuid',
+    });
+    // 条目契约（对外响应）与创建契约的类型信息必须一致
+    expect(propOf('KnowledgeBaseItemDto', 'rerankModelId')).toMatchObject({
+      format: 'uuid',
+      nullable: true,
     });
     // 检索设置只在创建时确定：更新契约里不得出现这些字段（否则 PATCH 能改）
     for (const field of [

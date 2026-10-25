@@ -122,6 +122,24 @@ describe('知识库 DTO 经全局 ValidationPipe', () => {
     expect(dto.rerankModelId).toBeUndefined();
   });
 
+  it('创建：启用 Score 阈值时必须在 DTO 层大于 0（字段级 400）', async () => {
+    const base = { name: 'x', description: 'd' };
+    await expect(
+      create({ ...base, scoreThresholdEnabled: true, scoreThreshold: 0 }),
+    ).rejects.toThrow(/Score 阈值应大于 0/);
+    // 启用但省略阈值同样拦下（服务层只剩兜底）
+    await expect(
+      create({ ...base, scoreThresholdEnabled: true }),
+    ).rejects.toThrow(/Score 阈值/);
+    // 关闭时 0 是合法默认值（可以省略、也可以显式给）
+    await expect(
+      create({ ...base, scoreThresholdEnabled: false, scoreThreshold: 0 }),
+    ).resolves.toBeInstanceOf(CreateKnowledgeBaseDto);
+    await expect(create({ ...base })).resolves.toBeInstanceOf(
+      CreateKnowledgeBaseDto,
+    );
+  });
+
   it('创建：非法检索模式 / 越界数值被 400', async () => {
     const base = { name: 'x', description: 'd' };
     await expect(

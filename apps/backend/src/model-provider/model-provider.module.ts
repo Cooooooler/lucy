@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommonModule } from '../common/common.module.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
+import { KnowledgeReferencesModule } from '../knowledge/knowledge-references.module.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import { ModelProvider } from './entities/model-provider.entity.js';
 import { UserDefaultModel } from './entities/user-default-model.entity.js';
@@ -16,7 +17,8 @@ import { ModelProviderService } from './model-provider.service.js';
     CommonModule,
     // KeysetPaginator 与领域无关，由 common 侧的模块提供，这里只消费
     PaginationModule,
-    // RERANK_REFERENCE_PORT 由全局模块 KnowledgeReferencesModule 提供（AppModule 注册）
+    // RERANK_REFERENCE_PORT：知识库侧实现、这里显式引入（无反向依赖，不成环）
+    KnowledgeReferencesModule,
     TypeOrmModule.forFeature([ModelProvider, UserDefaultModel]),
   ],
   controllers: [ModelProviderController],

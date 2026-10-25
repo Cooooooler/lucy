@@ -12,7 +12,6 @@ import { CommonModule } from './common/common.module.js';
 import { envValidationSchema } from './common/env-validation.schema.js';
 import { loggerModuleOptions } from './common/logger-options.js';
 import { HealthModule } from './health/health.module.js';
-import { KnowledgeReferencesModule } from './knowledge/knowledge-references.module.js';
 import { KnowledgeModule } from './knowledge/knowledge.module.js';
 import { ModelProviderModule } from './model-provider/model-provider.module.js';
 import { UsersModule } from './users/users.module.js';
@@ -87,8 +86,6 @@ export function fileModuleOptions(config: ConfigService) {
       inject: [ConfigService],
       useFactory: fileModuleOptions,
     }),
-    // 全局窄端口：模型域清空知识库重排引用（实现留在 knowledge 领域）
-    KnowledgeReferencesModule,
     KnowledgeModule,
     ModelProviderModule,
     HealthModule,

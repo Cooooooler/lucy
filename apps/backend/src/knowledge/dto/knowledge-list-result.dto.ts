@@ -58,6 +58,7 @@ export class KnowledgeBaseItemDto {
   @ApiProperty({
     description: '重排模型配置 ID；null 表示不重排',
     type: String,
+    format: 'uuid',
     nullable: true,
   })
   rerankModelId: string | null;
