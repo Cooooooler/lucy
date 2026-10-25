@@ -66,3 +66,5 @@ components.json
 .commandcode
 **/.vitepress/cache
 /apps/backend/uploads/
+# OpenPencil 组件库 catalog（体积大，可由 designs/antd-resources.fig 重新发布生成）
+/designs/library/
