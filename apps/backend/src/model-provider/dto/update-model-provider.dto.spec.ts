@@ -40,7 +40,7 @@ const FAILURE_TEXT: Record<string, string> = {
   vendor: '供应商取值不合法',
   baseUrl: 'Base URL',
   contextLength: '上下文长度应为整数',
-  apiKey: 'API Key应为文本',
+  apiKey: '接口密钥应为文本',
   protocol: '协议取值不合法',
 };
 
@@ -143,12 +143,12 @@ describe('模型供应商 DTO 经全局 ValidationPipe', () => {
     await expectBadRequestOn(
       UpdateModelProviderDto,
       { apiKey: '' },
-      'API Key过短',
+      '接口密钥过短',
     );
     await expectBadRequestOn(
       UpdateModelProviderDto,
       { apiKey: '   ' },
-      'API Key过短',
+      '接口密钥过短',
     );
   });
 });

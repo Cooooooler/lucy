@@ -139,7 +139,7 @@ export const FIELD_LABELS: Record<string, string> = {
   vendor: '供应商',
   contextLength: '上下文长度',
   protocol: '协议',
-  apiKey: 'API Key',
+  apiKey: '接口密钥',
 };
 
 export function fieldLabel(property: string): string {
