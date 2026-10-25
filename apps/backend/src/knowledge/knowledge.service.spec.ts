@@ -38,7 +38,9 @@ describe('KnowledgeService', () => {
   };
   const kbRepo = {
     findOne: vi.fn(),
+    findOneByOrFail: vi.fn(),
     save: vi.fn(),
+    update: vi.fn(),
     createQueryBuilder: vi.fn(),
     manager: { transaction: vi.fn() },
   };
@@ -237,21 +239,13 @@ describe('KnowledgeService', () => {
     expect(asOther.rerankModelId).toBeNull();
   });
 
-  it('update 不修改检索设置（只动内容字段）', async () => {
+  it('update 只写 DTO 中出现的列，不碰检索设置', async () => {
     kbRepo.findOne.mockResolvedValue(makeKb());
-    kbRepo.save.mockResolvedValue(makeKb({ name: 'y' }));
+    kbRepo.findOneByOrFail.mockResolvedValue(makeKb({ name: 'y' }));
     await service.update('u1', KB_ID, { name: 'y' });
-    expect(kbRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'y',
-        retrievalMode: KnowledgeRetrievalMode.FullText,
-        topK: 5,
-        scoreThresholdEnabled: false,
-        scoreThreshold: 0,
-        semanticWeight: 50,
-        rerankModelId: null,
-      }),
-    );
+    // 整实体 save 会把并发清空后的 rerank_model_id 写回，这里必须只更新显式字段
+    expect(kbRepo.update).toHaveBeenCalledWith({ id: KB_ID }, { name: 'y' });
+    expect(kbRepo.save).not.toHaveBeenCalled();
   });
 
   it('get 属主可读，附带 likeCount/isLiked', async () => {
@@ -282,7 +276,8 @@ describe('KnowledgeService', () => {
     const listed = await service.list('u1', {});
 
     kbRepo.findOne.mockResolvedValue(makeKb());
-    kbRepo.save.mockResolvedValue(makeKb());
+    kbRepo.update.mockResolvedValue({ affected: 1 });
+    kbRepo.findOneByOrFail.mockResolvedValue(makeKb());
     const updated = await service.update('u1', KB_ID, { name: 'y' });
 
     for (const [endpoint, item] of Object.entries({
@@ -300,7 +295,7 @@ describe('KnowledgeService', () => {
 
   it('update 回填点赞态（更新后仍与 get/list 同形，不谎报 0/false）', async () => {
     kbRepo.findOne.mockResolvedValue(makeKb());
-    kbRepo.save.mockResolvedValue(makeKb());
+    kbRepo.findOneByOrFail.mockResolvedValue(makeKb());
     const likeQb = makeLikeQb();
     likeQb.getRawMany.mockResolvedValue([{ kbId: KB_ID, cnt: '3' }]);
     likeRepo.createQueryBuilder.mockReturnValue(likeQb);
@@ -462,19 +457,31 @@ describe('KnowledgeService', () => {
     );
   });
 
-  it('update 属主更新全字段并保存', async () => {
+  it('update 属主按显式字段做列级更新并回读', async () => {
     const kbEntity = makeKb();
     kbRepo.findOne.mockResolvedValue(kbEntity);
-    kbRepo.save.mockResolvedValue(kbEntity);
+    kbRepo.update.mockResolvedValue({ affected: 1 });
+    kbRepo.findOneByOrFail.mockResolvedValue(
+      makeKb({
+        name: 'y',
+        description: 'd',
+        visibility: KnowledgeBaseVisibility.Public,
+      }),
+    );
     await service.update('u1', 'kb1', {
       name: 'y',
       description: 'd',
       visibility: KnowledgeBaseVisibility.Public,
     });
-    expect(kbEntity.name).toBe('y');
-    expect(kbEntity.description).toBe('d');
-    expect(kbEntity.visibility).toBe(KnowledgeBaseVisibility.Public);
-    expect(kbRepo.save).toHaveBeenCalledWith(kbEntity);
+    expect(kbRepo.update).toHaveBeenCalledWith(
+      { id: kbEntity.id },
+      {
+        name: 'y',
+        description: 'd',
+        visibility: KnowledgeBaseVisibility.Public,
+      },
+    );
+    expect(kbRepo.save).not.toHaveBeenCalled();
   });
 
   it('update 知识库不存在抛 404', async () => {

@@ -463,7 +463,7 @@ describe('Knowledge pagination (keyset + page) & serialization (e2e)', () => {
     );
   });
 
-  it('删除重排模型后知识库的 rerankModelId 置空（FK ON DELETE SET NULL）', async () => {
+  it('删除重排模型后知识库的 rerankModelId 置空（同事务清理 + FK 兜底）', async () => {
     const auth = `Bearer ${token}`;
     const model = await request(server)
       .post('/v1/model-providers')

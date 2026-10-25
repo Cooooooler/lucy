@@ -263,10 +263,18 @@ export class KnowledgeService {
     dto: UpdateKnowledgeBaseDto,
   ): Promise<KnowledgeBaseItemDto> {
     const kb = await resolveOwnedKb(this.kbRepo, id, userId);
-    if (dto.name !== undefined) kb.name = dto.name;
-    if (dto.description !== undefined) kb.description = dto.description;
-    if (dto.visibility !== undefined) kb.visibility = dto.visibility;
-    const saved = await this.kbRepo.save(kb);
+    const patch: Partial<KnowledgeBase> = {};
+    if (dto.name !== undefined) patch.name = dto.name;
+    if (dto.description !== undefined) patch.description = dto.description;
+    if (dto.visibility !== undefined) patch.visibility = dto.visibility;
+    // 只写 DTO 中显式出现的列，不对整实体做 save：整实体 diff 会把读到的旧
+    // rerank_model_id 与「并发改模型类型已清空」的库值比较后判为变更并写回，
+    // 让刚失效的引用复活（检索设置创建后不可改，写回即无法修正）。
+    let saved = kb;
+    if (Object.keys(patch).length > 0) {
+      await this.kbRepo.update({ id: kb.id }, patch);
+      saved = await this.kbRepo.findOneByOrFail({ id: kb.id });
+    }
     // 点赞态同样要回填：响应形状必须与 get/list 完全一致，
     // 否则 mapper 的兜底会把「已点赞」谎报成 0/false。
     await this.fillLikeInfo(userId, [saved]);

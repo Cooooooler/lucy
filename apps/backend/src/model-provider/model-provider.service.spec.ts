@@ -35,7 +35,7 @@ describe('ModelProviderService', () => {
     createQueryBuilder: vi.fn(),
     manager: { transaction: vi.fn() },
   };
-  const txProviders = { findOne: vi.fn() };
+  const txProviders = { findOne: vi.fn(), delete: vi.fn() };
   const tx = {
     getRepository: vi.fn(() => txProviders),
     save: vi.fn(),
@@ -322,15 +322,21 @@ describe('ModelProviderService', () => {
     expect(tx.save).not.toHaveBeenCalled();
   });
 
-  it('remove 按属主删除；未命中 404', async () => {
-    repo.delete.mockResolvedValueOnce({ affected: 1 });
+  it('remove 按属主删除，并在同一事务里清空知识库引用；未命中 404', async () => {
+    txProviders.findOne.mockResolvedValue(makeModelProvider());
+    txProviders.delete.mockResolvedValueOnce({ affected: 1 });
     await expect(service.remove('u1', MODEL_ID)).resolves.toBeNull();
-    expect(repo.delete).toHaveBeenCalledWith({ id: MODEL_ID, ownerId: 'u1' });
+    expect(rerankReferences.clearForModel).toHaveBeenCalledWith(tx, MODEL_ID);
+    expect(txProviders.delete).toHaveBeenCalledWith({
+      id: MODEL_ID,
+      ownerId: 'u1',
+    });
 
-    repo.delete.mockResolvedValueOnce({ affected: 0 });
+    txProviders.findOne.mockResolvedValue(null);
     await expect(service.remove('u1', MODEL_ID)).rejects.toThrow(
       NotFoundException,
     );
+    expect(txProviders.delete).toHaveBeenCalledTimes(1);
   });
 
   it('create/get/list 字段集一致', async () => {
