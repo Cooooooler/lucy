@@ -68,6 +68,19 @@ describe('validationExceptionFactory', () => {
     ).toBe('标题过长');
   });
 
+  it('缺失字段报「不能为空」而非「应为文本」（isNotEmpty 优先于 isString）', () => {
+    // 模拟 POST {account: undefined}（装饰器自下而上注册，IsString 在前）：
+    // isNotEmpty 与 isString 同失败，缺失比形态错更接近真实原因
+    expect(
+      messageOf([
+        error('account', {
+          isString: 'account must be a string',
+          isNotEmpty: 'account should not be empty',
+        }),
+      ]),
+    ).toBe('账号不能为空');
+  });
+
   it('类型类约束优先清单与模板一一对应（遗漏会静默复发误导文案）', () => {
     expect(
       TYPE_CONSTRAINT_KEYS.every(

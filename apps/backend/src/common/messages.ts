@@ -173,6 +173,10 @@ export type ValidationMessageFn = (label: string) => string;
  * 一致性用例）；新增类型类模板时同步归类进来。
  */
 export const TYPE_CONSTRAINT_KEYS = [
+  // 「缺失/为空」比「形态错」更接近真实原因：`POST /v1/auth/login` 发送 {} 时若
+  // isString 先命中会报「账号应为文本」而非「账号不能为空」；传了非空错误类型
+  //（如 {account: 123}）isNotEmpty 不会失败，仍落到 isString
+  'isNotEmpty',
   'isString',
   'isNumber',
   'isInt',
