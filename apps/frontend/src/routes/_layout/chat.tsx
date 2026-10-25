@@ -256,13 +256,19 @@ const ThinkingBlock = ({
   );
 };
 
-const renderMarkdown: BubbleProps['contentRender'] = (content, info) => {
-  // info.extraInfo 为完整 ChatMessage：ai 消息若带 thinking（深度思考）则用 Think 折叠展示
-  const msg = (info?.extraInfo ?? {}) as ChatMessage;
-  const thinking = msg.thinking;
+/**
+ * 单条消息正文。必须是独立组件（PascalCase）：模块级普通函数每次调用都新建
+ * `<XMarkdown>` 元素，流式期间每条 delta 会让全部历史消息整段重新解析 markdown；
+ * 抽成组件后 React Compiler 可按 props 缓存，只有正在流式的那条需要重新解析。
+ */
+const MessageBody: FC<{
+  content: string;
+  thinking?: string;
+  streaming?: boolean;
+  truncated?: boolean;
+}> = ({ content, thinking, streaming, truncated }) => {
   // 思考进行中 = 还在流式且尚未产出回答
-  const thinkingActive =
-    Boolean(thinking) && Boolean(msg.streaming) && !msg.content;
+  const thinkingActive = Boolean(thinking) && Boolean(streaming) && !content;
   return (
     <div className={'flex flex-col gap-2'}>
       {thinking ? (
@@ -271,12 +277,25 @@ const renderMarkdown: BubbleProps['contentRender'] = (content, info) => {
         </ThinkingBlock>
       ) : null}
       <XMarkdown content={content} components={MARKDOWN_COMPONENTS} />
-      {msg.truncated ? (
+      {truncated ? (
         <div className="text-xs text-amber-600">
           ⚠️ 回复被截断（已达长度上限），可重新发送后再试
         </div>
       ) : null}
     </div>
+  );
+};
+
+const renderMarkdown: BubbleProps['contentRender'] = (content, info) => {
+  // info.extraInfo 为完整 ChatMessage：ai 消息若带 thinking（深度思考）则用 Think 折叠展示
+  const msg = (info?.extraInfo ?? {}) as ChatMessage;
+  return (
+    <MessageBody
+      content={content}
+      thinking={msg.thinking}
+      streaming={msg.streaming}
+      truncated={msg.truncated}
+    />
   );
 };
 
@@ -532,6 +551,12 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
     setAtBottom((prev) => (prev === next ? prev : next));
   }
 
+  /** 清空输入框：普通模式清受控值，词槽模式由 Sender 内部重置 */
+  function clearInput() {
+    senderRef.current?.clear?.();
+    setValue('');
+  }
+
   /** # 发送消息
    * @param text
    * 首条消息无感创建会话：若 id 缺省，先创建会话，再对新会话 id 发送消息；否则直接发送。
@@ -539,12 +564,10 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
    */
   async function handleSubmit(text: string) {
     const content = text.trim();
-    // 提交后清空输入：普通模式清受控值，词槽模式由 Sender 内部重置
-    senderRef.current?.clear?.();
-    setValue('');
-    // 空内容 / 无可用模型不发起发送（输入框已禁用，这里是双保险）
+    // 廉价校验放在清空之前：空内容 / 无可用模型时保留用户输入
     if (!content || !modelProviderId) return;
     if (id) {
+      clearInput();
       await send(id, content, { reasoning, modelProviderId });
       return;
     }
@@ -554,6 +577,8 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
       // 让选择跟随新会话，避免导航到新 id 后回落成默认模型
       setModelOverride({ conversationId: conv.id, id: modelProviderId });
       await navigate({ to: '/chat', search: { id: conv.id }, replace: true });
+      // 会话创建成功后再清空：创建失败时用户输入不会被吞掉
+      clearInput();
       void send(conv.id, content, { reasoning, modelProviderId });
     } finally {
       setCreatingFalse();
@@ -668,11 +693,10 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
           ref={senderRef}
           skill={skill}
           slotConfig={assistant?.slotConfig}
-          // 词槽模式下 value 不生效（由 Sender 内部维护 slot 内容），交回非受控
-          value={assistant ? undefined : value}
-          onChange={(next) => {
-            if (!assistant) setValue(next);
-          }}
+          // 始终受控：词槽模式下 onChange 拿到的是拼好的整句，这里只做镜像。
+          // 这样关掉 skill 标签回到自由输入时，刚填好的内容仍留在输入框里
+          value={value}
+          onChange={setValue}
           onSubmit={(text) => {
             void handleSubmit(text);
           }}
