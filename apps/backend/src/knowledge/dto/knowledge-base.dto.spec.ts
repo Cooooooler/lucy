@@ -1,7 +1,9 @@
+import { getMetadataStorage } from 'class-validator';
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { createValidationPipe } from '../../common/validation-pipe.js';
 import { CreateKnowledgeBaseDto } from './create-knowledge-base.dto.js';
+import { KnowledgeBaseContentDto } from './knowledge-base-content.dto.js';
 import { UpdateKnowledgeBaseDto } from './update-knowledge-base.dto.js';
 
 /**
@@ -126,11 +128,11 @@ describe('知识库 DTO 经全局 ValidationPipe', () => {
     const base = { name: 'x', description: 'd' };
     await expect(
       create({ ...base, scoreThresholdEnabled: true, scoreThreshold: 0 }),
-    ).rejects.toThrow(/Score 阈值应大于 0/);
-    // 启用但省略阈值同样拦下（服务层只剩兜底）
+    ).rejects.toThrow('Score 阈值应大于 0');
+    // 启用但省略阈值同样拦下，且文案稳定为同一条（不再依赖约束注册顺序）
     await expect(
       create({ ...base, scoreThresholdEnabled: true }),
-    ).rejects.toThrow(/Score 阈值/);
+    ).rejects.toThrow('Score 阈值应大于 0');
     // 关闭时 0 是合法默认值（可以省略、也可以显式给）
     await expect(
       create({ ...base, scoreThresholdEnabled: false, scoreThreshold: 0 }),
@@ -138,6 +140,17 @@ describe('知识库 DTO 经全局 ValidationPipe', () => {
     await expect(create({ ...base })).resolves.toBeInstanceOf(
       CreateKnowledgeBaseDto,
     );
+  });
+
+  it('内容字段清单与 update() 的映射范围一致（新增字段必须同步）', () => {
+    // update() 手写了 name/description/visibility 的映射；DTO 新增内容字段时
+    // 校验白名单会放行，但 update() 不会写——这条断言让漂移变红
+    const props = new Set(
+      getMetadataStorage()
+        .getTargetValidationMetadatas(KnowledgeBaseContentDto, '', false, false)
+        .map((metadata) => metadata.propertyName),
+    );
+    expect([...props].sort()).toEqual(['description', 'name', 'visibility']);
   });
 
   it('创建：非法检索模式 / 越界数值被 400', async () => {

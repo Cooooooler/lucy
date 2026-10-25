@@ -1,7 +1,13 @@
 /// <reference types="vite/client" />
+import {
+  KNOWLEDGE_SCORE_THRESHOLD_DEFAULT,
+  KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
+  KNOWLEDGE_TOP_K_DEFAULT,
+} from '@lucy/shared';
 import { instanceToPlain } from 'class-transformer';
 import { getMetadataArgsStorage } from 'typeorm';
 import { describe, expect, it } from 'vitest';
+import { KnowledgeBase } from './knowledge/entities/knowledge-base.entity.js';
 import { User } from './users/user.entity.js';
 
 /**
@@ -196,6 +202,23 @@ describe('出站序列化契约', () => {
         `${Entity.name} 的出网字段集变了：内部字段请加 @Exclude()，对外字段请登记进 ALLOWED_OUTBOUND_KEYS`,
       ).toEqual([...(ALLOWED_OUTBOUND_KEYS[Entity.name] ?? [])].sort());
     }
+  });
+
+  it('知识库检索列的默认值与 @lucy/shared 常量一致（避免两套默认值）', () => {
+    const defaults = new Map(
+      getMetadataArgsStorage()
+        .columns.filter((column) => column.target === KnowledgeBase)
+        .map((column) => [column.propertyName, column.options.default]),
+    );
+    // 列默认值刻意写字面量（迁移稳定性）——常量和字面量必须同步，否则新库会
+    // 用旧默认值，而 service 写入用新默认值，migration:generate 也不会察觉
+    expect(defaults.get('topK')).toBe(KNOWLEDGE_TOP_K_DEFAULT);
+    expect(defaults.get('scoreThreshold')).toBe(
+      KNOWLEDGE_SCORE_THRESHOLD_DEFAULT,
+    );
+    expect(defaults.get('semanticWeight')).toBe(
+      KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
+    );
   });
 
   it('User 序列化剔除 passwordHash', () => {

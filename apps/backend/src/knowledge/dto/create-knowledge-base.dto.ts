@@ -14,7 +14,6 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
-  IsNumber,
   IsOptional,
   IsUUID,
   Max,
@@ -37,14 +36,29 @@ import { KnowledgeBaseContentDto } from './knowledge-base-content.dto.js';
  */
 @ValidatorConstraint({ name: 'scoreThresholdWhenEnabled' })
 class ScoreThresholdWhenEnabled implements ValidatorConstraintInterface {
+  // 类型/闭区间/条件开区间合并到同一个约束：多个约束同时失败时
+  // validationExceptionFactory 只取第一条文案，顺序不可控会给出误导性的错误
   validate(value: unknown, args: ValidationArguments): boolean {
-    const object = args.object as CreateKnowledgeBaseDto;
-    if (object.scoreThresholdEnabled !== true) return true;
-    return typeof value === 'number' && value > KNOWLEDGE_SCORE_THRESHOLD_MIN;
+    const enabled =
+      (args.object as CreateKnowledgeBaseDto).scoreThresholdEnabled === true;
+    if (value === undefined) return !enabled;
+    if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+    if (
+      value < KNOWLEDGE_SCORE_THRESHOLD_MIN ||
+      value > KNOWLEDGE_SCORE_THRESHOLD_MAX
+    ) {
+      return false;
+    }
+    return !enabled || value > KNOWLEDGE_SCORE_THRESHOLD_MIN;
   }
 
   defaultMessage(args: ValidationArguments): string {
-    return `${fieldLabel(args.property)}应大于 0`;
+    const enabled =
+      (args.object as CreateKnowledgeBaseDto).scoreThresholdEnabled === true;
+    const label = fieldLabel(args.property);
+    return enabled
+      ? `${label}应大于 0`
+      : `${label}应在 ${KNOWLEDGE_SCORE_THRESHOLD_MIN} 到 ${KNOWLEDGE_SCORE_THRESHOLD_MAX} 之间`;
   }
 }
 
@@ -96,10 +110,7 @@ export class CreateKnowledgeBaseDto extends KnowledgeBaseContentDto {
     (object: CreateKnowledgeBaseDto, value) =>
       value !== undefined || object.scoreThresholdEnabled === true,
   )
-  @IsNumber()
   @Validate(ScoreThresholdWhenEnabled)
-  @Min(KNOWLEDGE_SCORE_THRESHOLD_MIN)
-  @Max(KNOWLEDGE_SCORE_THRESHOLD_MAX)
   scoreThreshold?: number;
 
   @ApiPropertyOptional({
