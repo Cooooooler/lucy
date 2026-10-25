@@ -84,10 +84,10 @@ export class CreateKnowledgeBaseDto extends KnowledgeBaseContentDto {
   scoreThresholdEnabled?: boolean;
 
   @ApiPropertyOptional({
-    description: `Score 阈值（仅启用时生效，省略时默认 ${KNOWLEDGE_SCORE_THRESHOLD_DEFAULT}；启用时必须大于 0）`,
+    description: `Score 阈值（仅启用时生效，省略时默认 ${KNOWLEDGE_SCORE_THRESHOLD_DEFAULT}；关闭阈值时允许 0，启用时必须大于 0）`,
+    // 文档边界与运行时接受的闭区间保持一致：0 在「关闭阈值」时合法（也是列默认值），
+    // 「启用时 > 0」是条件规则，OpenAPI 3.0 无法表达，只能写进 description
     minimum: KNOWLEDGE_SCORE_THRESHOLD_MIN,
-    // OpenAPI 3.0：minimum + exclusiveMinimum=true 表示开区间 (0, max]
-    exclusiveMinimum: true,
     maximum: KNOWLEDGE_SCORE_THRESHOLD_MAX,
   })
   // 提供值就校验；或虽然省略但启用了阈值——此时必须在 DTO 层拦下 Required/Positive，

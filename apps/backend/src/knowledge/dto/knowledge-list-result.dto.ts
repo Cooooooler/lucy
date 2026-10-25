@@ -56,7 +56,8 @@ export class KnowledgeBaseItemDto {
   semanticWeight: number;
 
   @ApiProperty({
-    description: '重排模型配置 ID；null 表示不重排',
+    description:
+      '重排模型配置 ID；null 表示未配置重排，或读取者不是属主（公开库不暴露属主私有的模型标识）',
     type: String,
     format: 'uuid',
     nullable: true,

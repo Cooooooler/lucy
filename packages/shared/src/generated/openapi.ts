@@ -916,7 +916,7 @@ export interface components {
             topK?: number;
             /** @description 是否启用 Score 阈值过滤（省略时默认关闭） */
             scoreThresholdEnabled?: boolean;
-            /** @description Score 阈值（仅启用时生效，省略时默认 0；启用时必须大于 0） */
+            /** @description Score 阈值（仅启用时生效，省略时默认 0；关闭阈值时允许 0，启用时必须大于 0） */
             scoreThreshold?: number;
             /** @description 混合检索的语义权重（关键词权重 = 100 - 该值，省略时默认 50） */
             semanticWeight?: number;
@@ -968,7 +968,7 @@ export interface components {
             semanticWeight: number;
             /**
              * Format: uuid
-             * @description 重排模型配置 ID；null 表示不重排
+             * @description 重排模型配置 ID；null 表示未配置重排，或读取者不是属主（公开库不暴露属主私有的模型标识）
              */
             rerankModelId: string | null;
             /**

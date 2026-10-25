@@ -397,9 +397,8 @@ describe('gen-openapi', () => {
       maximum: KNOWLEDGE_TOP_K_MAX,
     });
     expect(propOf('CreateKnowledgeBaseDto', 'scoreThreshold')).toMatchObject({
+      // 闭区间与运行时一致；「启用时 > 0」是条件规则，只写在 description 里
       minimum: KNOWLEDGE_SCORE_THRESHOLD_MIN,
-      // 启用阈值时下界是开区间（0 只用于「关闭」的默认值）
-      exclusiveMinimum: true,
       maximum: KNOWLEDGE_SCORE_THRESHOLD_MAX,
     });
     expect(propOf('CreateKnowledgeBaseDto', 'semanticWeight')).toMatchObject({
