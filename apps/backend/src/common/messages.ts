@@ -140,7 +140,7 @@ export const FIELD_LABELS: Record<string, string> = {
   contextLength: '上下文长度',
   protocol: '协议',
   apiKey: '接口密钥',
-  baseUrl: 'Base URL',
+  baseUrl: '接口地址',
 };
 
 export function fieldLabel(property: string): string {
@@ -164,37 +164,22 @@ export function fieldLabel(property: string): string {
 export type ValidationMessageFn = (label: string) => string;
 
 /**
- * 类型类约束（描述「值的形态错了」）的优先级清单。
+ * 类型类约束（描述「值的形态/存在性错了」）：同一对象既是优先级清单的来源，
+ * 也是文案模板的来源，不存在两份需要人工同步的表。
  *
  * 校验工厂在失败约束里优先取这里列出的键：`error.constraints` 的键序跟随装饰器注册顺序
  * （自下而上），min/max/minLength/maxLength 常注册在前——`{"name": null}` 这类「类型与
- * 长度都失败」的载荷会先命中长度约束，报「名称过大/过长」这类与真实原因无关的文案。
- * 必须与下方 `VALIDATION_MESSAGES` 一一对应（见 validation-exception-factory.spec 的
- * 一致性用例）；新增类型类模板时同步归类进来。
+ * 长度都失败」的载荷会先命中长度约束，报「过大/过长」这类与真实原因无关的文案。
+ * 新增类型类约束时在对象里加一条即可（键即优先级序：靠前更优先）。
  */
-export const TYPE_CONSTRAINT_KEYS = [
+export const TYPE_CONSTRAINT_MESSAGES = {
   // 「缺失/为空」比「形态错」更接近真实原因：`POST /v1/auth/login` 发送 {} 时若
   // isString 先命中会报「账号应为文本」而非「账号不能为空」；传了非空错误类型
   //（如 {account: 123}）isNotEmpty 不会失败，仍落到 isString
-  'isNotEmpty',
-  'isString',
-  'isNumber',
-  'isInt',
-  'isBoolean',
-  'isEmail',
-  'isUUID',
-  'isUrl',
-  'isEnum',
-  'isIn',
-  'isArray',
-  'isObject',
-] as const;
-
-export const VALIDATION_MESSAGES: Record<string, ValidationMessageFn> = {
-  isString: (label) => `${label}应为文本`,
   isNotEmpty: (label) => `${label}不能为空`,
-  isInt: (label) => `${label}应为整数`,
+  isString: (label) => `${label}应为文本`,
   isNumber: (label) => `${label}应为数字`,
+  isInt: (label) => `${label}应为整数`,
   isBoolean: (label) => `${label}应为 true 或 false`,
   isEmail: (label) => `${label}格式不正确`,
   isUUID: (label) => `${label}格式不正确`,
@@ -203,6 +188,14 @@ export const VALIDATION_MESSAGES: Record<string, ValidationMessageFn> = {
   isIn: (label) => `${label}取值不合法`,
   isArray: (label) => `${label}应为数组`,
   isObject: (label) => `${label}应为对象`,
+} satisfies Record<string, ValidationMessageFn>;
+
+export const TYPE_CONSTRAINT_KEYS = Object.keys(
+  TYPE_CONSTRAINT_MESSAGES,
+) as (keyof typeof TYPE_CONSTRAINT_MESSAGES)[];
+
+export const VALIDATION_MESSAGES: Record<string, ValidationMessageFn> = {
+  ...TYPE_CONSTRAINT_MESSAGES,
   arrayNotEmpty: (label) => `${label}不能为空数组`,
   min: (label) => `${label}过小`,
   max: (label) => `${label}过大`,

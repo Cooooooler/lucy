@@ -1,6 +1,10 @@
 import type { ValidationError } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
-import { TYPE_CONSTRAINT_KEYS, VALIDATION_MESSAGES } from './messages.js';
+import {
+  TYPE_CONSTRAINT_KEYS,
+  TYPE_CONSTRAINT_MESSAGES,
+  VALIDATION_MESSAGES,
+} from './messages.js';
 import { validationExceptionFactory } from './validation-exception-factory.js';
 
 function error(
@@ -81,7 +85,10 @@ describe('validationExceptionFactory', () => {
     ).toBe('账号不能为空');
   });
 
-  it('类型类约束优先清单与模板一一对应（遗漏会静默复发误导文案）', () => {
+  it('类型类优先清单由模板对象派生（不存在第二份需人工同步的表）', () => {
+    expect([...TYPE_CONSTRAINT_KEYS]).toEqual(
+      Object.keys(TYPE_CONSTRAINT_MESSAGES),
+    );
     expect(
       TYPE_CONSTRAINT_KEYS.every(
         (key) => typeof VALIDATION_MESSAGES[key] === 'function',

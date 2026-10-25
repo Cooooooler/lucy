@@ -155,13 +155,13 @@ describe('模型供应商 DTO 经全局 ValidationPipe', () => {
     );
   });
 
-  it('更新：格式合法但超过 500 字符的 baseUrl 报「Base URL过长」（FIELD_LABELS 收录防漏回归）', async () => {
-    // 500 是 maxLength 而validator.js 的 isUrl 允许到 2048：600-800 字符的合法 URL
+  it('更新：格式合法但超过 500 字符的 baseUrl 报「接口地址过长」（FIELD_LABELS 收录防漏回归）', async () => {
+    // 500 是 maxlength 而 validator.js 的 isUrl 允许到 2048：600-800 字符的合法 URL
     // 会先过 IsUrl 自定义文案、落到 MaxLength —— 这是 baseUrl 唯一不带自定义提示的路径
     await expectBadRequestOn(
       UpdateModelProviderDto,
       { baseUrl: `http://x.example/${'a'.repeat(780)}` },
-      'Base URL过长',
+      '接口地址过长',
     );
   });
 });
