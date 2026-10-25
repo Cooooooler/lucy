@@ -9,8 +9,10 @@ import type { EntityManager, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
-import type { RerankReferencePort } from '../knowledge/rerank-reference.port.js';
-import { RERANK_REFERENCE_PORT } from '../knowledge/rerank-reference.port.js';
+import {
+  RERANK_REFERENCE_PORT,
+  type RerankReferencePort,
+} from '../common/ports/rerank-reference.port.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import { assertBaseUrlHostAllowed } from './base-url-guard.js';
 import { CreateModelProviderDto } from './dto/create-model-provider.dto.js';

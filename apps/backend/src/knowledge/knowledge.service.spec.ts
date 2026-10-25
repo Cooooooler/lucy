@@ -38,7 +38,6 @@ describe('KnowledgeService', () => {
   };
   const kbRepo = {
     findOne: vi.fn(),
-    findOneByOrFail: vi.fn(),
     save: vi.fn(),
     update: vi.fn(),
     createQueryBuilder: vi.fn(),
@@ -241,11 +240,19 @@ describe('KnowledgeService', () => {
 
   it('update 只写 DTO 中出现的列，不碰检索设置', async () => {
     kbRepo.findOne.mockResolvedValue(makeKb());
-    kbRepo.findOneByOrFail.mockResolvedValue(makeKb({ name: 'y' }));
+    kbRepo.update.mockResolvedValue({ affected: 1 });
     await service.update('u1', KB_ID, { name: 'y' });
     // 整实体 save 会把并发清空后的 rerank_model_id 写回，这里必须只更新显式字段
     expect(kbRepo.update).toHaveBeenCalledWith({ id: KB_ID }, { name: 'y' });
     expect(kbRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('update 并发删除（affected=0）返回 404 而不是 500', async () => {
+    kbRepo.findOne.mockResolvedValue(makeKb());
+    kbRepo.update.mockResolvedValue({ affected: 0 });
+    await expect(
+      service.update('u1', KB_ID, { name: 'y' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('get 属主可读，附带 likeCount/isLiked', async () => {
@@ -277,7 +284,6 @@ describe('KnowledgeService', () => {
 
     kbRepo.findOne.mockResolvedValue(makeKb());
     kbRepo.update.mockResolvedValue({ affected: 1 });
-    kbRepo.findOneByOrFail.mockResolvedValue(makeKb());
     const updated = await service.update('u1', KB_ID, { name: 'y' });
 
     for (const [endpoint, item] of Object.entries({
@@ -295,7 +301,7 @@ describe('KnowledgeService', () => {
 
   it('update 回填点赞态（更新后仍与 get/list 同形，不谎报 0/false）', async () => {
     kbRepo.findOne.mockResolvedValue(makeKb());
-    kbRepo.findOneByOrFail.mockResolvedValue(makeKb());
+    kbRepo.update.mockResolvedValue({ affected: 1 });
     const likeQb = makeLikeQb();
     likeQb.getRawMany.mockResolvedValue([{ kbId: KB_ID, cnt: '3' }]);
     likeRepo.createQueryBuilder.mockReturnValue(likeQb);
@@ -461,13 +467,6 @@ describe('KnowledgeService', () => {
     const kbEntity = makeKb();
     kbRepo.findOne.mockResolvedValue(kbEntity);
     kbRepo.update.mockResolvedValue({ affected: 1 });
-    kbRepo.findOneByOrFail.mockResolvedValue(
-      makeKb({
-        name: 'y',
-        description: 'd',
-        visibility: KnowledgeBaseVisibility.Public,
-      }),
-    );
     await service.update('u1', 'kb1', {
       name: 'y',
       description: 'd',

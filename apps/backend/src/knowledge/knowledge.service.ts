@@ -7,6 +7,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -272,8 +273,13 @@ export class KnowledgeService {
     // 让刚失效的引用复活（检索设置创建后不可改，写回即无法修正）。
     let saved = kb;
     if (Object.keys(patch).length > 0) {
-      await this.kbRepo.update({ id: kb.id }, patch);
-      saved = await this.kbRepo.findOneByOrFail({ id: kb.id });
+      // affected=0 表示这一行在鉴权之后被并发删除：给 404 而不是让后续回读抛
+      // EntityNotFoundError（非 HTTP 异常会被兜成 500）
+      const { affected } = await this.kbRepo.update({ id: kb.id }, patch);
+      if (!affected) throw new NotFoundException('知识库不存在');
+      const reloaded = await this.kbRepo.findOne({ where: { id: kb.id } });
+      if (!reloaded) throw new NotFoundException('知识库不存在');
+      saved = reloaded;
     }
     // 点赞态同样要回填：响应形状必须与 get/list 完全一致，
     // 否则 mapper 的兜底会把「已点赞」谎报成 0/false。

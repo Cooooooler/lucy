@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
+import type { RerankReferencePort } from '../common/ports/rerank-reference.port.js';
 import { KnowledgeBase } from './entities/knowledge-base.entity.js';
-import type { RerankReferencePort } from './rerank-reference.port.js';
 
 @Injectable()
 export class RerankReferenceService implements RerankReferencePort {

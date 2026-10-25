@@ -5,7 +5,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
-import { RERANK_REFERENCE_PORT } from '../knowledge/rerank-reference.port.js';
+import { RERANK_REFERENCE_PORT } from '../common/ports/rerank-reference.port.js';
 import {
   MODEL_ID,
   MODEL_ITEM_KEYS,
@@ -283,6 +283,34 @@ describe('ModelProviderService', () => {
 
     expect(existing.apiKeyLast4).toBe('9999');
     expect(cipher.decrypt(existing.apiKeyEncrypted)).toBe('sk-new-key-9999');
+  });
+
+  it('resolveOwnedRerankInTransaction 区分 ok / wrong-type / not-found', async () => {
+    const rerank = { id: MODEL_ID, type: ModelProviderType.Rerank };
+    txProviders.findOne.mockResolvedValue(rerank);
+    await expect(
+      service.resolveOwnedRerankInTransaction(tx as never, 'u1', MODEL_ID),
+    ).resolves.toEqual({ id: MODEL_ID });
+
+    txProviders.findOne.mockResolvedValue({
+      id: MODEL_ID,
+      type: ModelProviderType.Llm,
+    });
+    await expect(
+      service.resolveOwnedRerankInTransaction(tx as never, 'u1', MODEL_ID),
+    ).resolves.toBe('wrong-type');
+
+    txProviders.findOne.mockResolvedValue(null);
+    await expect(
+      service.resolveOwnedRerankInTransaction(tx as never, 'u1', MODEL_ID),
+    ).resolves.toBe('not-found');
+
+    // 事务内共享锁 + 只取 id/type，不读凭证材料
+    expect(txProviders.findOne).toHaveBeenCalledWith({
+      where: { id: MODEL_ID, ownerId: 'u1' },
+      select: { id: true, type: true },
+      lock: { mode: 'pessimistic_read' },
+    });
   });
 
   it('update 改类型时在同一事务里清除该模型的默认设置', async () => {
