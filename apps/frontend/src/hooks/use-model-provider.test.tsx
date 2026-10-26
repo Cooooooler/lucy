@@ -9,6 +9,7 @@ import {
   useCreateModelProvider,
   useDeleteModelProvider,
   useInfiniteModelProviderList,
+  useModelProvider,
   useModelProviderDefaults,
   useModelProvidersByType,
   useTestModelProviderConnection,
@@ -22,6 +23,7 @@ const api = vi.hoisted(() => ({
   updateModelProviderApi: vi.fn(),
   deleteModelProviderApi: vi.fn(),
   testModelProviderConnectionApi: vi.fn(),
+  getModelProviderApi: vi.fn(),
   getModelProviderDefaultsApi: vi.fn(),
   updateModelProviderDefaultsApi: vi.fn(),
 }));
@@ -276,6 +278,23 @@ describe('use-model-provider', () => {
       limit: 100,
       cursor: undefined,
     });
+  });
+
+  it('useModelProvider 按 id 取详情；id 为空时不请求', async () => {
+    const model = makeModel();
+    api.getModelProviderApi.mockResolvedValue(model);
+    const client = createTestQueryClient();
+    const wrapper = createWrapperWithClient(client);
+
+    const { result } = renderHook(() => useModelProvider('m1'), { wrapper });
+    await waitFor(() => expect(result.current.data).toEqual(model));
+    expect(api.getModelProviderApi).toHaveBeenCalledWith('m1');
+    // 与列表/乐观更新共用 item key
+    expect(client.getQueryData(modelProviderKeys.item('m1'))).toEqual(model);
+
+    api.getModelProviderApi.mockClear();
+    renderHook(() => useModelProvider(undefined), { wrapper });
+    expect(api.getModelProviderApi).not.toHaveBeenCalled();
   });
 
   it('useModelProviderDefaults 在 enabled=false 时不请求', () => {

@@ -52,13 +52,22 @@ class ScoreThresholdWhenEnabled implements ValidatorConstraintInterface {
     return !enabled || value > KNOWLEDGE_SCORE_THRESHOLD_MIN;
   }
 
+  // 文案按真实失败原因分支，避免「超上界 / 不是数字」也提示「应大于 0」
   defaultMessage(args: ValidationArguments): string {
     const enabled =
       (args.object as CreateKnowledgeBaseDto).scoreThresholdEnabled === true;
     const label = fieldLabel(args.property);
-    return enabled
-      ? `${label}应大于 0`
-      : `${label}应在 ${KNOWLEDGE_SCORE_THRESHOLD_MIN} 到 ${KNOWLEDGE_SCORE_THRESHOLD_MAX} 之间`;
+    const value = args.value as unknown;
+    if (value === undefined)
+      return `${label}应大于 ${KNOWLEDGE_SCORE_THRESHOLD_MIN}`;
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return `${label}应为数字`;
+    }
+    if (value > KNOWLEDGE_SCORE_THRESHOLD_MAX) {
+      return `${label}不能大于 ${KNOWLEDGE_SCORE_THRESHOLD_MAX}`;
+    }
+    if (enabled) return `${label}应大于 ${KNOWLEDGE_SCORE_THRESHOLD_MIN}`;
+    return `${label}应在 ${KNOWLEDGE_SCORE_THRESHOLD_MIN} 到 ${KNOWLEDGE_SCORE_THRESHOLD_MAX} 之间`;
   }
 }
 

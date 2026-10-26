@@ -285,7 +285,7 @@ describe('ModelProviderService', () => {
     expect(cipher.decrypt(existing.apiKeyEncrypted)).toBe('sk-new-key-9999');
   });
 
-  it('resolveOwnedRerankInTransaction 区分 ok / wrong-type / not-found', async () => {
+  it('resolveOwnedRerankInTransaction 成功返回 id，失败按原因抛 400', async () => {
     const rerank = { id: MODEL_ID, type: ModelProviderType.Rerank };
     txProviders.findOne.mockResolvedValue(rerank);
     await expect(
@@ -298,12 +298,12 @@ describe('ModelProviderService', () => {
     });
     await expect(
       service.resolveOwnedRerankInTransaction(tx as never, 'u1', MODEL_ID),
-    ).resolves.toBe('wrong-type');
+    ).rejects.toThrow('该模型类型不是重排模型');
 
     txProviders.findOne.mockResolvedValue(null);
     await expect(
       service.resolveOwnedRerankInTransaction(tx as never, 'u1', MODEL_ID),
-    ).resolves.toBe('not-found');
+    ).rejects.toThrow('重排模型不存在或不属于当前用户');
 
     // 事务内共享锁 + 只取 id/type，不读凭证材料
     expect(txProviders.findOne).toHaveBeenCalledWith({

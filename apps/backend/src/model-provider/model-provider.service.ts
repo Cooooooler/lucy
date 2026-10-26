@@ -27,9 +27,6 @@ import { resolveOwnedModelProvider } from './model-provider-access.js';
 import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
 import { toModelProviderItem } from './model-provider.mapper.js';
 
-/** 重排模型解析结果：区分「查不到/非属主」与「类型不是 rerank」 */
-export type OwnedRerankResolution = { id: string } | 'not-found' | 'wrong-type';
-
 /**
  * 模型供应商领域服务：属主私有的 CRUD（create/list/get/update/remove）。
  *
@@ -145,25 +142,28 @@ export class ModelProviderService {
    * 在调用方事务内解析属主私有且类型为 **重排（rerank）** 的模型配置，
    * 并对该行加共享锁。
    *
-   * 返回判据而不只是 null，让调用方能区分「不存在/非属主」与「类型不对」：
-   * 两者的修复动作完全不同（换模型 vs 改模型类型）。查询与随后的插入必须在
-   * 同一事务里，`pessimistic_read` 与并发删除/改类型互斥，避免写入悬空或类型
-   * 不符的引用；只取 `id`/`type`，不把凭证材料拉进内存。
+   * 失败直接抛 400：不存在/非属主与类型不符的修复动作不同，文案分开；调用方
+   * 不需要再用哨兵值兜底，模型域新增失败原因时也不会静默落库。查询与随后的
+   * 插入必须在同一事务里，`pessimistic_read` 与并发删除/改类型互斥，避免写入
+   * 悬空或类型不符的引用；只取 `id`/`type`，不把凭证材料拉进内存。
    */
   async resolveOwnedRerankInTransaction(
     manager: EntityManager,
     userId: string,
     id: string,
-  ): Promise<OwnedRerankResolution> {
+  ): Promise<{ id: string }> {
     const provider = await manager.getRepository(ModelProvider).findOne({
       where: { id, ownerId: userId },
       select: { id: true, type: true },
       lock: { mode: 'pessimistic_read' },
     });
-    if (!provider) return 'not-found';
-    return provider.type === ModelProviderType.Rerank
-      ? { id: provider.id }
-      : 'wrong-type';
+    if (!provider) {
+      throw new BadRequestException('重排模型不存在或不属于当前用户');
+    }
+    if (provider.type !== ModelProviderType.Rerank) {
+      throw new BadRequestException('该模型类型不是重排模型');
+    }
+    return { id: provider.id };
   }
 
   /**

@@ -96,13 +96,13 @@ describe('KnowledgeService', () => {
   });
 
   it('create 保存知识库（默认 private）并返回契约视图', async () => {
-    tx.save.mockResolvedValue(makeKb());
+    kbRepo.save.mockResolvedValue(makeKb());
     const result = await service.create('u1', { name: 'x', description: 'd' });
     expect(result).toEqual(makeKbItem());
     // 契约项是普通视图对象，不携带实体上的内部关系（owner 等）
     expect(result).not.toBeInstanceOf(KnowledgeBase);
-    expect(tx.save).toHaveBeenCalledWith(
-      KnowledgeBase,
+    // 未选重排模型：单条 INSERT 不开事务
+    expect(kbRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({
         ownerId: 'u1',
         name: 'x',
@@ -113,10 +113,9 @@ describe('KnowledgeService', () => {
   });
 
   it('create 未提供检索设置时落默认值（全文 / 5 / 阈值关闭且为 0 / 语义 50 / 不重排）', async () => {
-    tx.save.mockResolvedValue(makeKb());
+    kbRepo.save.mockResolvedValue(makeKb());
     await service.create('u1', { name: 'x', description: 'd' });
-    expect(tx.save).toHaveBeenCalledWith(
-      KnowledgeBase,
+    expect(kbRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({
         retrievalMode: KnowledgeRetrievalMode.FullText,
         topK: 5,
@@ -184,8 +183,8 @@ describe('KnowledgeService', () => {
   });
 
   it('create 拒绝不存在/非属主的重排模型（400，不落库）', async () => {
-    modelProviderService.resolveOwnedRerankInTransaction.mockResolvedValue(
-      'not-found',
+    modelProviderService.resolveOwnedRerankInTransaction.mockRejectedValue(
+      new BadRequestException('重排模型不存在或不属于当前用户'),
     );
     await expect(
       service.create('u1', {
@@ -195,11 +194,12 @@ describe('KnowledgeService', () => {
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.save).not.toHaveBeenCalled();
+    expect(kbRepo.save).not.toHaveBeenCalled();
   });
 
   it('create 对类型不符给出明确文案（不再误报属主问题）', async () => {
-    modelProviderService.resolveOwnedRerankInTransaction.mockResolvedValue(
-      'wrong-type',
+    modelProviderService.resolveOwnedRerankInTransaction.mockRejectedValue(
+      new BadRequestException('该模型类型不是重排模型'),
     );
     await expect(
       service.create('u1', {
@@ -276,7 +276,7 @@ describe('KnowledgeService', () => {
   });
 
   it('create/get/list/update 字段集完全一致（契约不随端点漂移）', async () => {
-    tx.save.mockResolvedValue(makeKb());
+    kbRepo.save.mockResolvedValue(makeKb());
     const created = await service.create('u1', { name: 'x', description: 'd' });
 
     kbRepo.findOne.mockResolvedValue(makeKb());

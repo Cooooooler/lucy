@@ -13,7 +13,7 @@ import {
   useDocumentList,
   useKnowledgeBase,
 } from '@/hooks/use-knowledge';
-import { useModelProvidersByType } from '@/hooks/use-model-provider';
+import { useModelProvider } from '@/hooks/use-model-provider';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
@@ -53,17 +53,13 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
   const [uploading, setUploading] = useState(false);
 
   const kbQuery = useKnowledgeBase(kbId);
-  // 检索设置里只存了 rerank 模型 ID，展示名称需要按类型取一次模型列表。
-  // 只有真的引用了重排模型才请求：默认 rerankModelId 为 null，此时按 id 找名字
-  // 永远不会命中；而模型管理页的列表 limit=20、这里是 100，缓存 key 不同，不共享。
-  const { models: rerankModels } = useModelProvidersByType(
-    'rerank',
-    Boolean(kbQuery.data?.rerankModelId),
+  // 检索设置里只存了 rerank 模型 ID：按 id 取单条详情（与模型管理共享 item 缓存），
+  // 不再为显示一个名字拉整份列表；未配置重排时不发请求
+  const { data: rerankModel } = useModelProvider(
+    kbQuery.data?.rerankModelId ?? undefined,
   );
   const kb = kbQuery.data;
-  const rerankModelName = rerankModels.find(
-    (model) => model.id === kb?.rerankModelId,
-  )?.name;
+  const rerankModelName = rerankModel?.name;
   const listQuery = useMemo(
     () => ({
       page,

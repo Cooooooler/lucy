@@ -1,5 +1,6 @@
 import {
   KNOWLEDGE_SCORE_THRESHOLD_DEFAULT,
+  KNOWLEDGE_SCORE_THRESHOLD_MIN,
   KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
   KNOWLEDGE_TOP_K_DEFAULT,
 } from '@lucy/shared';
@@ -69,43 +70,39 @@ export class KnowledgeService {
     const scoreThreshold =
       dto.scoreThreshold ?? KNOWLEDGE_SCORE_THRESHOLD_DEFAULT;
     // 启用阈值却为 0 等于不过滤：检索设置创建后不可改，不能在落库后才发现是空转。
-    // 这里刻意判 `<= 0` 而非复用闭区间下界常量：DTO/前端允许的闭区间下界与
-    // 「启用时必须严格大于」是两个语义，绑在同一常量上会出现文档放行、服务层拒绝。
-    if (scoreThresholdEnabled && scoreThreshold <= 0) {
-      throw new BadRequestException('启用 Score 阈值时必须设置大于 0 的阈值');
+    // DTO 已在字段级拦下（含文案），这里保留同口径的兜底（直接调用服务层时生效）
+    if (
+      scoreThresholdEnabled &&
+      scoreThreshold <= KNOWLEDGE_SCORE_THRESHOLD_MIN
+    ) {
+      throw new BadRequestException(
+        `启用 Score 阈值时必须设置大于 ${KNOWLEDGE_SCORE_THRESHOLD_MIN} 的阈值`,
+      );
     }
-    // 重排模型校验与插入必须在同一事务里：校验通过后并发删除会撞 FK（23503 → 500），
-    // 并发改类型则会写入类型不符的引用；事务内的共享锁与删除/改类型互斥。
-    const kb = await this.kbRepo.manager.transaction(async (manager) => {
-      if (dto.rerankModelId) {
-        const rerank =
+    const values = {
+      ownerId: userId,
+      name: dto.name,
+      description: dto.description,
+      visibility: dto.visibility ?? KnowledgeBaseVisibility.Private,
+      // 检索设置只在创建时确定（更新 DTO 不含这些字段）
+      retrievalMode: dto.retrievalMode ?? KnowledgeRetrievalMode.FullText,
+      topK: dto.topK ?? KNOWLEDGE_TOP_K_DEFAULT,
+      scoreThresholdEnabled,
+      scoreThreshold,
+      semanticWeight: dto.semanticWeight ?? KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
+      rerankModelId: dto.rerankModelId ?? null,
+    };
+    // 只有选了重排模型才需要事务（校验 + 插入 + 共享锁）；否则单条 INSERT 本身原子
+    const kb = dto.rerankModelId
+      ? await this.kbRepo.manager.transaction(async (manager) => {
           await this.modelProviderService.resolveOwnedRerankInTransaction(
             manager,
             userId,
-            dto.rerankModelId,
+            dto.rerankModelId as string,
           );
-        // 两种失败原因的修复动作不同：换一个模型 vs 改模型类型，文案必须分开
-        if (rerank === 'wrong-type') {
-          throw new BadRequestException('该模型类型不是重排模型');
-        }
-        if (rerank === 'not-found') {
-          throw new BadRequestException('重排模型不存在或不属于当前用户');
-        }
-      }
-      return manager.save(KnowledgeBase, {
-        ownerId: userId,
-        name: dto.name,
-        description: dto.description,
-        visibility: dto.visibility ?? KnowledgeBaseVisibility.Private,
-        // 检索设置只在创建时确定（更新 DTO 不含这些字段）
-        retrievalMode: dto.retrievalMode ?? KnowledgeRetrievalMode.FullText,
-        topK: dto.topK ?? KNOWLEDGE_TOP_K_DEFAULT,
-        scoreThresholdEnabled,
-        scoreThreshold,
-        semanticWeight: dto.semanticWeight ?? KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
-        rerankModelId: dto.rerankModelId ?? null,
-      });
-    });
+          return manager.save(KnowledgeBase, values);
+        })
+      : await this.kbRepo.save(values);
     return toKnowledgeBaseItem(kb, userId);
   }
 

@@ -1,6 +1,7 @@
 import {
   createModelProviderApi,
   deleteModelProviderApi,
+  getModelProviderApi,
   getModelProviderDefaultsApi,
   listModelProvidersApi,
   testModelProviderConnectionApi,
@@ -113,6 +114,18 @@ export function useModelProvidersByType(
     [query.data],
   );
   return { models, isLoading: query.isLoading };
+}
+
+/**
+ * 单个模型详情：只需要一条记录时按 id 取，避免为了显示一个名字拉整份列表。
+ * 与列表共用乐观更新的 item key（增/改/删都会命中）。
+ */
+export function useModelProvider(id: string | undefined) {
+  return useQuery({
+    queryKey: modelProviderKeys.item(id ?? ''),
+    queryFn: () => getModelProviderApi(id as string),
+    enabled: Boolean(id),
+  });
 }
 
 /** 当前用户的默认模型设置（每种模型类型一条） */

@@ -133,6 +133,13 @@ describe('知识库 DTO 经全局 ValidationPipe', () => {
     await expect(
       create({ ...base, scoreThresholdEnabled: true }),
     ).rejects.toThrow('Score 阈值应大于 0');
+    // 文案按真实失败原因分支，而不是一律「应大于 0」
+    await expect(
+      create({ ...base, scoreThresholdEnabled: true, scoreThreshold: '0.5' }),
+    ).rejects.toThrow('Score 阈值应为数字');
+    await expect(create({ ...base, scoreThreshold: 1.5 })).rejects.toThrow(
+      'Score 阈值不能大于 1',
+    );
     // 关闭时 0 是合法默认值（可以省略、也可以显式给）
     await expect(
       create({ ...base, scoreThresholdEnabled: false, scoreThreshold: 0 }),
