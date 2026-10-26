@@ -6,7 +6,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { makeModelProvider } from '../test/model-provider.fixtures.js';
 import { ContextService } from './context.service.js';
-import { Message, MessageRole } from './entities/message.entity.js';
+import {
+  Message,
+  MessageRole,
+  MessageStatus,
+} from './entities/message.entity.js';
 import { TokenizerService } from './tokenizer.service.js';
 
 describe('ContextService', () => {
@@ -29,8 +33,12 @@ describe('ContextService', () => {
     return new ContextService(makeConfig(overrides), tokenizer);
   }
 
-  function msg(role: MessageRole, content: string): Message {
-    return { role, content } as Message;
+  function msg(
+    role: MessageRole,
+    content: string,
+    status: MessageStatus = MessageStatus.Complete,
+  ): Message {
+    return { role, content, status } as Message;
   }
 
   it('系统提示 + 预算内保留全部历史 + 新消息', async () => {
@@ -123,5 +131,37 @@ describe('ContextService', () => {
     expect(out).toHaveLength(2);
     expect(out[0]).toBeInstanceOf(SystemMessage);
     expect(out[1]).toBeInstanceOf(HumanMessage);
+  });
+
+  it('空内容的历史 AI 行不进上下文（Anthropic 拒空 text block），其它状态保留半截回答', async () => {
+    // saveFailure 可能把半截回答以 failed 落库、用户停止是 aborted——内容非空都可用；
+    // 只有凭证失败落下的 content='' 行会被过滤，null status 的行同样放行
+    const svc = makeSvc({ AI_SYSTEM_PROMPT: '' });
+    const history = [
+      msg(MessageRole.User, 'u1'),
+      msg(MessageRole.Ai, '', MessageStatus.Failed),
+      msg(MessageRole.Ai, 'aborted-content', MessageStatus.Aborted),
+      msg(MessageRole.Ai, 'ok-answer'),
+    ];
+    const out = await svc.buildMessages(history, 'new', provider);
+    expect(out.map((m) => m.content)).toEqual([
+      'u1',
+      'aborted-content',
+      'ok-answer',
+      'new',
+    ]);
+  });
+
+  it('尾部未被回答的孤立 user 轮被裁掉（避免相邻 Human 坏角色交替，且不重复送旧问题）', async () => {
+    const svc = makeSvc({ AI_SYSTEM_PROMPT: '' });
+    const history = [
+      msg(MessageRole.User, 'u1'),
+      msg(MessageRole.Ai, 'a1'),
+      // 最新一轮有问无答：AI 行为空且被过滤，留下孤立 user
+      msg(MessageRole.User, 'unanswered'),
+      msg(MessageRole.Ai, '', MessageStatus.Failed),
+    ];
+    const out = await svc.buildMessages(history, 'new', provider);
+    expect(out.map((m) => m.content)).toEqual(['u1', 'a1', 'new']);
   });
 });

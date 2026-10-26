@@ -55,17 +55,36 @@ export class ContextService {
     const newTokens = await this.tokenizer.countTokens(newContent, model);
     const historyBudget = Math.max(0, budget - systemTokens - newTokens);
 
+    // 历史行只做**内容可用性**过滤（AI 行内容非空即可用，不看 status）：
+    // saveFailure 可能把「半截」回答以 failed 落库、用户停止是 aborted——它们用户都已在
+    // 气泡里看到，下一轮按 status 剔除会让上下文整体丢失，模型只能重答；Anthropic 真正
+    // 拒的是空 text block，所以判据收敛为「AI 行 content 非空」。null/无 status 的行也放行。
+    const usable = history.filter(
+      (m) =>
+        m.role === MessageRole.User ||
+        (m.role === MessageRole.Ai && m.content.trim().length > 0),
+    );
+
     // 从最近往前累计，超预算即停
     const selected: Message[] = [];
     let used = 0;
-    for (const m of [...history].reverse()) {
+    for (const m of [...usable].reverse()) {
       const tokens = await this.tokenizer.countTokens(m.content, model);
       if (used + tokens > historyBudget) break;
       selected.push(m);
       used += tokens;
     }
 
-    for (const m of selected.toReversed()) {
+    // 尾部「有问无答」的孤立 user 行裁掉：凭证/上游失败会在最新一轮留下未被回答的
+    // user 行，过滤空 AI 行后相邻 Human 会破坏角色交替（Bedrock/兼容网关直接 400），
+    // 且下一轮会把同一问题重复送入。保留更早的完整轮次（问与答都在）。
+    // selected 是最新优先，先转回时间正序再裁尾部。
+    const chronological = selected.toReversed();
+    let end = chronological.length;
+    while (end > 0 && chronological[end - 1].role === MessageRole.User) end--;
+    const trimmed = chronological.slice(0, end);
+
+    for (const m of trimmed) {
       if (m.role === MessageRole.User) {
         messages.push(new HumanMessage(m.content));
       } else if (m.role === MessageRole.Ai) {

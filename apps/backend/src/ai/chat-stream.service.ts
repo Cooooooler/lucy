@@ -9,6 +9,7 @@ import { AppLogger } from '../common/app-logger.service.js';
 import { ShutdownService } from '../common/shutdown.service.js';
 import type { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
 import { ModelClientFactory } from '../model-provider/model-client.factory.js';
+import { ModelCredentialError } from '../model-provider/model-credential.error.js';
 import { ModelProviderService } from '../model-provider/model-provider.service.js';
 import { ContextService } from './context.service.js';
 import { ConversationTitleService } from './conversation-title.service.js';
@@ -111,17 +112,17 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         requestId,
       )
         .catch((err) => {
-          // 对外固定文案：这里逃逸出的错误来自 DB/事务/模型客户端，message 可能含主机端口、
-          // SQL 等基础设施细节（如 `connect ECONNREFUSED 127.0.0.1:5432`），不得出网；
-          // 原始错误只进日志（与 saveFailure 的固定文案保持一致）
+          // 对外文案由 classifyError 统一归因（prepareRun 等阶段抛出的错误也走这里）；
+          // warn 记录的是原始 err，message 可能含主机端口、SQL 等基础设施细节，不得出网
           this.logger.warn(
             `sendMessage failed conversation=${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
             ChatStreamService.name,
           );
+          const { code, message } = this.classifyError(err, controller.signal);
           subscriber.next({
             type: 'error',
             requestId,
-            data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+            data: { code, message },
           });
           subscriber.complete();
         })
@@ -193,17 +194,6 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     if (!prepared) return;
     const { history, provider } = prepared;
 
-    // 推理模型默认开启深度思考：推理模型以 think=false 运行，易产出退化/半途截断的
-    // 输出（如「先试着…」后即结束）。仅在调用方未显式指定时才按模型能力兜底，
-    // 显式 reasoning:{true|false} 仍被尊重。think 只对 Ollama 生效（工厂内部处理其它供应商）
-    const think = dto.reasoning ?? this.isReasoningModel(provider.name);
-    const client = this.modelClientFactory.buildChat(provider, { think });
-    const messages = await this.contextService.buildMessages(
-      history,
-      dto.content,
-      provider,
-    );
-
     // 空闲超时：模型持续无输出（含首 token 等待）超过阈值判为超时
     const timeoutMs = Number(this.config.get('OLLAMA_TIMEOUT_MS', 120000));
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -226,6 +216,19 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       finishReason?: string;
     } = { answer: '', thinkingAll: '' };
     try {
+      // 推理模型默认开启深度思考：推理模型以 think=false 运行，易产出退化/半途截断的
+      // 输出（如「先试着…」后即结束）。仅在调用方未显式指定时才按模型能力兜底，
+      // 显式 reasoning:{true|false} 仍被尊重。think 只对 Ollama 生效（工厂内部处理其它供应商）。
+      // buildChat 在 try 里：构造客户端即抛错（凭证问题等）也走 saveFailure——
+      // prepareRun 已落库用户消息，必须留一条 failed 的 AI 记录，
+      // 避免前端刷新后只剩无回应的用户消息（历史污染由 ContextService 过滤兜住）
+      const think = dto.reasoning ?? this.isReasoningModel(provider.name);
+      const client = this.modelClientFactory.buildChat(provider, { think });
+      const messages = await this.contextService.buildMessages(
+        history,
+        dto.content,
+        provider,
+      );
       // 传入 signal：订阅取消（SSE 断线）时中止底层流，半截内容落 aborted
       const stream = (await client.stream(messages, { signal })) as
         AsyncIterable<unknown> | Iterable<unknown>;
@@ -502,7 +505,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     return /qwen3(?:\.\d+)?|deepseek-r1|(?:^|[-:])r1(?:[-:.]|$)/i.test(model);
   }
 
-  // 区分流式失败类型：客户端中止（signal.reason）> 模型超时 > 其他生成失败
+  // 区分流式失败类型：客户端中止（signal.reason）> 凭证 > 基础设施（DB/事务）> 模型超时 > 其他
   private classifyError(
     error: unknown,
     signal: AbortSignal,
@@ -517,6 +520,20 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       }
       return { code: ErrorCode.AI_GENERATE_ABORTED, message: '生成中断' };
     }
+    // 凭证错误：单独码 + 可执行提示（文案全仓单源在 ModelCredentialError.userMessage，
+    // 前端按未知码回退服务端 message，不进入 SSE_ERROR_TEXT 的按码覆盖表）
+    if (error instanceof ModelCredentialError) {
+      return {
+        code: ErrorCode.AI_CREDENTIAL_INVALID,
+        message: error.userMessage,
+      };
+    }
+    // 基础设施错误（DB/事务）先于模型超时启发式：Postgres 语句超时
+    // 「canceling statement due to statement timeout」含 timeout 字样，落在正则
+    // （model-timeout 分支）之后会误报「模型调用超时」——DB 超时/连接错误按生成失败报
+    if (isInfrastructureError(error)) {
+      return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };
+    }
     const name = error instanceof Error ? error.name : '';
     const message = error instanceof Error ? error.message : '';
     if (/timeout|timed out|ETIMEDOUT/i.test(`${name} ${message}`)) {
@@ -524,4 +541,17 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     }
     return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };
   }
+}
+
+/**
+ * TypeORM 基础设施错误（连接/语句/事务失败）。不直接 import QueryFailedError：
+ * 判据用 name + driverError 载荷，避免把错误分类绑到具体驱动类上。
+ */
+function isInfrastructureError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === 'QueryFailedError' ||
+    error.name === 'TransactionFailedError' ||
+    'driverError' in error
+  );
 }

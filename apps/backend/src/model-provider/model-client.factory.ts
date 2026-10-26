@@ -12,6 +12,7 @@ import {
   ModelProviderVendor,
   type ModelProvider,
 } from './entities/model-provider.entity.js';
+import { ModelCredentialError } from './model-credential.error.js';
 
 /**
  * 类型/供应商组合在当前 LangChain 统一 SDK 下没有对应客户端：
@@ -194,10 +195,19 @@ export class ModelClientFactory {
     }
   }
 
-  /** 解密 API Key；缺失时给出明确错误（正常经 DTO/服务层校验不应发生） */
+  /**
+   * 解密 API Key；缺失时抛 `ModelCredentialError`（正常经 DTO/服务层校验不应发生，
+   * 撞到说明数据或装配被打过补丁——收成类型化错误而不是裸 Error，让连接测试
+   * 能单独归因「未配置 Key」而不是落进连接失败兜底）。
+   */
   private requireApiKey(provider: ModelProvider): string {
     const key = this.apiKeyOf(provider);
-    if (!key) throw new Error(`模型 ${provider.name} 未配置 API Key`);
+    if (!key) {
+      throw new ModelCredentialError(
+        'missing',
+        `模型 ${provider.name} 未配置 API Key`,
+      );
+    }
     return key;
   }
 

@@ -8,6 +8,7 @@ import { DataSource } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { ShutdownService } from '../common/shutdown.service.js';
 import { ModelClientFactory } from '../model-provider/model-client.factory.js';
+import { ModelCredentialError } from '../model-provider/model-credential.error.js';
 import { ModelProviderService } from '../model-provider/model-provider.service.js';
 import {
   makeModelProvider,
@@ -672,6 +673,53 @@ describe('ChatStreamService', () => {
     // 基础设施细节（主机/端口/SQL 等）不得随 error 帧出网
     expect(JSON.stringify(result)).not.toContain('ECONNREFUSED');
     expect(loggerMock.warn).toHaveBeenCalled();
+  });
+
+  it('含 timeout 字样的 DB 基础设施错误按「生成失败」报，不误归因为「模型调用超时」', async () => {
+    // Postgres 语句超时（DB_STATEMENT_TIMEOUT_MS）文案即含 timeout：classifyError
+    // 必须先经基础设施守卫，否则会被模型超时启发式命中
+    const dbTimeout = Object.assign(
+      new Error('canceling statement due to statement timeout'),
+      { name: 'QueryFailedError', driverError: { code: '57014' } },
+    );
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.find.mockRejectedValue(dbTimeout);
+    const result = await events(
+      service.sendMessage('1', 'c1', { content: 'hi' }),
+    );
+    expect(result.at(-1)).toMatchObject({
+      type: 'error',
+      data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+    });
+  });
+
+  it('模型客户端构造抛出凭证错误（密钥轮换/未配 Key）：走 saveFailure 落库并给可执行恢复提示', async () => {
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.find.mockResolvedValue([]);
+    contextService.buildMessages.mockResolvedValue([]);
+    // buildChat 构造期同步抛出（真实路径：requireApiKey / cipher.decrypt）；
+    // 错误发生在 try 内，只能走 saveFailure——必须留下 failed 状态的 AI 记录
+    modelClientFactory.buildChat.mockImplementation(() => {
+      throw new ModelCredentialError(
+        'decrypt-failed',
+        'API Key 解密失败：tag 不匹配',
+      );
+    });
+    const result = await events(
+      service.sendMessage('1', 'c1', { content: 'hi' }),
+    );
+    expect(result.at(-1)).toMatchObject({
+      type: 'error',
+      data: {
+        code: ErrorCode.AI_CREDENTIAL_INVALID,
+        message: '平台密钥已变更，请重新保存 API Key',
+      },
+    });
+    // 原始细节不出网；失败了也要有 AI 记录（保持会话里用户消息有对应失败行）
+    expect(JSON.stringify(result)).not.toContain('tag 不匹配');
+    expect(messageRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ status: MessageStatus.Failed }),
+    );
   });
 
   it('并发锁 key 含 userId：属主在途时其它用户不共享该锁', () => {
