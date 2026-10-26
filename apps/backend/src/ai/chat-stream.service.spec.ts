@@ -675,6 +675,24 @@ describe('ChatStreamService', () => {
     expect(loggerMock.warn).toHaveBeenCalled();
   });
 
+  it('含 timeout 字样的 DB 基础设施错误按「生成失败」报，不误归因为「模型调用超时」', async () => {
+    // Postgres 语句超时（DB_STATEMENT_TIMEOUT_MS）文案即含 timeout：classifyError
+    // 必须先经基础设施守卫，否则会被模型超时启发式命中
+    const dbTimeout = Object.assign(
+      new Error('canceling statement due to statement timeout'),
+      { name: 'QueryFailedError', driverError: { code: '57014' } },
+    );
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.find.mockRejectedValue(dbTimeout);
+    const result = await events(
+      service.sendMessage('1', 'c1', { content: 'hi' }),
+    );
+    expect(result.at(-1)).toMatchObject({
+      type: 'error',
+      data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+    });
+  });
+
   it('模型客户端构造抛出凭证错误（密钥轮换/未配 Key）：走 saveFailure 落库并给可执行恢复提示', async () => {
     conversationRepo.findOne.mockResolvedValue(conv());
     messageRepo.find.mockResolvedValue([]);

@@ -505,7 +505,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     return /qwen3(?:\.\d+)?|deepseek-r1|(?:^|[-:])r1(?:[-:.]|$)/i.test(model);
   }
 
-  // 区分流式失败类型：客户端中止（signal.reason）> 模型超时 > 其他生成失败
+  // 区分流式失败类型：客户端中止（signal.reason）> 凭证 > 基础设施（DB/事务）> 模型超时 > 其他
   private classifyError(
     error: unknown,
     signal: AbortSignal,
@@ -528,6 +528,12 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         message: error.userMessage,
       };
     }
+    // 基础设施错误（DB/事务）先于模型超时启发式：Postgres 语句超时
+    // 「canceling statement due to statement timeout」含 timeout 字样，落在正则
+    // （model-timeout 分支）之后会误报「模型调用超时」——DB 超时/连接错误按生成失败报
+    if (isInfrastructureError(error)) {
+      return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };
+    }
     const name = error instanceof Error ? error.name : '';
     const message = error instanceof Error ? error.message : '';
     if (/timeout|timed out|ETIMEDOUT/i.test(`${name} ${message}`)) {
@@ -535,4 +541,17 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     }
     return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };
   }
+}
+
+/**
+ * TypeORM 基础设施错误（连接/语句/事务失败）。不直接 import QueryFailedError：
+ * 判据用 name + driverError 载荷，避免把错误分类绑到具体驱动类上。
+ */
+function isInfrastructureError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === 'QueryFailedError' ||
+    error.name === 'TransactionFailedError' ||
+    'driverError' in error
+  );
 }

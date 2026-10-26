@@ -133,9 +133,9 @@ describe('ContextService', () => {
     expect(out[1]).toBeInstanceOf(HumanMessage);
   });
 
-  it('failed / aborted / 空内容的历史 AI 行不进上下文（Anthropic 拒空 text block）', async () => {
-    // 凭证错误等确定性失败经 saveFailure 落 content='' 的 failed AI 行；
-    // 不过滤会把空串作为 AIMessage 历史送回模型，后续每轮都被上游 400 打挂
+  it('空内容的历史 AI 行不进上下文（Anthropic 拒空 text block），其它状态保留半截回答', async () => {
+    // saveFailure 可能把半截回答以 failed 落库、用户停止是 aborted——内容非空都可用；
+    // 只有凭证失败落下的 content='' 行会被过滤，null status 的行同样放行
     const svc = makeSvc({ AI_SYSTEM_PROMPT: '' });
     const history = [
       msg(MessageRole.User, 'u1'),
@@ -144,6 +144,24 @@ describe('ContextService', () => {
       msg(MessageRole.Ai, 'ok-answer'),
     ];
     const out = await svc.buildMessages(history, 'new', provider);
-    expect(out.map((m) => m.content)).toEqual(['u1', 'ok-answer', 'new']);
+    expect(out.map((m) => m.content)).toEqual([
+      'u1',
+      'aborted-content',
+      'ok-answer',
+      'new',
+    ]);
+  });
+
+  it('尾部未被回答的孤立 user 轮被裁掉（避免相邻 Human 坏角色交替，且不重复送旧问题）', async () => {
+    const svc = makeSvc({ AI_SYSTEM_PROMPT: '' });
+    const history = [
+      msg(MessageRole.User, 'u1'),
+      msg(MessageRole.Ai, 'a1'),
+      // 最新一轮有问无答：AI 行为空且被过滤，留下孤立 user
+      msg(MessageRole.User, 'unanswered'),
+      msg(MessageRole.Ai, '', MessageStatus.Failed),
+    ];
+    const out = await svc.buildMessages(history, 'new', provider);
+    expect(out.map((m) => m.content)).toEqual(['u1', 'a1', 'new']);
   });
 });
