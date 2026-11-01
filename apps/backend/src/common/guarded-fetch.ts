@@ -1,6 +1,6 @@
 import type { LookupFunction } from 'node:net';
 import { Agent, fetch as undiciFetch } from 'undici';
-import { BaseUrlRedirectError } from '../common/base-url-blocked.error.js';
+import { BaseUrlRedirectError } from './base-url-blocked.error.js';
 import {
   assertBaseUrlHostAllowed,
   resolveAllowedAddresses,
@@ -41,7 +41,10 @@ function createGuardedLookup(): LookupFunction {
 /** 带关闭钩子的 fetch：Agent 是连接池资源，停机时必须显式关闭 */
 export interface GuardedFetch {
   fetch: typeof fetch;
+  /** 优雅关闭：等待在途请求结束（可能被卡住的请求拖住） */
   close(): Promise<void>;
+  /** 强制销毁：中止在途请求并关闭连接（停机宽限到期时使用） */
+  destroy(): Promise<void>;
 }
 
 /** 连接池参数（缺省走 undici 默认值；由 OUTBOUND_* 环境变量解析后传入） */
@@ -89,5 +92,9 @@ export function createGuardedFetch(
     }
     return response as unknown as Response;
   };
-  return { fetch: guardedFetch, close: () => dispatcher.close() };
+  return {
+    fetch: guardedFetch,
+    close: () => dispatcher.close(),
+    destroy: () => dispatcher.destroy(),
+  };
 }

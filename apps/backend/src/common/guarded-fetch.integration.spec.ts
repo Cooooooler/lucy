@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { BaseUrlRedirectError } from '../common/base-url-blocked.error.js';
+import { BaseUrlRedirectError } from './base-url-blocked.error.js';
 import { createGuardedFetch, type GuardedFetch } from './guarded-fetch.js';
 
 /**
@@ -32,7 +32,7 @@ describe('createGuardedFetch（真实 undici + 本地 HTTP）', () => {
   });
 
   afterAll(async () => {
-    await guard.close();
+    await guard.destroy();
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });

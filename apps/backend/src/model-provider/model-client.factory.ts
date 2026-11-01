@@ -5,6 +5,7 @@ import { ChatOllama, OllamaEmbeddings } from '@langchain/ollama';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { GuardedFetchService } from '../common/guarded-fetch.service.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import {
   ModelProviderProtocol,
@@ -12,7 +13,6 @@ import {
   ModelProviderVendor,
   type ModelProvider,
 } from './entities/model-provider.entity.js';
-import { GuardedFetchService } from './guarded-fetch.service.js';
 import { ModelCredentialError } from './model-credential.error.js';
 
 /**

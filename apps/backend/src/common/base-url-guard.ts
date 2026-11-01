@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { BaseUrlBlockedError } from '../common/base-url-blocked.error.js';
+import { BaseUrlBlockedError } from './base-url-blocked.error.js';
 
 /** 已知云元数据主机名（DNS 名形式） */
 const BLOCKED_HOSTNAMES = new Set([

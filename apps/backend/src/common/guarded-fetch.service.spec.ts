@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createGuardedFetchMock = vi.hoisted(() => vi.fn());
 vi.mock('./guarded-fetch.js', () => ({
@@ -10,12 +10,21 @@ import { GuardedFetchService } from './guarded-fetch.service.js';
 
 describe('GuardedFetchService', () => {
   const close = vi.fn();
+  const destroy = vi.fn();
   const fetchImpl = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
-    createGuardedFetchMock.mockReturnValue({ fetch: fetchImpl, close });
+    close.mockResolvedValue(undefined);
+    destroy.mockResolvedValue(undefined);
+    createGuardedFetchMock.mockReturnValue({
+      fetch: fetchImpl,
+      close,
+      destroy,
+    });
   });
+
+  afterEach(() => vi.useRealTimers());
 
   it('把 OUTBOUND_* 配置传给连接池，并暴露同一份 fetch', () => {
     const service = new GuardedFetchService(
@@ -46,9 +55,22 @@ describe('GuardedFetchService', () => {
     });
   });
 
-  it('停机时关闭连接池', async () => {
+  it('停机先优雅 close，再 destroy 收尾', async () => {
     const service = new GuardedFetchService(new ConfigService({}));
     await service.onApplicationShutdown();
     expect(close).toHaveBeenCalledTimes(1);
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('close 被在途请求挂住时，超时后强制 destroy（不拖住 app.close）', async () => {
+    vi.useFakeTimers();
+    close.mockReturnValue(new Promise<void>(() => {}));
+    const service = new GuardedFetchService(new ConfigService({}));
+
+    const pending = service.onApplicationShutdown();
+    await vi.advanceTimersByTimeAsync(3000);
+    await pending;
+
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 });

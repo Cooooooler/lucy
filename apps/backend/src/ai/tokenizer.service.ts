@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GuardedFetchService } from '../model-provider/guarded-fetch.service.js';
+import { GuardedFetchService } from '../common/guarded-fetch.service.js';
 
 @Injectable()
 export class TokenizerService {

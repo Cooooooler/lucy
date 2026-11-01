@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const undiciFetch = vi.hoisted(() => vi.fn());
 const agentCtor = vi.hoisted(() => vi.fn());
 const agentClose = vi.hoisted(() => vi.fn());
+const agentDestroy = vi.hoisted(() => vi.fn());
 const assertHost = vi.hoisted(() => vi.fn());
 const resolveAddresses = vi.hoisted(() => vi.fn());
 
@@ -10,6 +11,7 @@ vi.mock('undici', () => ({
   fetch: undiciFetch,
   Agent: class {
     close = agentClose;
+    destroy = agentDestroy;
     constructor(options: unknown) {
       agentCtor(options);
     }
@@ -23,7 +25,7 @@ vi.mock('./base-url-guard.js', () => ({
 import {
   BaseUrlBlockedError,
   BaseUrlRedirectError,
-} from '../common/base-url-blocked.error.js';
+} from './base-url-blocked.error.js';
 import { createGuardedFetch } from './guarded-fetch.js';
 
 describe('createGuardedFetch', () => {
@@ -58,10 +60,12 @@ describe('createGuardedFetch', () => {
     expect(options.connect.timeout).toBe(1200);
   });
 
-  it('close 关闭 undici Agent 连接池', async () => {
+  it('close / destroy 分别关闭与强制销毁连接池', async () => {
     const guard = createGuardedFetch();
     await guard.close();
+    await guard.destroy();
     expect(agentClose).toHaveBeenCalledTimes(1);
+    expect(agentDestroy).toHaveBeenCalledTimes(1);
   });
 
   it('Agent 的 connect.lookup 校验后把地址钉给连接（防 DNS rebinding）', async () => {

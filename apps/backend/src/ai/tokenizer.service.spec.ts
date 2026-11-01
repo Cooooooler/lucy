@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import type { GuardedFetchService } from '../model-provider/guarded-fetch.service.js';
+import type { GuardedFetchService } from '../common/guarded-fetch.service.js';
 import { TokenizerService } from './tokenizer.service.js';
 
 /** 测试里直接委托到 globalThis.fetch（各用例用 stubGlobal 替换） */

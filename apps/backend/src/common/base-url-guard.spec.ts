@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const lookup = vi.hoisted(() => vi.fn());
 vi.mock('node:dns/promises', () => ({ lookup }));
 
-import { BaseUrlBlockedError } from '../common/base-url-blocked.error.js';
+import { BaseUrlBlockedError } from './base-url-blocked.error.js';
 import {
   assertBaseUrlHostAllowed,
   isBlockedAddress,

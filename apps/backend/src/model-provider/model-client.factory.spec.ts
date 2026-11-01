@@ -3,6 +3,7 @@ import { ChatOllama, OllamaEmbeddings } from '@langchain/ollama';
 import { OpenAIEmbeddings } from '@langchain/openai';
 import { ConfigService } from '@nestjs/config';
 import { describe, expect, it } from 'vitest';
+import type { GuardedFetchService } from '../common/guarded-fetch.service.js';
 import { makeModelProvider } from '../test/model-provider.fixtures.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import {
@@ -10,7 +11,6 @@ import {
   ModelProviderType,
   ModelProviderVendor,
 } from './entities/model-provider.entity.js';
-import type { GuardedFetchService } from './guarded-fetch.service.js';
 import {
   ModelClientFactory,
   UnsupportedModelTypeError,
