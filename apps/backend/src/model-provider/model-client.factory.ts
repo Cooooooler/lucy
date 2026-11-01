@@ -12,6 +12,7 @@ import {
   ModelProviderVendor,
   type ModelProvider,
 } from './entities/model-provider.entity.js';
+import { createGuardedFetch } from './guarded-fetch.js';
 import { ModelCredentialError } from './model-credential.error.js';
 
 /**
@@ -72,6 +73,8 @@ export class ModelClientFactory {
   // 不会命中旧凭证/旧地址；provider 删除后条目由容量淘汰兜底。
   private readonly chatCache = new Map<string, BaseChatModel>();
   private readonly maxChatCacheEntries = 50;
+  // 出站请求统一走带 SSRF 校验的 fetch（逐请求按解析后 IP 校验 + 不跟随重定向）
+  private readonly guardedFetch = createGuardedFetch();
 
   constructor(
     private readonly cipher: ApiKeyCipher,
@@ -127,6 +130,7 @@ export class ModelClientFactory {
           apiKey: this.requireApiKey(provider),
           anthropicApiUrl: provider.baseUrl,
           maxRetries: 0,
+          clientOptions: { fetch: this.guardedFetch },
         });
       case ModelProviderVendor.Ollama:
         return new ChatOllama({
@@ -136,6 +140,7 @@ export class ModelClientFactory {
           // think 是实例级参数；numPredict 默认取 AI_OUTPUT_MAX_TOKENS，调用点可按需覆盖
           think: options.think,
           numPredict: options.numPredict ?? resolveOutputMaxTokens(this.config),
+          fetch: this.guardedFetch,
         });
       default:
         return this.buildOpenAiChat(provider);
@@ -147,7 +152,10 @@ export class ModelClientFactory {
     return new ChatOpenAI({
       model: provider.name,
       apiKey: this.requireApiKey(provider),
-      configuration: { baseURL: provider.baseUrl },
+      configuration: {
+        baseURL: provider.baseUrl,
+        fetch: this.guardedFetch,
+      },
       useResponsesApi: provider.protocol === ModelProviderProtocol.Responses,
       maxRetries: 0,
     });
@@ -161,12 +169,16 @@ export class ModelClientFactory {
         baseUrl: provider.baseUrl,
         headers: this.ollamaHeaders(provider),
         maxRetries: 0,
+        fetch: this.guardedFetch,
       });
     }
     return new OpenAIEmbeddings({
       model: provider.name,
       apiKey: this.requireApiKey(provider),
-      configuration: { baseURL: provider.baseUrl },
+      configuration: {
+        baseURL: provider.baseUrl,
+        fetch: this.guardedFetch,
+      },
       // Embeddings 走基类的 AsyncCaller，默认重试 6 次（指数退避）；OpenAI client 自带的
       // maxRetries 管不到这一层，不显式归零则连接测试超时返回后仍会在后台退避重试
       maxRetries: 0,
