@@ -9,8 +9,8 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
-import { USER_EMAIL_NORMALIZED_CHECK } from '../common/email.js';
 import { UserRole } from '../common/roles.js';
+import { USER_EMAIL_NORMALIZED_CHECK } from './user-email.constraint.js';
 
 /** 用户账号：username/email 全局唯一，status=1 为正常；passwordHash 经 @Exclude 不出网 */
 @Entity('users')

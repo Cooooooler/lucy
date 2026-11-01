@@ -5,11 +5,11 @@ import { JwtService } from '@nestjs/jwt';
 import type { ChainableCommander } from 'ioredis';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { AppLogger } from '../common/app-logger.service.js';
-import { isEmailAccount } from '../common/email.js';
 import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
 import { toSharedUser, type SharedUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
+import { isEmailAccount } from './account.js';
 
 /** 令牌摘要（sha256 hex）。标称类型，见 AuthService.digest */
 type TokenDigest = string & { readonly __brand: 'TokenDigest' };

@@ -75,10 +75,36 @@ try {
 
   // 邮箱归一迁移的真实数据验证：prepare 每次重建空库后立即 runMigrations，
   // 归一 UPDATE 与重复账号检测都只对空表执行——字符集/转义写错不会有任何用例变红。
-  // 这里撤到最后两条（归一 + CHECK），灌入存量行再重跑迁移并断言结果。
+  // 这里撤到归一迁移之前，灌入存量行再重跑迁移并断言结果。
+  const appliedMigrationNames = async (): Promise<string[]> =>
+    (
+      await dataSource.query<{ name: string }[]>(
+        `SELECT "name" FROM "migrations" ORDER BY "id"`,
+      )
+    ).map((row) => row.name);
+  const emailMigrationPrefixes = [
+    'NormalizeUserEmailCase',
+    'AddUserEmailNormalizedCheck',
+  ];
+  // 按名字定位而不是「撤最后两条」：后续新增迁移会让固定次数撤销撤错目标，
+  // 留下「归一仍生效、CHECK 已被撤」的状态——灌入的存量行不会归一，随后
+  // ADD CONSTRAINT 校验存量行时会让整轮后端 e2e 失败。
   const undoEmailMigrations = async (): Promise<void> => {
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
+    const applied = await appliedMigrationNames();
+    for (const prefix of emailMigrationPrefixes) {
+      if (!applied.some((name) => name.startsWith(prefix))) {
+        throw new Error(`迁移链里找不到 ${prefix}，无法验证邮箱归一`);
+      }
+    }
+    for (let guard = 0; guard < 100; guard += 1) {
+      const names = await appliedMigrationNames();
+      const stillApplied = names.some((name) =>
+        emailMigrationPrefixes.some((prefix) => name.startsWith(prefix)),
+      );
+      if (!stillApplied) return;
+      await dataSource.undoLastMigration();
+    }
+    throw new Error('撤销邮箱归一迁移超过 100 次，迁移链异常');
   };
   const seededEmails = () =>
     dataSource.query<{ username: string; email: string }[]>(
