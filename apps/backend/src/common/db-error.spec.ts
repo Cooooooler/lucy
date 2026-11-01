@@ -7,6 +7,15 @@ describe('isInfrastructureError', () => {
     expect(isInfrastructureError(error)).toBe(true);
   });
 
+  it('约束违反（23xxx）即使包在 QueryFailedError 里也不算基础设施错误', () => {
+    const unique = new QueryFailedError(
+      'INSERT',
+      [],
+      Object.assign(new Error('duplicate key'), { code: '23505' }),
+    );
+    expect(isInfrastructureError(unique)).toBe(false);
+  });
+
   it('连接/停机/资源不足/取消类 SQLSTATE 命中', () => {
     for (const code of [
       '08006',

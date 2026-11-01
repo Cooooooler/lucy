@@ -56,6 +56,16 @@ describe('classifyStreamError', () => {
     });
   });
 
+  it('供应商 401/403 归凭证无效码（与连接测试同源，可执行提示）', () => {
+    const unauthorized = Object.assign(new Error('Unauthorized'), {
+      status: 401,
+    });
+    expect(classifyStreamError(unauthorized, live, 'stream')).toEqual({
+      code: ErrorCode.AI_CREDENTIAL_INVALID,
+      message: 'API Key 无效或无权限',
+    });
+  });
+
   it('QueryFailedError / SQLSTATE / 连接池文案都归为基础设施错误', () => {
     const qfe = new QueryFailedError(
       'SELECT 1',

@@ -27,11 +27,16 @@ const PG_INFRA_CODE = /^(?:08[0-9A-Z]{3}|57P0[1-4]|53300|57014)$/;
  * 被上层当成业务/模型失败，误报成「模型调用超时」。
  */
 export function isInfrastructureError(error: unknown): boolean {
-  if (error instanceof QueryFailedError) return true;
   if (!(error instanceof Error)) return false;
-  // 结构化优先：pg 的连接/取消类失败带 SQLSTATE（code），不随驱动文案变化
+  // 结构化优先：SQLSTATE（code）不随驱动文案变化。23xxx 是完整性约束违反
+  //（唯一键/外键/非空），属于业务数据问题，不能算基础设施故障——即使它被
+  // QueryFailedError 包着也不例外（TypeORM 会把 driverError 的字段并到错误上）
   const code = (error as { code?: unknown }).code;
-  if (typeof code === 'string' && PG_INFRA_CODE.test(code)) return true;
+  if (typeof code === 'string') {
+    if (code.startsWith('23')) return false;
+    if (PG_INFRA_CODE.test(code)) return true;
+  }
+  if (error instanceof QueryFailedError) return true;
   // pg-pool 的连接类失败是裸 Error，没有稳定类型/name，只能按文案兜底
   return CONNECTION_ERROR.test(error.message);
 }

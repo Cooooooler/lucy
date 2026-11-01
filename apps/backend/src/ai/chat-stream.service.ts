@@ -363,7 +363,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       } catch (err) {
         // 标题生成失败不影响正文问答，仅记录日志
         this.logger.warn(
-          `标题生成失败 conversation=${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
+          `标题生成失败 conversation=${conversationId}: ${formatErrorForLog(err)}`,
           ChatStreamService.name,
         );
       }

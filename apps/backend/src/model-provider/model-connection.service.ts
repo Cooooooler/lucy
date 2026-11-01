@@ -5,6 +5,7 @@ import type { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { formatErrorForLog } from '../common/error-format.js';
 import { MODEL_CREDENTIAL_MESSAGES } from '../common/messages.js';
+import { providerErrorMessage } from '../common/provider-error.js';
 import type { ModelProviderTestResultDto } from './dto/model-provider-test-result.dto.js';
 import {
   ModelProvider,
@@ -163,22 +164,9 @@ export class ModelConnectionService {
     if (error instanceof ModelCredentialError) {
       return MODEL_CREDENTIAL_MESSAGES[error.reason];
     }
-    const status = (error as { status?: unknown } | null)?.status;
-    if (status === 401 || status === 403) return 'API Key 无效或无权限';
-    if (status === 404) return '接口不存在，请检查 Base URL 与协议';
-    if (status === 429) return '供应商限流，请稍后重试';
-    if (typeof status === 'number' && status >= 500) {
-      return '供应商服务异常';
-    }
-    const name = error instanceof Error ? error.name : '';
-    const message = error instanceof Error ? error.message : '';
-    if (
-      /ENOTFOUND|ECONNREFUSED|EAI_AGAIN|ETIMEDOUT|fetch failed|network/i.test(
-        `${name} ${message}`,
-      )
-    ) {
-      return '无法连接到 API Base URL';
-    }
+    // 供应商/网络错误按共用判据归类（common/provider-error），与对话链路同源
+    const providerMessage = providerErrorMessage(error);
+    if (providerMessage) return providerMessage;
     return '连接失败，请检查配置';
   }
 }

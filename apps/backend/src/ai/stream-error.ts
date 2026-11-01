@@ -1,6 +1,10 @@
 import { ErrorCode, type ErrorCodeValue } from '@lucy/shared';
 import { isInfrastructureError } from '../common/db-error.js';
-import { MODEL_CREDENTIAL_MESSAGES } from '../common/messages.js';
+import {
+  MODEL_CREDENTIAL_MESSAGES,
+  PROVIDER_ERROR_MESSAGES,
+} from '../common/messages.js';
+import { providerErrorKind } from '../common/provider-error.js';
 import { ModelCredentialError } from '../model-provider/model-credential.error.js';
 
 /** 失败发生时是否已经在读模型流：只有流内才可能在等模型输出。 */
@@ -34,6 +38,15 @@ export function classifyStreamError(
     return {
       code: ErrorCode.AI_CREDENTIAL_INVALID,
       message: MODEL_CREDENTIAL_MESSAGES[error.reason],
+    };
+  }
+  // 对话链路也按供应商状态归因：401/403 与凭证无效同码，前端按服务端 message 展示
+  // 可执行提示（该码不进 SSE_ERROR_TEXT 覆盖表）。429/5xx 暂沿用「生成失败」码——
+  // 前端会按码覆盖文案，细分错误码需要改共享契约，列为跟进项。
+  if (providerErrorKind(error) === 'unauthorized') {
+    return {
+      code: ErrorCode.AI_CREDENTIAL_INVALID,
+      message: PROVIDER_ERROR_MESSAGES.unauthorized,
     };
   }
   // 基础设施错误（DB/事务）先于模型超时启发式：Postgres 语句超时
