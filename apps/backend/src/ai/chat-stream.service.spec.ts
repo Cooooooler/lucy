@@ -235,6 +235,8 @@ describe('ChatStreamService', () => {
       content: '半截',
       thinking: null,
       status: MessageStatus.Failed,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- expect.any 的返回类型是 any
+      createdAt: expect.any(Date),
     });
   }
 
@@ -317,6 +319,8 @@ describe('ChatStreamService', () => {
         content: '你',
         thinking: null,
         status: MessageStatus.Failed,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- expect.any 的返回类型是 any
+        createdAt: expect.any(Date),
       });
     } finally {
       vi.useRealTimers();
@@ -343,6 +347,8 @@ describe('ChatStreamService', () => {
       content: '',
       thinking: null,
       status: MessageStatus.Failed,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- expect.any 的返回类型是 any
+      createdAt: expect.any(Date),
     });
   });
 
@@ -620,6 +626,8 @@ describe('ChatStreamService', () => {
         content: '半截',
         thinking: null,
         status: MessageStatus.Aborted,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- expect.any 的返回类型是 any
+        createdAt: expect.any(Date),
       }),
     );
   });

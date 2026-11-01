@@ -62,6 +62,10 @@ export class ChatStreamService implements BeforeApplicationShutdown {
   // 得到 BUSY 而非 NOT_FOUND，形成存在性/活跃度探测面。
   private readonly inFlight = new Map<string, Promise<unknown>>();
 
+  // 已发出 error 帧、仍在落库的失败行：停机时要等它们写完，否则连接池销毁会把 pending
+  // INSERT 丢掉（见 beforeApplicationShutdown）
+  private readonly pendingFailures = new Set<Promise<unknown>>();
+
   // 在途流的取消句柄：停机时统一 abort，让半截内容落 aborted 而不是被硬掐在写入中间
   private readonly activeControllers = new Set<AbortController>();
 
@@ -148,7 +152,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     // 「优雅」就退化成硬退。这里留出余量给后续 dispose 与资源释放。
     const waitMs = Math.max(0, graceMs - ChatStreamService.DISPOSE_RESERVE_MS);
     await Promise.race([
-      Promise.allSettled([...this.inFlight.values()]),
+      Promise.allSettled([...this.inFlight.values(), ...this.pendingFailures]),
       this.delay(waitMs),
     ]);
     // 等待期间仍可能注册了新的流（在停机位置起前越过检查的极小窗口），再中止一次
@@ -191,6 +195,10 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     // 会话不存在 / 未选择模型时 prepareRun 已发 error 帧，直接结束
     if (!prepared) return;
     const { history, provider } = prepared;
+    // AI 行的时间戳在用户消息落库后固定：失败行是 fire-and-forget 写入，若依赖插入时刻
+    // 生成 createdAt，DB 慢时它会排到用户下一轮提问之后，normalizeTurns 会把半截回答
+    // 错配成新提问的回答
+    const answeredAt = new Date();
 
     // 空闲超时：模型持续无输出（含首 token 等待）超过阈值判为超时
     const timeoutMs = Number(this.config.get('OLLAMA_TIMEOUT_MS', 120000));
@@ -267,6 +275,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
           conversationId,
           answer: collected.answer,
           thinkingAll: collected.thinkingAll,
+          createdAt: answeredAt,
         },
         streamStarted ? 'stream' : 'run',
       );
@@ -482,7 +491,12 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     requestId: string,
     signal: AbortSignal,
     error: unknown,
-    context: { conversationId: string; answer: string; thinkingAll: string },
+    context: {
+      conversationId: string;
+      answer: string;
+      thinkingAll: string;
+      createdAt: Date;
+    },
     phase: ErrorPhase,
   ): void {
     const kind = classifyStreamError(error, signal, phase);
@@ -502,13 +516,15 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     );
     // 落库是尽力而为且不能 await：runSend 的 promise 要等它返回才释放 in-flight 锁，
     // DB 不可达时会让用户重发一直拿到 AI_CONVERSATION_BUSY
-    void this.messageRepo
+    const save = this.messageRepo
       .save({
         conversationId: context.conversationId,
         role: MessageRole.Ai,
         content: context.answer,
         thinking: context.thinkingAll || null,
         status,
+        // 显式时间戳：保证失败行排在它回答的那条用户消息之后（见 answeredAt 注释）
+        createdAt: context.createdAt,
       })
       .catch((saveError) => {
         // 落库失败不影响已发出的错误帧，也不能再抛到外层 catch 重复发帧：只补日志
@@ -517,6 +533,9 @@ export class ChatStreamService implements BeforeApplicationShutdown {
           ChatStreamService.name,
         );
       });
+    // 登记到停机等待集合；写完（成功或失败）后移出
+    this.pendingFailures.add(save);
+    void save.finally(() => this.pendingFailures.delete(save));
   }
 
   // 失败出口的统一处理：按 aborted 分级记日志、发 error 帧并结束流
