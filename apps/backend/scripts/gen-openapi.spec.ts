@@ -167,6 +167,7 @@ describe('gen-openapi', () => {
     hasSuccessSchema(doc, '/knowledge', 'post', '201');
     hasSuccessSchema(doc, '/knowledge/{id}', 'get', '200');
     hasSuccessSchema(doc, '/knowledge/{id}', 'patch', '200');
+    hasSuccessSchema(doc, '/knowledge/{id}/visibility', 'patch', '200');
     hasSuccessSchema(doc, '/knowledge/{kbId}/documents', 'get', '200');
     hasSuccessSchema(doc, '/knowledge/{kbId}/documents', 'post', '201');
     hasSuccessSchema(doc, '/knowledge/{kbId}/documents/{id}', 'get', '200');
@@ -388,6 +389,10 @@ describe('gen-openapi', () => {
     expect(propOf('UpdateKnowledgeBaseDto', 'description')).toMatchObject({
       minLength: 1,
       maxLength: 200,
+    });
+    // 独立的可见性切换端点：枚举取值必须进契约（@ApiProperty 不读 @IsEnum 的取值）
+    expect(propOf('UpdateKnowledgeVisibilityDto', 'visibility')).toMatchObject({
+      enum: ['private', 'public'],
     });
 
     // 知识库检索设置：class-validator 的 @Min/@Max 不产出文档边界，必须两处同步写。

@@ -1,9 +1,13 @@
-import { ExecutionContext, Injectable } from '@nestjs/common';
+import {
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { ClsService } from 'nestjs-cls';
 import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator.js';
-import { resolveAuthFailure } from './auth-failure.js';
+import { HTTP_STATUS_MESSAGES } from '../common/messages.js';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -25,17 +29,22 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
   // passport 验证通过后把 userId 写入 CLS：同一请求内后续所有
   // AppLogger 日志自动带上 user=xxx，无需各 service 手工拼接。
-  // 签名保持与 passport AuthGuard 兼容（any 参数），内部收窄 userId 类型。
+  // 签名保持与 passport AuthGuard 兼容（any 参数），内部收窄类型。
 
   handleRequest<TUser>(
     ...args: [any, any, any, ExecutionContext, any?]
   ): TUser {
-    // 失败归一抽到 auth-failure.ts（纯函数、可单测）：守卫本体只剩
-    // 「成功写 CLS」的单一职责，认知复杂度不再超标。
-    // 参数签名须与 passport AuthGuard 兼容（any）：err 落 Error 联合，
-    // 非 Error 值由 resolveAuthFailure 统一收成中文 401。
-    const [err, user] = args as unknown as [Error | null | undefined, unknown];
-    if (err || !user) resolveAuthFailure(err);
+    const [err] = args as unknown as [unknown, unknown];
+    // 守卫只做类型收窄：passport 约定 err 为 Error，但裸字符串等非 Error 值不能直接抛
+    // （only-throw-error），统一收成中文 401。Error 一律原样交回 super.handleRequest 抛出：
+    // 业务中文异常、403、Redis/DB 故障语义都不在此改写；框架英文默认串（如 passport 的
+    // `Unauthorized`）的中文化只由全局 AllExceptionsFilter 的 readableErrorMessage 实现，
+    // 守卫不再保留第二份文案归一逻辑（两份实现曾各测一遍、结论也一致）。
+    if (err !== null && err !== undefined && !(err instanceof Error)) {
+      throw new UnauthorizedException(
+        HTTP_STATUS_MESSAGES[401] ?? '未登录或登录已过期',
+      );
+    }
     // super.handleRequest 返回 any：先落 unknown 再断言，避免 any 污染
     const raw: unknown = super.handleRequest(...args);
     const result = raw as TUser;

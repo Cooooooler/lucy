@@ -412,6 +412,23 @@ export interface paths {
         patch: operations["KnowledgeController_update"];
         trace?: never;
     };
+    "/knowledge/{id}/visibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** 切换知识库可见性 */
+        patch: operations["KnowledgeController_updateVisibility"];
+        trace?: never;
+    };
     "/knowledge/{id}/like": {
         parameters: {
             query?: never;
@@ -1006,6 +1023,13 @@ export interface components {
             /**
              * @description 可见性
              * @default private
+             * @enum {string}
+             */
+            visibility: "private" | "public";
+        };
+        UpdateKnowledgeVisibilityDto: {
+            /**
+             * @description 可见性
              * @enum {string}
              */
             visibility: "private" | "public";
@@ -1935,6 +1959,45 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["KnowledgeBaseItemDto"];
                 };
+            };
+        };
+    };
+    KnowledgeController_updateVisibility: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateKnowledgeVisibilityDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeBaseItemDto"];
+                };
+            };
+            /** @description 仅知识库主可操作 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 知识库不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

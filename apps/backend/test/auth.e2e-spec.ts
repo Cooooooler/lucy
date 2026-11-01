@@ -85,4 +85,13 @@ describe('Auth (e2e)', () => {
       .set('Cookie', refreshCookie)
       .expect(401);
   });
+
+  // 守卫只负责收窄与委托，框架默认英文串（passport 的 `Unauthorized`）由
+  // AllExceptionsFilter 统一中文化：这里从 HTTP 层钉住「用户最终仍看到中文 401」
+  it('未携带凭证时返回中文 401', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/v1/auth/me')
+      .expect(401);
+    expect((res.body as ApiBody<null>).message).toBe('未登录或登录已过期');
+  });
 });

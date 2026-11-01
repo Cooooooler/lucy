@@ -3,7 +3,6 @@ import {
   HTTP_STATUS_MESSAGES,
   RATE_LIMIT_MESSAGE,
   fieldLabel,
-  isFrameworkDefaultMessage,
 } from './messages.js';
 
 describe('messages', () => {
@@ -23,21 +22,5 @@ describe('messages', () => {
     // 映射表本身不含原型链上的键
     expect(Object.hasOwn(FIELD_LABELS, 'constructor')).toBe(false);
     expect(Object.hasOwn(FIELD_LABELS, 'toString')).toBe(false);
-  });
-
-  it('isFrameworkDefaultMessage：字符串 / 数组 / 对象 message', () => {
-    expect(isFrameworkDefaultMessage('Unauthorized')).toBe(true);
-    expect(isFrameworkDefaultMessage('File too large')).toBe(true);
-    expect(
-      isFrameworkDefaultMessage('Validation failed (uuid is expected)'),
-    ).toBe(true);
-    expect(isFrameworkDefaultMessage('用户名或密码错误')).toBe(false);
-    expect(isFrameworkDefaultMessage(['ok', 'Too Many Requests'])).toBe(true);
-    expect(isFrameworkDefaultMessage(['ok', 'fine'])).toBe(false);
-    expect(isFrameworkDefaultMessage({ message: 'Forbidden' })).toBe(true);
-    expect(isFrameworkDefaultMessage({ message: '业务中文' })).toBe(false);
-    expect(isFrameworkDefaultMessage(undefined)).toBe(false);
-    expect(isFrameworkDefaultMessage(null)).toBe(false);
-    expect(isFrameworkDefaultMessage(42)).toBe(false);
   });
 });

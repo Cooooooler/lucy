@@ -91,27 +91,6 @@ export const FRAMEWORK_DEFAULT_MESSAGES = new Set([
   'Unexpected end of file',
 ]);
 
-/**
- * 是否为框架默认英文 message：HttpException 的 message 可能是字符串、
- * 字符串数组或对象（`{ message }`），统一抽成字符串再比对。
- * 供 JwtAuthGuard 判定「passport 默认英文 401」用——按集合成员判断，
- * 不写死单个字符串比较。
- */
-export function isFrameworkDefaultMessage(message: unknown): boolean {
-  if (typeof message === 'string') {
-    return FRAMEWORK_DEFAULT_MESSAGES.has(message);
-  }
-  if (Array.isArray(message)) {
-    return message.some((item) => isFrameworkDefaultMessage(item));
-  }
-  if (message !== null && typeof message === 'object') {
-    return isFrameworkDefaultMessage(
-      (message as Record<string, unknown>).message,
-    );
-  }
-  return false;
-}
-
 /** 请求字段中文名：校验报错时把属性名翻译成人话；未收录的字段回退属性名本身 */
 export const FIELD_LABELS: Record<string, string> = {
   account: '账号',

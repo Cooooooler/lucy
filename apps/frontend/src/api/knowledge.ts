@@ -9,6 +9,7 @@ import { http } from './client.js';
 import type {
   CreateKnowledgeBaseRequest,
   KnowledgeBase,
+  KnowledgeBaseVisibility,
   KnowledgeDocument,
   KnowledgeDocumentListItem,
   UpdateKnowledgeBaseRequest,
@@ -37,6 +38,17 @@ export function updateKnowledgeBaseApi(
   input: UpdateKnowledgeBaseRequest,
 ) {
   return http.patch<KnowledgeBase>(`knowledge/${id}`, input).json();
+}
+
+// 可见性切换独立端点：成功文案（「已设为公开/私有」）由后端按响应里的
+// visibility 决定，前端无需按请求形状猜测
+export function updateKnowledgeVisibilityApi(
+  id: string,
+  visibility: KnowledgeBaseVisibility,
+) {
+  return http
+    .patch<KnowledgeBase>(`knowledge/${id}/visibility`, { visibility })
+    .json();
 }
 
 export function deleteKnowledgeBaseApi(id: string) {

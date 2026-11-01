@@ -10,6 +10,7 @@ import {
   listKnowledgeBasesApi,
   unlikeKnowledgeBaseApi,
   updateKnowledgeBaseApi,
+  updateKnowledgeVisibilityApi,
 } from '@/api/knowledge';
 import type {
   CreateKnowledgeBaseRequest,
@@ -161,6 +162,39 @@ export function useCreateKnowledgeBase() {
   });
 }
 
+/**
+ * 知识库乐观更新的公共前置与回滚：整表单更新与可见性切换共用，
+ * 保证两条路径在「取消查询 → 快照 → 就地改写 → 失败回滚」上口径一致。
+ */
+async function optimisticBasePatch(
+  queryClient: QueryClient,
+  id: string,
+  patch: Partial<KnowledgeBase>,
+) {
+  await Promise.all([
+    queryClient.cancelQueries({ queryKey: knowledgeKeys.baseListAll() }),
+    queryClient.cancelQueries({ queryKey: knowledgeKeys.base(id) }),
+  ]);
+  const previousBase = queryClient.getQueryData<KnowledgeBase>(
+    knowledgeKeys.base(id),
+  );
+  const previousLists = snapshotLists(queryClient, knowledgeKeys.baseListAll());
+  patchBaseInCache(queryClient, id, patch);
+  return { previousBase, previousLists };
+}
+
+function rollbackBasePatch(
+  queryClient: QueryClient,
+  id: string,
+  context:
+    { previousBase?: KnowledgeBase; previousLists: ListsSnapshot } | undefined,
+) {
+  if (context?.previousBase) {
+    queryClient.setQueryData(knowledgeKeys.base(id), context.previousBase);
+  }
+  rollbackToSnapshot(queryClient, context?.previousLists);
+}
+
 /** 更新知识库（名称/描述/可见性）。乐观就地更新，onError 回滚。 */
 export function useUpdateKnowledgeBase() {
   const queryClient = useQueryClient();
@@ -169,21 +203,7 @@ export function useUpdateKnowledgeBase() {
       id: string;
       input: UpdateKnowledgeBaseRequest;
     }) => updateKnowledgeBaseApi(variables.id, variables.input),
-    onMutate: async ({ id, input }) => {
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey: knowledgeKeys.baseListAll() }),
-        queryClient.cancelQueries({ queryKey: knowledgeKeys.base(id) }),
-      ]);
-      const previousBase = queryClient.getQueryData<KnowledgeBase>(
-        knowledgeKeys.base(id),
-      );
-      const previousLists = snapshotLists(
-        queryClient,
-        knowledgeKeys.baseListAll(),
-      );
-      patchBaseInCache(queryClient, id, input);
-      return { previousBase, previousLists };
-    },
+    onMutate: ({ id, input }) => optimisticBasePatch(queryClient, id, input),
     onSuccess: (updated) => {
       // 只回填可更新字段：更新接口不返回 likeCount/isLiked，整体覆盖会丢点赞态
       const { name, description, visibility, updatedAt } = updated;
@@ -194,12 +214,28 @@ export function useUpdateKnowledgeBase() {
         updatedAt,
       });
     },
-    onError: (_err, { id }, context) => {
-      if (context?.previousBase) {
-        queryClient.setQueryData(knowledgeKeys.base(id), context.previousBase);
-      }
-      rollbackToSnapshot(queryClient, context?.previousLists);
-    },
+    onError: (_err, { id }, context) =>
+      rollbackBasePatch(queryClient, id, context),
+  });
+}
+
+/** 单独切换可见性：独立端点，成功文案由后端按响应里的 visibility 决定。 */
+export function useUpdateKnowledgeVisibility() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (variables: {
+      id: string;
+      visibility: KnowledgeBaseVisibility;
+    }) => updateKnowledgeVisibilityApi(variables.id, variables.visibility),
+    onMutate: ({ id, visibility }) =>
+      optimisticBasePatch(queryClient, id, { visibility }),
+    onSuccess: (updated) =>
+      patchBaseInCache(queryClient, updated.id, {
+        visibility: updated.visibility,
+        updatedAt: updated.updatedAt,
+      }),
+    onError: (_err, { id }, context) =>
+      rollbackBasePatch(queryClient, id, context),
   });
 }
 
