@@ -28,10 +28,16 @@ export class TokenizerService {
         'OLLAMA_BASE_URL',
         'http://localhost:11434',
       );
+      const configured = Number(this.config.get('OLLAMA_TIMEOUT_MS', 120_000));
+      const timeoutMs =
+        Number.isInteger(configured) && configured > 0 ? configured : 120_000;
       const res = await this.outboundFetch(`${baseUrl}/api/tokenize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, prompt: text }),
+        // 与 SSE 长连共享 per-origin 配额：短请求必须有上界，Ollama 无响应时
+        // 不能让新会话卡在 tokenizer 阶段等到 undici 默认的 5 分钟
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (!res.ok) {
         // 非成功响应也要释放 body，否则共享连接池的 socket 不会归还；

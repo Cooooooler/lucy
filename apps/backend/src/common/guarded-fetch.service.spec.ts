@@ -6,12 +6,15 @@ vi.mock('./guarded-fetch.js', () => ({
   createGuardedFetch: createGuardedFetchMock,
 }));
 
+import type { AppLogger } from './app-logger.service.js';
 import { GuardedFetchService } from './guarded-fetch.service.js';
 
 describe('GuardedFetchService', () => {
   const close = vi.fn();
   const destroy = vi.fn();
   const fetchImpl = vi.fn();
+  const loggerWarn = vi.fn();
+  const logger = { warn: loggerWarn } as unknown as AppLogger;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -26,8 +29,11 @@ describe('GuardedFetchService', () => {
 
   afterEach(() => vi.useRealTimers());
 
+  const build = (config = new ConfigService({})) =>
+    new GuardedFetchService(config, logger);
+
   it('把 OUTBOUND_* 配置传给连接池，并暴露同一份 fetch', () => {
-    const service = new GuardedFetchService(
+    const service = build(
       new ConfigService({
         OUTBOUND_MAX_CONNECTIONS: 7,
         OUTBOUND_CONNECT_TIMEOUT_MS: 900,
@@ -42,7 +48,7 @@ describe('GuardedFetchService', () => {
   });
 
   it('非法/缺失配置回退 undici 默认值（undefined）', () => {
-    new GuardedFetchService(
+    build(
       new ConfigService({
         OUTBOUND_MAX_CONNECTIONS: 0,
         OUTBOUND_CONNECT_TIMEOUT_MS: 'abc',
@@ -56,27 +62,48 @@ describe('GuardedFetchService', () => {
   });
 
   it('停机先优雅 close，再 destroy 收尾', async () => {
-    const service = new GuardedFetchService(new ConfigService({}));
+    const service = build();
     await service.onApplicationShutdown();
     expect(close).toHaveBeenCalledTimes(1);
     expect(destroy).toHaveBeenCalledTimes(1);
+    expect(loggerWarn).not.toHaveBeenCalled();
   });
 
-  it('close 失败也一定 destroy，不打断后续 shutdown hook', async () => {
+  it('close 失败也一定 destroy，并记录 warn', async () => {
     close.mockRejectedValue(new Error('close failed'));
-    const service = new GuardedFetchService(new ConfigService({}));
+    const service = build();
 
     await expect(service.onApplicationShutdown()).resolves.toBeUndefined();
     expect(destroy).toHaveBeenCalledTimes(1);
+    expect(loggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('优雅关闭失败'),
+      GuardedFetchService.name,
+    );
   });
 
-  it('close 被在途请求挂住时，超时后强制 destroy（不拖住 app.close）', async () => {
+  it('close 被在途请求挂住时，超时后强制 destroy 并记录 warn', async () => {
     vi.useFakeTimers();
     close.mockReturnValue(new Promise<void>(() => {}));
-    const service = new GuardedFetchService(new ConfigService({}));
+    const service = build();
 
     const pending = service.onApplicationShutdown();
     await vi.advanceTimersByTimeAsync(3000);
+    await pending;
+
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(loggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('强制销毁'),
+      GuardedFetchService.name,
+    );
+  });
+
+  it('宽限期小于固定预算时，关闭预算随之收窄', async () => {
+    vi.useFakeTimers();
+    close.mockReturnValue(new Promise<void>(() => {}));
+    const service = build(new ConfigService({ SHUTDOWN_GRACE_MS: 500 }));
+
+    const pending = service.onApplicationShutdown();
+    await vi.advanceTimersByTimeAsync(250);
     await pending;
 
     expect(destroy).toHaveBeenCalledTimes(1);
