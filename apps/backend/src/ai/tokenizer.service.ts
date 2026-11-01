@@ -33,7 +33,12 @@ export class TokenizerService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, prompt: text }),
       });
-      if (!res.ok) throw new Error(`tokenize failed: ${res.status}`);
+      if (!res.ok) {
+        // 非成功响应也要释放 body，否则共享连接池的 socket 不会归还；
+        // Ollama 持续 4xx/5xx 时会累积占满连接，拖慢对话/embedding
+        await res.body?.cancel().catch(() => {});
+        throw new Error(`tokenize failed: ${res.status}`);
+      }
       const data = (await res.json()) as { count: number };
       this.cache.set(key, data.count);
       // 超限淘汰最旧条目（Map 保持插入序，刚插入后必然非空）

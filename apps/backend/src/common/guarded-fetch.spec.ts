@@ -92,6 +92,36 @@ describe('createGuardedFetch', () => {
     expect(resolveAddresses).toHaveBeenCalledWith('api.example.com');
   });
 
+  it('lookup 尊重调用方的地址族要求，无匹配时报错', async () => {
+    resolveAddresses.mockResolvedValue([
+      { address: '93.184.216.34', family: 4 },
+      { address: '2001:db8::1', family: 6 },
+    ]);
+    createGuardedFetch();
+    const options = agentCtor.mock.calls[0]?.[0] as {
+      connect: {
+        lookup: (
+          host: string,
+          opts: Record<string, unknown>,
+          cb: (...args: unknown[]) => void,
+        ) => void;
+      };
+    };
+
+    const v6 = vi.fn();
+    options.connect.lookup('dual.example', { family: 6 }, v6);
+    await vi.waitFor(() => {
+      expect(v6).toHaveBeenCalledWith(null, '2001:db8::1', 6);
+    });
+
+    resolveAddresses.mockResolvedValue([{ address: '2001:db8::1', family: 6 }]);
+    const v4 = vi.fn();
+    options.connect.lookup('v6only.example', { family: 4 }, v4);
+    await vi.waitFor(() => {
+      expect(v4).toHaveBeenCalledWith(expect.any(Error), '', 0);
+    });
+  });
+
   it('lookup 校验失败时用错误回调，不建立连接', async () => {
     resolveAddresses.mockRejectedValue(new BaseUrlBlockedError('blocked'));
     createGuardedFetch();

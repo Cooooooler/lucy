@@ -27,11 +27,28 @@ function createGuardedLookup(): LookupFunction {
   return (hostname, options, callback) => {
     resolveAllowedAddresses(hostname)
       .then((addresses) => {
-        if (options?.all) {
-          callback(null, addresses);
+        // 尊重调用方要求的地址族（如强制 IPv4 的接入点 / autoSelectFamily 探测）；
+        // 过滤为空时明确报错，而不是把异族地址塞回 socket 造成难归因的连接失败
+        const family = options?.family;
+        const candidates =
+          family === 4 || family === 6
+            ? addresses.filter((item) => item.family === family)
+            : addresses;
+        if (candidates.length === 0) {
+          callback(
+            new Error(
+              `DNS 解析无 family=${String(family)} 的可用地址：${hostname}`,
+            ),
+            '',
+            0,
+          );
           return;
         }
-        const [first] = addresses;
+        if (options?.all) {
+          callback(null, candidates);
+          return;
+        }
+        const [first] = candidates;
         callback(null, first.address, first.family);
       })
       .catch((error: unknown) => callback(error as Error, '', 0));

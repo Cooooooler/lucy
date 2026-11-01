@@ -104,7 +104,7 @@ export const envValidationSchema = Joi.object({
     .max(2_147_483_647)
     .optional(),
   // 出站模型请求的连接池（undici Agent）：缺省走 undici 默认值。
-  // 连接数按进程全局生效（所有用户/provider 共用一个池）
+  // 注意 undici 的 `connections` 是**每 origin** 上限，不是进程总连接数
   OUTBOUND_MAX_CONNECTIONS: Joi.number()
     .integer()
     .positive()

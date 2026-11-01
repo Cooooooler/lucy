@@ -2,7 +2,7 @@ import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatOllama, OllamaEmbeddings } from '@langchain/ollama';
 import { OpenAIEmbeddings } from '@langchain/openai';
 import { ConfigService } from '@nestjs/config';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { GuardedFetchService } from '../common/guarded-fetch.service.js';
 import { makeModelProvider } from '../test/model-provider.fixtures.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
@@ -23,9 +23,9 @@ const config = new ConfigService({
   AI_OUTPUT_MAX_TOKENS: 32768,
 });
 const cipher = new ApiKeyCipher(config);
-const guardedFetch = {
-  fetch: globalThis.fetch,
-} as unknown as GuardedFetchService;
+// 可识别的守卫 fetch 标记：逐个客户端断言「确实接到了守卫」，而不是只看 instanceOf
+const markerFetch = vi.fn();
+const guardedFetch = { fetch: markerFetch } as unknown as GuardedFetchService;
 const factory = new ModelClientFactory(cipher, config, guardedFetch);
 
 describe('ModelClientFactory', () => {
@@ -81,6 +81,38 @@ describe('ModelClientFactory', () => {
 
   it('OpenAI buildEmbeddings → OpenAIEmbeddings', () => {
     expect(factory.buildEmbeddings(provider)).toBeInstanceOf(OpenAIEmbeddings);
+  });
+
+  it('所有客户端都注入守卫 fetch（SSRF 不变量）', () => {
+    const openaiChat = factory.buildOpenAiChat(provider) as unknown as {
+      clientConfig?: { fetch?: unknown };
+    };
+    expect(openaiChat.clientConfig?.fetch).toBe(markerFetch);
+
+    const anthropic = factory.buildChat({
+      ...provider,
+      vendor: ModelProviderVendor.Anthropic,
+    }) as unknown as { clientOptions?: { fetch?: unknown } };
+    expect(anthropic.clientOptions?.fetch).toBe(markerFetch);
+
+    const ollama = factory.buildChat({
+      ...provider,
+      vendor: ModelProviderVendor.Ollama,
+      apiKeyEncrypted: '',
+    }) as unknown as { client?: { fetch?: unknown } };
+    expect(ollama.client?.fetch).toBe(markerFetch);
+
+    const openaiEmbeddings = factory.buildEmbeddings(provider) as unknown as {
+      clientConfig?: { fetch?: unknown };
+    };
+    expect(openaiEmbeddings.clientConfig?.fetch).toBe(markerFetch);
+
+    const ollamaEmbeddings = factory.buildEmbeddings({
+      ...provider,
+      vendor: ModelProviderVendor.Ollama,
+      apiKeyEncrypted: '',
+    }) as unknown as { client?: { fetch?: unknown } };
+    expect(ollamaEmbeddings.client?.fetch).toBe(markerFetch);
   });
 
   it('Ollama buildEmbeddings → OllamaEmbeddings', () => {
