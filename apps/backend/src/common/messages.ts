@@ -43,6 +43,17 @@ export const HTTP_STATUS_MESSAGES: Partial<Record<number, string>> = {
 };
 
 /**
+ * 401 中文兜底：`HTTP_STATUS_MESSAGES[401]` 的单一出口。
+ *
+ * 守卫在「err 为非 Error 值」这一分支需要主动抛出中文 401，直接内联字面量会与映射表
+ * 各存一份；走这个函数，改文案只改 `HTTP_STATUS_MESSAGES[401]`。`??` 回退用于映射
+ * 被误删时的编译期可见兜底（与守卫此前 `auth-failure.ts` 里的写法一致）。
+ */
+export function unauthorizedMessage(): string {
+  return HTTP_STATUS_MESSAGES[401] ?? '未登录或登录已过期';
+}
+
+/**
  * 需归一的框架英文默认串：Nest/http-exception 的默认 message、passport 的
  * `Unauthorized`、throttler 的 `Too Many Requests` 等。出现即按 HTTP 状态
  * 换成上面的中文，避免用户看到 `Unauthorized` 之类的英文。

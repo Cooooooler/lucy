@@ -7,7 +7,7 @@ import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { ClsService } from 'nestjs-cls';
 import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator.js';
-import { HTTP_STATUS_MESSAGES } from '../common/messages.js';
+import { unauthorizedMessage } from '../common/messages.js';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -41,9 +41,8 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     // `Unauthorized`）的中文化只由全局 AllExceptionsFilter 的 readableErrorMessage 实现，
     // 守卫不再保留第二份文案归一逻辑（两份实现曾各测一遍、结论也一致）。
     if (err !== null && err !== undefined && !(err instanceof Error)) {
-      throw new UnauthorizedException(
-        HTTP_STATUS_MESSAGES[401] ?? '未登录或登录已过期',
-      );
+      // 文案取自 messages.ts 的单一出口，不在守卫里再存一份字面量
+      throw new UnauthorizedException(unauthorizedMessage());
     }
     // super.handleRequest 返回 any：先落 unknown 再断言，避免 any 污染
     const raw: unknown = super.handleRequest(...args);

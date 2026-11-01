@@ -3,11 +3,16 @@ import {
   HTTP_STATUS_MESSAGES,
   RATE_LIMIT_MESSAGE,
   fieldLabel,
+  unauthorizedMessage,
 } from './messages.js';
 
 describe('messages', () => {
   it('RATE_LIMIT_MESSAGE 与 429 兜底同源', () => {
     expect(HTTP_STATUS_MESSAGES[429]).toBe(RATE_LIMIT_MESSAGE);
+  });
+
+  it('unauthorizedMessage 与 401 兜底同源（守卫只引用这一处）', () => {
+    expect(unauthorizedMessage()).toBe(HTTP_STATUS_MESSAGES[401]);
   });
 
   it('fieldLabel：已知字段翻中文，未知回退属性名', () => {
