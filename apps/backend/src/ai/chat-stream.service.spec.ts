@@ -61,7 +61,7 @@ describe('ChatStreamService', () => {
     AI_OUTPUT_MAX_TOKENS: 32768,
   });
   // 保留可断言的 mock 句柄（直接对 `logger.warn` 断言会触发 unbound-method）
-  const loggerMock = { log: vi.fn(), warn: vi.fn() };
+  const loggerMock = { log: vi.fn(), warn: vi.fn(), debug: vi.fn() };
   const logger = loggerMock as unknown as AppLogger;
 
   let service: ChatStreamService;

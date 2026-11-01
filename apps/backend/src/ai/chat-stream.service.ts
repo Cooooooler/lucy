@@ -492,6 +492,14 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     phase: ErrorPhase,
   ): Promise<void> {
     const kind = classifyStreamError(error, signal, phase);
+    // 失败出口必须留痕：错误帧只给用户看，日志才能按类型聚合排查；
+    // 用户主动断线/停机（aborted）降为 debug，避免每次 SSE 断线刷 warn
+    const logText = `sendMessage failed conversation=${context.conversationId} phase=${phase}: ${formatErrorForLog(error)}`;
+    if (kind.code === ErrorCode.AI_GENERATE_ABORTED) {
+      this.logger.debug(logText, ChatStreamService.name);
+    } else {
+      this.logger.warn(logText, ChatStreamService.name);
+    }
     const status =
       kind.code === ErrorCode.AI_GENERATE_ABORTED
         ? MessageStatus.Aborted
