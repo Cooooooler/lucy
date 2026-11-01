@@ -2,6 +2,8 @@ import { LOGIN_ACCOUNT_MAX_LENGTH, PASSWORD_MAX_LENGTH } from '@lucy/shared';
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { normalizeEmail } from '../../common/email.js';
+import { isEmailAccount } from '../account.js';
 
 export class LoginDto {
   // 登录是唯一没有长度边界的 auth 请求体：account 会直接进「按用户名或邮箱等值查询」，
@@ -15,10 +17,14 @@ export class LoginDto {
   // 与 password 相反，account **要** trim：它的字符集本身不含空白（username 的正则、
   // 邮箱的 @IsEmail 都拒绝空白），trim 不会把待验证凭据换成另一个字符串；而前端
   // 已经 trim，服务端不 trim 时 `" lucy "` 会进等值查询直接 401，且 `@IsNotEmpty`
-  // 还会放行纯空白串。account 接受用户名或邮箱二选一，由 AuthService 依是否含 '@' 分流查询
-  @Transform(({ value }): unknown =>
-    typeof value === 'string' ? value.trim() : (value as unknown),
-  )
+  // 还会放行纯空白串。account 接受用户名或邮箱二选一，由 AuthService 依是否含 '@' 分流查询。
+  // 含 '@' 的按邮箱归一为小写（`users.email` 只存小写，且 `Alice@Example.com` 拷回小写登录
+  // 必须能命中）；用户名大小写敏感，不能一并转小写
+  @Transform(({ value }): unknown => {
+    if (typeof value !== 'string') return value as unknown;
+    const account = value.trim();
+    return isEmailAccount(account) ? normalizeEmail(account) : account;
+  })
   @IsString()
   @IsNotEmpty()
   @MaxLength(LOGIN_ACCOUNT_MAX_LENGTH)

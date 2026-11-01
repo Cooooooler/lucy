@@ -7,6 +7,7 @@ import {
 import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { normalizeEmail } from '../common/email.js';
 import {
   resolvePageNumber,
   resolvePageSize,
@@ -38,9 +39,13 @@ export class UsersService {
     return this.usersRepo.findByUsername(username);
   }
 
-  /** 按邮箱查询用户。 */
+  /**
+   * 按邮箱查询用户。入参先归一：`users.email` 只存小写，把不变式收在「按邮箱查」
+   * 这个语义里，调用方（登录、将来的找回密码/管理端检索）无需记得自己转换——
+   * 忘转只会静默查不到，并表现成 401 /「邮箱不存在」。
+   */
   findByEmail(email: string): Promise<User | null> {
-    return this.usersRepo.findByEmail(email);
+    return this.usersRepo.findByEmail(normalizeEmail(email));
   }
 
   /** 按主键查询用户。 */
@@ -55,12 +60,15 @@ export class UsersService {
     password: string;
     nickname?: string;
   }): Promise<User> {
+    // 写入边界统一归一：`users.email` 的不变式是「只存小写」，注册 DTO 之外
+    // 的任何调用方（内部服务、脚本）都经这里落库，避免绕过 DTO 时写出混合大小写的行
+    const email = normalizeEmail(input.email);
     await this.assertUsernameAvailable(input.username);
-    await this.assertEmailAvailable(input.email);
+    await this.assertEmailAvailable(email);
     const passwordHash = await this.passwordService.hash(input.password);
     const user = this.usersRepo.create({
       username: input.username,
-      email: input.email,
+      email,
       passwordHash,
       nickname: input.nickname ?? null,
       status: 1,
