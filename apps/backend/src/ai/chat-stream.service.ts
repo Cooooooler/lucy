@@ -224,6 +224,8 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       thinkingAll: string;
       finishReason?: string;
     } = { answer: '', thinkingAll: '' };
+    // 是否已拿到模型流：决定失败归因用 stream 还是 run 阶段（只有流内才可能是模型超时）
+    let streamStarted = false;
     try {
       // 推理模型默认开启深度思考：推理模型以 think=false 运行，易产出退化/半途截断的
       // 输出（如「先试着…」后即结束）。仅在调用方未显式指定时才按模型能力兜底，
@@ -241,6 +243,8 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       // 传入 signal：订阅取消（SSE 断线）时中止底层流，半截内容落 aborted
       const stream = (await client.stream(messages, { signal })) as
         AsyncIterable<unknown> | Iterable<unknown>;
+      // 从这一刻起才可能在等模型输出：超时启发式只对后续错误成立
+      streamStarted = true;
       armIdle();
       await this.collectStream(
         subscriber,
@@ -258,11 +262,18 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       });
     } catch (error) {
       // 按失败类型区分错误码：客户端中止 / 模型超时 / 其他生成失败
-      await this.saveFailure(subscriber, requestId, signal, error, {
-        conversationId,
-        answer: collected.answer,
-        thinkingAll: collected.thinkingAll,
-      });
+      await this.saveFailure(
+        subscriber,
+        requestId,
+        signal,
+        error,
+        {
+          conversationId,
+          answer: collected.answer,
+          thinkingAll: collected.thinkingAll,
+        },
+        streamStarted ? 'stream' : 'run',
+      );
     } finally {
       clearTimeout(idleTimer);
     }
@@ -467,15 +478,18 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     subscriber.complete();
   }
 
-  // 生成失败/中断：按失败类型落库并发送 error 帧
+  // 生成失败/中断：按失败类型落库并发送 error 帧。
+  // phase 由调用方按「错误发生时是否已在读模型流」决定：buildChat/buildMessages 失败
+  // 仍属流前阶段（没有可等的模型输出），不能套模型超时启发式。
   private async saveFailure(
     subscriber: Subscriber,
     requestId: string,
     signal: AbortSignal,
     error: unknown,
     context: { conversationId: string; answer: string; thinkingAll: string },
+    phase: 'stream' | 'run',
   ): Promise<void> {
-    const kind = this.classifyError(error, signal);
+    const kind = this.classifyError(error, signal, phase);
     const status =
       kind.code === ErrorCode.AI_GENERATE_ABORTED
         ? MessageStatus.Aborted
@@ -521,7 +535,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
   private classifyError(
     error: unknown,
     signal: AbortSignal,
-    phase: 'stream' | 'run' = 'stream',
+    phase: 'stream' | 'run',
   ): { code: ErrorCodeValue; message: string } {
     if (signal.aborted) {
       const reason = signal.reason as Error;
@@ -567,6 +581,13 @@ const CONNECTION_ERROR =
   /timeout exceeded when trying to connect|connection terminated|already released|already been connected|cannot use a pool after/i;
 
 /**
+ * Postgres 连接/停机/语句取消类 SQLSTATE：08*（connection exception）、57P01/57P02/57P03
+ * （shutdown / cannot connect now）、57014（query canceled，语句超时走这条）。
+ * 结构化判据优先于文案：SQLSTATE 不随驱动版本或措辞变化。
+ */
+const PG_INFRA_CODE = /^(?:08|57P0[1-3]|57014)/;
+
+/**
  * 基础设施错误（连接/语句/事务失败）。
  *
  * 主判据用 TypeORM 核心导出的 `QueryFailedError` 做 instanceof——它是库自身声明的类
@@ -577,5 +598,10 @@ const CONNECTION_ERROR =
  */
 function isInfrastructureError(error: unknown): boolean {
   if (error instanceof QueryFailedError) return true;
-  return error instanceof Error && CONNECTION_ERROR.test(error.message);
+  if (!(error instanceof Error)) return false;
+  // 结构化优先：pg 的连接/取消类失败带 SQLSTATE（code），不随驱动文案变化
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === 'string' && PG_INFRA_CODE.test(code)) return true;
+  // pg-pool 的连接类失败是裸 Error，没有稳定类型/name，只能按文案兜底
+  return CONNECTION_ERROR.test(error.message);
 }

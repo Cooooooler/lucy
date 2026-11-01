@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  CipherFormatError,
   apiKeyLast4,
   decryptApiKey,
   deriveKey,
@@ -34,10 +35,11 @@ export class ApiKeyCipher {
   /**
    * 解密密文 API Key。
    *
-   * 解密失败（密文格式非法/认证失败）意味着 `MODEL_PROVIDER_SECRET_KEY` 已轮换或密文
-   * 被破坏——与 provider 的 baseUrl/类型无关，裸 Error 会让调用方（连接测试/对话链路）
-   * 把它跟「供应商不可达」归到同一句兜底文案。这里收成 `ModelCredentialError`，
-   * 连接测试即可单独映射出「平台密钥已变更，请重新保存 API Key」。
+   * 解密失败分为两类，分别归因（都不该落进「供应商不可达」的兜底文案）：
+   * - 密文格式/参数非法（`CipherFormatError`，脏数据或被截断）→ `corrupt`；
+   * - GCM 认证失败（密钥不匹配，通常意味着 `MODEL_PROVIDER_SECRET_KEY` 已轮换）→
+   *   `decrypt-failed`。
+   * 两者重新保存 API Key 都能恢复，但提示语若都写「平台密钥已变更」会把排查引偏。
    * @throws ModelCredentialError 解密失败
    */
   decrypt(payload: string): string {
@@ -45,7 +47,7 @@ export class ApiKeyCipher {
       return decryptApiKey(payload, this.key);
     } catch (error) {
       throw new ModelCredentialError(
-        'decrypt-failed',
+        error instanceof CipherFormatError ? 'corrupt' : 'decrypt-failed',
         `API Key 解密失败：${
           error instanceof Error ? error.message : String(error)
         }`,

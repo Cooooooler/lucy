@@ -38,13 +38,27 @@ export function encryptApiKey(plain: string, key: Buffer): string {
 }
 
 /**
+ * 密文封装格式/参数非法（脏数据、被截断、手工拼出来的坏值）。
+ *
+ * 与「密钥不匹配导致的 GCM 认证失败」区分开：前者重新保存 Key 即可修复，但根因不是
+ * 密钥轮换；后者才是平台密钥变更。类型化后调用方不必靠文案判断。
+ */
+export class CipherFormatError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CipherFormatError';
+  }
+}
+
+/**
  * 解密封装密文，返回明文 API Key。
- * @throws Error 密文格式非法或认证失败（被篡改 / 密钥不匹配）
+ * @throws CipherFormatError 密文格式/参数非法
+ * @throws Error 认证失败（被篡改 / 密钥不匹配）
  */
 export function decryptApiKey(payload: string, key: Buffer): string {
   const [ivPart, tagPart, dataPart] = payload.split('.');
   if (!ivPart || !tagPart || !dataPart) {
-    throw new Error('加密的 API Key 格式非法');
+    throw new CipherFormatError('加密的 API Key 格式非法');
   }
   const iv = Buffer.from(ivPart, 'base64');
   const tag = Buffer.from(tagPart, 'base64');
@@ -54,7 +68,7 @@ export function decryptApiKey(payload: string, key: Buffer): string {
     tag.length !== 16 ||
     key.length !== KEY_LENGTH
   ) {
-    throw new Error('加密的 API Key 参数非法');
+    throw new CipherFormatError('加密的 API Key 参数非法');
   }
   const decipher = createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(tag);

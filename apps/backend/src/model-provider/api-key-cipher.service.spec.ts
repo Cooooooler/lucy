@@ -50,8 +50,8 @@ describe('ApiKeyCipher.decrypt', () => {
     );
   });
 
-  it('密文长度/格式非法：解密在参数校验阶段就抛，不走 GCM 认证（独立分支）', () => {
-    // 各段 base64 合法但 iv 只有 0 字节：参数校验分支
+  it('密文长度/格式非法：归因 corrupt（不是密钥轮换），提示重存而非「平台密钥已变更」', () => {
+    // 各段 base64 合法但 iv 只有 0 字节：参数校验分支，与 GCM 认证失败是两回事
     let caught: unknown;
     try {
       cipher.decrypt(`0.0.${'A'.repeat(8)}`);
@@ -59,9 +59,12 @@ describe('ApiKeyCipher.decrypt', () => {
       caught = error;
     }
     expect(caught).toBeInstanceOf(ModelCredentialError);
-    expect((caught as ModelCredentialError).reason).toBe('decrypt-failed');
+    expect((caught as ModelCredentialError).reason).toBe('corrupt');
     expect((caught as ModelCredentialError).message).toContain(
       '加密的 API Key 参数非法',
+    );
+    expect((caught as ModelCredentialError).userMessage).toBe(
+      'API Key 密文损坏，请重新保存',
     );
   });
 
@@ -73,6 +76,7 @@ describe('ApiKeyCipher.decrypt', () => {
       caught = error;
     }
     expect(caught).toBeInstanceOf(ModelCredentialError);
+    expect((caught as ModelCredentialError).reason).toBe('corrupt');
     expect((caught as ModelCredentialError).message).toContain(
       '加密的 API Key 格式非法',
     );

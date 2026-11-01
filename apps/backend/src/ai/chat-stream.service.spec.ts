@@ -731,6 +731,15 @@ describe('ChatStreamService', () => {
     });
   });
 
+  it('流内 DB 语句取消（裸 Error + SQLSTATE 57014）：按「生成失败」报，结构化判据不依赖文案', () =>
+    expectStreamError(
+      Object.assign(new Error('canceling statement due to statement timeout'), {
+        code: '57014',
+      }),
+      ErrorCode.AI_GENERATE_FAILED,
+      '生成失败',
+    ));
+
   it('流内第三方超时（带 driverError 形状）仍按「模型调用超时」报，不被形状嗅探吞掉', () =>
     expectStreamError(
       Object.assign(new Error('request timed out'), {
