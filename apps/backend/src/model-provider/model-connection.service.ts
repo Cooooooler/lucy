@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { formatErrorForLog } from '../common/error-format.js';
+import { MODEL_CREDENTIAL_MESSAGES } from '../common/messages.js';
 import type { ModelProviderTestResultDto } from './dto/model-provider-test-result.dto.js';
 import {
   ModelProvider,
@@ -81,15 +83,8 @@ export class ModelConnectionService {
     } catch (error) {
       // warn 带上错误类名：解密失败/限流/5xx 之类互不相干的失败各自有类可聚合，
       // 只记 message 时线上难以区分「配置错」与「平台/供应商故障」
-      const errorType = error instanceof Error ? error.name : typeof error;
-      // 包装错误（如解密失败）把根因挂在 cause 上：只记 message 会让根因永远进不了日志
-      const cause = error instanceof Error ? error.cause : undefined;
       this.logger.warn(
-        `model test failed id=${id} type=${provider.type} vendor=${provider.vendor}: [${errorType}] ${
-          error instanceof Error ? error.message : String(error)
-        }${
-          cause instanceof Error && cause.stack ? ` cause=${cause.stack}` : ''
-        }`,
+        `model test failed id=${id} type=${provider.type} vendor=${provider.vendor}: ${formatErrorForLog(error)}`,
         ModelConnectionService.name,
       );
       return {
@@ -165,7 +160,9 @@ export class ModelConnectionService {
     // 服务端凭证问题与供应商无关：解密失败＝平台密钥轮换/密文损坏，重存 Key 即恢复；
     // 未配置 Key 则是数据/装配态的问题。都不能靠改 provider 的地址/类型解决，
     // 落进「连接失败，请检查配置」会把用户引去反复改配置（issue #86 的归因错误）
-    if (error instanceof ModelCredentialError) return error.userMessage;
+    if (error instanceof ModelCredentialError) {
+      return MODEL_CREDENTIAL_MESSAGES[error.reason];
+    }
     const status = (error as { status?: unknown } | null)?.status;
     if (status === 401 || status === 403) return 'API Key 无效或无权限';
     if (status === 404) return '接口不存在，请检查 Base URL 与协议';

@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { describe, expect, it } from 'vitest';
+import { MODEL_CREDENTIAL_MESSAGES } from '../common/messages.js';
 import { deriveKey } from './api-key-cipher.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import { ModelCredentialError } from './model-credential.error.js';
@@ -45,9 +46,9 @@ describe('ApiKeyCipher.decrypt', () => {
     expect(((caught as ModelCredentialError).cause as Error).message).toMatch(
       /authenticate|unable to|bad decrypt/i,
     );
-    expect((caught as ModelCredentialError).userMessage).toBe(
-      '平台密钥已变更，请重新保存 API Key',
-    );
+    expect(
+      MODEL_CREDENTIAL_MESSAGES[(caught as ModelCredentialError).reason],
+    ).toBe('平台密钥已变更，请重新保存 API Key');
   });
 
   it('密文长度/格式非法：归因 corrupt（不是密钥轮换），提示重存而非「平台密钥已变更」', () => {
@@ -63,9 +64,9 @@ describe('ApiKeyCipher.decrypt', () => {
     expect((caught as ModelCredentialError).message).toContain(
       '加密的 API Key 参数非法',
     );
-    expect((caught as ModelCredentialError).userMessage).toBe(
-      'API Key 密文损坏，请重新保存',
-    );
+    expect(
+      MODEL_CREDENTIAL_MESSAGES[(caught as ModelCredentialError).reason],
+    ).toBe('API Key 密文损坏，请重新保存');
   });
 
   it('解密失败不改写原始语义：错误信息带原始 message（如「加密的 API Key 格式非法」）', () => {

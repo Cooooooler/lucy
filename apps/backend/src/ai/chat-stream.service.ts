@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { formatErrorForLog } from '../common/error-format.js';
 import { ShutdownService } from '../common/shutdown.service.js';
 import type { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
 import { ModelClientFactory } from '../model-provider/model-client.factory.js';
@@ -112,22 +113,11 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         requestId,
       )
         .catch((err) => {
-          // 对外文案由 classifyError 统一归因（prepareRun 等阶段抛出的错误也走这里）；
-          // warn 记录的是原始 err，message 可能含主机端口、SQL 等基础设施细节，不得出网。
-          // 带上错误类名：流式链路是触发频率最高的一条，线上要能按 QueryFailedError /
-          // ModelCredentialError 等聚合，格式与连接测试的日志保持一致
-          const errorType = err instanceof Error ? err.name : typeof err;
-          // 包装错误（如 ModelCredentialError）把根因挂在 cause 上：只记 message 会让
-          // 「解密失败的具体原因」永远进不了日志，故把 cause 的栈一并带上
-          const cause = err instanceof Error ? err.cause : undefined;
+          // 对外文案由 classifyStreamError 统一归因（prepareRun 等阶段抛出的错误也走这里）；
+          // message 可能含主机端口、SQL 等基础设施细节，不得随 error 帧出网；
+          // 日志侧带类名与 cause 栈，便于按类型聚合与定位根因
           this.logger.warn(
-            `sendMessage failed conversation=${conversationId}: [${errorType}] ${
-              err instanceof Error ? err.message : String(err)
-            }${
-              cause instanceof Error && cause.stack
-                ? ` cause=${cause.stack}`
-                : ''
-            }`,
+            `sendMessage failed conversation=${conversationId}: ${formatErrorForLog(err)}`,
             ChatStreamService.name,
           );
           // 外层 catch 只兜 prepareRun/落库失败，没有模型流：按 run 阶段归因，

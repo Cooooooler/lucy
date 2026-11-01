@@ -154,6 +154,21 @@ export function fieldLabel(property: string): string {
 }
 
 /**
+ * 模型凭证类失败的展示文案：连接测试与对话链路（SSE error 帧）共用。
+ *
+ * 放这里而不是挂在领域错误上，遵循「错误侧文案只在这里定义」的约定；
+ * `Record` 的键即 `ModelCredentialError.reason`，新增 reason 时缺键会在编译期报错，
+ * 等价于原来的 switch 穷尽校验。
+ */
+export const MODEL_CREDENTIAL_MESSAGES = {
+  'decrypt-failed': '平台密钥已变更，请重新保存 API Key',
+  corrupt: 'API Key 密文损坏，请重新保存',
+  missing: '该模型未配置 API Key，请保存后重试',
+} as const;
+
+export type ModelCredentialReason = keyof typeof MODEL_CREDENTIAL_MESSAGES;
+
+/**
  * class-validator 约束键 → 中文文案模板。
  *
  * 全部为常量文案（只取字段标签）：class-validator 仅在装饰器显式声明
