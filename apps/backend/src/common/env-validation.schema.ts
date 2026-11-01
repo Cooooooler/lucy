@@ -89,6 +89,12 @@ export const envValidationSchema = Joi.object({
   AI_CONTEXT_TOKEN_LIMIT: Joi.number().integer().positive().optional(),
   AI_CONTEXT_SAFETY_MARGIN: Joi.number().integer().min(0).optional(),
   AI_TOKENIZER_CACHE_SIZE: Joi.number().integer().positive().optional(),
+  // tokenizer 请求总超时（毫秒）：与聊天空闲超时分开，默认由消费方持有
+  AI_TOKENIZER_TIMEOUT_MS: Joi.number()
+    .integer()
+    .positive()
+    .max(2_147_483_647)
+    .optional(),
   // 系统提示可留空（= 不注入系统提示）
   AI_SYSTEM_PROMPT: Joi.string().allow('').optional(),
   // 标题提示非空：空串同样不会触发 `??` 回退，标题生成会失去指令

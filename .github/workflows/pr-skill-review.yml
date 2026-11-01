@@ -160,7 +160,7 @@ jobs:
       - uses: actions/setup-node@v7
         if: steps.status-start.outputs.skip != 'true'
         with:
-          node-version: 22
+          node-version: 22.19.0
 
       - name: Install Command Code CLI
         if: steps.status-start.outputs.skip != 'true'

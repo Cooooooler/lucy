@@ -1,12 +1,16 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   BaseUrlGuardError,
   BaseUrlRedirectError,
 } from './base-url-blocked.error.js';
 import { createGuardedFetch, type GuardedFetch } from './guarded-fetch.js';
 import { blockedErrorMessage } from './provider-error.js';
+
+const lookupMock = vi.hoisted(() => vi.fn());
+// 只影响域名解析；本文件的其它用例都用 IP 字面量，不会走到 lookup
+vi.mock('node:dns/promises', () => ({ lookup: lookupMock }));
 
 /**
  * 真 undici + 本地 HTTP 服务的集成用例：上面的单测把 undici 打成 mock，
@@ -46,6 +50,19 @@ describe('createGuardedFetch（真实 undici + 本地 HTTP）', () => {
     requests = 0;
     await expect(guard.fetch(baseUrl)).rejects.toThrow(BaseUrlRedirectError);
     expect(requests).toBe(1);
+  });
+
+  it('域名解析到受限地址时，真实 undici 路径拒绝（防 DNS rebinding）', async () => {
+    requests = 0;
+    lookupMock.mockResolvedValue([{ address: '169.254.169.254', family: 4 }]);
+
+    const error = await guard
+      .fetch('http://attacker.example/')
+      .catch((caught: unknown) => caught);
+
+    // undici 会把 lookup 错误包成 `TypeError: fetch failed`，守卫错误留在 cause 链上
+    expect(blockedErrorMessage(error)).toContain('受限地址');
+    expect(requests).toBe(0);
   });
 
   it('真实 fetch 的守卫拒绝保留领域错误，可提取可读文案', async () => {

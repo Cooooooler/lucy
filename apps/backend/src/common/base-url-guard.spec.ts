@@ -26,6 +26,7 @@ describe('assertBaseUrlHostAllowed（主机字面量）', () => {
 
   it.each([
     ['IPv4 链路本地/元数据', 'http://169.254.169.254/latest/meta-data'],
+    ['阿里云 ECS 元数据', 'http://100.100.100.200/latest/meta-data'],
     ['IPv4 十进制写法（URL 归一化后仍拦截）', 'http://2852039166/'],
     ['GCP 元数据主机名', 'http://metadata.google.internal/computeMetadata/v1/'],
     ['IPv6 链路本地', 'http://[fe80::1]/'],
@@ -43,6 +44,7 @@ describe('assertBaseUrlHostAllowed（主机字面量）', () => {
 describe('isBlockedAddress（DNS 解析结果可能是点分内嵌形式）', () => {
   it.each([
     '169.254.169.254',
+    '100.100.100.200',
     '::ffff:169.254.169.254',
     '::ffff:0:169.254.169.254',
     '64:ff9b::169.254.169.254',

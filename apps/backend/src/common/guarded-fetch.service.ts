@@ -2,6 +2,7 @@ import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppLogger } from './app-logger.service.js';
 import { createGuardedFetch, type GuardedFetch } from './guarded-fetch.js';
+import { ShutdownService } from './shutdown.service.js';
 
 /** 正整数配置读取：非法/缺失返回 undefined，交回 undici 默认值 */
 function positiveInt(value: unknown): number | undefined {
@@ -25,24 +26,16 @@ export const OUTBOUND_FETCH = Symbol('OUTBOUND_FETCH');
 @Injectable()
 export class GuardedFetchService implements OnApplicationShutdown {
   private readonly guard: GuardedFetch;
-  private readonly closeTimeoutMs: number;
 
   constructor(
     config: ConfigService,
     private readonly logger: AppLogger,
+    private readonly shutdown: ShutdownService,
   ) {
     this.guard = createGuardedFetch({
       maxConnections: positiveInt(config.get('OUTBOUND_MAX_CONNECTIONS')),
       connectTimeoutMs: positiveInt(config.get('OUTBOUND_CONNECT_TIMEOUT_MS')),
     });
-    // 与 ShutdownService 同源：该键在 env schema 有 default，不能在这里再造一份默认值
-    const grace = Number(config.getOrThrow<number>('SHUTDOWN_GRACE_MS'));
-    // 与 ShutdownService 的兜底窗口联动：宽限期很小时不能用 3s 固定预算，
-    // 否则强退会先于连接池关闭触发（留 1s 给后续 dispose）
-    this.closeTimeoutMs = Math.max(
-      250,
-      Math.min(MAX_CLOSE_TIMEOUT_MS, grace - FORCE_EXIT_RESERVE_MS),
-    );
   }
 
   /** 注入给各 SDK 的 `fetch` 选项 / 直接调用 */
@@ -54,8 +47,23 @@ export class GuardedFetchService implements OnApplicationShutdown {
    * 先优雅关闭，但有硬上限：undici 的 `Agent.close()` 会一直等所有在途请求结束，
    * 而 embedding 探针不支持取消；停机时卡住的请求不能让 `app.close()` 永久挂住，
    * 超时后强制 destroy（中止在途连接）。失败/强杀都留日志，便于停机后归因。
+   *
+   * 预算按 ShutdownService 的**剩余**宽限期计算：本钩子执行前可能已经用掉
+   * HTTP server dispose / onModuleDestroy 的时间，不能再用固定 3s。
    */
   async onApplicationShutdown(): Promise<void> {
+    const budget = Math.max(
+      0,
+      Math.min(
+        MAX_CLOSE_TIMEOUT_MS,
+        this.shutdown.remainingGraceMs() - FORCE_EXIT_RESERVE_MS,
+      ),
+    );
+    if (budget === 0) {
+      await this.destroy();
+      return;
+    }
+
     let timer: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
     try {
@@ -70,7 +78,7 @@ export class GuardedFetchService implements OnApplicationShutdown {
           timer = setTimeout(() => {
             timedOut = true;
             resolve();
-          }, this.closeTimeoutMs);
+          }, budget);
           timer.unref?.();
         }),
       ]);
@@ -78,17 +86,21 @@ export class GuardedFetchService implements OnApplicationShutdown {
       clearTimeout(timer);
       if (timedOut) {
         this.logger.warn(
-          `出站连接池 ${this.closeTimeoutMs}ms 内未关闭，强制销毁`,
+          `出站连接池 ${budget}ms 内未关闭，强制销毁`,
           GuardedFetchService.name,
         );
       }
-      await this.guard.destroy().catch((error: unknown) => {
-        this.logger.warn(
-          `出站连接池强制销毁失败：${errorText(error)}`,
-          GuardedFetchService.name,
-        );
-      });
+      await this.destroy();
     }
+  }
+
+  private async destroy(): Promise<void> {
+    await this.guard.destroy().catch((error: unknown) => {
+      this.logger.warn(
+        `出站连接池强制销毁失败：${errorText(error)}`,
+        GuardedFetchService.name,
+      );
+    });
   }
 }
 

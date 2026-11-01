@@ -31,9 +31,13 @@ export class TokenizerService {
         'OLLAMA_BASE_URL',
         'http://localhost:11434',
       );
-      const configured = Number(this.config.get('OLLAMA_TIMEOUT_MS', 120_000));
+      // tokenizer 在 prepareRun 请求路径上，不能复用聊天的空闲超时（默认 120s）；
+      // 单独给一个短上界，Ollama 收下连接却不返回时不至于白等两分钟
+      const configured = Number(
+        this.config.get('AI_TOKENIZER_TIMEOUT_MS', 10_000),
+      );
       const timeoutMs =
-        Number.isInteger(configured) && configured > 0 ? configured : 120_000;
+        Number.isInteger(configured) && configured > 0 ? configured : 10_000;
       const res = await this.outboundFetch(`${baseUrl}/api/tokenize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -14,6 +14,10 @@ const BLOCKED_MESSAGE =
 /** IPv4 链路本地 169.254.0.0/16（含云元数据 169.254.169.254） */
 const isLinkLocalV4 = (host: string): boolean => host.startsWith('169.254.');
 
+/** 阿里云 ECS 元数据 100.100.100.200（不在链路本地段，需单独拦） */
+const isAliyunMetadataV4 = (host: string): boolean =>
+  host.startsWith('100.100.100.');
+
 /** DNS 解析得到的地址（family 收窄为 4/6，供连接期 lookup 原样回传） */
 export interface ResolvedHostAddress {
   address: string;
@@ -119,7 +123,8 @@ function isBlockedV6(input: string): boolean {
 /** 单个 IP（v4/v6 字面量）是否落在受限范围 */
 export function isBlockedAddress(address: string): boolean {
   const version = isIP(address);
-  if (version === 4) return isLinkLocalV4(address);
+  if (version === 4)
+    return isLinkLocalV4(address) || isAliyunMetadataV4(address);
   if (version === 6) return isBlockedV6(address);
   return false;
 }

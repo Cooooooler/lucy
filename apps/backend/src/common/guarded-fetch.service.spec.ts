@@ -8,18 +8,22 @@ vi.mock('./guarded-fetch.js', () => ({
 
 import type { AppLogger } from './app-logger.service.js';
 import { GuardedFetchService } from './guarded-fetch.service.js';
+import type { ShutdownService } from './shutdown.service.js';
 
 describe('GuardedFetchService', () => {
   const close = vi.fn();
   const destroy = vi.fn();
   const fetchImpl = vi.fn();
   const loggerWarn = vi.fn();
+  const remainingGraceMs = vi.fn(() => 15000);
   const logger = { warn: loggerWarn } as unknown as AppLogger;
+  const shutdown = { remainingGraceMs } as unknown as ShutdownService;
 
   beforeEach(() => {
     vi.clearAllMocks();
     close.mockResolvedValue(undefined);
     destroy.mockResolvedValue(undefined);
+    remainingGraceMs.mockReturnValue(15000);
     createGuardedFetchMock.mockReturnValue({
       fetch: fetchImpl,
       close,
@@ -29,8 +33,8 @@ describe('GuardedFetchService', () => {
 
   afterEach(() => vi.useRealTimers());
 
-  const build = (config = new ConfigService({ SHUTDOWN_GRACE_MS: 15000 })) =>
-    new GuardedFetchService(config, logger);
+  const build = (config = new ConfigService({})) =>
+    new GuardedFetchService(config, logger, shutdown);
 
   it('把 OUTBOUND_* 配置传给连接池，并暴露同一份 fetch', () => {
     const service = build(
@@ -99,15 +103,13 @@ describe('GuardedFetchService', () => {
     );
   });
 
-  it('宽限期小于固定预算时，关闭预算随之收窄', async () => {
-    vi.useFakeTimers();
-    close.mockReturnValue(new Promise<void>(() => {}));
-    const service = build(new ConfigService({ SHUTDOWN_GRACE_MS: 500 }));
+  it('剩余宽限期不足时跳过优雅等待，直接 destroy', async () => {
+    remainingGraceMs.mockReturnValue(500);
+    const service = build();
 
-    const pending = service.onApplicationShutdown();
-    await vi.advanceTimersByTimeAsync(250);
-    await pending;
+    await service.onApplicationShutdown();
 
+    expect(close).not.toHaveBeenCalled();
     expect(destroy).toHaveBeenCalledTimes(1);
   });
 });
