@@ -108,24 +108,24 @@ describe('ContextService', () => {
     expect(out[0].content).toBe('new');
   });
 
-  it('token 计数在选行前一次性完成（不因超预算提前停止计数）', async () => {
-    // historyBudget = 20 − 5 = 15；最近一条 big(100) 立刻超预算，选行为空，
-    // 但计数阶段已并行覆盖全部 4 行（串行实现会在第 1 行就 break）
+  it('token 计数按批进行，超预算后不再请求更早的行', async () => {
+    // historyBudget = 20 − 5 = 15；最近一条 big(100) 立刻超预算：只对最近一批（8 条）
+    // 计数，更早的 4 条不再发 /api/tokenize 请求（整段 Promise.all 会请求全部 12 条）
     const countTokens = vi.fn((text: string) =>
       Promise.resolve(text === 'big' ? 100 : 5),
     );
     const svc = new ContextService(makeConfig({ AI_CONTEXT_TOKEN_LIMIT: 20 }), {
       countTokens,
     } as unknown as TokenizerService);
-    const history = [
-      msg(MessageRole.User, 'u1'),
-      msg(MessageRole.Ai, 'a1'),
-      msg(MessageRole.User, 'u2'),
-      msg(MessageRole.Ai, 'big'),
-    ];
+    const history = Array.from({ length: 12 }, (_, i) =>
+      msg(
+        i % 2 === 0 ? MessageRole.User : MessageRole.Ai,
+        i === 11 ? 'big' : `m${i}`,
+      ),
+    );
     const out = await svc.buildMessages(history, 'new', provider);
-    // 4 条历史 + 1 条新消息（system 提示为空不计）
-    expect(countTokens).toHaveBeenCalledTimes(5);
+    // 最近一批 8 条 + 新消息 1 条（system 提示为空不计）
+    expect(countTokens).toHaveBeenCalledTimes(9);
     expect(out.map((m) => m.content)).toEqual(['new']);
   });
 

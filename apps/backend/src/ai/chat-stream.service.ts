@@ -113,13 +113,6 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         requestId,
       )
         .catch((err) => {
-          // 对外文案由 classifyStreamError 统一归因（prepareRun 等阶段抛出的错误也走这里）；
-          // message 可能含主机端口、SQL 等基础设施细节，不得随 error 帧出网；
-          // 日志侧带类名与 cause 栈，便于按类型聚合与定位根因
-          this.logger.warn(
-            `sendMessage failed conversation=${conversationId}: ${formatErrorForLog(err)}`,
-            ChatStreamService.name,
-          );
           // 外层 catch 只兜 prepareRun/落库失败，没有模型流：按 run 阶段归因，
           // 不让 ETIMEDOUT 之类数据库连接错误落进模型超时启发式
           const { code, message } = classifyStreamError(
@@ -127,6 +120,14 @@ export class ChatStreamService implements BeforeApplicationShutdown {
             controller.signal,
             'run',
           );
+          // 与 saveFailure 同一分级与文案格式：断线/停机（aborted）不刷 warn；
+          // message 可能含主机端口、SQL 等基础设施细节，不得随 error 帧出网
+          const logText = `sendMessage failed conversation=${conversationId} phase=run: ${formatErrorForLog(err)}`;
+          if (code === ErrorCode.AI_GENERATE_ABORTED) {
+            this.logger.debug(logText, ChatStreamService.name);
+          } else {
+            this.logger.warn(logText, ChatStreamService.name);
+          }
           subscriber.next({
             type: 'error',
             requestId,
@@ -508,19 +509,29 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       kind.code === ErrorCode.AI_GENERATE_ABORTED
         ? MessageStatus.Aborted
         : MessageStatus.Failed;
-    await this.messageRepo.save({
-      conversationId: context.conversationId,
-      role: MessageRole.Ai,
-      content: context.answer,
-      thinking: context.thinkingAll || null,
-      status,
-    });
+    // 先发 error 帧再落库：本 PR 归因的正是 DB 不可达/超时，若先落库，错误帧会被
+    // 第二次 DB 操作阻塞（连接池默认无限等待），前端一直挂到 TCP 超时
     subscriber.next({
       type: 'error',
       requestId,
       data: { code: kind.code, message: kind.message },
     });
     subscriber.complete();
+    try {
+      await this.messageRepo.save({
+        conversationId: context.conversationId,
+        role: MessageRole.Ai,
+        content: context.answer,
+        thinking: context.thinkingAll || null,
+        status,
+      });
+    } catch (saveError) {
+      // 落库失败不影响已发出的错误帧，也不能再抛到外层 catch 重复发帧：只补一条日志
+      this.logger.warn(
+        `saveFailure persist failed conversation=${context.conversationId}: ${formatErrorForLog(saveError)}`,
+        ChatStreamService.name,
+      );
+    }
   }
 
   // 归一为统一的 next 接口：异步迭代器与同步迭代器（测试 mock 常用）都适配

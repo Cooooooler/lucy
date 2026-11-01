@@ -70,19 +70,27 @@ export class ContextService {
     // token 额度，而选行遇到放不下的行就停，本可保留的更早完整轮次会被一起挤掉。
     const normalized = normalizeTurns(usable);
 
-    // 先并行取回各行的 token 数，再按「从最近往前累计、超预算即停」选行：
-    // 逐行串行 await 时，未命中缓存的行各触发一次 /api/tokenize，首 token 延迟会随
-    // 历史长度线性增长；并行只影响计数阶段，选行语义不变
-    const tokenCounts = await Promise.all(
-      normalized.map((m) => this.tokenizer.countTokens(m.content, model)),
-    );
+    // 从最近往前按批取 token 数（未命中缓存时每行一次 /api/tokenize）：
+    // 串行 await 会让首 token 延迟随历史长度线性增长，整段 Promise.all 又会对几百条
+    // 历史同时发请求打满连接；因此按批并发、累计超预算即停（更早的行不可能入选）。
+    const TOKENIZE_BATCH = 8;
     const selected: Message[] = [];
     let used = 0;
-    for (let i = normalized.length - 1; i >= 0; i--) {
-      const tokens = tokenCounts[i];
-      if (used + tokens > historyBudget) break;
-      selected.push(normalized[i]);
-      used += tokens;
+    let done = false;
+    for (let end = normalized.length; end > 0 && !done; end -= TOKENIZE_BATCH) {
+      const start = Math.max(0, end - TOKENIZE_BATCH);
+      const batch = normalized.slice(start, end);
+      const counts = await Promise.all(
+        batch.map((m) => this.tokenizer.countTokens(m.content, model)),
+      );
+      for (let i = batch.length - 1; i >= 0; i--) {
+        if (used + counts[i] > historyBudget) {
+          done = true;
+          break;
+        }
+        selected.push(batch[i]);
+        used += counts[i];
+      }
     }
 
     // 选行可能把某轮的提问裁掉、只留下它的回答；再规整一次（幂等）把首条非 system
