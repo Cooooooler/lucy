@@ -2,7 +2,7 @@ import { LOGIN_ACCOUNT_MAX_LENGTH, PASSWORD_MAX_LENGTH } from '@lucy/shared';
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
-import { normalizeEmail } from '../../common/email.js';
+import { isEmailAccount, normalizeEmail } from '../../common/email.js';
 
 export class LoginDto {
   // 登录是唯一没有长度边界的 auth 请求体：account 会直接进「按用户名或邮箱等值查询」，
@@ -22,7 +22,7 @@ export class LoginDto {
   @Transform(({ value }): unknown => {
     if (typeof value !== 'string') return value as unknown;
     const account = value.trim();
-    return account.includes('@') ? normalizeEmail(account) : account;
+    return isEmailAccount(account) ? normalizeEmail(account) : account;
   })
   @IsString()
   @IsNotEmpty()

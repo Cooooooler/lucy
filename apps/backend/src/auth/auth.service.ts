@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { ChainableCommander } from 'ioredis';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { AppLogger } from '../common/app-logger.service.js';
+import { isEmailAccount } from '../common/email.js';
 import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
 import { toSharedUser, type SharedUser } from '../users/user.mapper.js';
@@ -125,7 +126,8 @@ export class AuthService {
     accessToken: string;
     refreshToken: string;
   }> {
-    const user = dto.account.includes('@')
+    // 判据与 LoginDto 的归一分支共用 common/email 的同一份实现，避免两处漂移
+    const user = isEmailAccount(dto.account)
       ? await this.usersService.findByEmail(dto.account)
       : await this.usersService.findByUsername(dto.account);
     if (!user) {
