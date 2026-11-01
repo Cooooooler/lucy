@@ -65,23 +65,25 @@ export class ContextService {
         (m.role === MessageRole.Ai && m.content.trim().length > 0),
     );
 
+    // 尾部「有问无答」的孤立 user 行先裁掉，再算预算：凭证/上游失败会在最新一轮留下
+    // 未被回答的 user 行，过滤空 AI 行后相邻 Human 会破坏角色交替（Bedrock/兼容网关直接
+    // 400），且下一轮会把同一问题重复送入。必须先裁后算——若留到选行之后再裁，它已经
+    // 占掉 token 额度，而选行遇到放不下的行就停，本可保留的更早完整轮次会被一起挤掉。
+    let tailEnd = usable.length;
+    while (tailEnd > 0 && usable[tailEnd - 1].role === MessageRole.User) {
+      tailEnd--;
+    }
+    const answered = usable.slice(0, tailEnd);
+
     // 从最近往前累计，超预算即停
     const selected: Message[] = [];
     let used = 0;
-    for (const m of [...usable].reverse()) {
+    for (const m of [...answered].reverse()) {
       const tokens = await this.tokenizer.countTokens(m.content, model);
       if (used + tokens > historyBudget) break;
       selected.push(m);
       used += tokens;
     }
-
-    // 尾部「有问无答」的孤立 user 行裁掉：凭证/上游失败会在最新一轮留下未被回答的
-    // user 行，过滤空 AI 行后相邻 Human 会破坏角色交替（Bedrock/兼容网关直接 400），
-    // 且下一轮会把同一问题重复送入。保留更早的完整轮次（问与答都在）。
-    // selected 是最新优先，先转回时间正序再裁尾部。
-    const chronological = selected.toReversed();
-    let end = chronological.length;
-    while (end > 0 && chronological[end - 1].role === MessageRole.User) end--;
 
     // 裁尾只处理「最新一轮缺回答」，空 AI 行落在**中间**时同样会留下孤立 user：
     // [u1, ai1(''), u2, ai2('ok')] 过滤后是 [u1, u2, ai2]，尾部不是 user 故不触发裁剪，
@@ -89,7 +91,7 @@ export class ContextService {
     // - 相邻 user 只保留更近的那条（旧问题已被后续提问取代，重复送还容易让模型串线）；
     // - 首条非 system 消息必须是 user（预算裁剪可能把某轮回答留下、却把它的提问裁掉）。
     const normalized: Message[] = [];
-    for (const m of chronological.slice(0, end)) {
+    for (const m of selected.toReversed()) {
       if (
         m.role === MessageRole.User &&
         normalized.at(-1)?.role === MessageRole.User

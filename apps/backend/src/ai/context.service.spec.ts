@@ -166,6 +166,27 @@ describe('ContextService', () => {
     expect(out.map((m) => m.content)).toEqual(['u1', 'a1', 'new']);
   });
 
+  it('尾部孤立 user 先裁再算预算：不占额度，更早的完整轮次仍保留', async () => {
+    // 预算 25 − 0 = 25，扣新消息 5 → historyBudget=20。若先按预算选行再裁尾，尾部孤立
+    // user（40 tokens）会立刻超预算并 break，u1/a1 也被一起丢掉；先裁尾后两者完整保留
+    const tokenizer = {
+      countTokens: vi.fn((text: string) =>
+        Promise.resolve(text === 'unanswered-huge' ? 40 : 5),
+      ),
+    } as unknown as TokenizerService;
+    const svc = new ContextService(
+      makeConfig({ AI_CONTEXT_TOKEN_LIMIT: 25 }),
+      tokenizer,
+    );
+    const history = [
+      msg(MessageRole.User, 'u1'),
+      msg(MessageRole.Ai, 'a1'),
+      msg(MessageRole.User, 'unanswered-huge'),
+    ];
+    const out = await svc.buildMessages(history, 'new', provider);
+    expect(out.map((m) => m.content)).toEqual(['u1', 'a1', 'new']);
+  });
+
   it('中段的空 AI 行留下孤立 user 时修掉相邻 Human（保留更近的问题）', async () => {
     // 「凭证失败一次、重试成功」之后的历史：[u1, ai1(''), u2, ai2('ok')] 过滤后是
     // [u1, u2, ai2]，尾部不是 user 故裁尾不触发——不修的话每一轮都带着 Human、Human、
