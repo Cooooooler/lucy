@@ -9,6 +9,7 @@ import { ModelProvider } from '../model-provider/entities/model-provider.entity.
 import { resolveOutputMaxTokens } from '../model-provider/model-client.factory.js';
 import { Message, MessageRole } from './entities/message.entity.js';
 import { TokenizerService } from './tokenizer.service.js';
+import { normalizeTurns } from './turn-normalizer.js';
 
 @Injectable()
 export class ContextService {
@@ -55,17 +56,46 @@ export class ContextService {
     const newTokens = await this.tokenizer.countTokens(newContent, model);
     const historyBudget = Math.max(0, budget - systemTokens - newTokens);
 
-    // 从最近往前累计，超预算即停
+    // 历史行只做**内容可用性**过滤（AI 行内容非空即可用，不看 status）：
+    // saveFailure 可能把「半截」回答以 failed 落库、用户停止是 aborted——它们用户都已在
+    // 气泡里看到，下一轮按 status 剔除会让上下文整体丢失，模型只能重答；Anthropic 真正
+    // 拒的是空 text block，所以判据收敛为「AI 行 content 非空」。null/无 status 的行也放行。
+    const usable = history.filter(
+      (m) =>
+        m.role === MessageRole.User ||
+        (m.role === MessageRole.Ai && m.content.trim().length > 0),
+    );
+
+    // 先规整再算预算：尾部「有问无答」的孤立 user 行必须先裁掉，否则它已经占掉
+    // token 额度，而选行遇到放不下的行就停，本可保留的更早完整轮次会被一起挤掉。
+    const normalized = normalizeTurns(usable);
+
+    // 从最近往前按批取 token 数（未命中缓存时每行一次 /api/tokenize）：
+    // 串行 await 会让首 token 延迟随历史长度线性增长，整段 Promise.all 又会对几百条
+    // 历史同时发请求打满连接；因此按批并发、累计超预算即停（更早的行不可能入选）。
+    const TOKENIZE_BATCH = 8;
     const selected: Message[] = [];
     let used = 0;
-    for (const m of [...history].reverse()) {
-      const tokens = await this.tokenizer.countTokens(m.content, model);
-      if (used + tokens > historyBudget) break;
-      selected.push(m);
-      used += tokens;
+    let done = false;
+    for (let end = normalized.length; end > 0 && !done; end -= TOKENIZE_BATCH) {
+      const start = Math.max(0, end - TOKENIZE_BATCH);
+      const batch = normalized.slice(start, end);
+      const counts = await Promise.all(
+        batch.map((m) => this.tokenizer.countTokens(m.content, model)),
+      );
+      for (let i = batch.length - 1; i >= 0; i--) {
+        if (used + counts[i] > historyBudget) {
+          done = true;
+          break;
+        }
+        selected.push(batch[i]);
+        used += counts[i];
+      }
     }
 
-    for (const m of selected.toReversed()) {
+    // 选行可能把某轮的提问裁掉、只留下它的回答；再规整一次（幂等）把首条非 system
+    // 修正成 user，否则供应商会拒以 AI 开头的序列。
+    for (const m of normalizeTurns(selected.toReversed())) {
       if (m.role === MessageRole.User) {
         messages.push(new HumanMessage(m.content));
       } else if (m.role === MessageRole.Ai) {

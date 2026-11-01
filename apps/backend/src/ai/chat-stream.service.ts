@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { formatErrorForLog } from '../common/error-format.js';
 import { ShutdownService } from '../common/shutdown.service.js';
 import type { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
 import { ModelClientFactory } from '../model-provider/model-client.factory.js';
@@ -20,6 +21,7 @@ import {
   MessageStatus,
 } from './entities/message.entity.js';
 import { normalizeChunk } from './stream-chunk.js';
+import { classifyStreamError, type ErrorPhase } from './stream-error.js';
 
 // 流式订阅方：next 逐帧推送事件，complete 结束流
 type Subscriber = {
@@ -59,6 +61,10 @@ export class ChatStreamService implements BeforeApplicationShutdown {
   // 必须带 userId：并发检查发生在归属校验之前，只按会话 id 会让非属主对「他人正在生成的会话」
   // 得到 BUSY 而非 NOT_FOUND，形成存在性/活跃度探测面。
   private readonly inFlight = new Map<string, Promise<unknown>>();
+
+  // 已发出 error 帧、仍在落库的失败行：停机时要等它们写完，否则连接池销毁会把 pending
+  // INSERT 丢掉（见 beforeApplicationShutdown）
+  private readonly pendingFailures = new Set<Promise<unknown>>();
 
   // 在途流的取消句柄：停机时统一 abort，让半截内容落 aborted 而不是被硬掐在写入中间
   private readonly activeControllers = new Set<AbortController>();
@@ -111,19 +117,16 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         requestId,
       )
         .catch((err) => {
-          // 对外固定文案：这里逃逸出的错误来自 DB/事务/模型客户端，message 可能含主机端口、
-          // SQL 等基础设施细节（如 `connect ECONNREFUSED 127.0.0.1:5432`），不得出网；
-          // 原始错误只进日志（与 saveFailure 的固定文案保持一致）
-          this.logger.warn(
-            `sendMessage failed conversation=${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
-            ChatStreamService.name,
-          );
-          subscriber.next({
-            type: 'error',
+          // 外层 catch 只兜 prepareRun/落库失败，没有模型流：按 run 阶段归因，
+          // 不让 ETIMEDOUT 之类数据库连接错误落进模型超时启发式
+          this.emitFailure(
+            subscriber,
             requestId,
-            data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
-          });
-          subscriber.complete();
+            err,
+            classifyStreamError(err, controller.signal, 'run'),
+            'run',
+            conversationId,
+          );
         })
         .finally(() => {
           this.inFlight.delete(lockKey);
@@ -149,7 +152,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     // 「优雅」就退化成硬退。这里留出余量给后续 dispose 与资源释放。
     const waitMs = Math.max(0, graceMs - ChatStreamService.DISPOSE_RESERVE_MS);
     await Promise.race([
-      Promise.allSettled([...this.inFlight.values()]),
+      Promise.allSettled([...this.inFlight.values(), ...this.pendingFailures]),
       this.delay(waitMs),
     ]);
     // 等待期间仍可能注册了新的流（在停机位置起前越过检查的极小窗口），再中止一次
@@ -192,17 +195,10 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     // 会话不存在 / 未选择模型时 prepareRun 已发 error 帧，直接结束
     if (!prepared) return;
     const { history, provider } = prepared;
-
-    // 推理模型默认开启深度思考：推理模型以 think=false 运行，易产出退化/半途截断的
-    // 输出（如「先试着…」后即结束）。仅在调用方未显式指定时才按模型能力兜底，
-    // 显式 reasoning:{true|false} 仍被尊重。think 只对 Ollama 生效（工厂内部处理其它供应商）
-    const think = dto.reasoning ?? this.isReasoningModel(provider.name);
-    const client = this.modelClientFactory.buildChat(provider, { think });
-    const messages = await this.contextService.buildMessages(
-      history,
-      dto.content,
-      provider,
-    );
+    // AI 行的时间戳在用户消息落库后固定：失败行是 fire-and-forget 写入，若依赖插入时刻
+    // 生成 createdAt，DB 慢时它会排到用户下一轮提问之后，normalizeTurns 会把半截回答
+    // 错配成新提问的回答
+    const answeredAt = new Date();
 
     // 空闲超时：模型持续无输出（含首 token 等待）超过阈值判为超时
     const timeoutMs = Number(this.config.get('OLLAMA_TIMEOUT_MS', 120000));
@@ -225,7 +221,25 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       thinkingAll: string;
       finishReason?: string;
     } = { answer: '', thinkingAll: '' };
+    // 是否已拿到模型流：决定失败归因用 stream 还是 run 阶段（只有流内才可能是模型超时）
+    let streamStarted = false;
     try {
+      // 推理模型默认开启深度思考：推理模型以 think=false 运行，易产出退化/半途截断的
+      // 输出（如「先试着…」后即结束）。仅在调用方未显式指定时才按模型能力兜底，
+      // 显式 reasoning:{true|false} 仍被尊重。think 只对 Ollama 生效（工厂内部处理其它供应商）。
+      // buildChat 在 try 里：构造客户端即抛错（凭证问题等）也走 saveFailure——
+      // prepareRun 已落库用户消息，必须留一条 failed 的 AI 记录，
+      // 避免前端刷新后只剩无回应的用户消息（历史污染由 ContextService 过滤兜住）
+      const think = dto.reasoning ?? this.isReasoningModel(provider.name);
+      const client = this.modelClientFactory.buildChat(provider, { think });
+      const messages = await this.contextService.buildMessages(
+        history,
+        dto.content,
+        provider,
+      );
+      // 模型侧调用从 client.stream 开始（建连/请求阶段也可能超时）：置位必须在 await 之前，
+      // 否则建连超时会被当成流前失败，报「生成失败」而不是「模型调用超时」
+      streamStarted = true;
       // 传入 signal：订阅取消（SSE 断线）时中止底层流，半截内容落 aborted
       const stream = (await client.stream(messages, { signal })) as
         AsyncIterable<unknown> | Iterable<unknown>;
@@ -238,6 +252,12 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         armIdle,
         collected,
       );
+      // 流已结束：立即停掉空闲定时器，否则落库耗时超过 OLLAMA_TIMEOUT_MS 时会被它
+      // abort 成 signal.aborted，反而把 DB 落库失败归成「模型调用超时」；
+      // 之后的落库失败按 run 阶段归因（DB 超时≠模型超时）
+      clearTimeout(idleTimer);
+      idleTimer = undefined;
+      streamStarted = false;
       await this.saveComplete(subscriber, requestId, {
         conversationId,
         answer: collected.answer,
@@ -246,11 +266,19 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       });
     } catch (error) {
       // 按失败类型区分错误码：客户端中止 / 模型超时 / 其他生成失败
-      await this.saveFailure(subscriber, requestId, signal, error, {
-        conversationId,
-        answer: collected.answer,
-        thinkingAll: collected.thinkingAll,
-      });
+      this.saveFailure(
+        subscriber,
+        requestId,
+        signal,
+        error,
+        {
+          conversationId,
+          answer: collected.answer,
+          thinkingAll: collected.thinkingAll,
+          createdAt: answeredAt,
+        },
+        streamStarted ? 'stream' : 'run',
+      );
     } finally {
       clearTimeout(idleTimer);
     }
@@ -338,7 +366,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       } catch (err) {
         // 标题生成失败不影响正文问答，仅记录日志
         this.logger.warn(
-          `标题生成失败 conversation=${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
+          `标题生成失败 conversation=${conversationId}: ${formatErrorForLog(err)}`,
           ChatStreamService.name,
         );
       }
@@ -455,26 +483,79 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     subscriber.complete();
   }
 
-  // 生成失败/中断：按失败类型落库并发送 error 帧
-  private async saveFailure(
+  // 生成失败/中断：按失败类型落库并发送 error 帧。
+  // phase 由调用方按「错误发生时是否已在读模型流」决定：buildChat/buildMessages 失败
+  // 仍属流前阶段（没有可等的模型输出），不能套模型超时启发式。
+  private saveFailure(
     subscriber: Subscriber,
     requestId: string,
     signal: AbortSignal,
     error: unknown,
-    context: { conversationId: string; answer: string; thinkingAll: string },
-  ): Promise<void> {
-    const kind = this.classifyError(error, signal);
+    context: {
+      conversationId: string;
+      answer: string;
+      thinkingAll: string;
+      createdAt: Date;
+    },
+    phase: ErrorPhase,
+  ): void {
+    const kind = classifyStreamError(error, signal, phase);
     const status =
       kind.code === ErrorCode.AI_GENERATE_ABORTED
         ? MessageStatus.Aborted
         : MessageStatus.Failed;
-    await this.messageRepo.save({
-      conversationId: context.conversationId,
-      role: MessageRole.Ai,
-      content: context.answer,
-      thinking: context.thinkingAll || null,
-      status,
-    });
+    // 先发 error 帧再落库：本 PR 归因的正是 DB 不可达/超时，若先落库，错误帧会被
+    // 第二次 DB 操作阻塞（连接池默认无限等待），前端一直挂到 TCP 超时
+    this.emitFailure(
+      subscriber,
+      requestId,
+      error,
+      kind,
+      phase,
+      context.conversationId,
+    );
+    // 落库是尽力而为且不能 await：runSend 的 promise 要等它返回才释放 in-flight 锁，
+    // DB 不可达时会让用户重发一直拿到 AI_CONVERSATION_BUSY
+    const save = this.messageRepo
+      .save({
+        conversationId: context.conversationId,
+        role: MessageRole.Ai,
+        content: context.answer,
+        thinking: context.thinkingAll || null,
+        status,
+        // 显式时间戳：保证失败行排在它回答的那条用户消息之后（见 answeredAt 注释）
+        createdAt: context.createdAt,
+      })
+      .catch((saveError) => {
+        // 落库失败不影响已发出的错误帧，也不能再抛到外层 catch 重复发帧：只补日志
+        this.logger.warn(
+          `saveFailure persist failed conversation=${context.conversationId}: ${formatErrorForLog(saveError)}`,
+          ChatStreamService.name,
+        );
+      });
+    // 登记到停机等待集合；写完（成功或失败）后移出
+    this.pendingFailures.add(save);
+    void save.finally(() => this.pendingFailures.delete(save));
+  }
+
+  // 失败出口的统一处理：按 aborted 分级记日志、发 error 帧并结束流
+  private emitFailure(
+    subscriber: Subscriber,
+    requestId: string,
+    error: unknown,
+    kind: { code: ErrorCodeValue; message: string },
+    phase: ErrorPhase,
+    conversationId: string,
+  ): void {
+    // 失败出口必须留痕：错误帧只给用户看，日志才能按类型聚合排查；
+    // 用户主动断线/停机（aborted）降为 debug，避免每次 SSE 断线刷 warn。
+    // message 可能含主机端口、SQL 等基础设施细节，不得随 error 帧出网
+    const logText = `sendMessage failed conversation=${conversationId} phase=${phase}: ${formatErrorForLog(error)}`;
+    if (kind.code === ErrorCode.AI_GENERATE_ABORTED) {
+      this.logger.debug(logText, ChatStreamService.name);
+    } else {
+      this.logger.warn(logText, ChatStreamService.name);
+    }
     subscriber.next({
       type: 'error',
       requestId,
@@ -500,28 +581,5 @@ export class ChatStreamService implements BeforeApplicationShutdown {
   // 因推理模型以 think=false 运行易产出退化/半途截断输出。
   private isReasoningModel(model: string): boolean {
     return /qwen3(?:\.\d+)?|deepseek-r1|(?:^|[-:])r1(?:[-:.]|$)/i.test(model);
-  }
-
-  // 区分流式失败类型：客户端中止（signal.reason）> 模型超时 > 其他生成失败
-  private classifyError(
-    error: unknown,
-    signal: AbortSignal,
-  ): { code: ErrorCodeValue; message: string } {
-    if (signal.aborted) {
-      const reason = signal.reason as Error;
-      if (
-        reason instanceof Error &&
-        /timeout|timed out|ETIMEDOUT/i.test(reason.message)
-      ) {
-        return { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' };
-      }
-      return { code: ErrorCode.AI_GENERATE_ABORTED, message: '生成中断' };
-    }
-    const name = error instanceof Error ? error.name : '';
-    const message = error instanceof Error ? error.message : '';
-    if (/timeout|timed out|ETIMEDOUT/i.test(`${name} ${message}`)) {
-      return { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' };
-    }
-    return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };
   }
 }

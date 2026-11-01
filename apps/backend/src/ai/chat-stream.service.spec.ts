@@ -4,10 +4,11 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { lastValueFrom } from 'rxjs';
 import { toArray } from 'rxjs/operators';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryFailedError } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { ShutdownService } from '../common/shutdown.service.js';
 import { ModelClientFactory } from '../model-provider/model-client.factory.js';
+import { ModelCredentialError } from '../model-provider/model-credential.error.js';
 import { ModelProviderService } from '../model-provider/model-provider.service.js';
 import {
   makeModelProvider,
@@ -60,7 +61,7 @@ describe('ChatStreamService', () => {
     AI_OUTPUT_MAX_TOKENS: 32768,
   });
   // 保留可断言的 mock 句柄（直接对 `logger.warn` 断言会触发 unbound-method）
-  const loggerMock = { log: vi.fn(), warn: vi.fn() };
+  const loggerMock = { log: vi.fn(), warn: vi.fn(), debug: vi.fn() };
   const logger = loggerMock as unknown as AppLogger;
 
   let service: ChatStreamService;
@@ -234,6 +235,8 @@ describe('ChatStreamService', () => {
       content: '半截',
       thinking: null,
       status: MessageStatus.Failed,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- expect.any 的返回类型是 any
+      createdAt: expect.any(Date),
     });
   }
 
@@ -250,6 +253,30 @@ describe('ChatStreamService', () => {
       ErrorCode.AI_GENERATE_TIMEOUT,
       '模型调用超时',
     ));
+
+  it('流结束后的落库失败（裸 ETIMEDOUT 来自 DB）：按「生成失败」报，不误归因为模型超时', async () => {
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.count.mockResolvedValue(2);
+    messageRepo.find.mockResolvedValue([]);
+    contextService.buildMessages.mockResolvedValue([]);
+    modelClientFactory.buildChat.mockReturnValue(fakeClient());
+    // 第 1 次 save 落用户消息（正常），第 2 次 saveComplete 抛 DB 连接超时，
+    // 第 3 次是 saveFailure 落 failed 行（正常）
+    messageRepo.save
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(
+        Object.assign(new Error('connect ETIMEDOUT 10.0.0.5:5432'), {
+          code: 'ETIMEDOUT',
+        }),
+      )
+      .mockResolvedValueOnce({});
+    const result = await sendHi();
+    expect(result.map((e) => e.type)).toEqual(['delta', 'delta', 'error']);
+    expect(result.at(-1)).toMatchObject({
+      type: 'error',
+      data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+    });
+  });
 
   it('空闲超时：无输出触发超时错误码并落库 failed', async () => {
     vi.useFakeTimers();
@@ -292,6 +319,8 @@ describe('ChatStreamService', () => {
         content: '你',
         thinking: null,
         status: MessageStatus.Failed,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- expect.any 的返回类型是 any
+        createdAt: expect.any(Date),
       });
     } finally {
       vi.useRealTimers();
@@ -318,6 +347,8 @@ describe('ChatStreamService', () => {
       content: '',
       thinking: null,
       status: MessageStatus.Failed,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- expect.any 的返回类型是 any
+      createdAt: expect.any(Date),
     });
   });
 
@@ -595,6 +626,8 @@ describe('ChatStreamService', () => {
         content: '半截',
         thinking: null,
         status: MessageStatus.Aborted,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- expect.any 的返回类型是 any
+        createdAt: expect.any(Date),
       }),
     );
   });
@@ -672,6 +705,110 @@ describe('ChatStreamService', () => {
     // 基础设施细节（主机/端口/SQL 等）不得随 error 帧出网
     expect(JSON.stringify(result)).not.toContain('ECONNREFUSED');
     expect(loggerMock.warn).toHaveBeenCalled();
+  });
+
+  it('含 timeout 字样的 DB 基础设施错误按「生成失败」报，不误归因为「模型调用超时」', async () => {
+    // Postgres 语句超时（DB_STATEMENT_TIMEOUT_MS）文案即含 timeout：classifyError
+    // 必须先经基础设施守卫，否则会被模型超时启发式命中
+    const dbTimeout = new QueryFailedError(
+      'SELECT 1',
+      [],
+      Object.assign(new Error('canceling statement due to statement timeout'), {
+        code: '57014',
+      }),
+    );
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.find.mockRejectedValue(dbTimeout);
+    const result = await events(
+      service.sendMessage('1', 'c1', { content: 'hi' }),
+    );
+    expect(result.at(-1)).toMatchObject({
+      type: 'error',
+      data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+    });
+  });
+
+  it('连接池取连接超时（pg-pool 的裸 Error）按「生成失败」报，不误归因为「模型调用超时」', async () => {
+    // 连接类失败不是 QueryFailedError、也不带 driverError：只按 name/driverError 判会漏，
+    // 落到模型超时正则里就成了「模型调用超时」（真实原因是数据库连不上）
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.find.mockRejectedValue(
+      new Error('timeout exceeded when trying to connect'),
+    );
+    const result = await events(
+      service.sendMessage('1', 'c1', { content: 'hi' }),
+    );
+    expect(result.at(-1)).toMatchObject({
+      type: 'error',
+      data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+    });
+  });
+
+  it('外层 catch（prepareRun/落库）的 ETIMEDOUT 来自数据库连接：按「生成失败」报，不误归因为模型超时', async () => {
+    // 外层 catch 只兜前置准备与落库失败，这条路径没有模型流；socket 层连接超时抛的是
+    // 裸 Error（code: ETIMEDOUT），既不是 QueryFailedError 也不匹配连接池文案，
+    // 若套模型超时启发式就会把「数据库连不上」误报成「模型调用超时」
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.find.mockRejectedValue(
+      Object.assign(new Error('connect ETIMEDOUT 10.0.0.5:5432'), {
+        code: 'ETIMEDOUT',
+      }),
+    );
+    const result = await events(
+      service.sendMessage('1', 'c1', { content: 'hi' }),
+    );
+    expect(result.at(-1)).toMatchObject({
+      type: 'error',
+      data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+    });
+  });
+
+  it('流内 DB 语句取消（裸 Error + SQLSTATE 57014）：按「生成失败」报，结构化判据不依赖文案', () =>
+    expectStreamError(
+      Object.assign(new Error('canceling statement due to statement timeout'), {
+        code: '57014',
+      }),
+      ErrorCode.AI_GENERATE_FAILED,
+      '生成失败',
+    ));
+
+  it('流内第三方超时（带 driverError 形状）仍按「模型调用超时」报，不被形状嗅探吞掉', () =>
+    expectStreamError(
+      Object.assign(new Error('request timed out'), {
+        name: 'APICallError',
+        driverError: { code: 'ETIMEDOUT' },
+      }),
+      ErrorCode.AI_GENERATE_TIMEOUT,
+      '模型调用超时',
+    ));
+
+  it('模型客户端构造抛出凭证错误（密钥轮换/未配 Key）：走 saveFailure 落库并给可执行恢复提示', async () => {
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.find.mockResolvedValue([]);
+    contextService.buildMessages.mockResolvedValue([]);
+    // buildChat 构造期同步抛出（真实路径：requireApiKey / cipher.decrypt）；
+    // 错误发生在 try 内，只能走 saveFailure——必须留下 failed 状态的 AI 记录
+    modelClientFactory.buildChat.mockImplementation(() => {
+      throw new ModelCredentialError(
+        'decrypt-failed',
+        'API Key 解密失败：tag 不匹配',
+      );
+    });
+    const result = await events(
+      service.sendMessage('1', 'c1', { content: 'hi' }),
+    );
+    expect(result.at(-1)).toMatchObject({
+      type: 'error',
+      data: {
+        code: ErrorCode.AI_CREDENTIAL_INVALID,
+        message: '平台密钥已变更，请重新保存 API Key',
+      },
+    });
+    // 原始细节不出网；失败了也要有 AI 记录（保持会话里用户消息有对应失败行）
+    expect(JSON.stringify(result)).not.toContain('tag 不匹配');
+    expect(messageRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ status: MessageStatus.Failed }),
+    );
   });
 
   it('并发锁 key 含 userId：属主在途时其它用户不共享该锁', () => {
