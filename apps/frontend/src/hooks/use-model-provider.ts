@@ -108,10 +108,11 @@ export function useModelProvidersByType(
   enabled = true,
 ) {
   const query = useInfiniteModelProviderList({ type }, 100, enabled);
-  // flatMap 每次渲染都会返回新数组：按 data 记忆化，消费方的 options/useMemo 才有效
+  // pages 引用稳定，flatMap 结果据此缓存：调用方按 models 记忆化菜单项才有意义
+  const pages = query.data?.pages;
   const models = useMemo(
-    () => query.data?.pages.flatMap((page) => page.list) ?? [],
-    [query.data],
+    () => pages?.flatMap((page) => page.list) ?? [],
+    [pages],
   );
   return { models, isLoading: query.isLoading };
 }
@@ -154,9 +155,11 @@ export function useUpdateModelProviderDefaults() {
  */
 export function useLlmModelProviders(limit = 100) {
   const query = useInfiniteModelProviderList({ type: 'llm' }, limit);
+  const pages = query.data?.pages;
+  // 同 useModelProvidersByType：保持 models 引用稳定，避免下游每次渲染重建菜单项
   const models = useMemo(
-    () => query.data?.pages.flatMap((page) => page.list) ?? [],
-    [query.data],
+    () => pages?.flatMap((page) => page.list) ?? [],
+    [pages],
   );
   return { models, isLoading: query.isLoading };
 }

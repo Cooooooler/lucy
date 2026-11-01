@@ -10,25 +10,34 @@ import { type ChatMessage, useChatStream } from '@/hooks/use-chat';
 import { useLlmModelProviders } from '@/hooks/use-model-provider';
 import { authStore } from '@/stores/auth.ts';
 import {
+  AppstoreOutlined,
+  BugOutlined,
+  CodeOutlined,
   DeleteOutlined,
   DownOutlined,
   EditOutlined,
+  FileTextOutlined,
   OllamaFilled,
   OpenAIOutlined,
   PlusOutlined,
+  RobotOutlined,
+  SearchOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import {
   Bubble,
   type BubbleProps,
+  CodeHighlighter,
   type ConversationItemType,
   Conversations,
   type ConversationsProps,
+  Prompts,
   Sender,
+  type SenderProps,
   Think,
   Welcome,
 } from '@ant-design/x';
-import XMarkdown from '@ant-design/x-markdown';
+import XMarkdown, { type ComponentProps } from '@ant-design/x-markdown';
 import type { RoleType } from '@ant-design/x/es/bubble/interface';
 import type { ThinkProps } from '@ant-design/x/es/think/Think';
 import { CONVERSATION_TITLE_MAX_LENGTH } from '@lucy/shared';
@@ -40,12 +49,11 @@ import {
   App,
   Avatar,
   Button,
-  Empty,
+  Dropdown,
   Flex,
   Input,
   type InputRef,
   Result,
-  Select,
   Spin,
   Splitter,
   Typography,
@@ -53,8 +61,11 @@ import {
 import dayjs from 'dayjs';
 import {
   type ComponentRef,
+  type CSSProperties,
   type FC,
+  type ReactNode,
   type UIEvent,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -62,7 +73,214 @@ import {
 } from 'react';
 
 const { Text } = Typography;
-const Switch = Sender.Switch;
+
+/** 空状态快捷提问：点击只填入输入框（保留修改余地），不直接发送 */
+const QUICK_PROMPTS = [
+  {
+    key: 'summary',
+    icon: <FileTextOutlined />,
+    label: '总结知识库里最近上传的文档',
+  },
+  { key: 'code', icon: <CodeOutlined />, label: '解释这段代码的性能瓶颈' },
+  { key: 'debug', icon: <BugOutlined />, label: '帮我排查一个线上报错' },
+  { key: 'write', icon: <EditOutlined />, label: '写一段产品更新说明' },
+];
+
+/**
+ * 词槽模式（slotConfig）的助手模板：选中后输入框变成「skill 标签 + 内联填空」，
+ * 提交时由 Sender 把填写结果拼成一段完整文本（onSubmit 第一个参数）。
+ * 关闭 skill 标签即回到普通自由输入。
+ */
+type ChatAssistant = {
+  key: string;
+  label: string;
+  icon: ReactNode;
+  skill: NonNullable<SenderProps['skill']>;
+  slotConfig: NonNullable<SenderProps['slotConfig']>;
+};
+
+type SlotNode = NonNullable<SenderProps['slotConfig']>[number];
+
+/** 词槽节点构造器：模板里只写文案与选项，避免每个模板重复同一套对象字面量 */
+const slotText = (value: string): SlotNode => ({ type: 'text', value });
+
+const slotSelect = (
+  key: string,
+  options: string[],
+  placeholder: string,
+): SlotNode => ({
+  type: 'select',
+  key,
+  props: { defaultValue: options[0], options, placeholder },
+});
+
+const slotFill = (
+  key: string,
+  defaultValue: string,
+  placeholder: string,
+): SlotNode => ({ type: 'content', key, props: { defaultValue, placeholder } });
+
+const CHAT_ASSISTANTS: ChatAssistant[] = [
+  {
+    key: 'writing',
+    label: '写作助手',
+    icon: <EditOutlined />,
+    skill: { value: 'writing', title: '写作助手' },
+    slotConfig: [
+      slotText('请帮我写一篇关于'),
+      slotSelect('topic', ['校园', '旅行', '阅读'], '请输入主题'),
+      slotText('的文章。要求是'),
+      slotFill('words', '800', '[请输入字数]'),
+      slotText('字。'),
+    ],
+  },
+  {
+    key: 'code',
+    label: '代码助手',
+    icon: <CodeOutlined />,
+    skill: { value: 'code', title: '代码助手' },
+    slotConfig: [
+      slotText('请使用'),
+      slotSelect('lang', ['TypeScript', 'Python', 'Java'], '请选择语言'),
+      slotText('写一个'),
+      slotFill('target', '小游戏', '[请输入要写的东西]'),
+      slotText('。'),
+    ],
+  },
+  {
+    key: 'search',
+    label: '深度搜索',
+    icon: <SearchOutlined />,
+    skill: { value: 'search', title: '深度搜索' },
+    slotConfig: [
+      slotText('请帮我搜索关于'),
+      slotSelect('category', ['AI', '技术', '娱乐'], '请选择类别'),
+      slotText('的新闻，并给出要点总结。'),
+    ],
+  },
+];
+
+/** 助手下拉菜单项：静态数据，放模块级避免每次渲染重建（Dropdown 会因此重渲染） */
+const ASSISTANT_MENU_ITEMS = CHAT_ASSISTANTS.map((a) => ({
+  key: a.key,
+  icon: a.icon,
+  label: a.label,
+}));
+
+/**
+ * CodeHighlighter 内部写死 oneLight 主题（暗色下会是一块白底），这里覆写为自定义主题：
+ * 颜色全部取 index.css 里的 --lucy-code-* 变量，亮/暗各一套，因此不必随主题切换。
+ */
+const CODE_THEME: Record<string, CSSProperties> = {
+  'pre[class*="language-"]': {
+    margin: 0,
+    padding: '12px 16px',
+    background: 'var(--lucy-code-bg)',
+    color: 'var(--lucy-code-text)',
+    fontSize: 12.5,
+    lineHeight: 1.6,
+  },
+  'code[class*="language-"]': {
+    background: 'transparent',
+    color: 'inherit',
+    fontFamily: 'inherit',
+    fontSize: 'inherit',
+  },
+  comment: { color: 'var(--lucy-code-muted)' },
+  prolog: { color: 'var(--lucy-code-muted)' },
+  doctype: { color: 'var(--lucy-code-muted)' },
+  punctuation: { color: 'var(--lucy-code-muted)' },
+  keyword: { color: 'var(--lucy-code-keyword)' },
+  operator: { color: 'var(--lucy-code-keyword)' },
+  builtin: { color: 'var(--lucy-code-number)' },
+  boolean: { color: 'var(--lucy-code-number)' },
+  number: { color: 'var(--lucy-code-number)' },
+  'attr-name': { color: 'var(--lucy-code-number)' },
+  string: { color: 'var(--lucy-code-string)' },
+  'attr-value': { color: 'var(--lucy-code-string)' },
+  function: { color: 'var(--lucy-code-function)' },
+  'class-name': { color: 'var(--lucy-code-function)' },
+  tag: { color: 'var(--lucy-code-tag)' },
+};
+
+const CODE_HIGHLIGHT_PROPS = { style: CODE_THEME };
+
+/** 从 `language-xxx` 类名取语言标记（模块级，避免流式期间每帧重建 RegExp） */
+const LANGUAGE_CLASS = /language-([\w+#.-]+)/;
+
+/**
+ * prism 按需加载按文件名拼路径（`languages/prism/${lang}`），而 XMarkdown 交来的 `lang`
+ * 是 fenced code 的 info string（可能是 `ts title="x"`、`js {1,3}` 或大写 `TS`），
+ * 直接透传会让动态导入失败并回落成无高亮纯文本。这里只取首个词、转小写并映射常用别名；
+ * 未收录的语言返回空串，CodeHighlighter 会直接渲染纯 `<code>`，不会触发导入。
+ */
+const PRISM_LANG_ALIASES: Record<string, string> = {
+  ts: 'typescript',
+  typescript: 'typescript',
+  tsx: 'tsx',
+  js: 'javascript',
+  jsx: 'jsx',
+  mjs: 'javascript',
+  javascript: 'javascript',
+  json: 'json',
+  bash: 'bash',
+  sh: 'bash',
+  shell: 'bash',
+  zsh: 'bash',
+  python: 'python',
+  py: 'python',
+  java: 'java',
+  go: 'go',
+  rust: 'rust',
+  sql: 'sql',
+  css: 'css',
+  scss: 'scss',
+  html: 'markup',
+  xml: 'markup',
+  yml: 'yaml',
+  yaml: 'yaml',
+  md: 'markdown',
+  markdown: 'markdown',
+  diff: 'diff',
+  dockerfile: 'docker',
+};
+
+function normalizeLang(info: string | undefined): string {
+  const key = (info ?? '').trim().toLowerCase().split(/\s+/)[0];
+  return PRISM_LANG_ALIASES[key] ?? '';
+}
+
+/**
+ * 代码块渲染：块级 code 交给 CodeHighlighter（语法高亮 + 语言标签 + 复制按钮），
+ * 行内 code 保持原样。组件与映射表都放在模块级，避免每次渲染产生新引用导致子树重建。
+ */
+const MarkdownCode: FC<ComponentProps> = ({
+  className,
+  children,
+  block,
+  lang,
+}) => {
+  const code = typeof children === 'string' ? children : '';
+
+  if (!block || !code) {
+    return <code className={className}>{children}</code>;
+  }
+  const language = normalizeLang(
+    lang || LANGUAGE_CLASS.exec(className ?? '')?.[1],
+  );
+  return (
+    <CodeHighlighter
+      lang={language}
+      highlightProps={CODE_HIGHLIGHT_PROPS}
+      // 气泡底色也是灰的，加一道极浅描边 + 圆角把代码块和正文分开
+      className="my-1 overflow-hidden rounded-lg border border-solid border-(--ant-color-border-secondary)"
+    >
+      {code}
+    </CodeHighlighter>
+  );
+};
+
+const MARKDOWN_COMPONENTS = { code: MarkdownCode };
 
 /** 思考折叠块：思考进行中展开并闪烁；完成/历史默认收起，用户可手动切换 */
 const ThinkingBlock = ({
@@ -85,27 +303,53 @@ const ThinkingBlock = ({
   );
 };
 
-const renderMarkdown: BubbleProps['contentRender'] = (content, info) => {
-  // info.extraInfo 为完整 ChatMessage：ai 消息若带 thinking（深度思考）则用 Think 折叠展示
-  const msg = (info?.extraInfo ?? {}) as ChatMessage;
-  const thinking = msg.thinking;
-  // 思考进行中 = 还在流式且尚未产出回答
-  const thinkingActive =
-    Boolean(thinking) && Boolean(msg.streaming) && !msg.content;
+/**
+ * 单条消息正文。必须是独立组件（PascalCase）：模块级普通函数每次调用都新建
+ * `<XMarkdown>` 元素，流式期间每条 delta 会让全部历史消息整段重新解析 markdown；
+ * 抽成组件后 React Compiler 可按 props 缓存，只有正在流式的那条需要重新解析。
+ */
+const MessageBody: FC<{
+  content: string;
+  thinking?: string;
+  streaming?: boolean;
+  truncated?: boolean;
+}> = ({ content, thinking, streaming, truncated }) => {
+  // 流式期间每条 delta 都会改动 content / thinking，整篇 markdown 解析是主要开销；
+  // 用 deferred 值让输入等交互优先响应，连续 delta 只渲染最后一次
+  const deferredContent = useDeferredValue(content);
+  const deferredThinking = useDeferredValue(thinking);
+  // 思考进行中 = 还在流式且尚未产出回答（用原始值判断，避免 defer 造成状态滞后）
+  const thinkingActive = Boolean(thinking) && Boolean(streaming) && !content;
   return (
     <div className={'flex flex-col gap-2'}>
       {thinking ? (
         <ThinkingBlock thinkingActive={thinkingActive}>
-          <XMarkdown content={thinking} />
+          <XMarkdown
+            content={deferredThinking}
+            components={MARKDOWN_COMPONENTS}
+          />
         </ThinkingBlock>
       ) : null}
-      <XMarkdown content={content} />
-      {msg.truncated ? (
+      <XMarkdown content={deferredContent} components={MARKDOWN_COMPONENTS} />
+      {truncated ? (
         <div className="text-xs text-amber-600">
           ⚠️ 回复被截断（已达长度上限），可重新发送后再试
         </div>
       ) : null}
     </div>
+  );
+};
+
+const renderMarkdown: BubbleProps['contentRender'] = (content, info) => {
+  // info.extraInfo 为完整 ChatMessage：ai 消息若带 thinking（深度思考）则用 Think 折叠展示
+  const msg = (info?.extraInfo ?? {}) as ChatMessage;
+  return (
+    <MessageBody
+      content={content}
+      thinking={msg.thinking}
+      streaming={msg.streaming}
+      truncated={msg.truncated}
+    />
   );
 };
 
@@ -206,9 +450,6 @@ const ChatPage = () => {
         <Splitter.Panel>
           <ChatMessagesArea id={id} />
         </Splitter.Panel>
-        <Splitter.Panel collapsible defaultSize="0%" min="15%" max="40%">
-          <ThoughtChainPlaceholder />
-        </Splitter.Panel>
       </Splitter>
     </PageShell>
   );
@@ -297,6 +538,25 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
     modelOverride && modelOverride.conversationId === id
       ? modelOverride.id
       : defaultModelId;
+  const currentModelName = models.find((m) => m.id === modelProviderId)?.name;
+  // 模型下拉项按 models 缓存：models 已在 hook 里保持引用稳定
+  const modelMenuItems = useMemo(
+    () => models.map((m) => ({ key: m.id, label: m.name })),
+    [models],
+  );
+
+  // 词槽模式：选中助手后输入框变成「skill 标签 + 内联填空」，关掉 skill 标签回到自由输入。
+  // 这两个派生值不手工记忆化：项目启用 React Compiler，普通表达式同样会被缓存
+  const [assistantKey, setAssistantKey] = useState<string | null>(null);
+  const assistant = CHAT_ASSISTANTS.find((a) => a.key === assistantKey);
+  // 关闭按钮要能回到自由输入，因此 onClose 在这里补上；模板本身放在模块级
+  const skill = assistant
+    ? {
+        ...assistant.skill,
+        closable: { onClose: () => setAssistantKey(null) },
+      }
+    : undefined;
+  const senderRef = useRef<ComponentRef<typeof Sender>>(null);
 
   // 响应式订阅 user：登录态变化时 header 昵称即时更新（get() 读取不会随 store 变更重渲染）
   const user = useSelector(authStore, (s) => s.user);
@@ -344,17 +604,24 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
     setAtBottom((prev) => (prev === next ? prev : next));
   }
 
+  /** 清空输入框：普通模式清受控值，词槽模式由 Sender 内部重置 */
+  function clearInput() {
+    senderRef.current?.clear?.();
+    setValue('');
+  }
+
   /** # 发送消息
    * @param text
    * 首条消息无感创建会话：若 id 缺省，先创建会话，再对新会话 id 发送消息；否则直接发送。
+   * 词槽模式下 text 是 Sender 拼好的完整句子，两者形态一致。
    */
   async function handleSubmit(text: string) {
-    // 点击发送按钮后，输入框清空
-    setValue('');
-    // 无可用模型不发起发送（输入框已禁用，这里是双保险）
-    if (!modelProviderId) return;
+    const content = text.trim();
+    // 廉价校验放在清空之前：空内容 / 无可用模型时保留用户输入
+    if (!content || !modelProviderId) return;
     if (id) {
-      await send(id, text, { reasoning, modelProviderId });
+      clearInput();
+      await send(id, content, { reasoning, modelProviderId });
       return;
     }
     setCreatingTrue();
@@ -363,10 +630,18 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
       // 让选择跟随新会话，避免导航到新 id 后回落成默认模型
       setModelOverride({ conversationId: conv.id, id: modelProviderId });
       await navigate({ to: '/chat', search: { id: conv.id }, replace: true });
-      void send(conv.id, text, { reasoning, modelProviderId });
+      // 会话创建成功后再清空：创建失败时用户输入不会被吞掉
+      clearInput();
+      void send(conv.id, content, { reasoning, modelProviderId });
     } finally {
       setCreatingFalse();
     }
+  }
+
+  /** 快捷提问只填入输入框（不直接发送），并聚焦以便继续编辑 */
+  function fillPrompt(text: string) {
+    setValue(text);
+    senderRef.current?.focus?.();
   }
 
   // 派生 items 缓存：messages 未变时保持引用稳定，避免 Bubble.List 因无关 state 重渲染
@@ -404,16 +679,19 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
   return (
     <Flex vertical className="h-full w-full">
       {id ? (
-        <div className="relative min-h-0 flex-1 pt-8">
-          <Bubble.List
-            ref={listRef}
-            items={items}
-            role={roles}
-            autoScroll
-            onScroll={handleScroll}
-            className="h-full pb-4"
-            classNames={{ scroll: 'scrollbar-hide' }}
-          />
+        <div className="relative min-h-0 flex-1 pt-6">
+          {/* 左右撑满：消息列跟随面板宽度，仅保留内边距 */}
+          <div className="h-full w-full px-6">
+            <Bubble.List
+              ref={listRef}
+              items={items}
+              role={roles}
+              autoScroll
+              onScroll={handleScroll}
+              className="h-full pb-4"
+              classNames={{ scroll: 'scrollbar-hide' }}
+            />
+          </div>
           {!atBottom && (
             <Button
               color="cyan"
@@ -427,17 +705,25 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
           )}
         </div>
       ) : (
-        <div className="relative flex min-h-0 flex-1 items-center justify-center">
+        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-10 px-6">
           <Welcome
             variant="borderless"
-            icon="https://mdn.alipayobjects.com/huamei_iwk9zp/afts/img/A*s5sNRo5LjfQAAAAAAAAAAAAADgCCAQ/fmt.webp"
-            title="Hello, I'm Ant Design X"
-            description="Base on Ant Design, AGI product interface solution, create a better intelligent vision~"
+            icon={<img src="/favicon.svg" alt="" className="size-14" />}
+            title="你好，我是 Lucy"
+            description="基于你的知识库回答问题，也可以直接开始一段普通对话。"
           />
+          {/* 词槽模式下输入框已有模板，不再给自由提问的快捷入口 */}
+          {assistant ? null : (
+            <Prompts
+              wrap
+              items={QUICK_PROMPTS}
+              onItemClick={(info) => fillPrompt(String(info.data.label ?? ''))}
+            />
+          )}
         </div>
       )}
       {!modelsLoading && !hasModels ? (
-        <div className="px-4 pb-2">
+        <div className="w-full px-6 pb-2">
           <Alert
             type="warning"
             showIcon
@@ -454,46 +740,92 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
           />
         </div>
       ) : null}
-      <div className="px-4">
+      {/* pt-2 / pb-8：输入框与消息区、视口下缘都留出呼吸空间，不贴边；宽度撑满面板 */}
+      <div className="w-full px-6 pt-2 pb-8">
         <Sender
-          footer={() => {
+          ref={senderRef}
+          skill={skill}
+          slotConfig={assistant?.slotConfig}
+          // 始终受控：词槽模式下 onChange 拿到的是拼好的整句，这里只做镜像。
+          // 这样关掉 skill 标签回到自由输入时，刚填好的内容仍留在输入框里
+          value={value}
+          onChange={setValue}
+          onSubmit={(text) => {
+            void handleSubmit(text);
+          }}
+          // 发送按钮挪进 footer 右侧：与胶囊工具条同一行
+          suffix={false}
+          footer={(actionNode) => {
             return (
               <Flex justify="space-between" align="center">
                 <Flex gap="small" align="center">
-                  <Select
-                    size="small"
-                    variant="borderless"
-                    placeholder="选择模型"
-                    value={modelProviderId}
-                    onChange={(value: string) =>
-                      setModelOverride({ conversationId: id, id: value })
-                    }
-                    loading={modelsLoading}
-                    disabled={modelsLoading || !hasModels}
-                    className="min-w-32"
-                    options={models.map((m) => ({
-                      label: m.name,
-                      value: m.id,
-                    }))}
-                  />
-                  <Switch
-                    value={reasoning}
-                    onChange={(checked: boolean) => {
-                      setReasoning(checked);
+                  {/* 助手模板：选中即进入词槽模式，skill 标签上的 × 回到自由输入 */}
+                  <Dropdown
+                    menu={{
+                      items: ASSISTANT_MENU_ITEMS,
+                      selectedKeys: assistant ? [assistant.key] : [],
+                      onClick: ({ key }) => setAssistantKey(key),
                     }}
-                    icon={<OpenAIOutlined />}
                   >
-                    <Text type="secondary" className="text-xs" ellipsis={true}>
-                      深度思考
-                    </Text>
-                  </Switch>
+                    <Sender.Switch
+                      value={false}
+                      icon={assistant?.icon ?? <AppstoreOutlined />}
+                    >
+                      {assistant?.label ?? '选择助手'}
+                    </Sender.Switch>
+                  </Dropdown>
+                  {/* 模型：胶囊下拉，显示当前模型 */}
+                  <Dropdown
+                    disabled={modelsLoading || !hasModels}
+                    menu={{
+                      items: modelMenuItems,
+                      selectedKeys: modelProviderId ? [modelProviderId] : [],
+                      onClick: ({ key }) =>
+                        setModelOverride({ conversationId: id, id: key }),
+                    }}
+                  >
+                    <Sender.Switch value={false} icon={<RobotOutlined />}>
+                      <span className="inline-block max-w-36 truncate align-middle">
+                        {modelsLoading
+                          ? '模型：加载中…'
+                          : `模型：${currentModelName ?? '未选择'}`}
+                      </span>
+                    </Sender.Switch>
+                  </Dropdown>
+                  <Sender.Switch
+                    value={reasoning}
+                    checkedChildren={
+                      <>
+                        深度思考：
+                        <span className="inline-flex w-7 justify-center">
+                          开启
+                        </span>
+                      </>
+                    }
+                    unCheckedChildren={
+                      <>
+                        深度思考：
+                        <span className="inline-flex w-7 justify-center">
+                          关闭
+                        </span>
+                      </>
+                    }
+                    onChange={setReasoning}
+                    icon={<OpenAIOutlined />}
+                  />
+                </Flex>
+                <Flex align="center">
+                  {/* 用定高细线而非 antd Divider：后者是 inline-block + 相对定位 + em 高度，
+                      在 Flex 行里既不与发送按钮同高，也做不到垂直居中 */}
+                  <span
+                    aria-hidden
+                    className="mx-1 h-5 w-px shrink-0 bg-(--ant-color-border)"
+                  />
+                  {actionNode}
                 </Flex>
               </Flex>
             );
           }}
-          value={value}
-          onChange={setValue}
-          onSubmit={handleSubmit}
           loading={streaming ?? creating}
           onCancel={stop}
           disabled={modelsLoading || !hasModels}
@@ -507,17 +839,6 @@ const ChatMessagesArea: FC<{ id: string | undefined }> = ({ id }) => {
         />
       </div>
     </Flex>
-  );
-};
-
-const ThoughtChainPlaceholder = () => {
-  return (
-    <div className="flex h-full items-center justify-center">
-      <Empty
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="思考过程（待接入）"
-      />
-    </div>
   );
 };
 

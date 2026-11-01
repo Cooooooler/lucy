@@ -129,6 +129,38 @@ describe('ModelProvider CRUD & connection test (e2e)', () => {
     expect(updated.apiKeyMasked).toBe('••••••abcd');
   });
 
+  it('更新：显式 null 被 400 而非 500（PATCH {"apiKey": null} 等，#92）', async () => {
+    const created = await createModel();
+    const id = created.id;
+
+    for (const field of [
+      'name',
+      'type',
+      'vendor',
+      'baseUrl',
+      'contextLength',
+      'protocol',
+      'apiKey',
+    ] as const) {
+      const res = await request(server)
+        .patch(`/v1/model-providers/${id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ [field]: null })
+        .expect(400);
+      // 400 说明该字段在校验层就被拦下，绝不能穿透到服务层（NOT NULL 列 / trim TypeError 兜成 500）
+      expect((res.body as ApiBody<unknown>).code).toBeTruthy();
+    }
+
+    // 拦截后原值未被改动
+    const res = await request(server)
+      .get(`/v1/model-providers/${id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect((res.body as ApiBody<{ name: string }>).data.name).toBe(
+      `mdl_${suffix}`,
+    );
+  });
+
   it('属主隔离：他人一律 404', async () => {
     const created = await createModel();
     const id = created.id;

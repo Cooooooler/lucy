@@ -10,13 +10,13 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsEnum,
   IsInt,
-  IsOptional,
   IsString,
   IsUrl,
   Max,
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import {
   ModelProviderProtocol,
@@ -72,13 +72,16 @@ export class CreateModelProviderDto {
   baseUrl: string;
 
   // 不写 Swagger 的 `default`：openapi-typescript 的 defaultNonNullable 会把带 default 的属性
-  // 判成必填（`protocol` 就变成 required），与 `@IsOptional` 的真实语义相悖。默认值由服务层
+  // 判成必填（`protocol` 就变成 required），与「省略时取默认值」的运行语义相悖。默认值由服务层
   // （create 的 `dto.protocol ?? ChatCompletions`）承担，文档里用描述说明即可。
   @ApiPropertyOptional({
     description: `API 协议（仅 LLM 有意义），省略时默认 ${ModelProviderProtocol.ChatCompletions}`,
     enum: ModelProviderProtocol,
   })
-  @IsOptional()
+  // 用 @ValidateIf(value !== undefined) 而非 @IsOptional()：后者把 null 与 undefined 一视同仁地
+  // 跳过校验，且会被 PartialType 原样拷进更新 DTO——显式 `{"protocol": null}` 穿过校验进入服务层
+  //（撞协议列的 NOT NULL 约束被兜成 500）。这里只放行「省略」，显式 null 落到 400，创建/更新两侧同口径。
+  @ValidateIf((_object, value) => value !== undefined)
   @IsEnum(ModelProviderProtocol)
   protocol?: ModelProviderProtocol;
 
@@ -94,14 +97,20 @@ export class CreateModelProviderDto {
   @Max(MODEL_CONTEXT_LENGTH_MAX)
   contextLength: number;
 
-  // ollama 通常无鉴权，允许省略；openai/anthropic 的必填由服务层按 vendor 校验
-  // （class-validator 的 @IsOptional 只放行 undefined/null，空串仍会被 @MinLength 拦下）
+  // ollama 通常无鉴权，允许省略；openai/anthropic 的必填由服务层按 vendor 校验。
+  // 与上同理用 @ValidateIf 而非 @IsOptional：省略（undefined）不校验，显式 null 落到 400，
+  // 且不会作为 IsOptional 条件被 PartialType 拷进更新 DTO 放行 null。
+  // @Transform trim 后再校验：纯空白串是合法 string 且长度 ≥1，不 trim 会穿过
+  // @MinLength(1)，创建时在服务层变成「领域提示的 400」，更新时则静默清空已存 Key。
   @ApiPropertyOptional({
     description: 'API Key（明文传入，服务端加密存储）；ollama 可省略',
     minLength: 1,
     maxLength: MODEL_API_KEY_MAX_LENGTH,
   })
-  @IsOptional()
+  @Transform(({ value }): unknown =>
+    typeof value === 'string' ? value.trim() : (value as unknown),
+  )
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @MinLength(1)
   @MaxLength(MODEL_API_KEY_MAX_LENGTH)
