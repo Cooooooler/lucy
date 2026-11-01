@@ -85,4 +85,35 @@ describe('Auth (e2e)', () => {
       .set('Cookie', refreshCookie)
       .expect(401);
   });
+
+  // 同一个邮箱在库中只能有一行：注册写入归一为小写，登录对含 @ 的 account 也归一，
+  // 否则大小写变体可注册出重复账号、且本人用小写登录会 401
+  it('邮箱大小写不敏感：注册归一为小写、变体不可重复注册、小写可登录', async () => {
+    const username = `e2e_case_${suffix}`;
+    const email = `Case_${suffix}@Test.COM`;
+    const server = app.getHttpServer();
+
+    const registered = await request(server)
+      .post('/v1/auth/register')
+      .send({ username, email, password: E2E_PASSWORD })
+      .expect(201);
+    const registeredBody = registered.body as ApiBody<{ email: string }>;
+    expect(registeredBody.data.email).toBe(email.toLowerCase());
+
+    // 仅大小写不同的邮箱视为同一个账号
+    await request(server)
+      .post('/v1/auth/register')
+      .send({
+        username: `e2e_dup_${suffix}`,
+        email: email.toLowerCase(),
+        password: E2E_PASSWORD,
+      })
+      .expect(409);
+
+    // 本人改用小写邮箱登录（修复前这里 401）
+    await request(server)
+      .post('/v1/auth/login')
+      .send({ account: email.toLowerCase(), password: E2E_PASSWORD })
+      .expect(201);
+  });
 });

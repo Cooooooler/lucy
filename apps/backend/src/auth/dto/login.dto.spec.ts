@@ -25,6 +25,21 @@ describe('LoginDto 经全局 ValidationPipe', () => {
     expect(dto.account).toBe('lucy');
   });
 
+  // 邮箱按小写存储，登录侧不归一的话「注册时写了 Alice@Example.com、自己敲小写」会 401
+  it('account 为邮箱时去空白并转小写', async () => {
+    const dto = await throughPipe({
+      account: ' Alice@Example.COM ',
+      password: 'Pass1!',
+    });
+    expect(dto.account).toBe('alice@example.com');
+  });
+
+  // 用户名在库中区分大小写，不能跟着邮箱一起转小写
+  it('account 为用户名时保留大小写', async () => {
+    const dto = await throughPipe({ account: ' Alice ', password: 'Pass1!' });
+    expect(dto.account).toBe('Alice');
+  });
+
   it('account 纯空白串被 400（@IsNotEmpty 本身放行纯空白，靠 trim 收口）', async () => {
     await expect(
       throughPipe({ account: '    ', password: 'Pass1!' }),

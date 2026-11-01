@@ -7,6 +7,7 @@ import {
 import { PostgresError } from 'pg-error-enum';
 import { QueryFailedError } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { normalizeEmail } from '../common/email.js';
 import {
   resolvePageNumber,
   resolvePageSize,
@@ -55,12 +56,15 @@ export class UsersService {
     password: string;
     nickname?: string;
   }): Promise<User> {
+    // 写入边界统一归一：`users.email` 的不变式是「只存小写」，注册 DTO 之外
+    // 的任何调用方（内部服务、脚本）都经这里落库，避免绕过 DTO 时写出混合大小写的行
+    const email = normalizeEmail(input.email);
     await this.assertUsernameAvailable(input.username);
-    await this.assertEmailAvailable(input.email);
+    await this.assertEmailAvailable(email);
     const passwordHash = await this.passwordService.hash(input.password);
     const user = this.usersRepo.create({
       username: input.username,
-      email: input.email,
+      email,
       passwordHash,
       nickname: input.nickname ?? null,
       status: 1,

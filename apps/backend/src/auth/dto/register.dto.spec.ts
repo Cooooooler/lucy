@@ -121,4 +121,25 @@ describe('RegisterDto 经全局 ValidationPipe', () => {
       throughPipe({ ...validBase, password: ' Pass1! ' }),
     ).rejects.toThrow();
   });
+
+  // 邮箱大小写不敏感的唯一性建立在「只存小写」上：DTO 是 HTTP 写入的边界，
+  // 不归一就会出现「Alice@Example.com 与 alice@example.com 各注册一个账号」
+  it('email 去首尾空白并转小写', async () => {
+    const result = (await throughPipe({
+      ...validBase,
+      email: '  Alice@Example.COM  ',
+      password: 'ValidPass1!',
+    })) as RegisterDto;
+    expect(result.email).toBe('alice@example.com');
+  });
+
+  it('归一后仍按 @IsEmail 拒绝非法邮箱', async () => {
+    await expect(
+      throughPipe({
+        ...validBase,
+        email: '  not-an-email  ',
+        password: 'ValidPass1!',
+      }),
+    ).rejects.toThrow();
+  });
 });

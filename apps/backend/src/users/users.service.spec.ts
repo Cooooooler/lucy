@@ -82,6 +82,22 @@ describe('UsersService', () => {
     expect(usersRepo.save).toHaveBeenCalled();
   });
 
+  // 写库边界的不变式：绕过注册 DTO 的调用方也不能写出混合大小写的 email
+  it('create 将 email 归一为小写后再查重与写入', async () => {
+    usersRepo.findByUsername.mockResolvedValue(null);
+    usersRepo.findByEmail.mockResolvedValue(null);
+    usersRepo.save.mockResolvedValue({ id: '1' });
+    await service.create({
+      username: 'a',
+      email: ' Alice@X.COM ',
+      password: '12345678',
+    });
+    expect(usersRepo.findByEmail).toHaveBeenCalledWith('alice@x.com');
+    expect(usersRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ email: 'alice@x.com' }),
+    );
+  });
+
   it('create 并发冲突命中唯一约束时按冲突列给出具体错误', async () => {
     usersRepo.findByUsername.mockResolvedValue(null);
     usersRepo.findByEmail.mockResolvedValue(null);
