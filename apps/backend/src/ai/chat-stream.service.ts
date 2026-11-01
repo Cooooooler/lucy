@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, QueryFailedError, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { ShutdownService } from '../common/shutdown.service.js';
 import type { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
@@ -544,14 +544,22 @@ export class ChatStreamService implements BeforeApplicationShutdown {
 }
 
 /**
- * TypeORM 基础设施错误（连接/语句/事务失败）。不直接 import QueryFailedError：
- * 判据用 name + driverError 载荷，避免把错误分类绑到具体驱动类上。
+ * 连接池/连接释放类失败的文案特征。这类错误由 pg / pg-pool 直接抛出**裸 Error**，
+ * 没有可判定的类型，也没有稳定的 name，只能按文案识别。
+ */
+const CONNECTION_ERROR =
+  /timeout exceeded when trying to connect|connection terminated|already released|already been connected|cannot use a pool after/i;
+
+/**
+ * 基础设施错误（连接/语句/事务失败）。
+ *
+ * 主判据用 TypeORM 核心导出的 `QueryFailedError` 做 instanceof——它是库自身声明的类
+ * （不是驱动私有实现），比 `'driverError' in error` 这类形状嗅探精确：嗅探会漏掉非查询类
+ * 失败（它们既不是 QueryFailedError 也不带 driverError），又会把任何碰巧带同名属性的第三方
+ * 错误吞成「生成失败」。连接池类失败补一条文案判据：它们含 timeout 字样，漏判就会被后续的
+ * 模型超时启发式命中，误报成「模型调用超时」。
  */
 function isInfrastructureError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return (
-    error.name === 'QueryFailedError' ||
-    error.name === 'TransactionFailedError' ||
-    'driverError' in error
-  );
+  if (error instanceof QueryFailedError) return true;
+  return error instanceof Error && CONNECTION_ERROR.test(error.message);
 }

@@ -4,7 +4,7 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { lastValueFrom } from 'rxjs';
 import { toArray } from 'rxjs/operators';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryFailedError } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { ShutdownService } from '../common/shutdown.service.js';
 import { ModelClientFactory } from '../model-provider/model-client.factory.js';
@@ -678,9 +678,12 @@ describe('ChatStreamService', () => {
   it('含 timeout 字样的 DB 基础设施错误按「生成失败」报，不误归因为「模型调用超时」', async () => {
     // Postgres 语句超时（DB_STATEMENT_TIMEOUT_MS）文案即含 timeout：classifyError
     // 必须先经基础设施守卫，否则会被模型超时启发式命中
-    const dbTimeout = Object.assign(
-      new Error('canceling statement due to statement timeout'),
-      { name: 'QueryFailedError', driverError: { code: '57014' } },
+    const dbTimeout = new QueryFailedError(
+      'SELECT 1',
+      [],
+      Object.assign(new Error('canceling statement due to statement timeout'), {
+        code: '57014',
+      }),
     );
     conversationRepo.findOne.mockResolvedValue(conv());
     messageRepo.find.mockRejectedValue(dbTimeout);
@@ -690,6 +693,41 @@ describe('ChatStreamService', () => {
     expect(result.at(-1)).toMatchObject({
       type: 'error',
       data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+    });
+  });
+
+  it('连接池取连接超时（pg-pool 的裸 Error）按「生成失败」报，不误归因为「模型调用超时」', async () => {
+    // 连接类失败不是 QueryFailedError、也不带 driverError：只按 name/driverError 判会漏，
+    // 落到模型超时正则里就成了「模型调用超时」（真实原因是数据库连不上）
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.find.mockRejectedValue(
+      new Error('timeout exceeded when trying to connect'),
+    );
+    const result = await events(
+      service.sendMessage('1', 'c1', { content: 'hi' }),
+    );
+    expect(result.at(-1)).toMatchObject({
+      type: 'error',
+      data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+    });
+  });
+
+  it('仅带 driverError 字段的第三方错误不再被吞成基础设施错误：模型侧超时仍归为超时', async () => {
+    // 旧判据用 `'driverError' in error` 做形状嗅探，任何带同名字段的错误都会被归成「生成失败」；
+    // 现在只认 typeorm 的 QueryFailedError 与连接类文案
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.find.mockRejectedValue(
+      Object.assign(new Error('request timed out'), {
+        name: 'APICallError',
+        driverError: { code: 'ETIMEDOUT' },
+      }),
+    );
+    const result = await events(
+      service.sendMessage('1', 'c1', { content: 'hi' }),
+    );
+    expect(result.at(-1)).toMatchObject({
+      type: 'error',
+      data: { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' },
     });
   });
 

@@ -82,9 +82,27 @@ export class ContextService {
     const chronological = selected.toReversed();
     let end = chronological.length;
     while (end > 0 && chronological[end - 1].role === MessageRole.User) end--;
-    const trimmed = chronological.slice(0, end);
 
-    for (const m of trimmed) {
+    // 裁尾只处理「最新一轮缺回答」，空 AI 行落在**中间**时同样会留下孤立 user：
+    // [u1, ai1(''), u2, ai2('ok')] 过滤后是 [u1, u2, ai2]，尾部不是 user 故不触发裁剪，
+    // 畸形序列（Human、Human、AI）会被每一轮都带进去。这里补一次完整的不变式修复：
+    // - 相邻 user 只保留更近的那条（旧问题已被后续提问取代，重复送还容易让模型串线）；
+    // - 首条非 system 消息必须是 user（预算裁剪可能把某轮回答留下、却把它的提问裁掉）。
+    const normalized: Message[] = [];
+    for (const m of chronological.slice(0, end)) {
+      if (
+        m.role === MessageRole.User &&
+        normalized.at(-1)?.role === MessageRole.User
+      ) {
+        normalized.pop();
+      }
+      normalized.push(m);
+    }
+    while (normalized.length > 0 && normalized[0].role !== MessageRole.User) {
+      normalized.shift();
+    }
+
+    for (const m of normalized) {
       if (m.role === MessageRole.User) {
         messages.push(new HumanMessage(m.content));
       } else if (m.role === MessageRole.Ai) {

@@ -75,21 +75,22 @@ describe('ContextService', () => {
   });
 
   it('安全边际从输入预算中扣除，把放得下的历史挤掉', async () => {
-    // 预算 15 − 5 = 10，扣新消息 5 → historyBudget=5，只够最近 1 条(recent 5)，
-    // early(5) 放不下被丢弃——对比 margin=0 时两条都能保留
+    // 预算 25 − 5 = 20，扣新消息 5 → historyBudget=15：从最近往前只装得下
+    // recent-a(5) + recent-q(5) + early-a(5)，early-q 被挤掉；margin=0 时 20 恰好装下四行
     const svc = makeSvc({
-      AI_CONTEXT_TOKEN_LIMIT: 15,
+      AI_CONTEXT_TOKEN_LIMIT: 25,
       AI_CONTEXT_SAFETY_MARGIN: 5,
     });
     const history = [
-      msg(MessageRole.User, 'early'),
-      msg(MessageRole.Ai, 'recent'),
+      msg(MessageRole.User, 'early-q'),
+      msg(MessageRole.Ai, 'early-a'),
+      msg(MessageRole.User, 'recent-q'),
+      msg(MessageRole.Ai, 'recent-a'),
     ];
     const out = await svc.buildMessages(history, 'new', provider);
-    expect(out).toHaveLength(2);
-    expect(out[0]).toBeInstanceOf(AIMessage);
-    expect(out[0].content).toBe('recent');
-    expect(out[1]).toBeInstanceOf(HumanMessage);
+    // early-q 被预算挤掉后早轮只剩回答，首条非 system 消息不是 user，整行被修复掉
+    expect(out.map((m) => m.content)).toEqual(['recent-q', 'recent-a', 'new']);
+    expect(out[0]).toBeInstanceOf(HumanMessage);
   });
 
   it('新消息计入预算：新消息挤占预算时历史被丢弃', async () => {
@@ -115,14 +116,14 @@ describe('ContextService', () => {
     });
     const small = makeModelProvider({ contextLength: 1000 });
     const out = await svc.buildMessages(
-      [msg(MessageRole.Ai, 'recent')],
+      [msg(MessageRole.User, 'recent-q'), msg(MessageRole.Ai, 'recent-a')],
       'new',
       small,
     );
-    expect(out).toHaveLength(2);
-    expect(out[0]).toBeInstanceOf(AIMessage);
-    expect(out[1]).toBeInstanceOf(HumanMessage);
-    expect(out[1].content).toBe('new');
+    expect(out.map((m) => m.content)).toEqual(['recent-q', 'recent-a', 'new']);
+    expect(out[0]).toBeInstanceOf(HumanMessage);
+    expect(out[1]).toBeInstanceOf(AIMessage);
+    expect(out[2]).toBeInstanceOf(HumanMessage);
   });
 
   it('空历史只返回系统提示与新消息', async () => {
@@ -163,5 +164,34 @@ describe('ContextService', () => {
     ];
     const out = await svc.buildMessages(history, 'new', provider);
     expect(out.map((m) => m.content)).toEqual(['u1', 'a1', 'new']);
+  });
+
+  it('中段的空 AI 行留下孤立 user 时修掉相邻 Human（保留更近的问题）', async () => {
+    // 「凭证失败一次、重试成功」之后的历史：[u1, ai1(''), u2, ai2('ok')] 过滤后是
+    // [u1, u2, ai2]，尾部不是 user 故裁尾不触发——不修的话每一轮都带着 Human、Human、
+    // AI 的畸形序列（Bedrock/兼容网关直接 400）
+    const svc = makeSvc({ AI_SYSTEM_PROMPT: '' });
+    const history = [
+      msg(MessageRole.User, 'u1'),
+      msg(MessageRole.Ai, '', MessageStatus.Failed),
+      msg(MessageRole.User, 'u2'),
+      msg(MessageRole.Ai, 'a2'),
+    ];
+    const out = await svc.buildMessages(history, 'new', provider);
+    expect(out.map((m) => m.content)).toEqual(['u2', 'a2', 'new']);
+    expect(out[0]).toBeInstanceOf(HumanMessage);
+    expect(out[1]).toBeInstanceOf(AIMessage);
+    expect(out[2]).toBeInstanceOf(HumanMessage);
+  });
+
+  it('首条非 system 消息必须是 user：预算裁掉提问后不留孤立 AI 行', async () => {
+    // 预算 10 − 0 = 10，扣新消息 5 → historyBudget=5，只装得下最近一条（AI 回答），
+    // 它的提问已被预算裁掉；首条消息是 AI 同样会被供应商拒，故整行丢弃
+    const svc = makeSvc({ AI_CONTEXT_TOKEN_LIMIT: 10 });
+    const history = [msg(MessageRole.User, 'u1'), msg(MessageRole.Ai, 'a1')];
+    const out = await svc.buildMessages(history, 'new', provider);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toBeInstanceOf(HumanMessage);
+    expect(out[0].content).toBe('new');
   });
 });
