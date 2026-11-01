@@ -10,6 +10,40 @@ import { resolveOutputMaxTokens } from '../model-provider/model-client.factory.j
 import { Message, MessageRole } from './entities/message.entity.js';
 import { TokenizerService } from './tokenizer.service.js';
 
+/**
+ * 把按时间正序的历史行规整成合法的对话序列（纯函数，便于直接单测）：
+ * - 裁掉尾部「有问无答」的孤立 user 行——凭证/上游失败会在最新一轮留下未被回答的
+ *   user 行，过滤空 AI 行后相邻 Human 会破坏角色交替（Bedrock/兼容网关直接 400），
+ *   且下一轮会把同一问题重复送入；
+ * - 相邻 user 只保留更近的那条——空 AI 行落在**中间**时同样会留下孤立 user
+ *   （[u1, ai(''), u2, ai2] 过滤后是 [u1, u2, ai2]），旧问题已被后续提问取代，
+ *   重复送还容易让模型串线；
+ * - 首条非 system 消息必须是 user——预算裁剪可能把某轮回答留下、却把它的提问裁掉。
+ *
+ * 幂等：预算选行后再调用一次即可补齐最后一条不变式。
+ */
+export function normalizeTurns(rows: Message[]): Message[] {
+  let tailEnd = rows.length;
+  while (tailEnd > 0 && rows[tailEnd - 1].role === MessageRole.User) {
+    tailEnd--;
+  }
+
+  const normalized: Message[] = [];
+  for (const m of rows.slice(0, tailEnd)) {
+    if (
+      m.role === MessageRole.User &&
+      normalized.at(-1)?.role === MessageRole.User
+    ) {
+      normalized.pop();
+    }
+    normalized.push(m);
+  }
+  while (normalized.length > 0 && normalized[0].role !== MessageRole.User) {
+    normalized.shift();
+  }
+  return normalized;
+}
+
 @Injectable()
 export class ContextService {
   constructor(
@@ -65,46 +99,23 @@ export class ContextService {
         (m.role === MessageRole.Ai && m.content.trim().length > 0),
     );
 
-    // 尾部「有问无答」的孤立 user 行先裁掉，再算预算：凭证/上游失败会在最新一轮留下
-    // 未被回答的 user 行，过滤空 AI 行后相邻 Human 会破坏角色交替（Bedrock/兼容网关直接
-    // 400），且下一轮会把同一问题重复送入。必须先裁后算——若留到选行之后再裁，它已经
-    // 占掉 token 额度，而选行遇到放不下的行就停，本可保留的更早完整轮次会被一起挤掉。
-    let tailEnd = usable.length;
-    while (tailEnd > 0 && usable[tailEnd - 1].role === MessageRole.User) {
-      tailEnd--;
-    }
-    const answered = usable.slice(0, tailEnd);
+    // 先规整再算预算：尾部「有问无答」的孤立 user 行必须先裁掉，否则它已经占掉
+    // token 额度，而选行遇到放不下的行就停，本可保留的更早完整轮次会被一起挤掉。
+    const normalized = normalizeTurns(usable);
 
     // 从最近往前累计，超预算即停
     const selected: Message[] = [];
     let used = 0;
-    for (const m of [...answered].reverse()) {
+    for (const m of [...normalized].reverse()) {
       const tokens = await this.tokenizer.countTokens(m.content, model);
       if (used + tokens > historyBudget) break;
       selected.push(m);
       used += tokens;
     }
 
-    // 裁尾只处理「最新一轮缺回答」，空 AI 行落在**中间**时同样会留下孤立 user：
-    // [u1, ai1(''), u2, ai2('ok')] 过滤后是 [u1, u2, ai2]，尾部不是 user 故不触发裁剪，
-    // 畸形序列（Human、Human、AI）会被每一轮都带进去。这里补一次完整的不变式修复：
-    // - 相邻 user 只保留更近的那条（旧问题已被后续提问取代，重复送还容易让模型串线）；
-    // - 首条非 system 消息必须是 user（预算裁剪可能把某轮回答留下、却把它的提问裁掉）。
-    const normalized: Message[] = [];
-    for (const m of selected.toReversed()) {
-      if (
-        m.role === MessageRole.User &&
-        normalized.at(-1)?.role === MessageRole.User
-      ) {
-        normalized.pop();
-      }
-      normalized.push(m);
-    }
-    while (normalized.length > 0 && normalized[0].role !== MessageRole.User) {
-      normalized.shift();
-    }
-
-    for (const m of normalized) {
+    // 选行可能把某轮的提问裁掉、只留下它的回答；再规整一次（幂等）把首条非 system
+    // 修正成 user，否则供应商会拒以 AI 开头的序列。
+    for (const m of normalizeTurns(selected.toReversed())) {
       if (m.role === MessageRole.User) {
         messages.push(new HumanMessage(m.content));
       } else if (m.role === MessageRole.Ai) {

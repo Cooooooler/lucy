@@ -5,13 +5,21 @@ import {
 } from '@langchain/core/messages';
 import { ConfigService } from '@nestjs/config';
 import { makeModelProvider } from '../test/model-provider.fixtures.js';
-import { ContextService } from './context.service.js';
+import { ContextService, normalizeTurns } from './context.service.js';
 import {
   Message,
   MessageRole,
   MessageStatus,
 } from './entities/message.entity.js';
 import { TokenizerService } from './tokenizer.service.js';
+
+function msg(
+  role: MessageRole,
+  content: string,
+  status: MessageStatus = MessageStatus.Complete,
+): Message {
+  return { role, content, status } as Message;
+}
 
 describe('ContextService', () => {
   // 上下文较大的模型：预算由测试显式设置的 AI_CONTEXT_TOKEN_LIMIT 主导（min 取较小者）
@@ -31,14 +39,6 @@ describe('ContextService', () => {
       countTokens: vi.fn().mockResolvedValue(5),
     } as unknown as TokenizerService;
     return new ContextService(makeConfig(overrides), tokenizer);
-  }
-
-  function msg(
-    role: MessageRole,
-    content: string,
-    status: MessageStatus = MessageStatus.Complete,
-  ): Message {
-    return { role, content, status } as Message;
   }
 
   it('系统提示 + 预算内保留全部历史 + 新消息', async () => {
@@ -94,11 +94,12 @@ describe('ContextService', () => {
   });
 
   it('新消息计入预算：新消息挤占预算时历史被丢弃', async () => {
-    // 预算 9 − 0 = 9，扣新消息 5 → historyBudget=4，recent(5) 放不下被丢弃；
-    // 若新消息未计入，historyBudget=9 本可容纳 recent
-    const svc = makeSvc({ AI_CONTEXT_TOKEN_LIMIT: 9 });
+    // 预算 12 − 0 = 12，扣新消息 5 → historyBudget=7：最近一条回答(5)放得下，它的提问
+    // （再 5）放不下，只留下孤立回答而被规整丢弃；若新消息未计入（historyBudget=12），
+    // q+a 都放得下，输出会是 q、a、new 三条——用例才有区分度
+    const svc = makeSvc({ AI_CONTEXT_TOKEN_LIMIT: 12 });
     const out = await svc.buildMessages(
-      [msg(MessageRole.Ai, 'recent')],
+      [msg(MessageRole.User, 'q'), msg(MessageRole.Ai, 'a')],
       'new',
       provider,
     );
@@ -214,5 +215,31 @@ describe('ContextService', () => {
     expect(out).toHaveLength(1);
     expect(out[0]).toBeInstanceOf(HumanMessage);
     expect(out[0].content).toBe('new');
+  });
+});
+
+describe('normalizeTurns', () => {
+  it('裁掉尾部有问无答的孤立 user 行', () => {
+    const rows = [
+      msg(MessageRole.User, 'u1'),
+      msg(MessageRole.Ai, 'a1'),
+      msg(MessageRole.User, 'unanswered'),
+    ];
+    expect(normalizeTurns(rows).map((m) => m.content)).toEqual(['u1', 'a1']);
+  });
+
+  it('相邻 user 只保留更近的一条，并去掉开头的孤立 AI 行', () => {
+    const rows = [
+      msg(MessageRole.Ai, 'orphan-answer'),
+      msg(MessageRole.User, 'u1'),
+      msg(MessageRole.User, 'u2'),
+      msg(MessageRole.Ai, 'a2'),
+    ];
+    expect(normalizeTurns(rows).map((m) => m.content)).toEqual(['u2', 'a2']);
+  });
+
+  it('幂等：对已规整的序列再次调用结果不变', () => {
+    const rows = [msg(MessageRole.User, 'u1'), msg(MessageRole.Ai, 'a1')];
+    expect(normalizeTurns(normalizeTurns(rows))).toEqual(normalizeTurns(rows));
   });
 });

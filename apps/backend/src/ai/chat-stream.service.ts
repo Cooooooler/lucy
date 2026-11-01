@@ -113,9 +113,12 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       )
         .catch((err) => {
           // 对外文案由 classifyError 统一归因（prepareRun 等阶段抛出的错误也走这里）；
-          // warn 记录的是原始 err，message 可能含主机端口、SQL 等基础设施细节，不得出网
+          // warn 记录的是原始 err，message 可能含主机端口、SQL 等基础设施细节，不得出网。
+          // 带上错误类名：流式链路是触发频率最高的一条，线上要能按 QueryFailedError /
+          // ModelCredentialError 等聚合，格式与连接测试的日志保持一致
+          const errorType = err instanceof Error ? err.name : typeof err;
           this.logger.warn(
-            `sendMessage failed conversation=${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
+            `sendMessage failed conversation=${conversationId}: [${errorType}] ${err instanceof Error ? err.message : String(err)}`,
             ChatStreamService.name,
           );
           const { code, message } = this.classifyError(err, controller.signal);
