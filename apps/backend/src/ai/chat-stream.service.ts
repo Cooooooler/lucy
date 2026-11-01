@@ -121,7 +121,13 @@ export class ChatStreamService implements BeforeApplicationShutdown {
             `sendMessage failed conversation=${conversationId}: [${errorType}] ${err instanceof Error ? err.message : String(err)}`,
             ChatStreamService.name,
           );
-          const { code, message } = this.classifyError(err, controller.signal);
+          // 外层 catch 只兜 prepareRun/落库失败，没有模型流：按 run 阶段归因，
+          // 不让 ETIMEDOUT 之类数据库连接错误落进模型超时启发式
+          const { code, message } = this.classifyError(
+            err,
+            controller.signal,
+            'run',
+          );
           subscriber.next({
             type: 'error',
             requestId,
@@ -508,10 +514,14 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     return /qwen3(?:\.\d+)?|deepseek-r1|(?:^|[-:])r1(?:[-:.]|$)/i.test(model);
   }
 
-  // 区分流式失败类型：客户端中止（signal.reason）> 凭证 > 基础设施（DB/事务）> 模型超时 > 其他
+  // 区分流式失败类型：客户端中止（signal.reason）> 凭证 > 基础设施（DB/事务）> 模型超时 > 其他。
+  // phase 决定是否启用模型超时启发式：只有流阶段（saveFailure）才可能在等模型输出；
+  // 外层 catch 只可能是 prepareRun/落库失败，那里没有模型流，ETIMEDOUT 之类来自数据库
+  // 连接层，套用超时启发式只会把「数据库连不上」误报成「模型调用超时」。
   private classifyError(
     error: unknown,
     signal: AbortSignal,
+    phase: 'stream' | 'run' = 'stream',
   ): { code: ErrorCodeValue; message: string } {
     if (signal.aborted) {
       const reason = signal.reason as Error;
@@ -539,7 +549,10 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     }
     const name = error instanceof Error ? error.name : '';
     const message = error instanceof Error ? error.message : '';
-    if (/timeout|timed out|ETIMEDOUT/i.test(`${name} ${message}`)) {
+    if (
+      phase === 'stream' &&
+      /timeout|timed out|ETIMEDOUT/i.test(`${name} ${message}`)
+    ) {
       return { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' };
     }
     return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };

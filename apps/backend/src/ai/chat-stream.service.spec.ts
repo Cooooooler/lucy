@@ -712,14 +712,14 @@ describe('ChatStreamService', () => {
     });
   });
 
-  it('仅带 driverError 字段的第三方错误不再被吞成基础设施错误：模型侧超时仍归为超时', async () => {
-    // 旧判据用 `'driverError' in error` 做形状嗅探，任何带同名字段的错误都会被归成「生成失败」；
-    // 现在只认 typeorm 的 QueryFailedError 与连接类文案
+  it('外层 catch（prepareRun/落库）的 ETIMEDOUT 来自数据库连接：按「生成失败」报，不误归因为模型超时', async () => {
+    // 外层 catch 只兜前置准备与落库失败，这条路径没有模型流；socket 层连接超时抛的是
+    // 裸 Error（code: ETIMEDOUT），既不是 QueryFailedError 也不匹配连接池文案，
+    // 若套模型超时启发式就会把「数据库连不上」误报成「模型调用超时」
     conversationRepo.findOne.mockResolvedValue(conv());
     messageRepo.find.mockRejectedValue(
-      Object.assign(new Error('request timed out'), {
-        name: 'APICallError',
-        driverError: { code: 'ETIMEDOUT' },
+      Object.assign(new Error('connect ETIMEDOUT 10.0.0.5:5432'), {
+        code: 'ETIMEDOUT',
       }),
     );
     const result = await events(
@@ -727,9 +727,19 @@ describe('ChatStreamService', () => {
     );
     expect(result.at(-1)).toMatchObject({
       type: 'error',
-      data: { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' },
+      data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
     });
   });
+
+  it('流内第三方超时（带 driverError 形状）仍按「模型调用超时」报，不被形状嗅探吞掉', () =>
+    expectStreamError(
+      Object.assign(new Error('request timed out'), {
+        name: 'APICallError',
+        driverError: { code: 'ETIMEDOUT' },
+      }),
+      ErrorCode.AI_GENERATE_TIMEOUT,
+      '模型调用超时',
+    ));
 
   it('模型客户端构造抛出凭证错误（密钥轮换/未配 Key）：走 saveFailure 落库并给可执行恢复提示', async () => {
     conversationRepo.findOne.mockResolvedValue(conv());
