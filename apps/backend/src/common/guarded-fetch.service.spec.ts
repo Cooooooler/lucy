@@ -62,6 +62,14 @@ describe('GuardedFetchService', () => {
     expect(destroy).toHaveBeenCalledTimes(1);
   });
 
+  it('close 失败也一定 destroy，不打断后续 shutdown hook', async () => {
+    close.mockRejectedValue(new Error('close failed'));
+    const service = new GuardedFetchService(new ConfigService({}));
+
+    await expect(service.onApplicationShutdown()).resolves.toBeUndefined();
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
   it('close 被在途请求挂住时，超时后强制 destroy（不拖住 app.close）', async () => {
     vi.useFakeTimers();
     close.mockReturnValue(new Promise<void>(() => {}));

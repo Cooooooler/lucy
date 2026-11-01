@@ -18,6 +18,8 @@ describe('assertBaseUrlHostAllowed（主机字面量）', () => {
     'http://127.0.0.1:1/v1',
     'http://192.168.1.10:11434/v1',
     'http://[::1]:11434',
+    // 域名恰好以 169.254. 开头不是 IP 字面量，不能被前缀规则误杀
+    'http://169.254.cdn.example.com/',
   ])('放行公网/回环/私网主机：%s', (url) => {
     expect(() => assertBaseUrlHostAllowed(url)).not.toThrow();
   });

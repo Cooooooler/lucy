@@ -3,9 +3,9 @@ import type { Embeddings } from '@langchain/core/embeddings';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { ChatOllama, OllamaEmbeddings } from '@langchain/ollama';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GuardedFetchService } from '../common/guarded-fetch.service.js';
+import { OUTBOUND_FETCH } from '../common/guarded-fetch.service.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import {
   ModelProviderProtocol,
@@ -74,15 +74,15 @@ export class ModelClientFactory {
   private readonly chatCache = new Map<string, BaseChatModel>();
   private readonly maxChatCacheEntries = 50;
   // 出站请求统一走带 SSRF 校验的 fetch（连接期按解析后 IP 校验 + 不跟随重定向）；
-  // 连接池生命周期由 GuardedFetchService 管理
+  // 连接池生命周期由 GuardedFetchService 管理，这里只依赖函数本身
   private readonly guardedFetch: typeof fetch;
 
   constructor(
     private readonly cipher: ApiKeyCipher,
     private readonly config: ConfigService,
-    guardedFetch: GuardedFetchService,
+    @Inject(OUTBOUND_FETCH) guardedFetch: typeof fetch,
   ) {
-    this.guardedFetch = guardedFetch.fetch;
+    this.guardedFetch = guardedFetch;
   }
 
   /** 构造对话模型客户端（LLM 用；Moderation 走 buildOpenAiChat） */

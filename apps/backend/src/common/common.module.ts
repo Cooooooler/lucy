@@ -10,7 +10,10 @@ import { ClsModule } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import { AppLogger } from './app-logger.service.js';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
-import { GuardedFetchService } from './guarded-fetch.service.js';
+import {
+  GuardedFetchService,
+  OUTBOUND_FETCH,
+} from './guarded-fetch.service.js';
 import { ApiResponseInterceptor } from './interceptors/api-response.interceptor.js';
 import { TimeoutInterceptor } from './interceptors/timeout.interceptor.js';
 import { RATE_LIMIT_MESSAGE } from './messages.js';
@@ -44,6 +47,12 @@ import { createValidationPipe } from './validation-pipe.js';
     ShutdownService,
     // 进程级出站基础设施：SSRF 守卫 + 共享 undici 连接池（对话/embedding/tokenizer 共用）
     GuardedFetchService,
+    // 消费方只依赖 fetch 函数；连接池生命周期仍由 GuardedFetchService 统一关闭
+    {
+      provide: OUTBOUND_FETCH,
+      inject: [GuardedFetchService],
+      useFactory: (service: GuardedFetchService): typeof fetch => service.fetch,
+    },
     { provide: APP_INTERCEPTOR, useClass: ApiResponseInterceptor },
     // 序列化白名单全局生效（与 ApiResponseInterceptor 一致），而非按控制器逐个挂：
     // 实体上的 `@Exclude()` 只有经过它才生效，挂在单个控制器上时，同一实体从别的
@@ -64,7 +73,7 @@ import { createValidationPipe } from './validation-pipe.js';
       useValue: createValidationPipe(),
     },
   ],
-  exports: [AppLogger, ShutdownService, GuardedFetchService],
+  exports: [AppLogger, ShutdownService, GuardedFetchService, OUTBOUND_FETCH],
 })
 export class CommonModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

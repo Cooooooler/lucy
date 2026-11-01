@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GuardedFetchService } from '../common/guarded-fetch.service.js';
+import { OUTBOUND_FETCH } from '../common/guarded-fetch.service.js';
 
 @Injectable()
 export class TokenizerService {
@@ -11,7 +11,7 @@ export class TokenizerService {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly guardedFetch: GuardedFetchService,
+    @Inject(OUTBOUND_FETCH) private readonly outboundFetch: typeof fetch,
   ) {
     this.maxCacheEntries = this.config.get<number>(
       'AI_TOKENIZER_CACHE_SIZE',
@@ -28,7 +28,7 @@ export class TokenizerService {
         'OLLAMA_BASE_URL',
         'http://localhost:11434',
       );
-      const res = await this.guardedFetch.fetch(`${baseUrl}/api/tokenize`, {
+      const res = await this.outboundFetch(`${baseUrl}/api/tokenize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, prompt: text }),

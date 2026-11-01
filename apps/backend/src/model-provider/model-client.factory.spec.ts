@@ -3,7 +3,6 @@ import { ChatOllama, OllamaEmbeddings } from '@langchain/ollama';
 import { OpenAIEmbeddings } from '@langchain/openai';
 import { ConfigService } from '@nestjs/config';
 import { describe, expect, it, vi } from 'vitest';
-import type { GuardedFetchService } from '../common/guarded-fetch.service.js';
 import { makeModelProvider } from '../test/model-provider.fixtures.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import {
@@ -24,9 +23,8 @@ const config = new ConfigService({
 });
 const cipher = new ApiKeyCipher(config);
 // 可识别的守卫 fetch 标记：逐个客户端断言「确实接到了守卫」，而不是只看 instanceOf
-const markerFetch = vi.fn();
-const guardedFetch = { fetch: markerFetch } as unknown as GuardedFetchService;
-const factory = new ModelClientFactory(cipher, config, guardedFetch);
+const markerFetch = vi.fn() as unknown as typeof fetch;
+const factory = new ModelClientFactory(cipher, config, markerFetch);
 
 describe('ModelClientFactory', () => {
   const provider = makeModelProvider({
@@ -199,7 +197,7 @@ describe('ModelClientFactory', () => {
     const badFactory = new ModelClientFactory(
       new ApiKeyCipher(badConfig),
       badConfig,
-      guardedFetch,
+      markerFetch,
     );
     const client = badFactory.buildChat({
       ...provider,

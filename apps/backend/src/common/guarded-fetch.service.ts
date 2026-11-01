@@ -11,6 +11,9 @@ function positiveInt(value: unknown): number | undefined {
 /** 优雅关闭的等待上限：超过则强制 destroy（避免卡住的在途请求拖住 app.close） */
 const CLOSE_TIMEOUT_MS = 3000;
 
+/** 只暴露 fetch 函数的 DI token：消费方不必依赖连接池生命周期实现 */
+export const OUTBOUND_FETCH = Symbol('OUTBOUND_FETCH');
+
 /**
  * 出站 fetch 守卫（SSRF 校验 + 不跟随重定向 + 连接池生命周期）。
  *
@@ -40,14 +43,18 @@ export class GuardedFetchService implements OnApplicationShutdown {
    */
   async onApplicationShutdown(): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      this.guard.close(),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, CLOSE_TIMEOUT_MS);
-        timer.unref?.();
-      }),
-    ]);
-    clearTimeout(timer);
-    await this.guard.destroy();
+    try {
+      await Promise.race([
+        // close 失败也要继续走 finally 的 destroy，不能打断后续 shutdown hook
+        this.guard.close().catch(() => {}),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, CLOSE_TIMEOUT_MS);
+          timer.unref?.();
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+      await this.guard.destroy().catch(() => {});
+    }
   }
 }

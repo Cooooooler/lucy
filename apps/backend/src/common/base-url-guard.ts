@@ -130,8 +130,11 @@ function throwBaseUrlBlocked(): never {
 
 /** 主机字面量（域名或 IP）是否命中受限地址；不做 DNS 解析 */
 function isBlockedHostLiteral(host: string): boolean {
+  // 域名不做前缀判断：`169.254.cdn.example.com` 是合法域名，不能因前缀被误判；
+  // 只有 isIP 认可的 IPv4/IPv6 字面量才进入地址判定
   return (
-    BLOCKED_HOSTNAMES.has(host) || isLinkLocalV4(host) || isBlockedV6(host)
+    BLOCKED_HOSTNAMES.has(host) ||
+    isBlockedAddress(host.replace(/^\[|\]$/g, ''))
   );
 }
 
