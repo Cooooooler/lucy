@@ -20,6 +20,7 @@ export class ShutdownService
   implements BeforeApplicationShutdown, OnApplicationShutdown
 {
   private shuttingDown = false;
+  private shutdownStartedAt?: number;
   private forceExitTimer?: NodeJS.Timeout;
 
   constructor(
@@ -28,11 +29,21 @@ export class ShutdownService
   ) {}
 
   startShutdown(): void {
-    this.shuttingDown = true;
+    if (!this.shuttingDown) {
+      this.shuttingDown = true;
+      this.shutdownStartedAt = Date.now();
+    }
   }
 
   isShutdown(): boolean {
     return this.shuttingDown;
+  }
+
+  /** 剩余宽限期（毫秒）：供其它 shutdown hook 按剩余预算收敛自己的等待 */
+  remainingGraceMs(): number {
+    const graceMs = Number(this.config.getOrThrow<number>('SHUTDOWN_GRACE_MS'));
+    if (!this.shutdownStartedAt) return graceMs;
+    return Math.max(0, graceMs - (Date.now() - this.shutdownStartedAt));
   }
 
   beforeApplicationShutdown(): void {

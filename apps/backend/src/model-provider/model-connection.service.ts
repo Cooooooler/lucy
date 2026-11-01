@@ -5,7 +5,10 @@ import type { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { formatErrorForLog } from '../common/error-format.js';
 import { MODEL_CREDENTIAL_MESSAGES } from '../common/messages.js';
-import { providerErrorMessage } from '../common/provider-error.js';
+import {
+  blockedErrorMessage,
+  providerErrorMessage,
+} from '../common/provider-error.js';
 import type { ModelProviderTestResultDto } from './dto/model-provider-test-result.dto.js';
 import {
   ModelProvider,
@@ -158,6 +161,8 @@ export class ModelConnectionService {
     if (error instanceof UnsupportedModelTypeError) {
       return '该模型类型暂不支持连通性测试';
     }
+    const rejected = blockedErrorMessage(error);
+    if (rejected) return rejected;
     // 服务端凭证问题与供应商无关：解密失败＝平台密钥轮换/密文损坏，重存 Key 即恢复；
     // 未配置 Key 则是数据/装配态的问题。都不能靠改 provider 的地址/类型解决，
     // 落进「连接失败，请检查配置」会把用户引去反复改配置（issue #86 的归因错误）

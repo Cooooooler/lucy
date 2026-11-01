@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
+import { BaseUrlBlockedError } from '../common/base-url-blocked.error.js';
 import {
   MODEL_ID,
   makeModelProvider,
@@ -153,6 +154,19 @@ describe('ModelConnectionService', () => {
 
     const result = await service.test('u1', MODEL_ID);
     expect(result.message).toBe('无法连接到 API Base URL');
+  });
+
+  it('守卫拒绝（经 SDK 包在 cause 上）仍返回可执行文案', async () => {
+    const wrapped = Object.assign(new Error('APIConnectionError'), {
+      cause: new BaseUrlBlockedError('API Base URL 返回重定向，已拒绝跟随'),
+    });
+    factory.buildChat.mockReturnValue({
+      invoke: vi.fn().mockRejectedValue(wrapped),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('API Base URL 返回重定向，已拒绝跟随');
   });
 
   it('解密失败：归因为平台密钥问题而非「检查配置」（Provider 密文与密钥不匹配）', async () => {

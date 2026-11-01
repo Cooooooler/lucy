@@ -27,7 +27,7 @@ jobs:
           version: 10.33.2
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 22.19.0
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build shared package
@@ -58,7 +58,7 @@ jobs:
           version: 10.33.2
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 22.19.0
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build shared package
@@ -89,7 +89,7 @@ jobs:
           version: 10.33.2
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 22.19.0
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build shared package
@@ -114,7 +114,7 @@ jobs:
           version: 10.33.2
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 22.19.0
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build shared package
@@ -149,7 +149,7 @@ jobs:
           version: 10.33.2
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 22.19.0
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Redis package tests with coverage
@@ -174,7 +174,7 @@ jobs:
           version: 10.33.2
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 22.19.0
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Shared package tests with coverage
