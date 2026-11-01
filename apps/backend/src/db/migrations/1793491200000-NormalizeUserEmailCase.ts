@@ -7,11 +7,13 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * NBSP（U+00A0）、全角空格（U+3000）等 Unicode 空白需要逐个列出。
  * `btrim` 的第二参数是字符集合，故这里直接枚举 JS trim 会剥掉的每个字符。
  */
-const TRIM_CHARS =
+// 迁移文件必须自包含：不 import `common/email`，否则运行时常量一改，
+// 这条已发布迁移的历史语义就跟着变了。`email.spec.ts` 断言两份字面量一致。
+export const NORMALIZE_EMAIL_TRIM_CHARS =
   '\\t\\n\\r\\f\\u000B \\u00A0\\u1680' +
   '\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A' +
   '\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF';
-const NORMALIZED_EMAIL = `btrim(lower("email"), E'${TRIM_CHARS}')`;
+const NORMALIZED_EMAIL = `btrim(lower("email"), E'${NORMALIZE_EMAIL_TRIM_CHARS}')`;
 
 /**
  * 邮箱大小写不敏感：把存量 `users.email` 归一为小写并去掉首尾空白。

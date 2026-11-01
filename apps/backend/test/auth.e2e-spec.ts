@@ -115,6 +115,13 @@ describe('Auth (e2e)', () => {
       .post('/v1/auth/login')
       .send({ account: email.toLowerCase(), password: E2E_PASSWORD })
       .expect(201);
+
+    // 用户把注册时填写的混合大小写邮箱原样粘贴回来也应能登录
+    // （复制粘贴是真实路径；归一只要在 DTO 或 findByEmail 任一处丢失，这里就会 401）
+    await request(server)
+      .post('/v1/auth/login')
+      .send({ account: email, password: E2E_PASSWORD })
+      .expect(201);
   });
 
   // 应用层归一之外，schema 也拒绝混合大小写：绕过 UsersService.create 的写入

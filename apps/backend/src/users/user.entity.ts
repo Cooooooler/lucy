@@ -9,20 +9,19 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
+import { USER_EMAIL_NORMALIZED_CHECK } from '../common/email.js';
 import { UserRole } from '../common/roles.js';
 
 /** 用户账号：username/email 全局唯一，status=1 为正常；passwordHash 经 @Exclude 不出网 */
 @Entity('users')
 @Unique(['username'])
 @Unique(['email'])
-// 邮箱在 schema 层只允许小写：唯一约束本身区分大小写，只靠应用层归一的话，
-// 脚本/直接 SQL/将来的改邮箱入口仍能插入 Alice@Example.com，与 alice@example.com
-// 并存——正是「可注册出仅大小写不同的重复账号」的根因。
-// 只约束大小写、不把首尾空白的完整集合写进 CHECK：JS `trim()` 的空白集合含 NBSP、
-// 全角空格等 Unicode 空白，展开成 btrim 字符集会非常长；空白归一由写入侧的
-// `normalizeEmail` 与存量迁移负责，这里守住唯一性真正依赖的大小写。
+// 邮箱在 schema 层只允许归一后的值（小写、无首尾空白）：唯一约束本身区分大小写，
+// 只靠应用层归一的话，脚本/直接 SQL/将来的改邮箱入口仍能插入 `Alice@Example.com`
+// 或 `alice@x.com `，与 `alice@example.com` 并存——正是「可注册出仅大小写不同的
+// 重复账号」的根因。CHECK 直接复用 `normalizeEmail` 的空白字符集，与运行时同口径。
 // 写成实体上的 CHECK（而非手写 DDL），`migration:generate` 才会保留它。
-@Check('"email" = lower("email")')
+@Check(USER_EMAIL_NORMALIZED_CHECK)
 export class User {
   @ApiProperty({ description: '用户 ID' })
   @PrimaryGeneratedColumn('uuid')
