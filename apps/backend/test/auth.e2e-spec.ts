@@ -116,4 +116,16 @@ describe('Auth (e2e)', () => {
       .send({ account: email.toLowerCase(), password: E2E_PASSWORD })
       .expect(201);
   });
+
+  // 应用层归一之外，schema 也拒绝混合大小写：绕过 UsersService.create 的写入
+  // （脚本 / 直接 SQL / 将来的改邮箱入口）同样插不进去
+  it('users.email 的 CHECK 约束拒绝混合大小写', async () => {
+    const dataSource = app.get(DataSource);
+    await expect(
+      dataSource.query(
+        `INSERT INTO "users" ("username", "email", "password_hash") VALUES ($1, $2, $3)`,
+        [`e2e_chk_${suffix}`, `Chk_${suffix}@Test.COM`, 'hash'],
+      ),
+    ).rejects.toThrow(/CHK_/);
+  });
 });

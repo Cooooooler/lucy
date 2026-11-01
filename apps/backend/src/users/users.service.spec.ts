@@ -143,6 +143,13 @@ describe('UsersService', () => {
     expect(usersRepo.findByUsername).toHaveBeenCalledWith('a');
   });
 
+  // 「按邮箱查」自带归一口径：调用方忘转也查得到，不会静默变成 401 /「邮箱不存在」
+  it('findByEmail 将入参去空白并转小写后再查', async () => {
+    usersRepo.findByEmail.mockResolvedValue(user);
+    await expect(service.findByEmail(' Alice@X.COM ')).resolves.toBe(user);
+    expect(usersRepo.findByEmail).toHaveBeenCalledWith('alice@x.com');
+  });
+
   it('list 应用默认分页、排除操作者自己并返回剔除敏感字段的契约视图', async () => {
     usersRepo.findPage.mockResolvedValue([[user], 1]);
     const result = await service.list(admin, {});

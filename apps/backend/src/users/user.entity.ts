@@ -1,6 +1,7 @@
 import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
 import { Exclude } from 'class-transformer';
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -14,6 +15,11 @@ import { UserRole } from '../common/roles.js';
 @Entity('users')
 @Unique(['username'])
 @Unique(['email'])
+// 邮箱只允许归一后的形态（小写、无首尾空白）：唯一约束本身区分大小写，
+// 只靠应用层归一的话，脚本/直接 SQL/将来的改邮箱入口仍能插入 Alice@Example.com，
+// 与 alice@example.com 并存——正是「可注册出仅大小写不同的重复账号」的根因。
+// 写成实体上的 CHECK（而非手写 DDL），`migration:generate` 才会保留它。
+@Check('"email" = btrim(lower("email"))')
 export class User {
   @ApiProperty({ description: '用户 ID' })
   @PrimaryGeneratedColumn('uuid')

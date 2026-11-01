@@ -39,9 +39,13 @@ export class UsersService {
     return this.usersRepo.findByUsername(username);
   }
 
-  /** 按邮箱查询用户。 */
+  /**
+   * 按邮箱查询用户。入参先归一：`users.email` 只存小写，把不变式收在「按邮箱查」
+   * 这个语义里，调用方（登录、将来的找回密码/管理端检索）无需记得自己转换——
+   * 忘转只会静默查不到，并表现成 401 /「邮箱不存在」。
+   */
   findByEmail(email: string): Promise<User | null> {
-    return this.usersRepo.findByEmail(email);
+    return this.usersRepo.findByEmail(normalizeEmail(email));
   }
 
   /** 按主键查询用户。 */
