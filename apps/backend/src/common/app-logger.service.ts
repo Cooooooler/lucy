@@ -31,6 +31,18 @@ export class AppLogger implements LoggerService {
     this.logger.warn(this.withUser(message), context);
   }
 
+  /**
+   * 结构化告警：fields 作为 pino 字段合并（如 `{ err: errorLogFields(e), phase }`），
+   * message 作为 msg。采集端可直接按 `err.type` / `phase` 聚合，不必正则解析文本。
+   */
+  warnWith(
+    fields: Record<string, unknown>,
+    message: string,
+    context?: string,
+  ): void {
+    this.logger.warn({ ...fields, user: this.userId() }, message, context);
+  }
+
   error(message: string, trace?: string, context?: string): void {
     const text = this.withUser(message);
     // 无 trace 时只传 context，避免把 undefined 当作插值参数交给 pino
@@ -43,6 +55,15 @@ export class AppLogger implements LoggerService {
 
   debug(message: string, context?: string): void {
     this.logger.debug(this.withUser(message), context);
+  }
+
+  /** 结构化 debug（字段语义同 `warnWith`；用于主动断线等不必刷 warn 的失败） */
+  debugWith(
+    fields: Record<string, unknown>,
+    message: string,
+    context?: string,
+  ): void {
+    this.logger.debug({ ...fields, user: this.userId() }, message, context);
   }
 
   verbose(message: string, context?: string): void {

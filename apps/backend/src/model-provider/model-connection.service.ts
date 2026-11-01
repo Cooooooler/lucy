@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
-import { formatErrorForLog } from '../common/error-format.js';
+import { errorLogFields } from '../common/error-format.js';
 import { MODEL_CREDENTIAL_MESSAGES } from '../common/messages.js';
 import {
   blockedErrorMessage,
@@ -87,8 +87,14 @@ export class ModelConnectionService {
     } catch (error) {
       // warn 带上错误类名：解密失败/限流/5xx 之类互不相干的失败各自有类可聚合，
       // 只记 message 时线上难以区分「配置错」与「平台/供应商故障」
-      this.logger.warn(
-        `model test failed id=${id} type=${provider.type} vendor=${provider.vendor}: ${formatErrorForLog(error)}`,
+      this.logger.warnWith(
+        {
+          err: errorLogFields(error),
+          modelProviderId: id,
+          type: provider.type,
+          vendor: provider.vendor,
+        },
+        'model test failed',
         ModelConnectionService.name,
       );
       return {

@@ -28,6 +28,8 @@ const SSE_ERROR_TEXT: Partial<Record<ErrorCodeValue, string>> = {
   [ErrorCode.AI_GENERATE_ABORTED]: '生成中断',
   [ErrorCode.AI_GENERATE_FAILED]: '生成失败，请稍后重试',
   [ErrorCode.AI_GENERATE_TIMEOUT]: '模型响应超时，请稍后重试',
+  [ErrorCode.AI_PROVIDER_RATE_LIMITED]: '供应商限流，请稍后重试',
+  [ErrorCode.AI_PROVIDER_UNAVAILABLE]: '供应商服务异常',
   [ErrorCode.AI_MODEL_REQUIRED]: '请先配置并选择模型',
   [ErrorCode.AI_MODEL_NOT_FOUND]: '所选模型不可用，请重新选择',
 };

@@ -27,11 +27,11 @@ describe('ModelConnectionService', () => {
     buildEmbeddings: vi.fn(),
     assertSupported: vi.fn(),
   };
-  // 直接持有 warn 的 mock 引用再断言：`expect(logger.warn)` 会触发 unbound-method
+  // 直接持有 warnWith 的 mock 引用再断言：`expect(logger.warnWith)` 会触发 unbound-method
   const loggerWarn = vi.fn();
   const logger = {
     log: vi.fn(),
-    warn: loggerWarn,
+    warnWith: loggerWarn,
   } as unknown as AppLogger;
   let timeoutMs = 15000;
   const config = {
@@ -237,8 +237,11 @@ describe('ModelConnectionService', () => {
 
     await service.test('u1', MODEL_ID);
     expect(loggerWarn).toHaveBeenCalled();
-    const arg = String(loggerWarn.mock.calls.at(-1)?.[0] ?? '');
-    expect(arg).toContain('[ModelCredentialError]');
+    // 结构化字段：采集端按 err.type 聚合，无需正则解析 message
+    const fields = loggerWarn.mock.calls.at(-1)?.[0] as {
+      err?: { type?: string };
+    };
+    expect(fields.err?.type).toBe('ModelCredentialError');
   });
 
   it('其它错误：走通用兜底文案', async () => {
@@ -264,9 +267,10 @@ describe('ModelConnectionService', () => {
     expect(result.ok).toBe(false);
     expect(result.message).toBe('平台密钥已变更，请重新保存 API Key');
     expect(loggerWarn).toHaveBeenCalled();
-    expect(String(loggerWarn.mock.calls.at(-1)?.[0] ?? '')).toContain(
-      '[ModelCredentialError]',
-    );
+    const fields = loggerWarn.mock.calls.at(-1)?.[0] as {
+      err?: { type?: string };
+    };
+    expect(fields.err?.type).toBe('ModelCredentialError');
   });
 
   it('非属主/不存在：repo 未命中即 404（不构造客户端）', async () => {

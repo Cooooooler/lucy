@@ -77,6 +77,29 @@ describe('classifyStreamError', () => {
     });
   });
 
+  it('供应商 429/5xx 使用细分错误码与可执行文案', () => {
+    expect(
+      classifyStreamError(
+        Object.assign(new Error('rate limit'), { status: 429 }),
+        live,
+        'stream',
+      ),
+    ).toEqual({
+      code: ErrorCode.AI_PROVIDER_RATE_LIMITED,
+      message: '供应商限流，请稍后重试',
+    });
+    expect(
+      classifyStreamError(
+        Object.assign(new Error('upstream boom'), { status: 503 }),
+        live,
+        'stream',
+      ),
+    ).toEqual({
+      code: ErrorCode.AI_PROVIDER_UNAVAILABLE,
+      message: '供应商服务异常',
+    });
+  });
+
   it('QueryFailedError / SQLSTATE / 连接池文案都归为基础设施错误', () => {
     const qfe = new QueryFailedError(
       'SELECT 1',

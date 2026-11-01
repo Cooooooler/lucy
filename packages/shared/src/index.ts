@@ -46,6 +46,13 @@ export const ErrorCode = {
    */
   AI_CREDENTIAL_INVALID: 40103,
   /**
+   * 供应商限流（HTTP 429）。消息：供应商限流，请稍后重试。
+   * 与「生成失败」分开，前端才能显示可执行提示而不是笼统的「生成失败」。
+   */
+  AI_PROVIDER_RATE_LIMITED: 42901,
+  /** 供应商服务异常（HTTP 5xx）。消息：供应商服务异常。 */
+  AI_PROVIDER_UNAVAILABLE: 50301,
+  /**
    * Base URL 指向受限地址（链路本地/云元数据）或返回被拒跟随的重定向。
    * 消息由服务端按守卫原因给出（可执行提示），前端不进 SSE_ERROR_TEXT 映射表、
    * 直接透传后端 message。

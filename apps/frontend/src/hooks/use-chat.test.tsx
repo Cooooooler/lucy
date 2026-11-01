@@ -1,4 +1,4 @@
-import type { AiStreamEvent } from '@lucy/shared';
+import { ErrorCode, type AiStreamEvent } from '@lucy/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -248,6 +248,26 @@ describe('useChatStream', () => {
       streaming: false,
       error: '模型响应超时，请稍后重试',
       errorCode: 50002,
+    });
+  });
+
+  it.each([
+    [ErrorCode.AI_PROVIDER_RATE_LIMITED, '供应商限流，请稍后重试'],
+    [ErrorCode.AI_PROVIDER_UNAVAILABLE, '供应商服务异常'],
+  ])('供应商失败码 %i 映射为可执行文案', async (code, text) => {
+    mocks.createStreamRequest.mockReturnValue(
+      mockStreamRequest(() => streamOf([errorEvent(code, '上游原始错误')])),
+    );
+    const { result } = renderHook(() => useChatStream('c1'), {
+      wrapper: createWrapper(),
+    });
+    await act(async () => {
+      await result.current.send('c1', 'hi');
+    });
+    expect(result.current.messages[1]).toMatchObject({
+      streaming: false,
+      error: text,
+      errorCode: code,
     });
   });
 

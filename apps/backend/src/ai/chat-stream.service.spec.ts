@@ -61,7 +61,13 @@ describe('ChatStreamService', () => {
     AI_OUTPUT_MAX_TOKENS: 32768,
   });
   // 保留可断言的 mock 句柄（直接对 `logger.warn` 断言会触发 unbound-method）
-  const loggerMock = { log: vi.fn(), warn: vi.fn(), debug: vi.fn() };
+  const loggerMock = {
+    log: vi.fn(),
+    warn: vi.fn(),
+    warnWith: vi.fn(),
+    debug: vi.fn(),
+    debugWith: vi.fn(),
+  };
   const logger = loggerMock as unknown as AppLogger;
 
   let service: ChatStreamService;
@@ -704,7 +710,7 @@ describe('ChatStreamService', () => {
     });
     // 基础设施细节（主机/端口/SQL 等）不得随 error 帧出网
     expect(JSON.stringify(result)).not.toContain('ECONNREFUSED');
-    expect(loggerMock.warn).toHaveBeenCalled();
+    expect(loggerMock.warnWith).toHaveBeenCalled();
   });
 
   it('含 timeout 字样的 DB 基础设施错误按「生成失败」报，不误归因为「模型调用超时」', async () => {
