@@ -35,7 +35,8 @@ export class GuardedFetchService implements OnApplicationShutdown {
       maxConnections: positiveInt(config.get('OUTBOUND_MAX_CONNECTIONS')),
       connectTimeoutMs: positiveInt(config.get('OUTBOUND_CONNECT_TIMEOUT_MS')),
     });
-    const grace = Number(config.get('SHUTDOWN_GRACE_MS', 15000));
+    // 与 ShutdownService 同源：该键在 env schema 有 default，不能在这里再造一份默认值
+    const grace = Number(config.getOrThrow<number>('SHUTDOWN_GRACE_MS'));
     // 与 ShutdownService 的兜底窗口联动：宽限期很小时不能用 3s 固定预算，
     // 否则强退会先于连接池关闭触发（留 1s 给后续 dispose）
     this.closeTimeoutMs = Math.max(

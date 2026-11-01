@@ -1,8 +1,12 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { BaseUrlRedirectError } from './base-url-blocked.error.js';
+import {
+  BaseUrlGuardError,
+  BaseUrlRedirectError,
+} from './base-url-blocked.error.js';
 import { createGuardedFetch, type GuardedFetch } from './guarded-fetch.js';
+import { blockedErrorMessage } from './provider-error.js';
 
 /**
  * 真 undici + 本地 HTTP 服务的集成用例：上面的单测把 undici 打成 mock，
@@ -42,5 +46,16 @@ describe('createGuardedFetch（真实 undici + 本地 HTTP）', () => {
     requests = 0;
     await expect(guard.fetch(baseUrl)).rejects.toThrow(BaseUrlRedirectError);
     expect(requests).toBe(1);
+  });
+
+  it('真实 fetch 的守卫拒绝保留领域错误，可提取可读文案', async () => {
+    const error = await guard
+      .fetch('http://169.254.169.254/latest/meta-data')
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(BaseUrlGuardError);
+    expect(blockedErrorMessage(error)).toBe(
+      'API Base URL 指向受限地址（链路本地/云元数据），请检查主机',
+    );
   });
 });

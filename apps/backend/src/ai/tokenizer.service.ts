@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AppLogger } from '../common/app-logger.service.js';
 import { OUTBOUND_FETCH } from '../common/guarded-fetch.service.js';
+import { blockedErrorMessage } from '../common/provider-error.js';
 
 @Injectable()
 export class TokenizerService {
@@ -12,6 +14,7 @@ export class TokenizerService {
   constructor(
     private readonly config: ConfigService,
     @Inject(OUTBOUND_FETCH) private readonly outboundFetch: typeof fetch,
+    private readonly logger: AppLogger,
   ) {
     this.maxCacheEntries = this.config.get<number>(
       'AI_TOKENIZER_CACHE_SIZE',
@@ -53,7 +56,15 @@ export class TokenizerService {
         if (oldest !== undefined) this.cache.delete(oldest);
       }
       return data.count;
-    } catch {
+    } catch (error) {
+      // 守卫拒绝不是「Ollama 暂不可用」，必须留痕，否则线上零线索
+      const blocked = blockedErrorMessage(error);
+      if (blocked) {
+        this.logger.warn(
+          `tokenizer 请求被出站守卫拒绝：${blocked}`,
+          TokenizerService.name,
+        );
+      }
       // Ollama 不可用时按字符数估算（中文约 0.5 token/字）
       return Math.ceil(text.length / 2);
     }

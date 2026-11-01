@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { EntityManager, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
+import { BaseUrlGuardError } from '../common/base-url-blocked.error.js';
 import { assertBaseUrlHostAllowed } from '../common/base-url-guard.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
@@ -26,6 +27,18 @@ import {
 import { resolveOwnedModelProvider } from './model-provider-access.js';
 import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
 import { toModelProviderItem } from './model-provider.mapper.js';
+
+/** API 边界映射：出站守卫的领域错误在保存配置时是 400，而不是 500 */
+function assertBaseUrlForApi(baseUrl: string): void {
+  try {
+    assertBaseUrlHostAllowed(baseUrl);
+  } catch (error) {
+    if (error instanceof BaseUrlGuardError) {
+      throw new BadRequestException(error.message);
+    }
+    throw error;
+  }
+}
 
 /**
  * 模型供应商领域服务：属主私有的 CRUD（create/list/get/update/remove）。
@@ -59,7 +72,7 @@ export class ModelProviderService {
   ): Promise<ModelProviderItemDto> {
     const apiKey = dto.apiKey?.trim() ?? '';
     this.assertApiKeyForVendor(dto.vendor, apiKey.length > 0);
-    assertBaseUrlHostAllowed(dto.baseUrl);
+    assertBaseUrlForApi(dto.baseUrl);
     const provider = await this.repo.save({
       ownerId: userId,
       name: dto.name,
@@ -203,7 +216,7 @@ export class ModelProviderService {
       if (dto.type !== undefined) provider.type = dto.type;
       if (dto.vendor !== undefined) provider.vendor = dto.vendor;
       if (dto.baseUrl !== undefined) {
-        assertBaseUrlHostAllowed(dto.baseUrl);
+        assertBaseUrlForApi(dto.baseUrl);
         provider.baseUrl = dto.baseUrl;
       }
       if (dto.protocol !== undefined) provider.protocol = dto.protocol;

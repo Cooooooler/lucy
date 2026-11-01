@@ -1,15 +1,11 @@
-import { BadRequestException } from '@nestjs/common';
-
 /**
- * Base URL 出站守卫错误的基类。
+ * Base URL 出站守卫错误的基类（纯领域错误，不携带 HTTP 语义）。
  *
- * 继承 `BadRequestException`：在 API 边界（保存模型配置）直接是 400；在传输层
- * （连接测试/对话/embedding）被 OpenAI/Anthropic SDK 包成 `APIConnectionError`
- * （原错误挂在 `cause` 上），由 `provider-error` 的 cause 链提取文案。
- *
- * 放在 `common/` 让该提取逻辑不依赖 model-provider 模块。
+ * 出站层（undici fetch / DNS lookup / tokenizer）与协议无关，只有 API 边界
+ * （保存模型配置）才需要 400——由 `ModelProviderService` 显式映射。
+ * 传输层被 SDK 包成 `APIConnectionError` 后，`provider-error` 沿 `cause` 链提取文案。
  */
-export class BaseUrlGuardError extends BadRequestException {
+export class BaseUrlGuardError extends Error {
   constructor(message: string) {
     super(message);
     this.name = new.target.name;

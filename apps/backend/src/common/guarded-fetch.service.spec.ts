@@ -29,7 +29,7 @@ describe('GuardedFetchService', () => {
 
   afterEach(() => vi.useRealTimers());
 
-  const build = (config = new ConfigService({})) =>
+  const build = (config = new ConfigService({ SHUTDOWN_GRACE_MS: 15000 })) =>
     new GuardedFetchService(config, logger);
 
   it('把 OUTBOUND_* 配置传给连接池，并暴露同一份 fetch', () => {
@@ -37,6 +37,7 @@ describe('GuardedFetchService', () => {
       new ConfigService({
         OUTBOUND_MAX_CONNECTIONS: 7,
         OUTBOUND_CONNECT_TIMEOUT_MS: 900,
+        SHUTDOWN_GRACE_MS: 15000,
       }),
     );
 
@@ -52,6 +53,7 @@ describe('GuardedFetchService', () => {
       new ConfigService({
         OUTBOUND_MAX_CONNECTIONS: 0,
         OUTBOUND_CONNECT_TIMEOUT_MS: 'abc',
+        SHUTDOWN_GRACE_MS: 15000,
       }),
     );
 
