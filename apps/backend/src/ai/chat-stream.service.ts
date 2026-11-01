@@ -115,25 +115,14 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         .catch((err) => {
           // 外层 catch 只兜 prepareRun/落库失败，没有模型流：按 run 阶段归因，
           // 不让 ETIMEDOUT 之类数据库连接错误落进模型超时启发式
-          const { code, message } = classifyStreamError(
-            err,
-            controller.signal,
-            'run',
-          );
-          // 与 saveFailure 同一分级与文案格式：断线/停机（aborted）不刷 warn；
-          // message 可能含主机端口、SQL 等基础设施细节，不得随 error 帧出网
-          const logText = `sendMessage failed conversation=${conversationId} phase=run: ${formatErrorForLog(err)}`;
-          if (code === ErrorCode.AI_GENERATE_ABORTED) {
-            this.logger.debug(logText, ChatStreamService.name);
-          } else {
-            this.logger.warn(logText, ChatStreamService.name);
-          }
-          subscriber.next({
-            type: 'error',
+          this.emitFailure(
+            subscriber,
             requestId,
-            data: { code, message },
-          });
-          subscriber.complete();
+            err,
+            classifyStreamError(err, controller.signal, 'run'),
+            'run',
+            conversationId,
+          );
         })
         .finally(() => {
           this.inFlight.delete(lockKey);
@@ -269,7 +258,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       });
     } catch (error) {
       // 按失败类型区分错误码：客户端中止 / 模型超时 / 其他生成失败
-      await this.saveFailure(
+      this.saveFailure(
         subscriber,
         requestId,
         signal,
@@ -488,50 +477,72 @@ export class ChatStreamService implements BeforeApplicationShutdown {
   // 生成失败/中断：按失败类型落库并发送 error 帧。
   // phase 由调用方按「错误发生时是否已在读模型流」决定：buildChat/buildMessages 失败
   // 仍属流前阶段（没有可等的模型输出），不能套模型超时启发式。
-  private async saveFailure(
+  private saveFailure(
     subscriber: Subscriber,
     requestId: string,
     signal: AbortSignal,
     error: unknown,
     context: { conversationId: string; answer: string; thinkingAll: string },
     phase: ErrorPhase,
-  ): Promise<void> {
+  ): void {
     const kind = classifyStreamError(error, signal, phase);
-    // 失败出口必须留痕：错误帧只给用户看，日志才能按类型聚合排查；
-    // 用户主动断线/停机（aborted）降为 debug，避免每次 SSE 断线刷 warn
-    const logText = `sendMessage failed conversation=${context.conversationId} phase=${phase}: ${formatErrorForLog(error)}`;
-    if (kind.code === ErrorCode.AI_GENERATE_ABORTED) {
-      this.logger.debug(logText, ChatStreamService.name);
-    } else {
-      this.logger.warn(logText, ChatStreamService.name);
-    }
     const status =
       kind.code === ErrorCode.AI_GENERATE_ABORTED
         ? MessageStatus.Aborted
         : MessageStatus.Failed;
     // 先发 error 帧再落库：本 PR 归因的正是 DB 不可达/超时，若先落库，错误帧会被
     // 第二次 DB 操作阻塞（连接池默认无限等待），前端一直挂到 TCP 超时
+    this.emitFailure(
+      subscriber,
+      requestId,
+      error,
+      kind,
+      phase,
+      context.conversationId,
+    );
+    // 落库是尽力而为且不能 await：runSend 的 promise 要等它返回才释放 in-flight 锁，
+    // DB 不可达时会让用户重发一直拿到 AI_CONVERSATION_BUSY
+    void this.messageRepo
+      .save({
+        conversationId: context.conversationId,
+        role: MessageRole.Ai,
+        content: context.answer,
+        thinking: context.thinkingAll || null,
+        status,
+      })
+      .catch((saveError) => {
+        // 落库失败不影响已发出的错误帧，也不能再抛到外层 catch 重复发帧：只补日志
+        this.logger.warn(
+          `saveFailure persist failed conversation=${context.conversationId}: ${formatErrorForLog(saveError)}`,
+          ChatStreamService.name,
+        );
+      });
+  }
+
+  // 失败出口的统一处理：按 aborted 分级记日志、发 error 帧并结束流
+  private emitFailure(
+    subscriber: Subscriber,
+    requestId: string,
+    error: unknown,
+    kind: { code: ErrorCodeValue; message: string },
+    phase: ErrorPhase,
+    conversationId: string,
+  ): void {
+    // 失败出口必须留痕：错误帧只给用户看，日志才能按类型聚合排查；
+    // 用户主动断线/停机（aborted）降为 debug，避免每次 SSE 断线刷 warn。
+    // message 可能含主机端口、SQL 等基础设施细节，不得随 error 帧出网
+    const logText = `sendMessage failed conversation=${conversationId} phase=${phase}: ${formatErrorForLog(error)}`;
+    if (kind.code === ErrorCode.AI_GENERATE_ABORTED) {
+      this.logger.debug(logText, ChatStreamService.name);
+    } else {
+      this.logger.warn(logText, ChatStreamService.name);
+    }
     subscriber.next({
       type: 'error',
       requestId,
       data: { code: kind.code, message: kind.message },
     });
     subscriber.complete();
-    try {
-      await this.messageRepo.save({
-        conversationId: context.conversationId,
-        role: MessageRole.Ai,
-        content: context.answer,
-        thinking: context.thinkingAll || null,
-        status,
-      });
-    } catch (saveError) {
-      // 落库失败不影响已发出的错误帧，也不能再抛到外层 catch 重复发帧：只补一条日志
-      this.logger.warn(
-        `saveFailure persist failed conversation=${context.conversationId}: ${formatErrorForLog(saveError)}`,
-        ChatStreamService.name,
-      );
-    }
   }
 
   // 归一为统一的 next 接口：异步迭代器与同步迭代器（测试 mock 常用）都适配

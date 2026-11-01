@@ -1,6 +1,7 @@
 import { ErrorCode, type ErrorCodeValue } from '@lucy/shared';
 import { isInfrastructureError } from '../common/db-error.js';
 import {
+  GENERATE_ERROR_MESSAGES,
   MODEL_CREDENTIAL_MESSAGES,
   PROVIDER_ERROR_MESSAGES,
 } from '../common/messages.js';
@@ -28,9 +29,15 @@ export function classifyStreamError(
       reason instanceof Error &&
       /timeout|timed out|ETIMEDOUT/i.test(reason.message)
     ) {
-      return { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' };
+      return {
+        code: ErrorCode.AI_GENERATE_TIMEOUT,
+        message: GENERATE_ERROR_MESSAGES.timeout,
+      };
     }
-    return { code: ErrorCode.AI_GENERATE_ABORTED, message: '生成中断' };
+    return {
+      code: ErrorCode.AI_GENERATE_ABORTED,
+      message: GENERATE_ERROR_MESSAGES.aborted,
+    };
   }
   // 凭证错误：单独码 + 可执行提示（文案单源在 common/messages.ts，前端按未知码回退
   // 服务端 message，不进入 SSE_ERROR_TEXT 的按码覆盖表）
@@ -53,7 +60,10 @@ export function classifyStreamError(
   // 「canceling statement due to statement timeout」含 timeout 字样，落在正则
   // （model-timeout 分支）之后会误报「模型调用超时」——DB 超时/连接错误按生成失败报
   if (isInfrastructureError(error)) {
-    return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };
+    return {
+      code: ErrorCode.AI_GENERATE_FAILED,
+      message: GENERATE_ERROR_MESSAGES.failed,
+    };
   }
   const name = error instanceof Error ? error.name : '';
   const message = error instanceof Error ? error.message : '';
@@ -61,7 +71,13 @@ export function classifyStreamError(
     phase === 'stream' &&
     /timeout|timed out|ETIMEDOUT/i.test(`${name} ${message}`)
   ) {
-    return { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' };
+    return {
+      code: ErrorCode.AI_GENERATE_TIMEOUT,
+      message: GENERATE_ERROR_MESSAGES.timeout,
+    };
   }
-  return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };
+  return {
+    code: ErrorCode.AI_GENERATE_FAILED,
+    message: GENERATE_ERROR_MESSAGES.failed,
+  };
 }

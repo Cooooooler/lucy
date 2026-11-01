@@ -184,6 +184,16 @@ export const PROVIDER_ERROR_MESSAGES = {
 export type ProviderErrorKind = keyof typeof PROVIDER_ERROR_MESSAGES;
 
 /**
+ * 生成类失败的兜底文案（对话链路的 SSE error 帧使用）。
+ * 前端 `use-chat.ts` 的 SSE_ERROR_TEXT 按错误码另有一份同义文案，改这里时需两侧同步。
+ */
+export const GENERATE_ERROR_MESSAGES = {
+  timeout: '模型调用超时',
+  aborted: '生成中断',
+  failed: '生成失败',
+} as const;
+
+/**
  * class-validator 约束键 → 中文文案模板。
  *
  * 全部为常量文案（只取字段标签）：class-validator 仅在装饰器显式声明
