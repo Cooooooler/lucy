@@ -1,17 +1,25 @@
-import { HttpStatus, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpStatus,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { getMetadataArgsStorage } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
 import { decodeCursor, encodeCursor } from '../common/pagination/cursor.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
+import { ModelProviderService } from '../model-provider/model-provider.service.js';
 import {
   KB_ID,
   KB_ITEM_KEYS,
   makeKb,
   makeKbItem,
   makeKbQb,
+  makeKbRow,
   makeLikeQb,
+  makeUpdateQb,
   OTHER_ID,
   sqlOf,
   uuid,
@@ -19,16 +27,32 @@ import {
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
+  KnowledgeRetrievalMode,
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
 import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 describe('KnowledgeService', () => {
+  // 事务内的仓库：只有「创建时校验重排模型 + 插入」走事务（更新是单条 UPDATE ... RETURNING，
+  // 不需要事务）
+  const tx = {
+    save: vi.fn(),
+  };
+  // update 把 RETURNING 回的行按实体元数据映射回属性名：列清单取自真实装饰器元数据
+  // （默认命名策略下数据库列名 = `@Column({ name })` 或属性名），不在 spec 里手抄一份
+  const KB_COLUMNS = getMetadataArgsStorage()
+    .columns.filter((column) => column.target === KnowledgeBase)
+    .map((column) => ({
+      propertyName: column.propertyName,
+      databaseName: column.options.name ?? column.propertyName,
+    }));
   const kbRepo = {
     findOne: vi.fn(),
     save: vi.fn(),
     createQueryBuilder: vi.fn(),
+    metadata: { columns: KB_COLUMNS },
+    manager: { transaction: vi.fn() },
   };
   const likeRepo = {
     findOneBy: vi.fn(),
@@ -41,6 +65,10 @@ describe('KnowledgeService', () => {
   // 其内部行为（事务、N+1、文件清理）在 knowledge-document.service.spec.ts 覆盖
   const documentService = {
     removeAllForKnowledgeBase: vi.fn(),
+  };
+  // 重排模型的存在性/属主/类型判据由模型领域负责，本 spec 只断言「创建时调用并据结果拒绝」
+  const modelProviderService = {
+    resolveOwnedRerankInTransaction: vi.fn(),
   };
   const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
 
@@ -60,6 +88,7 @@ describe('KnowledgeService', () => {
         { provide: getRepositoryToken(KnowledgeBase), useValue: kbRepo },
         { provide: getRepositoryToken(KnowledgeLike), useValue: likeRepo },
         { provide: KnowledgeDocumentService, useValue: documentService },
+        { provide: ModelProviderService, useValue: modelProviderService },
       ],
     }).compile();
     return moduleRef.get(KnowledgeService);
@@ -70,6 +99,10 @@ describe('KnowledgeService', () => {
     // 点赞态回填（fillLikeInfo）被 get/list/update 共用：默认给一个空结果的可链式 stub，
     // 避免依赖「上个用例遗留的 mockReturnValue」——clearAllMocks 只清调用记录不清实现
     likeRepo.createQueryBuilder.mockReturnValue(makeLikeQb());
+    // 事务直接执行回调，回调内的 manager 即 tx
+    kbRepo.manager.transaction.mockImplementation(
+      async (fn: (manager: typeof tx) => Promise<unknown>) => fn(tx),
+    );
     service = await buildService();
   });
 
@@ -79,6 +112,7 @@ describe('KnowledgeService', () => {
     expect(result).toEqual(makeKbItem());
     // 契约项是普通视图对象，不携带实体上的内部关系（owner 等）
     expect(result).not.toBeInstanceOf(KnowledgeBase);
+    // 未选重排模型：单条 INSERT 不开事务
     expect(kbRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({
         ownerId: 'u1',
@@ -87,6 +121,166 @@ describe('KnowledgeService', () => {
         visibility: 'private',
       }),
     );
+  });
+
+  it('create 未提供检索设置时落默认值（全文 / 5 / 阈值关闭且为 0 / 语义 50 / 不重排）', async () => {
+    kbRepo.save.mockResolvedValue(makeKb());
+    await service.create('u1', { name: 'x', description: 'd' });
+    expect(kbRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retrievalMode: KnowledgeRetrievalMode.FullText,
+        topK: 5,
+        scoreThresholdEnabled: false,
+        scoreThreshold: 0,
+        semanticWeight: 50,
+        rerankModelId: null,
+      }),
+    );
+    // 未选重排模型时不产生模型查询
+    expect(
+      modelProviderService.resolveOwnedRerankInTransaction,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('create 落显式检索设置，并校验重排模型属主与类型', async () => {
+    const rerankId = uuid(9);
+    modelProviderService.resolveOwnedRerankInTransaction.mockResolvedValue({
+      id: rerankId,
+    });
+    tx.save.mockResolvedValue(
+      makeKb({
+        retrievalMode: KnowledgeRetrievalMode.Hybrid,
+        topK: 8,
+        scoreThresholdEnabled: true,
+        scoreThreshold: 0.35,
+        semanticWeight: 70,
+        rerankModelId: rerankId,
+      }),
+    );
+
+    const result = await service.create('u1', {
+      name: 'x',
+      description: 'd',
+      retrievalMode: KnowledgeRetrievalMode.Hybrid,
+      topK: 8,
+      scoreThresholdEnabled: true,
+      scoreThreshold: 0.35,
+      semanticWeight: 70,
+      rerankModelId: rerankId,
+    });
+
+    expect(
+      modelProviderService.resolveOwnedRerankInTransaction,
+    ).toHaveBeenCalledWith(tx, 'u1', rerankId);
+    expect(tx.save).toHaveBeenCalledWith(
+      KnowledgeBase,
+      expect.objectContaining({
+        retrievalMode: KnowledgeRetrievalMode.Hybrid,
+        topK: 8,
+        scoreThresholdEnabled: true,
+        scoreThreshold: 0.35,
+        semanticWeight: 70,
+        rerankModelId: rerankId,
+      }),
+    );
+    expect(result).toMatchObject({
+      retrievalMode: KnowledgeRetrievalMode.Hybrid,
+      topK: 8,
+      scoreThresholdEnabled: true,
+      scoreThreshold: 0.35,
+      semanticWeight: 70,
+      rerankModelId: rerankId,
+    });
+  });
+
+  it('create 拒绝不存在/非属主的重排模型（400，不落库）', async () => {
+    modelProviderService.resolveOwnedRerankInTransaction.mockRejectedValue(
+      new BadRequestException('重排模型不存在或不属于当前用户'),
+    );
+    await expect(
+      service.create('u1', {
+        name: 'x',
+        description: 'd',
+        rerankModelId: uuid(9),
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.save).not.toHaveBeenCalled();
+    expect(kbRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('create 对类型不符给出明确文案（不再误报属主问题）', async () => {
+    modelProviderService.resolveOwnedRerankInTransaction.mockRejectedValue(
+      new BadRequestException('该模型类型不是重排模型'),
+    );
+    await expect(
+      service.create('u1', {
+        name: 'x',
+        description: 'd',
+        rerankModelId: uuid(9),
+      }),
+    ).rejects.toThrow('该模型类型不是重排模型');
+    expect(tx.save).not.toHaveBeenCalled();
+  });
+
+  it('create 拒绝启用 Score 阈值却把阈值留为 0（400，不落库）', async () => {
+    await expect(
+      service.create('u1', {
+        name: 'x',
+        description: 'd',
+        scoreThresholdEnabled: true,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.save).not.toHaveBeenCalled();
+  });
+
+  it('公开库被非属主读取时隐藏 rerankModelId（属主私有资源标识）', async () => {
+    const rerankId = uuid(9);
+    kbRepo.findOne.mockResolvedValue(
+      makeKb({
+        visibility: KnowledgeBaseVisibility.Public,
+        rerankModelId: rerankId,
+      }),
+    );
+
+    const asOwner = await service.get('u1', KB_ID);
+    expect(asOwner.rerankModelId).toBe(rerankId);
+
+    const asOther = await service.get('u2', KB_ID);
+    expect(asOther.rerankModelId).toBeNull();
+  });
+
+  it('update 只写 DTO 中出现的列，不碰检索设置', async () => {
+    const qb = makeUpdateQb();
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+    await service.update('u1', KB_ID, { name: 'y' });
+    // 整实体 save 会把并发清空后的 rerank_model_id 写回，这里必须只更新显式字段
+    expect(qb.set).toHaveBeenCalledWith({ name: 'y' });
+    expect(kbRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('update 用一次 UPDATE ... RETURNING * 完成鉴权、写入与回读', async () => {
+    const updatedAt = new Date('2026-02-02T00:00:00.000Z');
+    const qb = makeUpdateQb([makeKbRow({ name: 'y', updated_at: updatedAt })]);
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+
+    const result = await service.update('u1', KB_ID, { name: 'y' });
+
+    // 属主判据在 UPDATE 的 where 里：一条语句同时完成鉴权与写入
+    expect(qb.where).toHaveBeenCalledWith({ id: KB_ID, ownerId: 'u1' });
+    expect(qb.returning).toHaveBeenCalledWith('*');
+    // 不再二次回读、也不再开事务
+    expect(kbRepo.findOne).not.toHaveBeenCalled();
+    expect(kbRepo.manager.transaction).not.toHaveBeenCalled();
+    // RETURNING 的行（数据库列名）按实体元数据映射回属性名，响应即本次写入的结果
+    expect(result).toEqual(makeKbItem({ name: 'y', updatedAt }));
+  });
+
+  it('update 命中 0 行（并发删除）返回 404 而不是 500', async () => {
+    kbRepo.createQueryBuilder.mockReturnValue(makeUpdateQb([]));
+    kbRepo.findOne.mockResolvedValue(null);
+    await expect(
+      service.update('u1', KB_ID, { name: 'y' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('get 属主可读，附带 likeCount/isLiked', async () => {
@@ -116,8 +310,7 @@ describe('KnowledgeService', () => {
     kbRepo.createQueryBuilder.mockReturnValue(makeKbQb());
     const listed = await service.list('u1', {});
 
-    kbRepo.findOne.mockResolvedValue(makeKb());
-    kbRepo.save.mockResolvedValue(makeKb());
+    kbRepo.createQueryBuilder.mockReturnValue(makeUpdateQb());
     const updated = await service.update('u1', KB_ID, { name: 'y' });
 
     for (const [endpoint, item] of Object.entries({
@@ -134,8 +327,7 @@ describe('KnowledgeService', () => {
   });
 
   it('update 回填点赞态（更新后仍与 get/list 同形，不谎报 0/false）', async () => {
-    kbRepo.findOne.mockResolvedValue(makeKb());
-    kbRepo.save.mockResolvedValue(makeKb());
+    kbRepo.createQueryBuilder.mockReturnValue(makeUpdateQb());
     const likeQb = makeLikeQb();
     likeQb.getRawMany.mockResolvedValue([{ kbId: KB_ID, cnt: '3' }]);
     likeRepo.createQueryBuilder.mockReturnValue(likeQb);
@@ -155,6 +347,8 @@ describe('KnowledgeService', () => {
   });
 
   it('update 非属主抛 FORBIDDEN', async () => {
+    // UPDATE 的 where 带 ownerId，非属主命中 0 行；错误路径再读一次区分 403/404
+    kbRepo.createQueryBuilder.mockReturnValue(makeUpdateQb([]));
     kbRepo.findOne.mockResolvedValue(makeKb());
     await expect(
       service.update('u2', 'kb1', { name: 'y' }),
@@ -297,22 +491,24 @@ describe('KnowledgeService', () => {
     );
   });
 
-  it('update 属主更新全字段并保存', async () => {
-    const kbEntity = makeKb();
-    kbRepo.findOne.mockResolvedValue(kbEntity);
-    kbRepo.save.mockResolvedValue(kbEntity);
+  it('update 属主按显式字段做列级更新', async () => {
+    const qb = makeUpdateQb();
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
     await service.update('u1', 'kb1', {
       name: 'y',
       description: 'd',
       visibility: KnowledgeBaseVisibility.Public,
     });
-    expect(kbEntity.name).toBe('y');
-    expect(kbEntity.description).toBe('d');
-    expect(kbEntity.visibility).toBe(KnowledgeBaseVisibility.Public);
-    expect(kbRepo.save).toHaveBeenCalledWith(kbEntity);
+    expect(qb.set).toHaveBeenCalledWith({
+      name: 'y',
+      description: 'd',
+      visibility: KnowledgeBaseVisibility.Public,
+    });
+    expect(kbRepo.save).not.toHaveBeenCalled();
   });
 
   it('update 知识库不存在抛 404', async () => {
+    kbRepo.createQueryBuilder.mockReturnValue(makeUpdateQb([]));
     kbRepo.findOne.mockResolvedValue(null);
     await expect(
       service.update('u1', 'kb1', { name: 'y' }),

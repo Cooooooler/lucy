@@ -76,6 +76,21 @@ export const MODEL_NAME_MAX_LENGTH = 100;
 /** 列表模糊匹配关键字上界：ILIKE 谓词走不了索引，超长输入是廉价的全表扫描放大器 */
 export const KNOWLEDGE_KEYWORD_MAX_LENGTH = 100;
 
+/** 知识库检索设置的召回条数上下界（后端 DTO 校验与前端 InputNumber 共用） */
+export const KNOWLEDGE_TOP_K_MIN = 1;
+export const KNOWLEDGE_TOP_K_MAX = 10;
+export const KNOWLEDGE_TOP_K_DEFAULT = 5;
+
+/** 知识库检索的 Score 阈值：归一化相似度区间与默认值（0 = 不过滤） */
+export const KNOWLEDGE_SCORE_THRESHOLD_MIN = 0;
+export const KNOWLEDGE_SCORE_THRESHOLD_MAX = 1;
+export const KNOWLEDGE_SCORE_THRESHOLD_DEFAULT = 0;
+
+/** 混合检索的语义权重（百分比整数，关键词权重 = 100 - 语义权重） */
+export const KNOWLEDGE_SEMANTIC_WEIGHT_MIN = 0;
+export const KNOWLEDGE_SEMANTIC_WEIGHT_MAX = 100;
+export const KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT = 50;
+
 /** 模型供应商：名称与列表搜索关键字共用同一上界（name 列 varchar(100) 的对齐值） */
 export const MODEL_PROVIDER_NAME_MAX_LENGTH = 100;
 /** 模型 Base URL 上界（base_url 列 varchar(500) 的对齐值） */

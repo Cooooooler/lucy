@@ -89,7 +89,7 @@ describe('ModelClientFactory', () => {
   });
 
   it('assertSupported 按类型 × 供应商放行/拒绝', () => {
-    const { Llm, TextEmbedding, Moderation, Speech2Text, Tts } =
+    const { Llm, TextEmbedding, Moderation, Speech2Text, Tts, Rerank } =
       ModelProviderType;
     const { OpenAI, Anthropic, Ollama } = ModelProviderVendor;
 
@@ -111,11 +111,17 @@ describe('ModelClientFactory', () => {
     expect(() => factory.assertSupported(Moderation, Ollama)).toThrow(
       UnsupportedModelTypeError,
     );
-    // 三家都不支持语音
+    // 三家都不支持语音与重排
     expect(() => factory.assertSupported(Speech2Text, OpenAI)).toThrow(
       UnsupportedModelTypeError,
     );
     expect(() => factory.assertSupported(Tts, Ollama)).toThrow(
+      UnsupportedModelTypeError,
+    );
+    expect(() => factory.assertSupported(Rerank, OpenAI)).toThrow(
+      UnsupportedModelTypeError,
+    );
+    expect(() => factory.assertSupported(Rerank, Ollama)).toThrow(
       UnsupportedModelTypeError,
     );
   });

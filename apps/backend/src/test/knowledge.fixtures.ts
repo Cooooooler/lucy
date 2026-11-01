@@ -3,6 +3,7 @@ import type { BackendFileEntity } from '../knowledge/entities/backend-file.entit
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
+  KnowledgeRetrievalMode,
 } from '../knowledge/entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from '../knowledge/entities/knowledge-document.entity.js';
 
@@ -30,6 +31,12 @@ export const makeKb = (over: Partial<KnowledgeBase> = {}): KnowledgeBase => ({
   visibility: KnowledgeBaseVisibility.Private,
   name: '产品文档',
   description: '产品文档',
+  retrievalMode: KnowledgeRetrievalMode.FullText,
+  topK: 5,
+  scoreThresholdEnabled: false,
+  scoreThreshold: 0,
+  semanticWeight: 50,
+  rerankModelId: null,
   createdAt: EPOCH,
   updatedAt: EPOCH,
   ...over,
@@ -99,6 +106,12 @@ export const KB_ITEM_KEYS = [
   'likeCount',
   'name',
   'ownerId',
+  'rerankModelId',
+  'retrievalMode',
+  'scoreThreshold',
+  'scoreThresholdEnabled',
+  'semanticWeight',
+  'topK',
   'updatedAt',
   'visibility',
 ];
@@ -110,6 +123,12 @@ export type KbItem = {
   visibility: KnowledgeBaseVisibility;
   name: string;
   description: string;
+  retrievalMode: KnowledgeRetrievalMode;
+  topK: number;
+  scoreThresholdEnabled: boolean;
+  scoreThreshold: number;
+  semanticWeight: number;
+  rerankModelId: string | null;
   createdAt: Date;
   updatedAt: Date;
   likeCount: number;
@@ -122,6 +141,12 @@ export const makeKbItem = (over: Partial<KbItem> = {}): KbItem => ({
   visibility: KnowledgeBaseVisibility.Private,
   name: '产品文档',
   description: '产品文档',
+  retrievalMode: KnowledgeRetrievalMode.FullText,
+  topK: 5,
+  scoreThresholdEnabled: false,
+  scoreThreshold: 0,
+  semanticWeight: 50,
+  rerankModelId: null,
   createdAt: EPOCH,
   updatedAt: EPOCH,
   likeCount: 0,
@@ -205,6 +230,61 @@ export const makeKbQb = (): KbQb => {
   qb.addOrderBy.mockReturnValue(qb);
   qb.take.mockReturnValue(qb);
   qb.getMany.mockResolvedValue([makeKb()]);
+  return qb;
+};
+
+/**
+ * `UPDATE ... RETURNING *` 返回的行：键是**数据库列名**（与实体上的 `name:` 一致）。
+ * 刻意手写列名而不是从实体元数据派生——服务层正是靠元数据把列名映射回属性名，
+ * 两者同源就测不出映射错误。
+ */
+export const makeKbRow = (
+  over: Record<string, unknown> = {},
+): Record<string, unknown> => ({
+  id: KB_ID,
+  owner_id: 'u1',
+  visibility: KnowledgeBaseVisibility.Private,
+  name: '产品文档',
+  description: '产品文档',
+  retrieval_mode: KnowledgeRetrievalMode.FullText,
+  top_k: 5,
+  score_threshold_enabled: false,
+  score_threshold: 0,
+  semantic_weight: 50,
+  rerank_model_id: null,
+  created_at: EPOCH,
+  updated_at: EPOCH,
+  ...over,
+});
+
+/** 知识库 update 用的 QueryBuilder stub 形状（UPDATE ... RETURNING *） */
+type UpdateQb = {
+  update: Mock;
+  set: Mock;
+  where: Mock;
+  returning: Mock;
+  execute: Mock;
+};
+
+/**
+ * 可链式 QueryBuilder mock：供 `KnowledgeService.update` 的
+ * `UPDATE ... SET ... WHERE ... RETURNING *` 用。`rows` 即 RETURNING 回的行（空数组 = 命中 0 行）。
+ */
+export const makeUpdateQb = (
+  rows: Record<string, unknown>[] = [makeKbRow()],
+): UpdateQb => {
+  const qb = {
+    update: vi.fn(),
+    set: vi.fn(),
+    where: vi.fn(),
+    returning: vi.fn(),
+    execute: vi.fn(),
+  };
+  qb.update.mockReturnValue(qb);
+  qb.set.mockReturnValue(qb);
+  qb.where.mockReturnValue(qb);
+  qb.returning.mockReturnValue(qb);
+  qb.execute.mockResolvedValue({ raw: rows });
   return qb;
 };
 

@@ -67,6 +67,11 @@ const mutationMocks = vi.hoisted(() => {
 /** 刷新回调（丢弃全部列表缓存并重载）：由路由持有的 hook 提供 */
 const refreshList = vi.hoisted(() => vi.fn());
 
+// 创建抽屉里的重排模型下拉会按类型取模型列表：列表页用例不需要真实请求
+vi.mock('@/hooks/use-model-provider', () => ({
+  useModelProvidersByType: vi.fn(() => ({ models: [], isLoading: false })),
+}));
+
 vi.mock('@/hooks/use-knowledge', () => ({
   useInfiniteKnowledgeBaseList: vi.fn(),
   useRefreshKnowledgeBaseList: vi.fn(() => refreshList),

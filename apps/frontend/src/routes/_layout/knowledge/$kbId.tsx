@@ -3,6 +3,7 @@ import type { KnowledgeDocumentListItem } from '@/api/types';
 import { DocumentTextDrawer } from '@/components/knowledge/DocumentTextDrawer';
 import { DocumentToolbar } from '@/components/knowledge/DocumentToolbar';
 import { DocumentUploadButton } from '@/components/knowledge/DocumentUploadButton';
+import { KnowledgeRetrievalSummary } from '@/components/knowledge/KnowledgeRetrievalSummary';
 import { formatBytes } from '@/components/lib/utils';
 import { PageShell } from '@/components/page-shell';
 import {
@@ -12,6 +13,7 @@ import {
   useDocumentList,
   useKnowledgeBase,
 } from '@/hooks/use-knowledge';
+import { useModelProvider } from '@/hooks/use-model-provider';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import type { ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
@@ -51,6 +53,13 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
   const [uploading, setUploading] = useState(false);
 
   const kbQuery = useKnowledgeBase(kbId);
+  // 检索设置里只存了 rerank 模型 ID：按 id 取单条详情（与模型管理共享 item 缓存），
+  // 不再为显示一个名字拉整份列表；未配置重排时不发请求
+  const { data: rerankModel } = useModelProvider(
+    kbQuery.data?.rerankModelId ?? undefined,
+  );
+  const kb = kbQuery.data;
+  const rerankModelName = rerankModel?.name;
   const listQuery = useMemo(
     () => ({
       page,
@@ -199,8 +208,20 @@ export const KnowledgeDetailPage: FC<KnowledgeDetailPageProps> = ({ kbId }) => {
   return (
     <>
       <DocumentToolbar
-        kbName={kbQuery.data?.name}
-        kbDescription={kbQuery.data?.description}
+        kbName={kb?.name}
+        kbDescription={kb?.description}
+        retrieval={
+          kb ? (
+            <KnowledgeRetrievalSummary
+              retrievalMode={kb.retrievalMode}
+              topK={kb.topK}
+              scoreThresholdEnabled={kb.scoreThresholdEnabled}
+              scoreThreshold={kb.scoreThreshold}
+              semanticWeight={kb.semanticWeight}
+              rerankModelName={rerankModelName}
+            />
+          ) : undefined
+        }
         backLink={
           <Link
             to="/knowledge"

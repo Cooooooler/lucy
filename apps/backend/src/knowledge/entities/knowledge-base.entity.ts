@@ -10,11 +10,24 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { ModelProvider } from '../../model-provider/entities/model-provider.entity.js';
 import { User } from '../../users/user.entity.js';
 
 export enum KnowledgeBaseVisibility {
   Private = 'private',
   Public = 'public',
+}
+
+/**
+ * 检索模式：决定检索链路如何组合关键词与语义召回。
+ * - `fulltext`：仅全文（关键词）召回
+ * - `vector`：仅向量（语义）召回
+ * - `hybrid`：两者混合，权重由 `semanticWeight` 表达（关键词权重 = 100 - 语义权重）
+ */
+export enum KnowledgeRetrievalMode {
+  FullText = 'fulltext',
+  Vector = 'vector',
+  Hybrid = 'hybrid',
 }
 
 /**
@@ -40,6 +53,9 @@ export enum KnowledgeBaseVisibility {
   'createdAt',
   'id',
 ])
+// rerank_model_id 的 FK 需自带索引：删除模型时 ON DELETE SET NULL 会按该列定位引用行，
+// 无索引则退化为全表扫描（TypeORM 不会为 FK 列自动建索引）
+@Index('IDX_knowledge_bases_rerank_model', ['rerankModelId'])
 export class KnowledgeBase {
   @ApiProperty({ description: '知识库 ID' })
   @PrimaryGeneratedColumn('uuid')
@@ -80,6 +96,58 @@ export class KnowledgeBase {
   @Column({ type: 'varchar', length: 200 })
   description: string;
 
+  // ---- 检索设置：仅在创建时确定，之后只读（更新 DTO 不声明这些字段）----
+  // 默认值字面量与 `@lucy/shared` 的 KNOWLEDGE_*_DEFAULT 常量对齐；此处写字面量是为了让
+  // `migration:generate` 产出稳定的 DDL，不依赖 shared 的构建产物。
+
+  // 检索字段的契约由 KnowledgeBaseItemDto / CreateKnowledgeBaseDto 定义，
+  // 实体只负责 schema；这里不再维护第二份 Swagger 描述（会与 DTO 漂移）。
+  @ApiHideProperty()
+  @Column({
+    name: 'retrieval_mode',
+    type: 'varchar',
+    length: 10,
+    default: KnowledgeRetrievalMode.FullText,
+  })
+  retrievalMode: KnowledgeRetrievalMode;
+
+  // 数值边界由 `@lucy/shared` 常量 + 允许式 DTO 定义，实体不是对外契约：
+  // 在这里写死区间文案只会在常量调整时静默失准，故不参与 Swagger。
+  @ApiHideProperty()
+  @Column({ name: 'top_k', type: 'int', default: 5 })
+  topK: number;
+
+  @ApiHideProperty()
+  @Column({ name: 'score_threshold_enabled', type: 'boolean', default: false })
+  scoreThresholdEnabled: boolean;
+
+  @ApiHideProperty()
+  @Column({ name: 'score_threshold', type: 'real', default: 0 })
+  scoreThreshold: number;
+
+  @ApiHideProperty()
+  @Column({ name: 'semantic_weight', type: 'int', default: 50 })
+  semanticWeight: number;
+
+  @ApiHideProperty()
+  // 属主私有资源标识：契约只在属主视图里下发（mapper 对非属主置 null），
+  // 直接返回实体的路径必须靠序列化层剔除，不能只依赖 mapper
+  @Exclude()
+  // 自有列声明关系：服务层读写只碰 id，不 populate 关系（契约里也只有 id）
+  @Column({ name: 'rerank_model_id', type: 'uuid', nullable: true })
+  rerankModelId: string | null;
+
+  @ApiHideProperty()
+  // 关系对象不对外暴露（@Exclude 由全局序列化拦截器生效）。
+  // ON DELETE SET NULL：删除模型时只断开关联，不连带删除知识库。
+  @Exclude()
+  @ManyToOne(() => ModelProvider, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({
+    name: 'rerank_model_id',
+    foreignKeyConstraintName: 'FK_knowledge_bases_rerank_model',
+  })
+  rerankModel?: ModelProvider;
+
   @ApiProperty({ description: '创建时间' })
   // 毫秒对齐：keyset 游标是毫秒精度（JS Date 的固有精度），列默认值若落到微秒，
   // `(created_at, id) < (:cursorTs, :cursorId)` 会在同一毫秒内整批跳行。
@@ -91,7 +159,10 @@ export class KnowledgeBase {
   createdAt: Date;
 
   @ApiProperty({ description: '更新时间' })
-  // 同上，必须与 created_at 的精度保持一致
+  // 插入时的列默认值与 created_at 一样按毫秒对齐；但 UPDATE 路径（`repository.update`，
+  // 包括 `save` 之外的列级更新与跨领域清理）由 TypeORM 写 `CURRENT_TIMESTAMP`，
+  // Postgres 精度是**微秒**。因此 updated_at **不得**用作 keyset/增量游标
+  // （同一毫秒内的多行会被整批跳过）；排序/游标一律用不可变的 created_at。
   @UpdateDateColumn({
     name: 'updated_at',
     type: 'timestamptz',

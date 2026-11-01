@@ -15,7 +15,7 @@ import {
 
 /**
  * 类型/供应商组合在当前 LangChain 统一 SDK 下没有对应客户端：
- * - speech2text / tts 三家都没有统一类
+ * - speech2text / tts / rerank 三家都没有统一类
  * - moderation 只有 OpenAI 提供（`ChatOpenAI.moderateContent`）
  * - text-embedding 只有 OpenAI / Ollama 提供，Anthropic 无 embeddings 接口
  */
@@ -58,7 +58,7 @@ export function resolveOutputMaxTokens(config: ConfigService): number {
  * - LLM → OpenAI `ChatOpenAI` / Anthropic `ChatAnthropic` / Ollama `ChatOllama`
  * - Moderation → 仅 OpenAI（`ChatOpenAI.moderateContent`），其余供应商由 `assertSupported` 拦下
  * - Text Embedding → OpenAI `OpenAIEmbeddings` / Ollama `OllamaEmbeddings`，Anthropic 不支持
- * - Speech2Text / TTS → 无对应类，抛 `UnsupportedModelTypeError`
+ * - Speech2Text / TTS / Rerank → 无对应类，抛 `UnsupportedModelTypeError`
  *
  * `maxRetries: 0`：连接测试要的是「现在通不通」，默认的 2 次重试会把失败响应拖长数倍，
  * 也让测试耗时不可预期。协议只在 OpenAI 生效（responses → `useResponsesApi`）。
@@ -176,7 +176,8 @@ export class ModelClientFactory {
   assertSupported(type: ModelProviderType, vendor: ModelProviderVendor): void {
     if (
       type === ModelProviderType.Speech2Text ||
-      type === ModelProviderType.Tts
+      type === ModelProviderType.Tts ||
+      type === ModelProviderType.Rerank
     ) {
       throw new UnsupportedModelTypeError(type);
     }

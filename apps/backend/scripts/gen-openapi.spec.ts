@@ -3,6 +3,12 @@ import {
   CONVERSATION_TITLE_MIN_LENGTH,
   EMAIL_MAX_LENGTH,
   KNOWLEDGE_KEYWORD_MAX_LENGTH,
+  KNOWLEDGE_SCORE_THRESHOLD_MAX,
+  KNOWLEDGE_SCORE_THRESHOLD_MIN,
+  KNOWLEDGE_SEMANTIC_WEIGHT_MAX,
+  KNOWLEDGE_SEMANTIC_WEIGHT_MIN,
+  KNOWLEDGE_TOP_K_MAX,
+  KNOWLEDGE_TOP_K_MIN,
   LOGIN_ACCOUNT_MAX_LENGTH,
   MESSAGE_CONTENT_MAX_LENGTH,
   MESSAGE_CONTENT_MIN_LENGTH,
@@ -142,6 +148,12 @@ describe('gen-openapi', () => {
         'visibility',
         'name',
         'description',
+        'retrievalMode',
+        'topK',
+        'scoreThresholdEnabled',
+        'scoreThreshold',
+        'semanticWeight',
+        'rerankModelId',
         'createdAt',
         'updatedAt',
         'likeCount',
@@ -377,6 +389,44 @@ describe('gen-openapi', () => {
       minLength: 1,
       maxLength: 200,
     });
+
+    // 知识库检索设置：class-validator 的 @Min/@Max 不产出文档边界，必须两处同步写。
+    // 期望值取自 @lucy/shared 的契约常量，与前端 InputNumber 共用同一份。
+    expect(propOf('CreateKnowledgeBaseDto', 'topK')).toMatchObject({
+      minimum: KNOWLEDGE_TOP_K_MIN,
+      maximum: KNOWLEDGE_TOP_K_MAX,
+    });
+    expect(propOf('CreateKnowledgeBaseDto', 'scoreThreshold')).toMatchObject({
+      // 闭区间与运行时一致；「启用时 > 0」是条件规则，只写在 description 里
+      minimum: KNOWLEDGE_SCORE_THRESHOLD_MIN,
+      maximum: KNOWLEDGE_SCORE_THRESHOLD_MAX,
+    });
+    expect(propOf('CreateKnowledgeBaseDto', 'semanticWeight')).toMatchObject({
+      minimum: KNOWLEDGE_SEMANTIC_WEIGHT_MIN,
+      maximum: KNOWLEDGE_SEMANTIC_WEIGHT_MAX,
+    });
+    expect(propOf('CreateKnowledgeBaseDto', 'rerankModelId')).toMatchObject({
+      format: 'uuid',
+    });
+    // 条目契约（对外响应）与创建契约的类型信息必须一致
+    expect(propOf('KnowledgeBaseItemDto', 'rerankModelId')).toMatchObject({
+      format: 'uuid',
+      nullable: true,
+    });
+    // 检索设置只在创建时确定：更新契约里不得出现这些字段（否则 PATCH 能改）
+    for (const field of [
+      'retrievalMode',
+      'topK',
+      'scoreThresholdEnabled',
+      'scoreThreshold',
+      'semanticWeight',
+      'rerankModelId',
+    ]) {
+      expect(
+        doc.components?.schemas?.UpdateKnowledgeBaseDto?.properties?.[field],
+        `UpdateKnowledgeBaseDto 不应声明 ${field}`,
+      ).toBeUndefined();
+    }
   });
 
   it('模型供应商契约：允许式白名单，且不含 API Key 明文/密文/尾号', async () => {

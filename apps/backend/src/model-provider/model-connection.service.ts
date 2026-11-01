@@ -120,7 +120,7 @@ export class ModelConnectionService {
         return `向量维度 ${vector.length}`;
       }
       default:
-        // assertSupported 已拦截 speech2text/tts；这里只做类型收窄兜底
+        // assertSupported 已拦截 speech2text/tts/rerank；这里只做类型收窄兜底
         throw new UnsupportedModelTypeError(provider.type);
     }
   }

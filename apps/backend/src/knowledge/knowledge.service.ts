@@ -1,9 +1,21 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  KNOWLEDGE_SCORE_THRESHOLD_DEFAULT,
+  KNOWLEDGE_SCORE_THRESHOLD_MIN,
+  KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
+  KNOWLEDGE_TOP_K_DEFAULT,
+} from '@lucy/shared';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
+import { ModelProviderService } from '../model-provider/model-provider.service.js';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto.js';
 import { KnowledgeListQueryDto } from './dto/knowledge-list-query.dto.js';
 import type {
@@ -14,6 +26,7 @@ import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
 import {
   KnowledgeBase,
   KnowledgeBaseVisibility,
+  KnowledgeRetrievalMode,
 } from './entities/knowledge-base.entity.js';
 import { KnowledgeLike } from './entities/knowledge-like.entity.js';
 import { resolveOwnedKb, resolveReadableKb } from './knowledge-access.js';
@@ -38,6 +51,8 @@ export class KnowledgeService {
     private readonly paginator: KeysetPaginator,
     // 级联删除知识库时复用文档/文件的清理逻辑（底层文件 I/O 收在文档服务里）
     private readonly documentService: KnowledgeDocumentService,
+    // 创建时校验所选重排模型的属主与类型（模型领域 owns 该判据）
+    private readonly modelProviderService: ModelProviderService,
   ) {}
 
   /**
@@ -51,13 +66,44 @@ export class KnowledgeService {
     dto: CreateKnowledgeBaseDto,
   ): Promise<KnowledgeBaseItemDto> {
     this.logger.log(`kb create name=${dto.name}`, KnowledgeService.name);
-    const kb = await this.kbRepo.save({
+    const scoreThresholdEnabled = dto.scoreThresholdEnabled ?? false;
+    const scoreThreshold =
+      dto.scoreThreshold ?? KNOWLEDGE_SCORE_THRESHOLD_DEFAULT;
+    // 启用阈值却为 0 等于不过滤：检索设置创建后不可改，不能在落库后才发现是空转。
+    // DTO 已在字段级拦下（含文案），这里保留同口径的兜底（直接调用服务层时生效）
+    if (
+      scoreThresholdEnabled &&
+      scoreThreshold <= KNOWLEDGE_SCORE_THRESHOLD_MIN
+    ) {
+      throw new BadRequestException(
+        `启用 Score 阈值时必须设置大于 ${KNOWLEDGE_SCORE_THRESHOLD_MIN} 的阈值`,
+      );
+    }
+    const values = {
       ownerId: userId,
       name: dto.name,
       description: dto.description,
       visibility: dto.visibility ?? KnowledgeBaseVisibility.Private,
-    });
-    return toKnowledgeBaseItem(kb);
+      // 检索设置只在创建时确定（更新 DTO 不含这些字段）
+      retrievalMode: dto.retrievalMode ?? KnowledgeRetrievalMode.FullText,
+      topK: dto.topK ?? KNOWLEDGE_TOP_K_DEFAULT,
+      scoreThresholdEnabled,
+      scoreThreshold,
+      semanticWeight: dto.semanticWeight ?? KNOWLEDGE_SEMANTIC_WEIGHT_DEFAULT,
+      rerankModelId: dto.rerankModelId ?? null,
+    };
+    // 只有选了重排模型才需要事务（校验 + 插入 + 共享锁）；否则单条 INSERT 本身原子
+    const kb = dto.rerankModelId
+      ? await this.kbRepo.manager.transaction(async (manager) => {
+          await this.modelProviderService.resolveOwnedRerankInTransaction(
+            manager,
+            userId,
+            dto.rerankModelId as string,
+          );
+          return manager.save(KnowledgeBase, values);
+        })
+      : await this.kbRepo.save(values);
+    return toKnowledgeBaseItem(kb, userId);
   }
 
   /**
@@ -104,7 +150,7 @@ export class KnowledgeService {
     // 批量回写 likeCount / isLiked，单次聚合查询，避免 N+1
     await this.fillLikeInfo(userId, page.list);
     return {
-      list: page.list.map(toKnowledgeBaseItem),
+      list: page.list.map((kb) => toKnowledgeBaseItem(kb, userId)),
       nextCursor: page.nextCursor,
     };
   }
@@ -117,7 +163,7 @@ export class KnowledgeService {
   async get(userId: string, id: string): Promise<KnowledgeBaseItemDto> {
     const kb = await resolveReadableKb(this.kbRepo, id, userId);
     await this.fillLikeInfo(userId, [kb]);
-    return toKnowledgeBaseItem(kb);
+    return toKnowledgeBaseItem(kb, userId);
   }
 
   /**
@@ -206,6 +252,7 @@ export class KnowledgeService {
   /**
    * 更新知识库元信息。
    * 仅属主可操作；只更新 DTO 中显式提供的字段。
+   * 检索设置（模式/召回条数/阈值/权重/重排模型）有意不在此处：它们只在创建时确定。
    * @throws NotFoundException / ForbiddenException
    */
   async update(
@@ -213,16 +260,56 @@ export class KnowledgeService {
     id: string,
     dto: UpdateKnowledgeBaseDto,
   ): Promise<KnowledgeBaseItemDto> {
-    const kb = await resolveOwnedKb(this.kbRepo, id, userId);
-    if (dto.name !== undefined) kb.name = dto.name;
-    if (dto.description !== undefined) kb.description = dto.description;
-    if (dto.visibility !== undefined) kb.visibility = dto.visibility;
-    const saved = await this.kbRepo.save(kb);
+    const patch: Partial<KnowledgeBase> = {};
+    if (dto.name !== undefined) patch.name = dto.name;
+    if (dto.description !== undefined) patch.description = dto.description;
+    if (dto.visibility !== undefined) patch.visibility = dto.visibility;
+    // 只写 DTO 中显式出现的列，不对整实体做 save：整实体 diff 会把读到的旧
+    // rerank_model_id 与「并发改模型类型已清空」的库值比较后判为变更并写回，
+    // 让刚失效的引用复活（检索设置创建后不可改，写回即无法修正）。
+    if (Object.keys(patch).length === 0) {
+      const kb = await resolveOwnedKb(this.kbRepo, id, userId);
+      await this.fillLikeInfo(userId, [kb]);
+      this.logger.log(`kb update kb=${id}`, KnowledgeService.name);
+      return toKnowledgeBaseItem(kb, userId);
+    }
+    // 属主判据下沉进 UPDATE 的 where，并用 RETURNING * 一次取回被更新的行：单条语句本身
+    // 原子，既不用「UPDATE 之后再回读」（回读与 UPDATE 之间的并发 DELETE 会让一次已生效的
+    // 更新被误报成 404），也少一次往返。只有命中 0 行（不存在 / 非属主）才额外读一次来区分
+    // 404 与 403。
+    const result = await this.kbRepo
+      .createQueryBuilder()
+      .update(KnowledgeBase)
+      .set(patch)
+      .where({ id, ownerId: userId })
+      .returning('*')
+      .execute();
+    const [row] = (result.raw ?? []) as Record<string, unknown>[];
+    if (!row) {
+      await resolveOwnedKb(this.kbRepo, id, userId);
+      throw new NotFoundException('知识库不存在');
+    }
+    const saved = this.entityFromRow(row);
     // 点赞态同样要回填：响应形状必须与 get/list 完全一致，
     // 否则 mapper 的兜底会把「已点赞」谎报成 0/false。
     await this.fillLikeInfo(userId, [saved]);
     this.logger.log(`kb update kb=${id}`, KnowledgeService.name);
-    return toKnowledgeBaseItem(saved);
+    return toKnowledgeBaseItem(saved, userId);
+  }
+
+  /**
+   * 把 `RETURNING *` 返回的行（键是**数据库列名**：`owner_id` / `created_at` …）还原成实体。
+   *
+   * 逐列照实体元数据映射，而不是手写一份 camelCase↔snake_case 对照表：新增列时手抄的表
+   * 会漏改，让响应静默少字段；元数据随实体自动跟上。
+   */
+  private entityFromRow(raw: Record<string, unknown>): KnowledgeBase {
+    const entity = new KnowledgeBase();
+    const target = entity as unknown as Record<string, unknown>;
+    for (const { propertyName, databaseName } of this.kbRepo.metadata.columns) {
+      target[propertyName] = raw[databaseName];
+    }
+    return entity;
   }
 
   /**

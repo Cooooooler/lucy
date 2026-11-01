@@ -46,6 +46,7 @@ export const MODEL_TYPE_OPTIONS: {
 }[] = [
   { label: 'LLM', value: 'llm' },
   { label: '文本嵌入', value: 'text-embedding' },
+  { label: '重排', value: 'rerank' },
   { label: '语音转文字', value: 'speech2text' },
   { label: '语音合成', value: 'tts' },
   { label: '内容审核', value: 'moderation' },
@@ -54,6 +55,7 @@ export const MODEL_TYPE_OPTIONS: {
 export const MODEL_TYPE_LABEL: Record<ModelProviderType, string> = {
   llm: 'LLM',
   'text-embedding': '文本嵌入',
+  rerank: '重排',
   speech2text: '语音转文字',
   tts: '语音合成',
   moderation: '内容审核',
@@ -63,6 +65,7 @@ export const MODEL_TYPE_LABEL: Record<ModelProviderType, string> = {
 export const MODEL_TYPE_COLOR: Record<ModelProviderType, string> = {
   llm: '#45b7d1',
   'text-embedding': '#7c6cf0',
+  rerank: '#5b8def',
   speech2text: '#f0a13c',
   tts: '#e06c9f',
   moderation: '#4ecdc4',

@@ -11,16 +11,41 @@ import type { KnowledgeDocument } from './entities/knowledge-document.entity.js'
  *
  * `likeCount`/`isLiked` 是查询期计算的视图字段（见 `KnowledgeService.fillLikeInfo`），
  * 服务层保证返回前已填充；未填充时按「无点赞」兜底，保证所有端点的响应形状一致。
+ *
+ * `rerankModelId` 指向属主私有的模型配置：公开知识库被非属主读取时置 null，
+ * 不把内部资源标识暴露给非属主（前端也只在自己的模型列表里解析名称）。
  */
-export function toKnowledgeBaseItem(kb: KnowledgeBase): KnowledgeBaseItemDto {
-  const { id, ownerId, visibility, name, description, createdAt, updatedAt } =
-    kb;
+export function toKnowledgeBaseItem(
+  kb: KnowledgeBase,
+  viewerId: string,
+): KnowledgeBaseItemDto {
+  const {
+    id,
+    ownerId,
+    visibility,
+    name,
+    description,
+    retrievalMode,
+    topK,
+    scoreThresholdEnabled,
+    scoreThreshold,
+    semanticWeight,
+    createdAt,
+    updatedAt,
+  } = kb;
+  const rerankModelId = kb.ownerId === viewerId ? kb.rerankModelId : null;
   return {
     id,
     ownerId,
     visibility,
     name,
     description,
+    retrievalMode,
+    topK,
+    scoreThresholdEnabled,
+    scoreThreshold,
+    semanticWeight,
+    rerankModelId,
     createdAt,
     updatedAt,
     likeCount: kb.likeCount ?? 0,

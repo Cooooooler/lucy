@@ -59,6 +59,7 @@ describe('ModelProviderDefaultsService', () => {
     expect(result.defaults).toEqual([
       { type: ModelProviderType.Llm, modelProviderId: 'm-llm' },
       { type: ModelProviderType.TextEmbedding, modelProviderId: 'm-emb' },
+      { type: ModelProviderType.Rerank, modelProviderId: null },
       { type: ModelProviderType.Speech2Text, modelProviderId: null },
       { type: ModelProviderType.Tts, modelProviderId: null },
       { type: ModelProviderType.Moderation, modelProviderId: null },
