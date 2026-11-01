@@ -86,6 +86,15 @@ describe('Auth (e2e)', () => {
       .expect(401);
   });
 
+  // 守卫只负责收窄与委托，框架默认英文串（passport 的 `Unauthorized`）由
+  // AllExceptionsFilter 统一中文化：这里从 HTTP 层钉住「用户最终仍看到中文 401」
+  it('未携带凭证时返回中文 401', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/v1/auth/me')
+      .expect(401);
+    expect((res.body as ApiBody<null>).message).toBe('未登录或登录已过期');
+  });
+
   // 同一个邮箱在库中只能有一行：注册写入归一为小写，登录对含 @ 的 account 也归一，
   // 否则大小写变体可注册出重复账号、且本人用小写登录会 401
   it('邮箱大小写不敏感：注册归一为小写、变体不可重复注册、小写可登录', async () => {

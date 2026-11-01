@@ -36,6 +36,7 @@ import {
 } from './dto/knowledge-list-result.dto.js';
 import { LikeResultDto } from './dto/like-result.dto.js';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto.js';
+import { UpdateKnowledgeVisibilityDto } from './dto/update-knowledge-visibility.dto.js';
 import { KnowledgeBaseVisibility } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { KnowledgeService } from './knowledge.service.js';
@@ -90,23 +91,9 @@ export class KnowledgeController {
   }
 
   @Patch(':id')
-  // 可见性单独切换与整表单编辑走同一接口：请求体**仅含 visibility 单键**时才给
-  // 「已设为公开/私有」——编辑抽屉保存总会带上 visibility（含标题/描述同改时），
-  // 按值判定会把普通编辑误报成切换。其他一律「知识库更新成功」。
-  // 类型收窄到 UpdateKnowledgeBaseDto + 枚举比对：枚举改名时编译期即报错，
-  // 不会静默降级文案。注意 body 是 any，先断言再读，避免 any 污染。
-  @SuccessMessage((_data, req) => {
-    const body = req.body as Partial<UpdateKnowledgeBaseDto> | undefined;
-    if (body && Object.keys(body).length === 1) {
-      if (body.visibility === KnowledgeBaseVisibility.Public) {
-        return '已设为公开';
-      }
-      if (body.visibility === KnowledgeBaseVisibility.Private) {
-        return '已设为私有';
-      }
-    }
-    return '知识库更新成功';
-  })
+  // 整表单更新（含编辑抽屉里顺带改可见性）统一提示「知识库更新成功」：
+  // 单纯的可见性切换走下面的独立端点，文案不再靠请求体形状反推
+  @SuccessMessage('知识库更新成功')
   @ApiOperation({ summary: '更新知识库' })
   @ApiResponse({ status: 200, type: KnowledgeBaseItemDto })
   update(
@@ -115,6 +102,33 @@ export class KnowledgeController {
     @Body() dto: UpdateKnowledgeBaseDto,
   ): Promise<KnowledgeBaseItemDto> {
     return this.knowledgeService.update(user.userId, id, dto);
+  }
+
+  @Patch(':id/visibility')
+  // 可见性切换独立成端点：成功文案依据响应里的 visibility（服务端事实），
+  // 而不是「请求体是否只有 visibility 一个键」这类形状启发式。
+  // 解析器在字段缺失/未知值时抛错，由 ApiResponseInterceptor 记 warn 后回退
+  // 方法级兜底（「更新成功」），契约漂移不会静默，也不会给出与事实相反的文案。
+  @SuccessMessage((data) => {
+    const visibility = (data as KnowledgeBaseItemDto | null)?.visibility;
+    if (visibility === KnowledgeBaseVisibility.Public) return '已设为公开';
+    if (visibility === KnowledgeBaseVisibility.Private) return '已设为私有';
+    throw new Error(
+      `updateVisibility 响应缺少 visibility：${String(visibility)}`,
+    );
+  })
+  @ApiOperation({ summary: '切换知识库可见性' })
+  @ApiResponse({ status: 200, type: KnowledgeBaseItemDto })
+  @ApiResponse({ status: 403, description: '仅知识库主可操作' })
+  @ApiResponse({ status: 404, description: '知识库不存在' })
+  updateVisibility(
+    @CurrentUser() user: CurrentUserPayload,
+    @UUIDParam('id') id: string,
+    @Body() dto: UpdateKnowledgeVisibilityDto,
+  ): Promise<KnowledgeBaseItemDto> {
+    return this.knowledgeService.update(user.userId, id, {
+      visibility: dto.visibility,
+    });
   }
 
   @Delete(':id')

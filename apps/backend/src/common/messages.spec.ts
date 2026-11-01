@@ -3,12 +3,16 @@ import {
   HTTP_STATUS_MESSAGES,
   RATE_LIMIT_MESSAGE,
   fieldLabel,
-  isFrameworkDefaultMessage,
+  unauthorizedMessage,
 } from './messages.js';
 
 describe('messages', () => {
   it('RATE_LIMIT_MESSAGE 与 429 兜底同源', () => {
     expect(HTTP_STATUS_MESSAGES[429]).toBe(RATE_LIMIT_MESSAGE);
+  });
+
+  it('unauthorizedMessage 与 401 兜底同源（守卫只引用这一处）', () => {
+    expect(unauthorizedMessage()).toBe(HTTP_STATUS_MESSAGES[401]);
   });
 
   it('fieldLabel：已知字段翻中文，未知回退属性名', () => {
@@ -23,21 +27,5 @@ describe('messages', () => {
     // 映射表本身不含原型链上的键
     expect(Object.hasOwn(FIELD_LABELS, 'constructor')).toBe(false);
     expect(Object.hasOwn(FIELD_LABELS, 'toString')).toBe(false);
-  });
-
-  it('isFrameworkDefaultMessage：字符串 / 数组 / 对象 message', () => {
-    expect(isFrameworkDefaultMessage('Unauthorized')).toBe(true);
-    expect(isFrameworkDefaultMessage('File too large')).toBe(true);
-    expect(
-      isFrameworkDefaultMessage('Validation failed (uuid is expected)'),
-    ).toBe(true);
-    expect(isFrameworkDefaultMessage('用户名或密码错误')).toBe(false);
-    expect(isFrameworkDefaultMessage(['ok', 'Too Many Requests'])).toBe(true);
-    expect(isFrameworkDefaultMessage(['ok', 'fine'])).toBe(false);
-    expect(isFrameworkDefaultMessage({ message: 'Forbidden' })).toBe(true);
-    expect(isFrameworkDefaultMessage({ message: '业务中文' })).toBe(false);
-    expect(isFrameworkDefaultMessage(undefined)).toBe(false);
-    expect(isFrameworkDefaultMessage(null)).toBe(false);
-    expect(isFrameworkDefaultMessage(42)).toBe(false);
   });
 });

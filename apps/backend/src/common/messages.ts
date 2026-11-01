@@ -43,6 +43,17 @@ export const HTTP_STATUS_MESSAGES: Partial<Record<number, string>> = {
 };
 
 /**
+ * 401 中文兜底：`HTTP_STATUS_MESSAGES[401]` 的单一出口。
+ *
+ * 守卫在「err 为非 Error 值」这一分支需要主动抛出中文 401，直接内联字面量会与映射表
+ * 各存一份；走这个函数，改文案只改 `HTTP_STATUS_MESSAGES[401]`。`??` 回退用于映射
+ * 被误删时的编译期可见兜底（与守卫此前 `auth-failure.ts` 里的写法一致）。
+ */
+export function unauthorizedMessage(): string {
+  return HTTP_STATUS_MESSAGES[401] ?? '未登录或登录已过期';
+}
+
+/**
  * 需归一的框架英文默认串：Nest/http-exception 的默认 message、passport 的
  * `Unauthorized`、throttler 的 `Too Many Requests` 等。出现即按 HTTP 状态
  * 换成上面的中文，避免用户看到 `Unauthorized` 之类的英文。
@@ -90,27 +101,6 @@ export const FRAMEWORK_DEFAULT_MESSAGES = new Set([
   'Unexpected end of form',
   'Unexpected end of file',
 ]);
-
-/**
- * 是否为框架默认英文 message：HttpException 的 message 可能是字符串、
- * 字符串数组或对象（`{ message }`），统一抽成字符串再比对。
- * 供 JwtAuthGuard 判定「passport 默认英文 401」用——按集合成员判断，
- * 不写死单个字符串比较。
- */
-export function isFrameworkDefaultMessage(message: unknown): boolean {
-  if (typeof message === 'string') {
-    return FRAMEWORK_DEFAULT_MESSAGES.has(message);
-  }
-  if (Array.isArray(message)) {
-    return message.some((item) => isFrameworkDefaultMessage(item));
-  }
-  if (message !== null && typeof message === 'object') {
-    return isFrameworkDefaultMessage(
-      (message as Record<string, unknown>).message,
-    );
-  }
-  return false;
-}
 
 /** 请求字段中文名：校验报错时把属性名翻译成人话；未收录的字段回退属性名本身 */
 export const FIELD_LABELS: Record<string, string> = {

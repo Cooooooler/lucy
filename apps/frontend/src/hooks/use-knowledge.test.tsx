@@ -24,6 +24,7 @@ import {
   useRefreshKnowledgeBaseList,
   useUnlikeKnowledgeBase,
   useUpdateKnowledgeBase,
+  useUpdateKnowledgeVisibility,
 } from './use-knowledge.js';
 
 const api = vi.hoisted(() => ({
@@ -31,6 +32,7 @@ const api = vi.hoisted(() => ({
   getKnowledgeBaseApi: vi.fn(),
   createKnowledgeBaseApi: vi.fn(),
   updateKnowledgeBaseApi: vi.fn(),
+  updateKnowledgeVisibilityApi: vi.fn(),
   deleteKnowledgeBaseApi: vi.fn(),
   listDocumentsApi: vi.fn(),
   getDocumentApi: vi.fn(),
@@ -411,6 +413,77 @@ describe('useUpdateKnowledgeBase', () => {
     expect(
       client.getQueryData<KnowledgeBase>(knowledgeKeys.base('kb1'))?.name,
     ).toBe('产品文档');
+  });
+});
+
+describe('useUpdateKnowledgeVisibility', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('调用独立端点并乐观更新可见性', async () => {
+    const updated = makeBase({
+      id: 'kb1',
+      visibility: 'public',
+      updatedAt: '2024-02-02T00:00:00Z',
+    });
+    api.updateKnowledgeVisibilityApi.mockResolvedValue(updated);
+    const client = createTestQueryClient();
+    client.setQueryData(
+      defaultListKey(),
+      infiniteCache([cursorPage([makeBase()])]),
+    );
+    client.setQueryData(knowledgeKeys.base('kb1'), makeBase());
+    const mutation = renderHook(() => useUpdateKnowledgeVisibility(), {
+      wrapper: createWrapperWithClient(client),
+    });
+    await act(async () => {
+      await mutation.result.current.mutateAsync({
+        id: 'kb1',
+        visibility: 'public',
+      });
+    });
+    expect(api.updateKnowledgeVisibilityApi).toHaveBeenCalledWith(
+      'kb1',
+      'public',
+    );
+    const cached = client.getQueryData<{
+      pages: Array<{ list: KnowledgeBase[] }>;
+    }>(defaultListKey());
+    expect(cached?.pages[0].list[0].visibility).toBe('public');
+    expect(
+      client.getQueryData<KnowledgeBase>(knowledgeKeys.base('kb1'))?.visibility,
+    ).toBe('public');
+  });
+
+  it('失败时回滚可见性缓存', async () => {
+    api.updateKnowledgeVisibilityApi.mockRejectedValue(
+      new Error('network error'),
+    );
+    const client = createTestQueryClient();
+    client.setQueryData(
+      defaultListKey(),
+      infiniteCache([cursorPage([makeBase()])]),
+    );
+    client.setQueryData(knowledgeKeys.base('kb1'), makeBase());
+    const mutation = renderHook(() => useUpdateKnowledgeVisibility(), {
+      wrapper: createWrapperWithClient(client),
+    });
+    await act(async () => {
+      try {
+        await mutation.result.current.mutateAsync({
+          id: 'kb1',
+          visibility: 'public',
+        });
+      } catch {
+        // 预期失败
+      }
+    });
+    const cached = client.getQueryData<{
+      pages: Array<{ list: KnowledgeBase[] }>;
+    }>(defaultListKey());
+    expect(cached?.pages[0].list[0].visibility).toBe('private');
+    expect(
+      client.getQueryData<KnowledgeBase>(knowledgeKeys.base('kb1'))?.visibility,
+    ).toBe('private');
   });
 });
 

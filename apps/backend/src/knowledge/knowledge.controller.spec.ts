@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
+import { KnowledgeBaseVisibility } from './entities/knowledge-base.entity.js';
 import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { KnowledgeController } from './knowledge.controller.js';
 import { KnowledgeService } from './knowledge.service.js';
@@ -58,6 +59,15 @@ describe('KnowledgeController', () => {
     const dto = { name: 'y' };
     await controller.update(user, 'kb1', dto);
     expect(service.update).toHaveBeenCalledWith('u1', 'kb1', dto);
+  });
+
+  it('updateVisibility 只把 visibility 转成补丁交给 service', async () => {
+    await controller.updateVisibility(user, 'kb1', {
+      visibility: KnowledgeBaseVisibility.Public,
+    });
+    expect(service.update).toHaveBeenCalledWith('u1', 'kb1', {
+      visibility: KnowledgeBaseVisibility.Public,
+    });
   });
 
   it('remove 转发 userId 与 id', async () => {

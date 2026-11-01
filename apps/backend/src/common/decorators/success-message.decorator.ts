@@ -1,14 +1,16 @@
 import { SetMetadata } from '@nestjs/common';
-import type { Request } from 'express';
 
 /** 成功文案元数据键，由 ApiResponseInterceptor 读取 */
 export const SUCCESS_MESSAGE_KEY = 'success_message';
 
 /**
- * 动态成功文案：入参为已序列化的响应数据与当前请求，
- * 用于「启用/禁用」「设为公开/私有」这类随载荷变化的提示。
+ * 动态成功文案：入参**只有**已序列化的响应数据。
+ *
+ * 刻意不传请求：文案必须依据服务端事实（如更新后的 status/visibility），
+ * 而不是「请求体长什么样」这类形状启发式——后者会给出与真实结果脱节的提示。
+ * 「启用/禁用」「设为公开/私有」各有独立端点，响应里都带着结果字段。
  */
-export type SuccessMessageResolver = (data: unknown, req: Request) => string;
+export type SuccessMessageResolver = (data: unknown) => string;
 
 /**
  * 标注路由成功响应信封里的 `message`。整体语义：

@@ -87,12 +87,26 @@ describe('JwtAuthGuard', () => {
     }
   });
 
-  it('无 user 时抛「未登录或登录已过期」（不再是英文 Unauthorized）', () => {
+  it('无 user 时交给 super 抛默认 401，守卫不自行改写文案', () => {
     const guard = new JwtAuthGuard(
       { getAllAndOverride: vi.fn() } as unknown as Reflector,
       { isActive: () => false } as unknown as ClsService,
     );
     expect(() => guard.handleRequest(null, null, null, context)).toThrowError(
+      UnauthorizedException,
+    );
+    // 默认英文串的中文化统一由 AllExceptionsFilter 负责（见 readableErrorMessage 的用例）
+    expect(() => guard.handleRequest(null, null, null, context)).toThrowError(
+      'Unauthorized',
+    );
+  });
+
+  it('err 为非 Error 值（passport 契约之外）时收成中文 401', () => {
+    const guard = new JwtAuthGuard(
+      { getAllAndOverride: vi.fn() } as unknown as Reflector,
+      { isActive: () => false } as unknown as ClsService,
+    );
+    expect(() => guard.handleRequest('boom', null, null, context)).toThrowError(
       new UnauthorizedException('未登录或登录已过期'),
     );
   });
@@ -137,13 +151,19 @@ describe('JwtAuthGuard', () => {
     }
   });
 
-  it('passport 默认英文 Unauthorized 被换成中文兜底', () => {
+  it('passport 默认英文 Unauthorized 原样透出，交给全局过滤器归一', () => {
     const guard = new JwtAuthGuard(
       { getAllAndOverride: vi.fn() } as unknown as Reflector,
       { isActive: () => false } as unknown as ClsService,
     );
-    expect(() =>
-      guard.handleRequest(new UnauthorizedException(), null, null, context),
-    ).toThrowError(new UnauthorizedException('未登录或登录已过期'));
+    const original = new UnauthorizedException();
+    try {
+      guard.handleRequest(original, null, null, context);
+      expect.unreachable();
+    } catch (err) {
+      // 同一对象透出：守卫不再保留第二份「默认英文 → 中文」实现
+      expect(err).toBe(original);
+      expect((err as UnauthorizedException).message).toBe('Unauthorized');
+    }
   });
 });
