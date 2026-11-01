@@ -1,11 +1,14 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { formatErrorForLog } from '../common/error-format.js';
 import { MODEL_CREDENTIAL_MESSAGES } from '../common/messages.js';
-import { providerErrorMessage } from '../common/provider-error.js';
+import {
+  blockedErrorMessage,
+  providerErrorMessage,
+} from '../common/provider-error.js';
 import type { ModelProviderTestResultDto } from './dto/model-provider-test-result.dto.js';
 import {
   ModelProvider,
@@ -28,22 +31,6 @@ class ModelTestTimeoutError extends Error {
 
 /** 连接测试默认超时（毫秒），可被 `MODEL_TEST_TIMEOUT_MS` 覆盖 */
 const DEFAULT_TIMEOUT_MS = 15000;
-
-/**
- * 从 SDK 包装的错误链里找出守卫抛出的可读 400 文案。
- *
- * OpenAI/Anthropic SDK 会把自定义 fetch 抛出的异常包成 APIConnectionError（原错误在
- * `cause` 上），LangChain 也可能再包一层；不沿 cause 链找，用户只会看到兜底的
- * 「连接失败，请检查配置」，而看不到「Base URL 指向受限地址」这类可执行原因。
- */
-function guardRejectionMessage(error: unknown): string | null {
-  let current: unknown = error;
-  for (let depth = 0; depth < 4 && current; depth += 1) {
-    if (current instanceof BadRequestException) return current.message;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return null;
-}
 
 /**
  * 模型「连接测试」服务：按配置构造 LangChain 客户端并做一次最小探针调用。
@@ -174,7 +161,7 @@ export class ModelConnectionService {
     if (error instanceof UnsupportedModelTypeError) {
       return '该模型类型暂不支持连通性测试';
     }
-    const rejected = guardRejectionMessage(error);
+    const rejected = blockedErrorMessage(error);
     if (rejected) return rejected;
     // 服务端凭证问题与供应商无关：解密失败＝平台密钥轮换/密文损坏，重存 Key 即恢复；
     // 未配置 Key 则是数据/装配态的问题。都不能靠改 provider 的地址/类型解决，

@@ -1,3 +1,4 @@
+import { BaseUrlBlockedError } from './base-url-blocked.error.js';
 import { PROVIDER_ERROR_MESSAGES, type ProviderErrorKind } from './messages.js';
 
 /**
@@ -28,4 +29,20 @@ export function providerErrorKind(error: unknown): ProviderErrorKind | null {
 export function providerErrorMessage(error: unknown): string | null {
   const kind = providerErrorKind(error);
   return kind ? PROVIDER_ERROR_MESSAGES[kind] : null;
+}
+
+/**
+ * 沿 SDK 包装错误的 `cause` 链找出 Base URL 守卫抛出的可执行文案。
+ *
+ * OpenAI/Anthropic SDK 会把自定义 fetch 的异常包成 APIConnectionError（原错误在
+ * `cause` 上），LangChain 也可能再包一层；不沿链找，用户只会看到兜底的「连接失败」，
+ * 看不到「指向受限地址 / 拒绝跟随重定向」。连接测试与对话链路共用这一处提取逻辑。
+ */
+export function blockedErrorMessage(error: unknown): string | null {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (current instanceof BaseUrlBlockedError) return current.message;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return null;
 }

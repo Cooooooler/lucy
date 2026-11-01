@@ -1,5 +1,10 @@
-import { BadRequestException } from '@nestjs/common';
-import { assertBaseUrlResolvedAllowed } from './base-url-guard.js';
+import type { LookupFunction } from 'node:net';
+import { Agent, fetch as undiciFetch } from 'undici';
+import { BaseUrlBlockedError } from '../common/base-url-blocked.error.js';
+import {
+  assertBaseUrlHostAllowed,
+  resolveAllowedAddresses,
+} from './base-url-guard.js';
 
 /** 取 fetch 入参的 URL 字符串（支持 string / URL / Request） */
 function requestUrlOf(input: RequestInfo | URL): string {
@@ -9,23 +14,57 @@ function requestUrlOf(input: RequestInfo | URL): string {
 }
 
 /**
+ * undici 的 connect lookup：用**已校验的解析结果**建立连接。
+ *
+ * 这是防 DNS rebinding 的关键：全局 fetch 会「校验时解析一次、连接时再解析一次」，
+ * TTL=0 的域名可以在第一次返回公网 IP、第二次返回 169.254.169.254。这里把解析、
+ * 校验、连接合成一次 lookup，连接直接用校验过的地址。
+ *
+ * keep-alive 复用连接时不会重复 lookup，因此不会给每个请求增加一次 DNS 查询；
+ * 新连接才解析，且受 undici 的连接超时/请求 signal 约束。
+ */
+function createGuardedLookup(): LookupFunction {
+  return (hostname, options, callback) => {
+    resolveAllowedAddresses(hostname)
+      .then((addresses) => {
+        if (options?.all) {
+          callback(null, addresses);
+          return;
+        }
+        const [first] = addresses;
+        callback(null, first.address, first.family);
+      })
+      .catch((error: unknown) => callback(error as Error, '', 0));
+  };
+}
+
+/**
  * 模型客户端（连接测试与真实对话）统一使用的 fetch：
  *
- * 1. 每次出站请求前按**解析后的 IP** 再校验一次（防 DNS 名指向链路本地/云元数据，
- *    也把 TOCTOU 窗口压缩到「解析 → 立即请求」）；
- * 2. `redirect: 'manual'`：不跟随重定向，避免 302 指向元数据端点；
+ * 1. 主机字面量先做同步校验（IP 字面量、已知元数据主机名）；
+ * 2. 通过 undici `Agent` 的 `connect.lookup` 按**解析后的 IP** 校验并把地址钉给连接；
+ * 3. `redirect: 'manual'`：不跟随重定向，避免 302 指向元数据端点；
  *    3xx 直接抛可读错误（API Base URL 正常不应依赖重定向）。
  *
- * 以函数形式注入各 SDK 的 `fetch` 选项（OpenAI/Anthropic/Ollama 均支持），
- * 而不是依赖它们各自的默认 fetch——默认实现会自动跟随重定向。
+ * 以函数形式注入各 SDK 的 `fetch` 选项（OpenAI/Anthropic/Ollama 均支持）。
  */
 export function createGuardedFetch(): typeof fetch {
+  const dispatcher = new Agent({
+    connect: { lookup: createGuardedLookup() },
+  });
   return async (input, init) => {
-    await assertBaseUrlResolvedAllowed(requestUrlOf(input));
-    const response = await fetch(input, { ...init, redirect: 'manual' });
+    assertBaseUrlHostAllowed(requestUrlOf(input));
+    const response = await undiciFetch(
+      input as never,
+      {
+        ...init,
+        redirect: 'manual',
+        dispatcher,
+      } as never,
+    );
     if (response.status >= 300 && response.status < 400) {
-      throw new BadRequestException('API Base URL 返回重定向，已拒绝跟随');
+      throw new BaseUrlBlockedError('API Base URL 返回重定向，已拒绝跟随');
     }
-    return response;
+    return response as unknown as Response;
   };
 }

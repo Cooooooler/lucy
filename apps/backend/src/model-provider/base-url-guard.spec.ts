@@ -1,12 +1,13 @@
-import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const lookup = vi.hoisted(() => vi.fn());
 vi.mock('node:dns/promises', () => ({ lookup }));
 
+import { BaseUrlBlockedError } from '../common/base-url-blocked.error.js';
 import {
   assertBaseUrlHostAllowed,
-  assertBaseUrlResolvedAllowed,
+  isBlockedAddress,
+  resolveAllowedAddresses,
 } from './base-url-guard.js';
 
 describe('assertBaseUrlHostAllowed（主机字面量）', () => {
@@ -33,45 +34,78 @@ describe('assertBaseUrlHostAllowed（主机字面量）', () => {
     ['Teredo 服务器为链路本地', 'http://[2001:0:a9fe:a9fe::]/'],
     ['NAT64 内嵌链路本地', 'http://[64:ff9b::a9fe:a9fe]/'],
   ])('拒绝受限主机：%s', (_label, url) => {
-    expect(() => assertBaseUrlHostAllowed(url)).toThrow(BadRequestException);
+    expect(() => assertBaseUrlHostAllowed(url)).toThrow(BaseUrlBlockedError);
   });
 });
 
-describe('assertBaseUrlResolvedAllowed（解析后的 IP）', () => {
+describe('isBlockedAddress（DNS 解析结果可能是点分内嵌形式）', () => {
+  it.each([
+    '169.254.169.254',
+    '::ffff:169.254.169.254',
+    '::ffff:0:169.254.169.254',
+    '64:ff9b::169.254.169.254',
+    '::169.254.169.254',
+    '2002:a9fe:a9fe::',
+    '2001:0:a9fe:a9fe::',
+    'fe80::1',
+    'fd00:ec2::254',
+  ])('受限地址：%s', (address) => {
+    expect(isBlockedAddress(address)).toBe(true);
+  });
+
+  it.each([
+    '8.8.8.8',
+    '::1',
+    '::ffff:8.8.8.8',
+    '64:ff9b::8.8.8.8',
+    '2001:4860:4860::8888',
+  ])('非受限地址：%s', (address) => {
+    expect(isBlockedAddress(address)).toBe(false);
+  });
+});
+
+describe('resolveAllowedAddresses（解析后校验，供连接期钉住地址）', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('域名解析到链路本地 → 拒绝（字面量校验发现不了）', async () => {
     lookup.mockResolvedValue([{ address: '169.254.169.254', family: 4 }]);
-    await expect(
-      assertBaseUrlResolvedAllowed('http://attacker.example/'),
-    ).rejects.toThrow(BadRequestException);
+    await expect(resolveAllowedAddresses('attacker.example')).rejects.toThrow(
+      BaseUrlBlockedError,
+    );
     expect(lookup).toHaveBeenCalledWith('attacker.example', {
       all: true,
       verbatim: true,
     });
   });
 
-  it('多个解析结果里任一命中即拒绝', async () => {
+  it('多个解析结果里任一命中即拒绝（含内嵌 IPv4 的 IPv6）', async () => {
     lookup.mockResolvedValue([
       { address: '93.184.216.34', family: 4 },
-      { address: 'fd00:ec2::254', family: 6 },
+      { address: '64:ff9b::169.254.169.254', family: 6 },
     ]);
-    await expect(
-      assertBaseUrlResolvedAllowed('https://dual.example/'),
-    ).rejects.toThrow(BadRequestException);
+    await expect(resolveAllowedAddresses('dual.example')).rejects.toThrow(
+      BaseUrlBlockedError,
+    );
   });
 
-  it('解析到公网地址 → 放行', async () => {
+  it('解析到公网地址 → 返回已校验地址（供连接钉住）', async () => {
     lookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
-    await expect(
-      assertBaseUrlResolvedAllowed('https://api.example.com/v1'),
-    ).resolves.toBeUndefined();
+    await expect(resolveAllowedAddresses('api.example.com')).resolves.toEqual([
+      { address: '93.184.216.34', family: 4 },
+    ]);
   });
 
   it('IP 字面量走同步校验，不再做 DNS 查询', async () => {
-    await expect(
-      assertBaseUrlResolvedAllowed('http://127.0.0.1:11434'),
-    ).resolves.toBeUndefined();
+    await expect(resolveAllowedAddresses('127.0.0.1')).resolves.toEqual([
+      { address: '127.0.0.1', family: 4 },
+    ]);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it('受限 IP 字面量直接拒绝', async () => {
+    await expect(resolveAllowedAddresses('169.254.169.254')).rejects.toThrow(
+      BaseUrlBlockedError,
+    );
     expect(lookup).not.toHaveBeenCalled();
   });
 });

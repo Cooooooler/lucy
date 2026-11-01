@@ -1,9 +1,9 @@
-import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
+import { BaseUrlBlockedError } from '../common/base-url-blocked.error.js';
 import {
   MODEL_ID,
   makeModelProvider,
@@ -158,7 +158,7 @@ describe('ModelConnectionService', () => {
 
   it('守卫拒绝（经 SDK 包在 cause 上）仍返回可执行文案', async () => {
     const wrapped = Object.assign(new Error('APIConnectionError'), {
-      cause: new BadRequestException('API Base URL 返回重定向，已拒绝跟随'),
+      cause: new BaseUrlBlockedError('API Base URL 返回重定向，已拒绝跟随'),
     });
     factory.buildChat.mockReturnValue({
       invoke: vi.fn().mockRejectedValue(wrapped),

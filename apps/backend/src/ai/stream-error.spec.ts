@@ -1,5 +1,6 @@
 import { ErrorCode } from '@lucy/shared';
 import { QueryFailedError } from 'typeorm';
+import { BaseUrlBlockedError } from '../common/base-url-blocked.error.js';
 import { ModelCredentialError } from '../model-provider/model-credential.error.js';
 import { classifyStreamError } from './stream-error.js';
 
@@ -53,6 +54,16 @@ describe('classifyStreamError', () => {
     ).toEqual({
       code: ErrorCode.AI_CREDENTIAL_INVALID,
       message: 'API Key 密文损坏，请重新保存',
+    });
+  });
+
+  it('Base URL 守卫错误（经 SDK 包装）使用独立码并透传可执行文案', () => {
+    const wrapped = new Error('APIConnectionError', {
+      cause: new BaseUrlBlockedError('API Base URL 指向受限地址'),
+    });
+    expect(classifyStreamError(wrapped, live, 'stream')).toEqual({
+      code: ErrorCode.AI_BASE_URL_BLOCKED,
+      message: 'API Base URL 指向受限地址',
     });
   });
 
