@@ -21,7 +21,7 @@ import {
   MessageStatus,
 } from './entities/message.entity.js';
 import { normalizeChunk } from './stream-chunk.js';
-import { classifyStreamError } from './stream-error.js';
+import { classifyStreamError, type ErrorPhase } from './stream-error.js';
 
 // 流式订阅方：next 逐帧推送事件，complete 结束流
 type Subscriber = {
@@ -239,11 +239,12 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         dto.content,
         provider,
       );
+      // 模型侧调用从 client.stream 开始（建连/请求阶段也可能超时）：置位必须在 await 之前，
+      // 否则建连超时会被当成流前失败，报「生成失败」而不是「模型调用超时」
+      streamStarted = true;
       // 传入 signal：订阅取消（SSE 断线）时中止底层流，半截内容落 aborted
       const stream = (await client.stream(messages, { signal })) as
         AsyncIterable<unknown> | Iterable<unknown>;
-      // 从这一刻起才可能在等模型输出：超时启发式只对后续错误成立
-      streamStarted = true;
       armIdle();
       await this.collectStream(
         subscriber,
@@ -253,6 +254,8 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         armIdle,
         collected,
       );
+      // 流已结束，不再等模型输出：之后的落库失败按 run 阶段归因（DB 超时≠模型超时）
+      streamStarted = false;
       await this.saveComplete(subscriber, requestId, {
         conversationId,
         answer: collected.answer,
@@ -486,7 +489,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     signal: AbortSignal,
     error: unknown,
     context: { conversationId: string; answer: string; thinkingAll: string },
-    phase: 'stream' | 'run',
+    phase: ErrorPhase,
   ): Promise<void> {
     const kind = classifyStreamError(error, signal, phase);
     const status =

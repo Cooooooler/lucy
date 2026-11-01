@@ -252,6 +252,30 @@ describe('ChatStreamService', () => {
       '模型调用超时',
     ));
 
+  it('流结束后的落库失败（裸 ETIMEDOUT 来自 DB）：按「生成失败」报，不误归因为模型超时', async () => {
+    conversationRepo.findOne.mockResolvedValue(conv());
+    messageRepo.count.mockResolvedValue(2);
+    messageRepo.find.mockResolvedValue([]);
+    contextService.buildMessages.mockResolvedValue([]);
+    modelClientFactory.buildChat.mockReturnValue(fakeClient());
+    // 第 1 次 save 落用户消息（正常），第 2 次 saveComplete 抛 DB 连接超时，
+    // 第 3 次是 saveFailure 落 failed 行（正常）
+    messageRepo.save
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(
+        Object.assign(new Error('connect ETIMEDOUT 10.0.0.5:5432'), {
+          code: 'ETIMEDOUT',
+        }),
+      )
+      .mockResolvedValueOnce({});
+    const result = await sendHi();
+    expect(result.map((e) => e.type)).toEqual(['delta', 'delta', 'error']);
+    expect(result.at(-1)).toMatchObject({
+      type: 'error',
+      data: { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' },
+    });
+  });
+
   it('空闲超时：无输出触发超时错误码并落库 failed', async () => {
     vi.useFakeTimers();
     try {
