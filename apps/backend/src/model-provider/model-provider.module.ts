@@ -6,6 +6,7 @@ import { KnowledgeReferencesModule } from '../knowledge/knowledge-references.mod
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import { ModelProvider } from './entities/model-provider.entity.js';
 import { UserDefaultModel } from './entities/user-default-model.entity.js';
+import { GuardedFetchService } from './guarded-fetch.service.js';
 import { ModelClientFactory } from './model-client.factory.js';
 import { ModelConnectionService } from './model-connection.service.js';
 import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
@@ -27,10 +28,12 @@ import { ModelProviderService } from './model-provider.service.js';
     ModelProviderService,
     ModelProviderDefaultsService,
     ApiKeyCipher,
+    GuardedFetchService,
     ModelClientFactory,
     ModelConnectionService,
   ],
-  // 导出给 AI 对话复用：工厂按属主配置构造对话客户端，服务提供属主/类型受限的模型解析
-  exports: [ModelClientFactory, ModelProviderService],
+  // 导出给 AI 对话复用：工厂按属主配置构造对话客户端，服务提供属主/类型受限的模型解析；
+  // GuardedFetchService 同时供 tokenizer 等其它出站路径复用同一套校验与连接池
+  exports: [GuardedFetchService, ModelClientFactory, ModelProviderService],
 })
 export class ModelProviderModule {}

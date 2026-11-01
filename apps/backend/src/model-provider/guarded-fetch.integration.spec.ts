@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { BaseUrlBlockedError } from '../common/base-url-blocked.error.js';
+import { BaseUrlRedirectError } from '../common/base-url-blocked.error.js';
 import { createGuardedFetch, type GuardedFetch } from './guarded-fetch.js';
 
 /**
@@ -38,9 +38,9 @@ describe('createGuardedFetch（真实 undici + 本地 HTTP）', () => {
     });
   });
 
-  it('真实 302 不跟随：只命中一次本地服务，抛 BaseUrlBlockedError', async () => {
+  it('真实 302 不跟随：只命中一次本地服务，抛 BaseUrlRedirectError', async () => {
     requests = 0;
-    await expect(guard.fetch(baseUrl)).rejects.toThrow(BaseUrlBlockedError);
+    await expect(guard.fetch(baseUrl)).rejects.toThrow(BaseUrlRedirectError);
     expect(requests).toBe(1);
   });
 });

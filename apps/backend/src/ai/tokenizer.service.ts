@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { GuardedFetchService } from '../model-provider/guarded-fetch.service.js';
 
 @Injectable()
 export class TokenizerService {
@@ -8,7 +9,10 @@ export class TokenizerService {
   // 缓存容量上限，超限淘汰最旧条目（Map 保持插入序）
   private readonly maxCacheEntries: number;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly guardedFetch: GuardedFetchService,
+  ) {
     this.maxCacheEntries = this.config.get<number>(
       'AI_TOKENIZER_CACHE_SIZE',
       1000,
@@ -24,7 +28,7 @@ export class TokenizerService {
         'OLLAMA_BASE_URL',
         'http://localhost:11434',
       );
-      const res = await fetch(`${baseUrl}/api/tokenize`, {
+      const res = await this.guardedFetch.fetch(`${baseUrl}/api/tokenize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, prompt: text }),

@@ -10,6 +10,7 @@ import {
   ModelProviderType,
   ModelProviderVendor,
 } from './entities/model-provider.entity.js';
+import type { GuardedFetchService } from './guarded-fetch.service.js';
 import {
   ModelClientFactory,
   UnsupportedModelTypeError,
@@ -22,7 +23,10 @@ const config = new ConfigService({
   AI_OUTPUT_MAX_TOKENS: 32768,
 });
 const cipher = new ApiKeyCipher(config);
-const factory = new ModelClientFactory(cipher, config);
+const guardedFetch = {
+  fetch: globalThis.fetch,
+} as unknown as GuardedFetchService;
+const factory = new ModelClientFactory(cipher, config, guardedFetch);
 
 describe('ModelClientFactory', () => {
   const provider = makeModelProvider({
@@ -163,6 +167,7 @@ describe('ModelClientFactory', () => {
     const badFactory = new ModelClientFactory(
       new ApiKeyCipher(badConfig),
       badConfig,
+      guardedFetch,
     );
     const client = badFactory.buildChat({
       ...provider,

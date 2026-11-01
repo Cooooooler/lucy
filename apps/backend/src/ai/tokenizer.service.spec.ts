@@ -1,5 +1,12 @@
 import { ConfigService } from '@nestjs/config';
+import type { GuardedFetchService } from '../model-provider/guarded-fetch.service.js';
 import { TokenizerService } from './tokenizer.service.js';
+
+/** 测试里直接委托到 globalThis.fetch（各用例用 stubGlobal 替换） */
+const guardedFetch = (): GuardedFetchService =>
+  ({
+    fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
+  }) as unknown as GuardedFetchService;
 
 describe('TokenizerService', () => {
   const config = new ConfigService({
@@ -13,7 +20,7 @@ describe('TokenizerService', () => {
       .fn()
       .mockResolvedValue({ ok: true, json: () => ({ count: 42 }) });
     vi.stubGlobal('fetch', fetchMock);
-    const svc = new TokenizerService(config);
+    const svc = new TokenizerService(config, guardedFetch());
     await expect(svc.countTokens('你好', 'qwen')).resolves.toBe(42);
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:11434/api/tokenize',
@@ -26,7 +33,7 @@ describe('TokenizerService', () => {
       .fn()
       .mockResolvedValue({ ok: true, json: () => ({ count: 5 }) });
     vi.stubGlobal('fetch', fetchMock);
-    const svc = new TokenizerService(config);
+    const svc = new TokenizerService(config, guardedFetch());
     await svc.countTokens('abc', 'qwen');
     await svc.countTokens('abc', 'qwen');
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -34,7 +41,7 @@ describe('TokenizerService', () => {
 
   it('请求失败时按字符数估算兜底', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('down')));
-    const svc = new TokenizerService(config);
+    const svc = new TokenizerService(config, guardedFetch());
     await expect(svc.countTokens('你好世界', 'qwen')).resolves.toBe(2);
   });
 
@@ -43,7 +50,7 @@ describe('TokenizerService', () => {
       .fn()
       .mockResolvedValue({ ok: true, json: () => ({ count: 3 }) });
     vi.stubGlobal('fetch', fetchMock);
-    const svc = new TokenizerService(config);
+    const svc = new TokenizerService(config, guardedFetch());
     await svc.countTokens('x', 'a');
     await svc.countTokens('x', 'b');
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -56,6 +63,7 @@ describe('TokenizerService', () => {
     vi.stubGlobal('fetch', fetchMock);
     const svc = new TokenizerService(
       new ConfigService({ AI_TOKENIZER_CACHE_SIZE: 3 }),
+      guardedFetch(),
     );
     await svc.countTokens('a', 'qwen');
     await svc.countTokens('b', 'qwen');

@@ -3,7 +3,7 @@ import type { Embeddings } from '@langchain/core/embeddings';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { ChatOllama, OllamaEmbeddings } from '@langchain/ollama';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
-import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
 import {
@@ -12,7 +12,7 @@ import {
   ModelProviderVendor,
   type ModelProvider,
 } from './entities/model-provider.entity.js';
-import { createGuardedFetch } from './guarded-fetch.js';
+import { GuardedFetchService } from './guarded-fetch.service.js';
 import { ModelCredentialError } from './model-credential.error.js';
 
 /**
@@ -67,27 +67,22 @@ export function resolveOutputMaxTokens(config: ConfigService): number {
  * ollama 通常免鉴权，未配置 Key 时不带鉴权头；若配置了（如受保护的远端实例）则带 Bearer。
  */
 @Injectable()
-export class ModelClientFactory implements OnApplicationShutdown {
+export class ModelClientFactory {
   // 对话客户端缓存：同一会话每条消息、每次标题生成都复用同一实例，避免重复 new 底层 SDK/连接。
   // 键取「影响客户端构造的配置签名」（见 chatCacheKey），任一字段或密文 Key 变化即视为新客户端，
   // 不会命中旧凭证/旧地址；provider 删除后条目由容量淘汰兜底。
   private readonly chatCache = new Map<string, BaseChatModel>();
   private readonly maxChatCacheEntries = 50;
-  // 出站请求统一走带 SSRF 校验的 fetch（连接期按解析后 IP 校验 + 不跟随重定向）
-  private readonly guarded = createGuardedFetch();
-  private readonly guardedFetch = this.guarded.fetch;
+  // 出站请求统一走带 SSRF 校验的 fetch（连接期按解析后 IP 校验 + 不跟随重定向）；
+  // 连接池生命周期由 GuardedFetchService 管理
+  private readonly guardedFetch: typeof fetch;
 
   constructor(
     private readonly cipher: ApiKeyCipher,
     private readonly config: ConfigService,
-  ) {}
-
-  /**
-   * 停机时关闭 undici 连接池：否则 keep-alive socket 会留到进程被强退，
-   * 占用停机窗口并拖慢退出。与 ShutdownService 的停机顺序一致（应用关闭阶段）。
-   */
-  async onApplicationShutdown(): Promise<void> {
-    await this.guarded.close();
+    guardedFetch: GuardedFetchService,
+  ) {
+    this.guardedFetch = guardedFetch.fetch;
   }
 
   /** 构造对话模型客户端（LLM 用；Moderation 走 buildOpenAiChat） */

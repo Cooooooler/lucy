@@ -1,6 +1,6 @@
 import type { LookupFunction } from 'node:net';
 import { Agent, fetch as undiciFetch } from 'undici';
-import { BaseUrlBlockedError } from '../common/base-url-blocked.error.js';
+import { BaseUrlRedirectError } from '../common/base-url-blocked.error.js';
 import {
   assertBaseUrlHostAllowed,
   resolveAllowedAddresses,
@@ -44,6 +44,12 @@ export interface GuardedFetch {
   close(): Promise<void>;
 }
 
+/** 连接池参数（缺省走 undici 默认值；由 OUTBOUND_* 环境变量解析后传入） */
+export interface GuardedFetchOptions {
+  maxConnections?: number;
+  connectTimeoutMs?: number;
+}
+
 /**
  * 模型客户端（连接测试与真实对话）统一使用的 fetch：
  *
@@ -54,9 +60,17 @@ export interface GuardedFetch {
  *
  * 以函数形式注入各 SDK 的 `fetch` 选项（OpenAI/Anthropic/Ollama 均支持）。
  */
-export function createGuardedFetch(): GuardedFetch {
+export function createGuardedFetch(
+  options: GuardedFetchOptions = {},
+): GuardedFetch {
   const dispatcher = new Agent({
-    connect: { lookup: createGuardedLookup() },
+    ...(options.maxConnections ? { connections: options.maxConnections } : {}),
+    connect: {
+      lookup: createGuardedLookup(),
+      ...(options.connectTimeoutMs
+        ? { timeout: options.connectTimeoutMs }
+        : {}),
+    },
   });
   const guardedFetch: typeof fetch = async (input, init) => {
     assertBaseUrlHostAllowed(requestUrlOf(input));
@@ -71,7 +85,7 @@ export function createGuardedFetch(): GuardedFetch {
     if (response.status >= 300 && response.status < 400) {
       // 不消费 body 时 keep-alive 连接不会归还，重复失败会累积占用连接
       await response.body?.cancel().catch(() => {});
-      throw new BaseUrlBlockedError('API Base URL 返回重定向，已拒绝跟随');
+      throw new BaseUrlRedirectError();
     }
     return response as unknown as Response;
   };

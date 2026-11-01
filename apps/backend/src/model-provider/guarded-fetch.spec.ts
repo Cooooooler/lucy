@@ -20,7 +20,10 @@ vi.mock('./base-url-guard.js', () => ({
   resolveAllowedAddresses: resolveAddresses,
 }));
 
-import { BaseUrlBlockedError } from '../common/base-url-blocked.error.js';
+import {
+  BaseUrlBlockedError,
+  BaseUrlRedirectError,
+} from '../common/base-url-blocked.error.js';
 import { createGuardedFetch } from './guarded-fetch.js';
 
 describe('createGuardedFetch', () => {
@@ -43,6 +46,16 @@ describe('createGuardedFetch', () => {
     const init = (undiciFetch.mock.calls[0] as unknown[] | undefined)?.[1] as
       { dispatcher?: unknown } | undefined;
     expect(init?.dispatcher).toBeDefined();
+  });
+
+  it('把连接池参数传给 Agent（缺省走 undici 默认）', () => {
+    createGuardedFetch({ maxConnections: 5, connectTimeoutMs: 1200 });
+    const options = agentCtor.mock.calls[0]?.[0] as {
+      connections?: number;
+      connect: { timeout?: number };
+    };
+    expect(options.connections).toBe(5);
+    expect(options.connect.timeout).toBe(1200);
   });
 
   it('close 关闭 undici Agent 连接池', async () => {
@@ -101,7 +114,7 @@ describe('createGuardedFetch', () => {
     );
     const { fetch: guarded } = createGuardedFetch();
     await expect(guarded('https://api.example.com/v1')).rejects.toThrow(
-      BaseUrlBlockedError,
+      BaseUrlRedirectError,
     );
     expect(cancel).toHaveBeenCalled();
   });

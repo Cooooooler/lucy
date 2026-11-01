@@ -52,6 +52,18 @@ describe('envValidationSchema', () => {
     ).toBeDefined();
   });
 
+  it('OUTBOUND_* 可选且须为正整数（缺省走 undici 默认）', () => {
+    expect(validate({}).value.OUTBOUND_MAX_CONNECTIONS).toBeUndefined();
+    expect(
+      validate({
+        OUTBOUND_MAX_CONNECTIONS: 64,
+        OUTBOUND_CONNECT_TIMEOUT_MS: 10000,
+      }).error,
+    ).toBeUndefined();
+    expect(validate({ OUTBOUND_MAX_CONNECTIONS: 0 }).error).toBeDefined();
+    expect(validate({ OUTBOUND_CONNECT_TIMEOUT_MS: -1 }).error).toBeDefined();
+  });
+
   it('停机宽限期须为正；DB 上界允许 0（不限）但拒绝负值', () => {
     expect(validate({ SHUTDOWN_GRACE_MS: 5000 }).error).toBeUndefined();
     // 0 会让兜底强退立刻触发，等于没有优雅停机：启动期拦下

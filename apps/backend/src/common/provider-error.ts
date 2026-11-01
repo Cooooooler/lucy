@@ -1,4 +1,4 @@
-import { BaseUrlBlockedError } from './base-url-blocked.error.js';
+import { BaseUrlGuardError } from './base-url-blocked.error.js';
 import { PROVIDER_ERROR_MESSAGES, type ProviderErrorKind } from './messages.js';
 
 /**
@@ -41,7 +41,7 @@ export function providerErrorMessage(error: unknown): string | null {
 export function blockedErrorMessage(error: unknown): string | null {
   let current: unknown = error;
   for (let depth = 0; depth < 4 && current; depth += 1) {
-    if (current instanceof BaseUrlBlockedError) return current.message;
+    if (current instanceof BaseUrlGuardError) return current.message;
     current = (current as { cause?: unknown }).cause;
   }
   return null;
