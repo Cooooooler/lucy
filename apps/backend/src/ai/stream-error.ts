@@ -5,7 +5,10 @@ import {
   MODEL_CREDENTIAL_MESSAGES,
   PROVIDER_ERROR_MESSAGES,
 } from '../common/messages.js';
-import { providerErrorKind } from '../common/provider-error.js';
+import {
+  blockedErrorMessage,
+  providerErrorKind,
+} from '../common/provider-error.js';
 import { ModelCredentialError } from '../model-provider/model-credential.error.js';
 
 /** 失败发生时是否已经在读模型流：只有流内才可能在等模型输出。 */
@@ -46,6 +49,13 @@ export function classifyStreamError(
       code: ErrorCode.AI_CREDENTIAL_INVALID,
       message: MODEL_CREDENTIAL_MESSAGES[error.reason],
     };
+  }
+  // Base URL 守卫（DNS 指向受限地址/拒绝跟随重定向）在传输层抛出的领域错误：
+  // 使用独立码并透传可执行文案；该码不进前端 SSE_ERROR_TEXT 映射表
+  // （文案动态），前端按未知码回退服务端 message。
+  const blocked = blockedErrorMessage(error);
+  if (blocked) {
+    return { code: ErrorCode.AI_BASE_URL_BLOCKED, message: blocked };
   }
   // 对话链路也按供应商状态归因，前端据错误码展示对应可执行文案：
   // 401/403 → 凭证无效（该码不进 SSE_ERROR_TEXT，直接透传服务端 message）；

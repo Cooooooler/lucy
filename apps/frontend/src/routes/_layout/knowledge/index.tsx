@@ -18,7 +18,7 @@ import {
   useLikeKnowledgeBase,
   useRefreshKnowledgeBaseList,
   useUnlikeKnowledgeBase,
-  useUpdateKnowledgeBase,
+  useUpdateKnowledgeVisibility,
   type KnowledgeListFilter,
 } from '@/hooks/use-knowledge.ts';
 import {
@@ -101,10 +101,10 @@ const KnowledgeComponent = () => {
     variables: unlikeVariables,
   } = useUnlikeKnowledgeBase();
   const {
-    mutateAsync: updateBase,
-    isPending: isUpdating,
-    variables: updateVariables,
-  } = useUpdateKnowledgeBase();
+    mutateAsync: updateVisibility,
+    isPending: isUpdatingVisibility,
+    variables: updateVisibilityVariables,
+  } = useUpdateKnowledgeVisibility();
   const {
     mutateAsync: deleteBase,
     isPending: isDeleting,
@@ -119,7 +119,7 @@ const KnowledgeComponent = () => {
       like:
         pendingIdOf(isLiking, likeVariables) ??
         pendingIdOf(isUnliking, unlikeVariables),
-      update: pendingIdOf(isUpdating, updateVariables),
+      update: pendingIdOf(isUpdatingVisibility, updateVisibilityVariables),
       delete: pendingIdOf(isDeleting, deleteVariables),
     }),
     [
@@ -127,10 +127,10 @@ const KnowledgeComponent = () => {
       isDeleting,
       isLiking,
       isUnliking,
-      isUpdating,
+      isUpdatingVisibility,
       likeVariables,
       unlikeVariables,
-      updateVariables,
+      updateVisibilityVariables,
     ],
   );
 
@@ -148,18 +148,18 @@ const KnowledgeComponent = () => {
     [like, unlike],
   );
 
-  /** 可见性切换走单一字段更新（与编辑抽屉无关） */
+  /** 可见性切换走独立端点（与编辑抽屉的整表单更新无关） */
   const handleToggleVisibility = useCallback(
     async (kb: KnowledgeBase) => {
       const next = kb.visibility === 'public' ? 'private' : 'public';
       try {
         // 成功提示（「已设为公开/私有」）由后端 message 经全局桥弹出
-        await updateBase({ id: kb.id, input: { visibility: next } });
+        await updateVisibility({ id: kb.id, visibility: next });
       } catch (e) {
         message.error(errorMessageOf(e, '操作失败，请稍后重试'));
       }
     },
-    [message, updateBase],
+    [message, updateVisibility],
   );
 
   const handleDelete = useCallback(

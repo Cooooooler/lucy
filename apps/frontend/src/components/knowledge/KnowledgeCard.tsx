@@ -33,7 +33,7 @@ type KnowledgeCardProps = {
  * `@/components/card-list/CardShell` 统一承担，这里只填角标、主体与操作按钮。
  *
  * 刻意**不自持 mutation**：卡片数量随列表规模增长，每张卡片各挂一套
- * `useLikeKnowledgeBase`/`useUnlikeKnowledgeBase`/`useUpdateKnowledgeBase`/`useDeleteKnowledgeBase`
+ * `useLikeKnowledgeBase`/`useUnlikeKnowledgeBase`/`useUpdateKnowledgeVisibility`/`useDeleteKnowledgeBase`
  * 会让订阅与实例数量随条目数线性膨胀。四个 mutation 已提升到路由，卡片只收回调与 pending 标记。
  */
 export const KnowledgeCard = ({

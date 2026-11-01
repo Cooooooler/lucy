@@ -58,6 +58,7 @@ const mutationMocks = vi.hoisted(() => {
   return {
     create: makeMutation(),
     update: makeMutation(),
+    visibility: makeMutation(),
     like: makeMutation(),
     unlike: makeMutation(),
     delete: makeMutation(),
@@ -76,7 +77,9 @@ vi.mock('@/hooks/use-knowledge', () => ({
   useInfiniteKnowledgeBaseList: vi.fn(),
   useRefreshKnowledgeBaseList: vi.fn(() => refreshList),
   useCreateKnowledgeBase: vi.fn(() => mutationMocks.create),
+  // 编辑抽屉仍用整表单更新；列表页的可见性切换走独立端点
   useUpdateKnowledgeBase: vi.fn(() => mutationMocks.update),
+  useUpdateKnowledgeVisibility: vi.fn(() => mutationMocks.visibility),
   useLikeKnowledgeBase: vi.fn(() => mutationMocks.like),
   useUnlikeKnowledgeBase: vi.fn(() => mutationMocks.unlike),
   useDeleteKnowledgeBase: vi.fn(() => mutationMocks.delete),
@@ -270,9 +273,9 @@ describe('routes/_layout/knowledge', () => {
     await userEvent.click(screen.getByRole('button', { name: '设为公开' }));
 
     await waitFor(() =>
-      expect(mutationMocks.update.mutateAsync).toHaveBeenCalledWith({
+      expect(mutationMocks.visibility.mutateAsync).toHaveBeenCalledWith({
         id: 'kb1',
-        input: { visibility: 'public' },
+        visibility: 'public',
       }),
     );
     // 可失败的「不再自己弹」：本地 message.success 一旦被调用即失败
@@ -286,7 +289,7 @@ describe('routes/_layout/knowledge', () => {
       name: 'ApiError',
       status: 403,
     });
-    mutationMocks.update.mutateAsync.mockRejectedValueOnce(error);
+    mutationMocks.visibility.mutateAsync.mockRejectedValueOnce(error);
     mockItems([makeKb('kb1', '产品文档')]);
     renderRoute();
 
@@ -296,7 +299,7 @@ describe('routes/_layout/knowledge', () => {
   });
 
   it('切换可见性遇到技术性错误：走兜底文案（不把底层报错抛给用户）', async () => {
-    mutationMocks.update.mutateAsync.mockRejectedValueOnce(
+    mutationMocks.visibility.mutateAsync.mockRejectedValueOnce(
       new Error('Failed to fetch'),
     );
     mockItems([makeKb('kb1', '产品文档')]);
@@ -353,9 +356,9 @@ describe('routes/_layout/knowledge', () => {
     expect(screen.getByRole('button', { name: '编辑知识库' })).toBeEnabled();
   });
 
-  it('update 的 pending 态取 variables.id（该 mutation 的入参是对象）', () => {
-    mutationMocks.update.isPending = true;
-    mutationMocks.update.variables = { id: 'kb9', input: { name: 'x' } };
+  it('可见性切换的 pending 态取 variables.id（该 mutation 的入参是对象）', () => {
+    mutationMocks.visibility.isPending = true;
+    mutationMocks.visibility.variables = { id: 'kb9', visibility: 'public' };
     mockItems([makeKb('kb9', '产品文档')]);
 
     renderRoute();

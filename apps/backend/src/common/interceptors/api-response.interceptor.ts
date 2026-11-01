@@ -72,7 +72,8 @@ export class ApiResponseInterceptor implements NestInterceptor {
   ): string {
     if (typeof declared === 'function') {
       try {
-        return declared(data, request);
+        // 只传数据：文案依据服务端返回的事实，而不是请求形状
+        return declared(data);
       } catch (err) {
         this.logger.warn(
           `SuccessMessage 解析失败，回退方法兜底：${request.method} ${request.path} ` +

@@ -10,6 +10,7 @@ import {
   listDocumentsApi,
   listKnowledgeBasesApi,
   updateKnowledgeBaseApi,
+  updateKnowledgeVisibilityApi,
 } from './knowledge.js';
 import type { KnowledgeBase } from './types.js';
 
@@ -125,6 +126,20 @@ describe('api/knowledge', () => {
       expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify({ name: '新标题', visibility: 'private' }),
+      }),
+    );
+  });
+
+  it('updateKnowledgeVisibilityApi 调用独立的 PATCH /visibility', async () => {
+    const kb = makeKnowledgeBase({ visibility: 'public' });
+    fetchMock.mockResolvedValueOnce(okEnvelope(kb));
+    const result = await updateKnowledgeVisibilityApi('kb1', 'public');
+    expect(result).toEqual(kb);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/knowledge/kb1/visibility',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ visibility: 'public' }),
       }),
     );
   });

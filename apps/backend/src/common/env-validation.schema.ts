@@ -89,6 +89,12 @@ export const envValidationSchema = Joi.object({
   AI_CONTEXT_TOKEN_LIMIT: Joi.number().integer().positive().optional(),
   AI_CONTEXT_SAFETY_MARGIN: Joi.number().integer().min(0).optional(),
   AI_TOKENIZER_CACHE_SIZE: Joi.number().integer().positive().optional(),
+  // tokenizer 请求总超时（毫秒）：与聊天空闲超时分开，默认由消费方持有
+  AI_TOKENIZER_TIMEOUT_MS: Joi.number()
+    .integer()
+    .positive()
+    .max(2_147_483_647)
+    .optional(),
   // 系统提示可留空（= 不注入系统提示）
   AI_SYSTEM_PROMPT: Joi.string().allow('').optional(),
   // 标题提示非空：空串同样不会触发 `??` 回退，标题生成会失去指令
@@ -99,6 +105,18 @@ export const envValidationSchema = Joi.object({
   MODEL_PROVIDER_SECRET_KEY: Joi.string().min(32).required(),
   // 连接测试的超时（毫秒）：上界同 setTimeout 的 32 位上限，超过会被按 1ms 处理
   MODEL_TEST_TIMEOUT_MS: Joi.number()
+    .integer()
+    .positive()
+    .max(2_147_483_647)
+    .optional(),
+  // 出站模型请求的连接池（undici Agent）：缺省走 undici 默认值。
+  // 注意 undici 的 `connections` 是**每 origin** 上限，不是进程总连接数
+  OUTBOUND_MAX_CONNECTIONS: Joi.number()
+    .integer()
+    .positive()
+    .max(2_147_483_647)
+    .optional(),
+  OUTBOUND_CONNECT_TIMEOUT_MS: Joi.number()
     .integer()
     .positive()
     .max(2_147_483_647)

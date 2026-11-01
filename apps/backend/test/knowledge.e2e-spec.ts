@@ -644,6 +644,28 @@ describe('Knowledge pagination (keyset + page) & serialization (e2e)', () => {
     expect(Object.keys(patchedItem).sort()).toEqual(kbListKeys);
     expect(patchedItem.name).toBe(`${scopeToken}-get-patched`);
 
+    // 可见性切换端点：成功文案依据响应里的 visibility（服务端事实），与请求形状无关
+    const toggled = await request(server)
+      .patch(`/v1/knowledge/${id}/visibility`)
+      .set('Authorization', auth)
+      .send({ visibility: 'public' })
+      .expect(200);
+    const toggledBody = toggled.body as ApiBody<Record<string, unknown>>;
+    expect(toggledBody.message).toBe('已设为公开');
+    expect(toggledBody.data).not.toHaveProperty('owner');
+    expect(Object.keys(toggledBody.data).sort()).toEqual(kbListKeys);
+    expect(toggledBody.data.visibility).toBe('public');
+
+    // 整表单更新走同一批改动时不再猜「是不是切换可见性」，统一「知识库更新成功」
+    const edited = await request(server)
+      .patch(`/v1/knowledge/${id}`)
+      .set('Authorization', auth)
+      .send({ visibility: 'private' })
+      .expect(200);
+    expect((edited.body as ApiBody<Record<string, unknown>>).message).toBe(
+      '知识库更新成功',
+    );
+
     // 用 name 过滤把列表收敛到本用例自己的行（避免拉爆 395 行 dev 数据）
     const list = await request(server)
       .get('/v1/knowledge')
