@@ -4,12 +4,11 @@ import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
-import { DataSource, QueryFailedError, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { ShutdownService } from '../common/shutdown.service.js';
 import type { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
 import { ModelClientFactory } from '../model-provider/model-client.factory.js';
-import { ModelCredentialError } from '../model-provider/model-credential.error.js';
 import { ModelProviderService } from '../model-provider/model-provider.service.js';
 import { ContextService } from './context.service.js';
 import { ConversationTitleService } from './conversation-title.service.js';
@@ -21,6 +20,7 @@ import {
   MessageStatus,
 } from './entities/message.entity.js';
 import { normalizeChunk } from './stream-chunk.js';
+import { classifyStreamError } from './stream-error.js';
 
 // 流式订阅方：next 逐帧推送事件，complete 结束流
 type Subscriber = {
@@ -117,13 +117,22 @@ export class ChatStreamService implements BeforeApplicationShutdown {
           // 带上错误类名：流式链路是触发频率最高的一条，线上要能按 QueryFailedError /
           // ModelCredentialError 等聚合，格式与连接测试的日志保持一致
           const errorType = err instanceof Error ? err.name : typeof err;
+          // 包装错误（如 ModelCredentialError）把根因挂在 cause 上：只记 message 会让
+          // 「解密失败的具体原因」永远进不了日志，故把 cause 的栈一并带上
+          const cause = err instanceof Error ? err.cause : undefined;
           this.logger.warn(
-            `sendMessage failed conversation=${conversationId}: [${errorType}] ${err instanceof Error ? err.message : String(err)}`,
+            `sendMessage failed conversation=${conversationId}: [${errorType}] ${
+              err instanceof Error ? err.message : String(err)
+            }${
+              cause instanceof Error && cause.stack
+                ? ` cause=${cause.stack}`
+                : ''
+            }`,
             ChatStreamService.name,
           );
           // 外层 catch 只兜 prepareRun/落库失败，没有模型流：按 run 阶段归因，
           // 不让 ETIMEDOUT 之类数据库连接错误落进模型超时启发式
-          const { code, message } = this.classifyError(
+          const { code, message } = classifyStreamError(
             err,
             controller.signal,
             'run',
@@ -489,7 +498,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     context: { conversationId: string; answer: string; thinkingAll: string },
     phase: 'stream' | 'run',
   ): Promise<void> {
-    const kind = this.classifyError(error, signal, phase);
+    const kind = classifyStreamError(error, signal, phase);
     const status =
       kind.code === ErrorCode.AI_GENERATE_ABORTED
         ? MessageStatus.Aborted
@@ -527,81 +536,4 @@ export class ChatStreamService implements BeforeApplicationShutdown {
   private isReasoningModel(model: string): boolean {
     return /qwen3(?:\.\d+)?|deepseek-r1|(?:^|[-:])r1(?:[-:.]|$)/i.test(model);
   }
-
-  // 区分流式失败类型：客户端中止（signal.reason）> 凭证 > 基础设施（DB/事务）> 模型超时 > 其他。
-  // phase 决定是否启用模型超时启发式：只有流阶段（saveFailure）才可能在等模型输出；
-  // 外层 catch 只可能是 prepareRun/落库失败，那里没有模型流，ETIMEDOUT 之类来自数据库
-  // 连接层，套用超时启发式只会把「数据库连不上」误报成「模型调用超时」。
-  private classifyError(
-    error: unknown,
-    signal: AbortSignal,
-    phase: 'stream' | 'run',
-  ): { code: ErrorCodeValue; message: string } {
-    if (signal.aborted) {
-      const reason = signal.reason as Error;
-      if (
-        reason instanceof Error &&
-        /timeout|timed out|ETIMEDOUT/i.test(reason.message)
-      ) {
-        return { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' };
-      }
-      return { code: ErrorCode.AI_GENERATE_ABORTED, message: '生成中断' };
-    }
-    // 凭证错误：单独码 + 可执行提示（文案全仓单源在 ModelCredentialError.userMessage，
-    // 前端按未知码回退服务端 message，不进入 SSE_ERROR_TEXT 的按码覆盖表）
-    if (error instanceof ModelCredentialError) {
-      return {
-        code: ErrorCode.AI_CREDENTIAL_INVALID,
-        message: error.userMessage,
-      };
-    }
-    // 基础设施错误（DB/事务）先于模型超时启发式：Postgres 语句超时
-    // 「canceling statement due to statement timeout」含 timeout 字样，落在正则
-    // （model-timeout 分支）之后会误报「模型调用超时」——DB 超时/连接错误按生成失败报
-    if (isInfrastructureError(error)) {
-      return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };
-    }
-    const name = error instanceof Error ? error.name : '';
-    const message = error instanceof Error ? error.message : '';
-    if (
-      phase === 'stream' &&
-      /timeout|timed out|ETIMEDOUT/i.test(`${name} ${message}`)
-    ) {
-      return { code: ErrorCode.AI_GENERATE_TIMEOUT, message: '模型调用超时' };
-    }
-    return { code: ErrorCode.AI_GENERATE_FAILED, message: '生成失败' };
-  }
-}
-
-/**
- * 连接池/连接释放类失败的文案特征。这类错误由 pg / pg-pool 直接抛出**裸 Error**，
- * 没有可判定的类型，也没有稳定的 name，只能按文案识别。
- */
-const CONNECTION_ERROR =
-  /timeout exceeded when trying to connect|connection terminated|already released|already been connected|cannot use a pool after/i;
-
-/**
- * Postgres 连接/停机/语句取消类 SQLSTATE：08*（connection exception）、57P01/57P02/57P03
- * （shutdown / cannot connect now）、57014（query canceled，语句超时走这条）。
- * 结构化判据优先于文案：SQLSTATE 不随驱动版本或措辞变化。
- */
-const PG_INFRA_CODE = /^(?:08|57P0[1-3]|57014)/;
-
-/**
- * 基础设施错误（连接/语句/事务失败）。
- *
- * 主判据用 TypeORM 核心导出的 `QueryFailedError` 做 instanceof——它是库自身声明的类
- * （不是驱动私有实现），比 `'driverError' in error` 这类形状嗅探精确：嗅探会漏掉非查询类
- * 失败（它们既不是 QueryFailedError 也不带 driverError），又会把任何碰巧带同名属性的第三方
- * 错误吞成「生成失败」。连接池类失败补一条文案判据：它们含 timeout 字样，漏判就会被后续的
- * 模型超时启发式命中，误报成「模型调用超时」。
- */
-function isInfrastructureError(error: unknown): boolean {
-  if (error instanceof QueryFailedError) return true;
-  if (!(error instanceof Error)) return false;
-  // 结构化优先：pg 的连接/取消类失败带 SQLSTATE（code），不随驱动文案变化
-  const code = (error as { code?: unknown }).code;
-  if (typeof code === 'string' && PG_INFRA_CODE.test(code)) return true;
-  // pg-pool 的连接类失败是裸 Error，没有稳定类型/name，只能按文案兜底
-  return CONNECTION_ERROR.test(error.message);
 }

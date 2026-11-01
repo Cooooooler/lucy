@@ -82,9 +82,13 @@ export class ModelConnectionService {
       // warn 带上错误类名：解密失败/限流/5xx 之类互不相干的失败各自有类可聚合，
       // 只记 message 时线上难以区分「配置错」与「平台/供应商故障」
       const errorType = error instanceof Error ? error.name : typeof error;
+      // 包装错误（如解密失败）把根因挂在 cause 上：只记 message 会让根因永远进不了日志
+      const cause = error instanceof Error ? error.cause : undefined;
       this.logger.warn(
         `model test failed id=${id} type=${provider.type} vendor=${provider.vendor}: [${errorType}] ${
           error instanceof Error ? error.message : String(error)
+        }${
+          cause instanceof Error && cause.stack ? ` cause=${cause.stack}` : ''
         }`,
         ModelConnectionService.name,
       );
