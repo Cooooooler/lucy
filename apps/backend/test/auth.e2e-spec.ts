@@ -94,4 +94,54 @@ describe('Auth (e2e)', () => {
       .expect(401);
     expect((res.body as ApiBody<null>).message).toBe('未登录或登录已过期');
   });
+
+  // 同一个邮箱在库中只能有一行：注册写入归一为小写，登录对含 @ 的 account 也归一，
+  // 否则大小写变体可注册出重复账号、且本人用小写登录会 401
+  it('邮箱大小写不敏感：注册归一为小写、变体不可重复注册、小写可登录', async () => {
+    const username = `e2e_case_${suffix}`;
+    const email = `Case_${suffix}@Test.COM`;
+    const server = app.getHttpServer();
+
+    const registered = await request(server)
+      .post('/v1/auth/register')
+      .send({ username, email, password: E2E_PASSWORD })
+      .expect(201);
+    const registeredBody = registered.body as ApiBody<{ email: string }>;
+    expect(registeredBody.data.email).toBe(email.toLowerCase());
+
+    // 仅大小写不同的邮箱视为同一个账号
+    await request(server)
+      .post('/v1/auth/register')
+      .send({
+        username: `e2e_dup_${suffix}`,
+        email: email.toLowerCase(),
+        password: E2E_PASSWORD,
+      })
+      .expect(409);
+
+    // 本人改用小写邮箱登录（修复前这里 401）
+    await request(server)
+      .post('/v1/auth/login')
+      .send({ account: email.toLowerCase(), password: E2E_PASSWORD })
+      .expect(201);
+
+    // 用户把注册时填写的混合大小写邮箱原样粘贴回来也应能登录
+    // （复制粘贴是真实路径；归一只要在 DTO 或 findByEmail 任一处丢失，这里就会 401）
+    await request(server)
+      .post('/v1/auth/login')
+      .send({ account: email, password: E2E_PASSWORD })
+      .expect(201);
+  });
+
+  // 应用层归一之外，schema 也拒绝混合大小写：绕过 UsersService.create 的写入
+  // （脚本 / 直接 SQL / 将来的改邮箱入口）同样插不进去
+  it('users.email 的 CHECK 约束拒绝混合大小写', async () => {
+    const dataSource = app.get(DataSource);
+    await expect(
+      dataSource.query(
+        `INSERT INTO "users" ("username", "email", "password_hash") VALUES ($1, $2, $3)`,
+        [`e2e_chk_${suffix}`, `Chk_${suffix}@Test.COM`, 'hash'],
+      ),
+    ).rejects.toThrow(/CHK_/);
+  });
 });

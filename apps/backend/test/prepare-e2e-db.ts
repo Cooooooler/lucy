@@ -69,8 +69,91 @@ try {
 
   // 真实往返：runMigrations() 只证明 up() 能跑，「可回滚」是另一条断言——
   // migration.spec 用的是假 QueryRunner，验不了 TypeORM 在 none 模式下是否真的执行了 down()。
-  // 测试库是一次性的，这里撤销到最后（迁移链现在只有初始化迁移这一条）再重跑，把该前提钉成事实。
+  // 测试库是一次性的，撤销最后一条再重跑，把该前提钉成事实。
   await dataSource.undoLastMigration();
+  await dataSource.runMigrations();
+
+  // 邮箱归一迁移的真实数据验证：prepare 每次重建空库后立即 runMigrations，
+  // 归一 UPDATE 与重复账号检测都只对空表执行——字符集/转义写错不会有任何用例变红。
+  // 这里撤到归一迁移之前，灌入存量行再重跑迁移并断言结果。
+  const appliedMigrationNames = async (): Promise<string[]> =>
+    (
+      await dataSource.query<{ name: string }[]>(
+        `SELECT "name" FROM "migrations" ORDER BY "id"`,
+      )
+    ).map((row) => row.name);
+  const emailMigrationPrefixes = [
+    'NormalizeUserEmailCase',
+    'AddUserEmailNormalizedCheck',
+  ];
+  // 按名字定位而不是「撤最后两条」：后续新增迁移会让固定次数撤销撤错目标，
+  // 留下「归一仍生效、CHECK 已被撤」的状态——灌入的存量行不会归一，随后
+  // ADD CONSTRAINT 校验存量行时会让整轮后端 e2e 失败。
+  const undoEmailMigrations = async (): Promise<void> => {
+    const applied = await appliedMigrationNames();
+    for (const prefix of emailMigrationPrefixes) {
+      if (!applied.some((name) => name.startsWith(prefix))) {
+        throw new Error(`迁移链里找不到 ${prefix}，无法验证邮箱归一`);
+      }
+    }
+    for (let guard = 0; guard < 100; guard += 1) {
+      const names = await appliedMigrationNames();
+      const stillApplied = names.some((name) =>
+        emailMigrationPrefixes.some((prefix) => name.startsWith(prefix)),
+      );
+      if (!stillApplied) return;
+      await dataSource.undoLastMigration();
+    }
+    throw new Error('撤销邮箱归一迁移超过 100 次，迁移链异常');
+  };
+  const seededEmails = () =>
+    dataSource.query<{ username: string; email: string }[]>(
+      `SELECT "username", "email" FROM "users"
+        WHERE "username" LIKE 'e2e\\_mig\\_%'
+        ORDER BY "username"`,
+    );
+  const clearSeeded = () =>
+    dataSource.query(
+      `DELETE FROM "users" WHERE "username" LIKE 'e2e\\_mig\\_%'`,
+    );
+
+  await undoEmailMigrations();
+  await dataSource.query(
+    `INSERT INTO "users" ("username", "email", "password_hash") VALUES
+       ('e2e_mig_case', 'Alice@Example.COM', 'x'),
+       ('e2e_mig_space', ' bob@example.com ', 'x'),
+       ('e2e_mig_nbsp', E'\\u00A0carol@example.com\\u3000', 'x')`,
+  );
+  await dataSource.runMigrations();
+  const normalized = await seededEmails();
+  const expected = [
+    { username: 'e2e_mig_case', email: 'alice@example.com' },
+    { username: 'e2e_mig_nbsp', email: 'carol@example.com' },
+    { username: 'e2e_mig_space', email: 'bob@example.com' },
+  ];
+  if (JSON.stringify(normalized) !== JSON.stringify(expected)) {
+    throw new Error(`邮箱归一结果不符：${JSON.stringify(normalized)}`);
+  }
+  await clearSeeded();
+
+  // 冲突检测：两行归一后相同 → 迁移必须中止，且事务回滚不留下半归一状态
+  await undoEmailMigrations();
+  await dataSource.query(
+    `INSERT INTO "users" ("username", "email", "password_hash") VALUES
+       ('e2e_mig_dup1', 'Dup@Example.com', 'x'),
+       ('e2e_mig_dup2', 'dup@example.com ', 'x')`,
+  );
+  let conflictError: unknown;
+  try {
+    await dataSource.runMigrations();
+  } catch (error) {
+    conflictError = error;
+  }
+  await clearSeeded();
+  if (!String(conflictError).includes('归一后相同的重复账号')) {
+    throw new Error(`冲突检测未按预期中止迁移：${String(conflictError)}`);
+  }
+  // 清掉冲突行后重跑，把测试库恢复成「全部迁移已应用」
   await dataSource.runMigrations();
 
   const rows = await dataSource.query<{ table_name: string | null }[]>(
@@ -80,7 +163,7 @@ try {
     throw new Error('e2e 往返验证失败：撤销并重跑迁移后 users 表不存在');
   }
   console.log(
-    `[e2e] 测试库已就绪（含 migrate → revert → migrate 往返）：${E2E_DB_NAME}`,
+    `[e2e] 测试库已就绪（含 migrate → revert → migrate 往返与邮箱归一数据验证）：${E2E_DB_NAME}`,
   );
 } finally {
   await dataSource.destroy();

@@ -1,6 +1,7 @@
 import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
 import { Exclude } from 'class-transformer';
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -9,11 +10,18 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { UserRole } from '../common/roles.js';
+import { USER_EMAIL_NORMALIZED_CHECK } from './user-email.constraint.js';
 
 /** 用户账号：username/email 全局唯一，status=1 为正常；passwordHash 经 @Exclude 不出网 */
 @Entity('users')
 @Unique(['username'])
 @Unique(['email'])
+// 邮箱在 schema 层只允许归一后的值（小写、无首尾空白）：唯一约束本身区分大小写，
+// 只靠应用层归一的话，脚本/直接 SQL/将来的改邮箱入口仍能插入 `Alice@Example.com`
+// 或 `alice@x.com `，与 `alice@example.com` 并存——正是「可注册出仅大小写不同的
+// 重复账号」的根因。CHECK 直接复用 `normalizeEmail` 的空白字符集，与运行时同口径。
+// 写成实体上的 CHECK（而非手写 DDL），`migration:generate` 才会保留它。
+@Check(USER_EMAIL_NORMALIZED_CHECK)
 export class User {
   @ApiProperty({ description: '用户 ID' })
   @PrimaryGeneratedColumn('uuid')

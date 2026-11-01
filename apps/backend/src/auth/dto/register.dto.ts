@@ -10,6 +10,7 @@ import {
   USERNAME_PATTERN,
 } from '@lucy/shared';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsOptional,
@@ -18,6 +19,7 @@ import {
   Matches,
   MaxLength,
 } from 'class-validator';
+import { normalizeEmail } from '../../common/email.js';
 
 export class RegisterDto {
   // 边界值与正则都取自 @lucy/shared 的唯一定义处：前端 zod 与强度指示用同一份，
@@ -37,12 +39,17 @@ export class RegisterDto {
 
   // 上界与 users.email 列（varchar(255)）对齐：isEmail 只约束局部 ≤64/域名 ≤253 字节，
   // 整串可达 ~318，不挡的话 256–318 会过 DTO、却在插入时报 22001（500 而不是 400）
+  // 归一发生在校验之前：` Alice@Example.COM ` 会先变成 `alice@example.com` 再进 @IsEmail，
+  // 因此带首尾空白的邮箱不再被 400，而存量混合大小写的账号也不会再被「仅大小写不同」地重复注册
   @ApiProperty({
     description: '邮箱',
     example: 'lucy@example.com',
     format: 'email',
     maxLength: EMAIL_MAX_LENGTH,
   })
+  @Transform(({ value }): unknown =>
+    typeof value === 'string' ? normalizeEmail(value) : (value as unknown),
+  )
   @IsEmail()
   @MaxLength(EMAIL_MAX_LENGTH)
   email: string;

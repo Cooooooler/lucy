@@ -9,6 +9,7 @@ import { PasswordService } from '../password/password.service.js';
 import { DenylistService } from '../redis/denylist.service.js';
 import { toSharedUser, type SharedUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
+import { isEmailAccount } from './account.js';
 
 /** 令牌摘要（sha256 hex）。标称类型，见 AuthService.digest */
 type TokenDigest = string & { readonly __brand: 'TokenDigest' };
@@ -125,7 +126,8 @@ export class AuthService {
     accessToken: string;
     refreshToken: string;
   }> {
-    const user = dto.account.includes('@')
+    // 判据与 LoginDto 的归一分支共用 common/email 的同一份实现，避免两处漂移
+    const user = isEmailAccount(dto.account)
       ? await this.usersService.findByEmail(dto.account)
       : await this.usersService.findByUsername(dto.account);
     if (!user) {
