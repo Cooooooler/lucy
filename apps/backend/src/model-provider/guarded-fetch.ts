@@ -38,21 +38,27 @@ function createGuardedLookup(): LookupFunction {
   };
 }
 
+/** 带关闭钩子的 fetch：Agent 是连接池资源，停机时必须显式关闭 */
+export interface GuardedFetch {
+  fetch: typeof fetch;
+  close(): Promise<void>;
+}
+
 /**
  * 模型客户端（连接测试与真实对话）统一使用的 fetch：
  *
  * 1. 主机字面量先做同步校验（IP 字面量、已知元数据主机名）；
  * 2. 通过 undici `Agent` 的 `connect.lookup` 按**解析后的 IP** 校验并把地址钉给连接；
  * 3. `redirect: 'manual'`：不跟随重定向，避免 302 指向元数据端点；
- *    3xx 直接抛可读错误（API Base URL 正常不应依赖重定向）。
+ *    3xx 先释放响应体再抛可读错误（不读 body 时连接不会归还连接池）。
  *
  * 以函数形式注入各 SDK 的 `fetch` 选项（OpenAI/Anthropic/Ollama 均支持）。
  */
-export function createGuardedFetch(): typeof fetch {
+export function createGuardedFetch(): GuardedFetch {
   const dispatcher = new Agent({
     connect: { lookup: createGuardedLookup() },
   });
-  return async (input, init) => {
+  const guardedFetch: typeof fetch = async (input, init) => {
     assertBaseUrlHostAllowed(requestUrlOf(input));
     const response = await undiciFetch(
       input as never,
@@ -63,8 +69,11 @@ export function createGuardedFetch(): typeof fetch {
       } as never,
     );
     if (response.status >= 300 && response.status < 400) {
+      // 不消费 body 时 keep-alive 连接不会归还，重复失败会累积占用连接
+      await response.body?.cancel().catch(() => {});
       throw new BaseUrlBlockedError('API Base URL 返回重定向，已拒绝跟随');
     }
     return response as unknown as Response;
   };
+  return { fetch: guardedFetch, close: () => dispatcher.close() };
 }

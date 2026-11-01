@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const undiciFetch = vi.hoisted(() => vi.fn());
 const agentCtor = vi.hoisted(() => vi.fn());
+const agentClose = vi.hoisted(() => vi.fn());
 const assertHost = vi.hoisted(() => vi.fn());
 const resolveAddresses = vi.hoisted(() => vi.fn());
 
 vi.mock('undici', () => ({
   fetch: undiciFetch,
   Agent: class {
+    close = agentClose;
     constructor(options: unknown) {
       agentCtor(options);
     }
@@ -26,7 +28,7 @@ describe('createGuardedFetch', () => {
 
   it('先做字面量校验，再以 manual redirect + 钉地址的 dispatcher 发起请求', async () => {
     undiciFetch.mockResolvedValue(new Response('ok', { status: 200 }));
-    const guarded = createGuardedFetch();
+    const { fetch: guarded } = createGuardedFetch();
 
     const res = await guarded('https://api.example.com/v1', {
       method: 'POST',
@@ -41,6 +43,12 @@ describe('createGuardedFetch', () => {
     const init = (undiciFetch.mock.calls[0] as unknown[] | undefined)?.[1] as
       { dispatcher?: unknown } | undefined;
     expect(init?.dispatcher).toBeDefined();
+  });
+
+  it('close 关闭 undici Agent 连接池', async () => {
+    const guard = createGuardedFetch();
+    await guard.close();
+    expect(agentClose).toHaveBeenCalledTimes(1);
   });
 
   it('Agent 的 connect.lookup 校验后把地址钉给连接（防 DNS rebinding）', async () => {
@@ -82,22 +90,25 @@ describe('createGuardedFetch', () => {
     });
   });
 
-  it('3xx 拒绝跟随重定向', async () => {
+  it('3xx 先释放响应体再拒绝跟随重定向', async () => {
+    const body = new ReadableStream();
+    const cancel = vi.spyOn(body, 'cancel');
     undiciFetch.mockResolvedValue(
-      new Response(null, {
+      new Response(body, {
         status: 302,
         headers: { location: 'http://169.254.169.254/' },
       }),
     );
-    const guarded = createGuardedFetch();
+    const { fetch: guarded } = createGuardedFetch();
     await expect(guarded('https://api.example.com/v1')).rejects.toThrow(
       BaseUrlBlockedError,
     );
+    expect(cancel).toHaveBeenCalled();
   });
 
   it('支持 URL / Request 入参并取其 URL', async () => {
     undiciFetch.mockResolvedValue(new Response('ok', { status: 200 }));
-    const guarded = createGuardedFetch();
+    const { fetch: guarded } = createGuardedFetch();
 
     await guarded(new URL('https://a.example/x'));
     await guarded(new Request('https://b.example/y'));
