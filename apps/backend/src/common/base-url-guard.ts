@@ -14,9 +14,13 @@ const BLOCKED_MESSAGE =
 /** IPv4 链路本地 169.254.0.0/16（含云元数据 169.254.169.254） */
 const isLinkLocalV4 = (host: string): boolean => host.startsWith('169.254.');
 
-/** 阿里云 ECS 元数据 100.100.100.200（不在链路本地段，需单独拦） */
+/** 阿里云 ECS 元数据 100.100.100.200（不在链路本地段，需单独拦；只匹配精确 IP） */
 const isAliyunMetadataV4 = (host: string): boolean =>
-  host.startsWith('100.100.100.');
+  host === '100.100.100.200';
+
+/** IPv4 受限地址：链路本地 + 云元数据精确端点 */
+const isBlockedV4 = (host: string): boolean =>
+  isLinkLocalV4(host) || isAliyunMetadataV4(host);
 
 /** DNS 解析得到的地址（family 收窄为 4/6，供连接期 lookup 原样回传） */
 export interface ResolvedHostAddress {
@@ -93,19 +97,19 @@ function isBlockedV6(input: string): boolean {
     b.slice(from, to).every((byte) => byte === 0);
   // ::ffff:a.b.c.d
   if (zero(0, 10) && b[10] === 0xff && b[11] === 0xff) {
-    return isLinkLocalV4(v4At(b, 12));
+    return isBlockedV4(v4At(b, 12));
   }
   // ::ffff:0:a.b.c.d（IPv4-translated）
   if (zero(0, 8) && b[8] === 0xff && b[9] === 0xff) {
-    return isLinkLocalV4(v4At(b, 12));
+    return isBlockedV4(v4At(b, 12));
   }
   // ::a.b.c.d（IPv4 兼容，已废弃；:: 与 ::1 会落到 0.0.0.0 / 0.0.0.1，放行）
-  if (zero(0, 12)) return isLinkLocalV4(v4At(b, 12));
+  if (zero(0, 12)) return isBlockedV4(v4At(b, 12));
   // 6to4 2002:V4HI:V4LO::/48
-  if (b[0] === 0x20 && b[1] === 0x02) return isLinkLocalV4(v4At(b, 2));
+  if (b[0] === 0x20 && b[1] === 0x02) return isBlockedV4(v4At(b, 2));
   // Teredo 2001:0000:<服务器 IPv4>:...
   if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x00 && b[3] === 0x00) {
-    return isLinkLocalV4(v4At(b, 4));
+    return isBlockedV4(v4At(b, 4));
   }
   // NAT64 64:ff9b::a.b.c.d
   if (
@@ -115,7 +119,7 @@ function isBlockedV6(input: string): boolean {
     b[3] === 0x9b &&
     zero(4, 12)
   ) {
-    return isLinkLocalV4(v4At(b, 12));
+    return isBlockedV4(v4At(b, 12));
   }
   return false;
 }
@@ -123,8 +127,7 @@ function isBlockedV6(input: string): boolean {
 /** 单个 IP（v4/v6 字面量）是否落在受限范围 */
 export function isBlockedAddress(address: string): boolean {
   const version = isIP(address);
-  if (version === 4)
-    return isLinkLocalV4(address) || isAliyunMetadataV4(address);
+  if (version === 4) return isBlockedV4(address);
   if (version === 6) return isBlockedV6(address);
   return false;
 }
