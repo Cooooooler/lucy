@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { getMetadataArgsStorage } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
 import { decodeCursor, encodeCursor } from '../common/pagination/cursor.js';
@@ -16,7 +17,9 @@ import {
   makeKb,
   makeKbItem,
   makeKbQb,
+  makeKbRow,
   makeLikeQb,
+  makeUpdateQb,
   OTHER_ID,
   sqlOf,
   uuid,
@@ -31,16 +34,24 @@ import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 describe('KnowledgeService', () => {
-  // 事务内的知识库仓库：创建走它插入，更新走它 UPDATE + 回读
-  const txKbRepo = { update: vi.fn(), findOne: vi.fn() };
+  // 事务内的仓库：只有「创建时校验重排模型 + 插入」走事务（更新是单条 UPDATE ... RETURNING，
+  // 不需要事务）
   const tx = {
     save: vi.fn(),
-    getRepository: vi.fn(() => txKbRepo),
   };
+  // update 把 RETURNING 回的行按实体元数据映射回属性名：列清单取自真实装饰器元数据
+  // （默认命名策略下数据库列名 = `@Column({ name })` 或属性名），不在 spec 里手抄一份
+  const KB_COLUMNS = getMetadataArgsStorage()
+    .columns.filter((column) => column.target === KnowledgeBase)
+    .map((column) => ({
+      propertyName: column.propertyName,
+      databaseName: column.options.name ?? column.propertyName,
+    }));
   const kbRepo = {
     findOne: vi.fn(),
     save: vi.fn(),
     createQueryBuilder: vi.fn(),
+    metadata: { columns: KB_COLUMNS },
     manager: { transaction: vi.fn() },
   };
   const likeRepo = {
@@ -239,20 +250,34 @@ describe('KnowledgeService', () => {
   });
 
   it('update 只写 DTO 中出现的列，不碰检索设置', async () => {
-    txKbRepo.update.mockResolvedValue({ affected: 1 });
-    txKbRepo.findOne.mockResolvedValue(makeKb());
+    const qb = makeUpdateQb();
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
     await service.update('u1', KB_ID, { name: 'y' });
     // 整实体 save 会把并发清空后的 rerank_model_id 写回，这里必须只更新显式字段
-    expect(txKbRepo.update).toHaveBeenCalledWith(
-      { id: KB_ID, ownerId: 'u1' },
-      { name: 'y' },
-    );
+    expect(qb.set).toHaveBeenCalledWith({ name: 'y' });
     expect(kbRepo.save).not.toHaveBeenCalled();
   });
 
-  it('update 并发删除（affected=0）返回 404 而不是 500', async () => {
-    txKbRepo.findOne.mockResolvedValue(makeKb());
-    txKbRepo.update.mockResolvedValue({ affected: 0 });
+  it('update 用一次 UPDATE ... RETURNING * 完成鉴权、写入与回读', async () => {
+    const updatedAt = new Date('2026-02-02T00:00:00.000Z');
+    const qb = makeUpdateQb([makeKbRow({ name: 'y', updated_at: updatedAt })]);
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
+
+    const result = await service.update('u1', KB_ID, { name: 'y' });
+
+    // 属主判据在 UPDATE 的 where 里：一条语句同时完成鉴权与写入
+    expect(qb.where).toHaveBeenCalledWith({ id: KB_ID, ownerId: 'u1' });
+    expect(qb.returning).toHaveBeenCalledWith('*');
+    // 不再二次回读、也不再开事务
+    expect(kbRepo.findOne).not.toHaveBeenCalled();
+    expect(kbRepo.manager.transaction).not.toHaveBeenCalled();
+    // RETURNING 的行（数据库列名）按实体元数据映射回属性名，响应即本次写入的结果
+    expect(result).toEqual(makeKbItem({ name: 'y', updatedAt }));
+  });
+
+  it('update 命中 0 行（并发删除）返回 404 而不是 500', async () => {
+    kbRepo.createQueryBuilder.mockReturnValue(makeUpdateQb([]));
+    kbRepo.findOne.mockResolvedValue(null);
     await expect(
       service.update('u1', KB_ID, { name: 'y' }),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -285,8 +310,7 @@ describe('KnowledgeService', () => {
     kbRepo.createQueryBuilder.mockReturnValue(makeKbQb());
     const listed = await service.list('u1', {});
 
-    txKbRepo.findOne.mockResolvedValue(makeKb());
-    txKbRepo.update.mockResolvedValue({ affected: 1 });
+    kbRepo.createQueryBuilder.mockReturnValue(makeUpdateQb());
     const updated = await service.update('u1', KB_ID, { name: 'y' });
 
     for (const [endpoint, item] of Object.entries({
@@ -303,8 +327,7 @@ describe('KnowledgeService', () => {
   });
 
   it('update 回填点赞态（更新后仍与 get/list 同形，不谎报 0/false）', async () => {
-    txKbRepo.findOne.mockResolvedValue(makeKb());
-    txKbRepo.update.mockResolvedValue({ affected: 1 });
+    kbRepo.createQueryBuilder.mockReturnValue(makeUpdateQb());
     const likeQb = makeLikeQb();
     likeQb.getRawMany.mockResolvedValue([{ kbId: KB_ID, cnt: '3' }]);
     likeRepo.createQueryBuilder.mockReturnValue(likeQb);
@@ -325,8 +348,8 @@ describe('KnowledgeService', () => {
 
   it('update 非属主抛 FORBIDDEN', async () => {
     // UPDATE 的 where 带 ownerId，非属主命中 0 行；错误路径再读一次区分 403/404
-    txKbRepo.update.mockResolvedValue({ affected: 0 });
-    txKbRepo.findOne.mockResolvedValue(makeKb());
+    kbRepo.createQueryBuilder.mockReturnValue(makeUpdateQb([]));
+    kbRepo.findOne.mockResolvedValue(makeKb());
     await expect(
       service.update('u2', 'kb1', { name: 'y' }),
     ).rejects.toMatchObject({
@@ -468,29 +491,25 @@ describe('KnowledgeService', () => {
     );
   });
 
-  it('update 属主按显式字段做列级更新并回读', async () => {
-    const kbEntity = makeKb();
-    txKbRepo.findOne.mockResolvedValue(kbEntity);
-    txKbRepo.update.mockResolvedValue({ affected: 1 });
+  it('update 属主按显式字段做列级更新', async () => {
+    const qb = makeUpdateQb();
+    kbRepo.createQueryBuilder.mockReturnValue(qb);
     await service.update('u1', 'kb1', {
       name: 'y',
       description: 'd',
       visibility: KnowledgeBaseVisibility.Public,
     });
-    expect(txKbRepo.update).toHaveBeenCalledWith(
-      { id: 'kb1', ownerId: 'u1' },
-      {
-        name: 'y',
-        description: 'd',
-        visibility: KnowledgeBaseVisibility.Public,
-      },
-    );
+    expect(qb.set).toHaveBeenCalledWith({
+      name: 'y',
+      description: 'd',
+      visibility: KnowledgeBaseVisibility.Public,
+    });
     expect(kbRepo.save).not.toHaveBeenCalled();
   });
 
   it('update 知识库不存在抛 404', async () => {
-    txKbRepo.update.mockResolvedValue({ affected: 0 });
-    txKbRepo.findOne.mockResolvedValue(null);
+    kbRepo.createQueryBuilder.mockReturnValue(makeUpdateQb([]));
+    kbRepo.findOne.mockResolvedValue(null);
     await expect(
       service.update('u1', 'kb1', { name: 'y' }),
     ).rejects.toBeInstanceOf(NotFoundException);

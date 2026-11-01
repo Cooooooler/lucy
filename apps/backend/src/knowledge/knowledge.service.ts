@@ -273,26 +273,43 @@ export class KnowledgeService {
       this.logger.log(`kb update kb=${id}`, KnowledgeService.name);
       return toKnowledgeBaseItem(kb, userId);
     }
-    // 属主判据放进 UPDATE 的 where；UPDATE 与回读放进同一事务：
-    // UPDATE 持有行锁到提交，并发 DELETE 只能等，回读不会落在「已更新但已删除」
-    // 的夹缝里（否则一次成功的更新会被误报成 404）。常见路径仍是 2 条语句。
-    const saved = await this.kbRepo.manager.transaction(async (manager) => {
-      const repo = manager.getRepository(KnowledgeBase);
-      const { affected } = await repo.update({ id, ownerId: userId }, patch);
-      // 错误路径才多一次读：区分「不存在」(404) 与「非属主」(403)
-      if (!affected) {
-        await resolveOwnedKb(repo, id, userId);
-        throw new NotFoundException('知识库不存在');
-      }
-      const row = await repo.findOne({ where: { id } });
-      if (!row) throw new NotFoundException('知识库不存在');
-      return row;
-    });
+    // 属主判据下沉进 UPDATE 的 where，并用 RETURNING * 一次取回被更新的行：单条语句本身
+    // 原子，既不用「UPDATE 之后再回读」（回读与 UPDATE 之间的并发 DELETE 会让一次已生效的
+    // 更新被误报成 404），也少一次往返。只有命中 0 行（不存在 / 非属主）才额外读一次来区分
+    // 404 与 403。
+    const result = await this.kbRepo
+      .createQueryBuilder()
+      .update(KnowledgeBase)
+      .set(patch)
+      .where({ id, ownerId: userId })
+      .returning('*')
+      .execute();
+    const [row] = (result.raw ?? []) as Record<string, unknown>[];
+    if (!row) {
+      await resolveOwnedKb(this.kbRepo, id, userId);
+      throw new NotFoundException('知识库不存在');
+    }
+    const saved = this.entityFromRow(row);
     // 点赞态同样要回填：响应形状必须与 get/list 完全一致，
     // 否则 mapper 的兜底会把「已点赞」谎报成 0/false。
     await this.fillLikeInfo(userId, [saved]);
     this.logger.log(`kb update kb=${id}`, KnowledgeService.name);
     return toKnowledgeBaseItem(saved, userId);
+  }
+
+  /**
+   * 把 `RETURNING *` 返回的行（键是**数据库列名**：`owner_id` / `created_at` …）还原成实体。
+   *
+   * 逐列照实体元数据映射，而不是手写一份 camelCase↔snake_case 对照表：新增列时手抄的表
+   * 会漏改，让响应静默少字段；元数据随实体自动跟上。
+   */
+  private entityFromRow(raw: Record<string, unknown>): KnowledgeBase {
+    const entity = new KnowledgeBase();
+    const target = entity as unknown as Record<string, unknown>;
+    for (const { propertyName, databaseName } of this.kbRepo.metadata.columns) {
+      target[propertyName] = raw[databaseName];
+    }
+    return entity;
   }
 
   /**
