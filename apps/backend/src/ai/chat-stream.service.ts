@@ -254,7 +254,11 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         armIdle,
         collected,
       );
-      // 流已结束，不再等模型输出：之后的落库失败按 run 阶段归因（DB 超时≠模型超时）
+      // 流已结束：立即停掉空闲定时器，否则落库耗时超过 OLLAMA_TIMEOUT_MS 时会被它
+      // abort 成 signal.aborted，反而把 DB 落库失败归成「模型调用超时」；
+      // 之后的落库失败按 run 阶段归因（DB 超时≠模型超时）
+      clearTimeout(idleTimer);
+      idleTimer = undefined;
       streamStarted = false;
       await this.saveComplete(subscriber, requestId, {
         conversationId,

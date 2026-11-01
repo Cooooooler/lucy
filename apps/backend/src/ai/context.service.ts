@@ -70,13 +70,18 @@ export class ContextService {
     // token 额度，而选行遇到放不下的行就停，本可保留的更早完整轮次会被一起挤掉。
     const normalized = normalizeTurns(usable);
 
-    // 从最近往前累计，超预算即停
+    // 先并行取回各行的 token 数，再按「从最近往前累计、超预算即停」选行：
+    // 逐行串行 await 时，未命中缓存的行各触发一次 /api/tokenize，首 token 延迟会随
+    // 历史长度线性增长；并行只影响计数阶段，选行语义不变
+    const tokenCounts = await Promise.all(
+      normalized.map((m) => this.tokenizer.countTokens(m.content, model)),
+    );
     const selected: Message[] = [];
     let used = 0;
-    for (const m of [...normalized].reverse()) {
-      const tokens = await this.tokenizer.countTokens(m.content, model);
+    for (let i = normalized.length - 1; i >= 0; i--) {
+      const tokens = tokenCounts[i];
       if (used + tokens > historyBudget) break;
-      selected.push(m);
+      selected.push(normalized[i]);
       used += tokens;
     }
 
