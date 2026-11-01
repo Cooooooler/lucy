@@ -177,8 +177,8 @@ export type ModelCredentialReason = keyof typeof MODEL_CREDENTIAL_MESSAGES;
 
 /**
  * 供应商/网络侧失败的展示文案（连接测试与对话链路共用判据，见 common/provider-error）。
- * 对话链路目前只把 unauthorized 映射为凭证码；其余分类沿用「生成失败」码
- * （前端 SSE_ERROR_TEXT 会按码覆盖文案，细分错误码需改共享契约，见跟进 issue）。
+ * 对话链路把 unauthorized 映射为凭证码、rateLimited / serverError 映射为各自的
+ * 细分错误码（前端 SSE_ERROR_TEXT 按码覆盖文案）；其余分类沿用「生成失败」码。
  */
 export const PROVIDER_ERROR_MESSAGES = {
   unauthorized: 'API Key 无效或无权限',

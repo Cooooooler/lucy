@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
-import { formatErrorForLog } from '../common/error-format.js';
+import { errorLogFields } from '../common/error-format.js';
 import { ShutdownService } from '../common/shutdown.service.js';
 import type { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
 import { ModelClientFactory } from '../model-provider/model-client.factory.js';
@@ -364,9 +364,10 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       try {
         await this.titleService.generate(conversation, provider, signal);
       } catch (err) {
-        // 标题生成失败不影响正文问答，仅记录日志
-        this.logger.warn(
-          `标题生成失败 conversation=${conversationId}: ${formatErrorForLog(err)}`,
+        // 标题生成失败不影响正文问答，仅记录日志（结构化字段便于按 err.type 聚合）
+        this.logger.warnWith(
+          { err: errorLogFields(err), conversationId },
+          '标题生成失败',
           ChatStreamService.name,
         );
       }
@@ -528,8 +529,12 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       })
       .catch((saveError) => {
         // 落库失败不影响已发出的错误帧，也不能再抛到外层 catch 重复发帧：只补日志
-        this.logger.warn(
-          `saveFailure persist failed conversation=${context.conversationId}: ${formatErrorForLog(saveError)}`,
+        this.logger.warnWith(
+          {
+            err: errorLogFields(saveError),
+            conversationId: context.conversationId,
+          },
+          'saveFailure persist failed',
           ChatStreamService.name,
         );
       });
@@ -550,11 +555,23 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     // 失败出口必须留痕：错误帧只给用户看，日志才能按类型聚合排查；
     // 用户主动断线/停机（aborted）降为 debug，避免每次 SSE 断线刷 warn。
     // message 可能含主机端口、SQL 等基础设施细节，不得随 error 帧出网
-    const logText = `sendMessage failed conversation=${conversationId} phase=${phase}: ${formatErrorForLog(error)}`;
+    const fields = {
+      err: errorLogFields(error),
+      conversationId,
+      phase,
+    };
     if (kind.code === ErrorCode.AI_GENERATE_ABORTED) {
-      this.logger.debug(logText, ChatStreamService.name);
+      this.logger.debugWith(
+        fields,
+        'sendMessage aborted',
+        ChatStreamService.name,
+      );
     } else {
-      this.logger.warn(logText, ChatStreamService.name);
+      this.logger.warnWith(
+        fields,
+        'sendMessage failed',
+        ChatStreamService.name,
+      );
     }
     subscriber.next({
       type: 'error',

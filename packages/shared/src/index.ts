@@ -45,6 +45,13 @@ export const ErrorCode = {
    * 直接透传后端 message。
    */
   AI_CREDENTIAL_INVALID: 40103,
+  /**
+   * 供应商限流（HTTP 429）。消息：供应商限流，请稍后重试。
+   * 与「生成失败」分开，前端才能显示可执行提示而不是笼统的「生成失败」。
+   */
+  AI_PROVIDER_RATE_LIMITED: 42901,
+  /** 供应商服务异常（HTTP 5xx）。消息：供应商服务异常。 */
+  AI_PROVIDER_UNAVAILABLE: 50301,
   /** 未选择模型（或用户没有任何 LLM 模型可选用），无法发起对话。消息：请先配置并选择模型。 */
   AI_MODEL_REQUIRED: 40001,
   /** 所选模型不存在、不属于当前用户或已不是 LLM 类型。消息：所选模型不可用。 */

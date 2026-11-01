@@ -47,13 +47,26 @@ export function classifyStreamError(
       message: MODEL_CREDENTIAL_MESSAGES[error.reason],
     };
   }
-  // 对话链路也按供应商状态归因：401/403 与凭证无效同码，前端按服务端 message 展示
-  // 可执行提示（该码不进 SSE_ERROR_TEXT 覆盖表）。429/5xx 暂沿用「生成失败」码——
-  // 前端会按码覆盖文案，细分错误码需要改共享契约，列为跟进项。
-  if (providerErrorKind(error) === 'unauthorized') {
+  // 对话链路也按供应商状态归因，前端据错误码展示对应可执行文案：
+  // 401/403 → 凭证无效（该码不进 SSE_ERROR_TEXT，直接透传服务端 message）；
+  // 429 → 供应商限流；5xx → 供应商服务异常。其余（404/网络）仍归「生成失败」。
+  const providerKind = providerErrorKind(error);
+  if (providerKind === 'unauthorized') {
     return {
       code: ErrorCode.AI_CREDENTIAL_INVALID,
       message: PROVIDER_ERROR_MESSAGES.unauthorized,
+    };
+  }
+  if (providerKind === 'rateLimited') {
+    return {
+      code: ErrorCode.AI_PROVIDER_RATE_LIMITED,
+      message: PROVIDER_ERROR_MESSAGES.rateLimited,
+    };
+  }
+  if (providerKind === 'serverError') {
+    return {
+      code: ErrorCode.AI_PROVIDER_UNAVAILABLE,
+      message: PROVIDER_ERROR_MESSAGES.serverError,
     };
   }
   // 基础设施错误（DB/事务）先于模型超时启发式：Postgres 语句超时

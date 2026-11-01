@@ -1,23 +1,36 @@
 /**
- * 失败日志的统一文本格式：`[错误类名] message`，再带上能定位根因的栈。
+ * 失败日志的结构化字段：与 pino 的 `err` 序列化约定一致（type/message/stack），
+ * 采集端可直接按 `err.type` 聚合、按 `err.stack` 定位，不再依赖正则解析 message 文本。
  *
- * - 类名：线上可按 `QueryFailedError` / `ModelCredentialError` 等类型聚合，区分
- *   「配置错」「平台密钥问题」与「供应商/基础设施故障」；
- * - 栈：包装错误把自己的根因挂在 `cause` 上（优先取 cause 栈）；普通错误没有 cause 时
- *   补自身栈——只记一句 message 看不出抛出位置，线上无法定位。
+ * 包装错误把自己的根因挂在 `cause` 上，这里一并抽成嵌套字段（旧实现「优先取 cause 栈」
+ * 是为了避免顶层包装栈淹没根因；结构化后两者都保留，采集端可按需取）。
  *
  * 两个失败出口（连接测试与 SSE 流）共用，避免格式各自漂移。
  */
-export function formatErrorForLog(error: unknown): string {
+export interface ErrorLogFields {
+  type: string;
+  message: string;
+  stack?: string;
+  cause?: Omit<ErrorLogFields, 'cause'>;
+}
+
+export function errorLogFields(error: unknown): ErrorLogFields {
   if (!(error instanceof Error)) {
-    return `[${typeof error}] ${String(error)}`;
+    return { type: typeof error, message: String(error) };
   }
   const cause = error.cause;
-  const detail =
-    cause instanceof Error && cause.stack
-      ? ` cause=${cause.stack}`
-      : error.stack
-        ? ` stack=${error.stack}`
-        : '';
-  return `[${error.name}] ${error.message}${detail}`;
+  return {
+    type: error.name,
+    message: error.message,
+    ...(error.stack ? { stack: error.stack } : {}),
+    ...(cause instanceof Error
+      ? {
+          cause: {
+            type: cause.name,
+            message: cause.message,
+            ...(cause.stack ? { stack: cause.stack } : {}),
+          },
+        }
+      : {}),
+  };
 }

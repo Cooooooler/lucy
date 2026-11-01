@@ -43,6 +43,30 @@ describe('AppLogger', () => {
     expect(warn).toHaveBeenCalledWith('login failed user=u2', undefined);
   });
 
+  it('warnWith 把字段作为结构化字段交给 pino，并保留 message 与 userId', () => {
+    const { appLogger, warn } = makeLogger('u5');
+    appLogger.warnWith(
+      { phase: 'stream', err: { type: 'E' } },
+      'failed',
+      'Svc',
+    );
+    expect(warn).toHaveBeenCalledWith(
+      { phase: 'stream', err: { type: 'E' }, user: 'u5' },
+      'failed',
+      'Svc',
+    );
+  });
+
+  it('debugWith 同样携带结构化字段与 userId', () => {
+    const { appLogger, debug } = makeLogger('u6');
+    appLogger.debugWith({ reason: 'aborted' }, 'send aborted', 'Svc');
+    expect(debug).toHaveBeenCalledWith(
+      { reason: 'aborted', user: 'u6' },
+      'send aborted',
+      'Svc',
+    );
+  });
+
   it('error 透传 trace 与 context', () => {
     const { appLogger, error } = makeLogger('u3');
     appLogger.error('boom', 'stack-trace', 'Svc');
