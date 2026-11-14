@@ -76,10 +76,30 @@ describe('toLoggableError', () => {
     expect((loggable.cause as Error).name).toBe('TypeError');
   });
 
-  it('非 Error 包成 Error，保留可读 message', () => {
+  it('非 Error 包成 Error，只拼 message 与安全标量（不整体序列化）', () => {
     expect(toLoggableError('oops').message).toBe('oops');
     expect(toLoggableError(null).message).toBe('null');
-    expect(toLoggableError({ code: 'x' }).message).toBe('{"code":"x"}');
+    expect(toLoggableError({ code: 'ETIMEDOUT' }).message).toBe(
+      'code=ETIMEDOUT',
+    );
+  });
+
+  it('非 Error 对象里的响应体/请求参数/凭据不进 message', () => {
+    const failure = {
+      message: 'request failed',
+      code: 'ERR_BAD_RESPONSE',
+      status: 502,
+      response: { body: '供应商响应体' },
+      headers: { authorization: 'Bearer secret-token' },
+      request: { body: '用户提问全文' },
+    };
+
+    const message = toLoggableError(failure).message;
+
+    expect(message).toBe('request failed code=ERR_BAD_RESPONSE status=502');
+    expect(message).not.toContain('供应商响应体');
+    expect(message).not.toContain('secret-token');
+    expect(message).not.toContain('用户提问全文');
   });
 });
 
@@ -162,7 +182,57 @@ describe('serializeErrorForLog', () => {
     expect(parsed.err).not.toHaveProperty('response');
   });
 
-  it('非 Error 值原样透传（调用方应先用 toLoggableError 归一）', () => {
+  it('循环 cause 不会递归爆栈（限深 4，日志调用本身不再抛错）', () => {
+    const cyclic = new Error('loop');
+    cyclic.cause = cyclic;
+
+    expect(() => capture({ err: cyclic })).not.toThrow();
+
+    const { parsed } = capture({ err: cyclic });
+    let cause: unknown = parsed.err.cause;
+    let depth = 0;
+    while (cause && typeof cause === 'object') {
+      depth += 1;
+      cause = (cause as { cause?: unknown }).cause;
+    }
+    expect(depth).toBe(4);
+  });
+
+  it('原始 Error 与 pino-http 包装路径的 err.type 一致（子类未设 name 时取构造器名）', () => {
+    class ProviderTimeoutError extends Error {}
+
+    const raw = capture({ err: new ProviderTimeoutError('timeout') });
+    const wrapped = captureViaPinoHttp({
+      err: new ProviderTimeoutError('timeout'),
+    });
+
+    expect(raw.parsed.err.type).toBe('ProviderTimeoutError');
+    expect(wrapped.parsed.err.type).toBe('ProviderTimeoutError');
+  });
+
+  it('显式改过 name 的错误两条路径都用构造器名（与 pino-http 对齐，聚合不分裂）', () => {
+    class CustomError extends Error {
+      override name = 'CustomErrorName';
+    }
+
+    const raw = capture({ err: new CustomError('boom') });
+    const wrapped = captureViaPinoHttp({ err: new CustomError('boom') });
+
+    expect(raw.parsed.err.type).toBe('CustomError');
+    expect(wrapped.parsed.err.type).toBe('CustomError');
+  });
+
+  it('err 键上出现无 message 的普通对象时也只保留白名单字段', () => {
+    const { text, parsed } = captureViaPinoHttp({
+      err: { status: 502, response: { body: '供应商响应体' } },
+    });
+
+    expect(parsed.err).toMatchObject({ type: 'Object', status: 502 });
+    expect(text).not.toContain('供应商响应体');
+    expect(parsed.err).not.toHaveProperty('response');
+  });
+
+  it('原始标量原样透传（调用方应先用 toLoggableError 归一）', () => {
     expect(serializeErrorForLog('oops')).toBe('oops');
   });
 });
