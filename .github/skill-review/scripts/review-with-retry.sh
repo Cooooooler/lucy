@@ -32,6 +32,12 @@ ERR=".pr-skill-review/${SIDE}.err"
 MIN_BYTES=500
 MIN_HANZI=30
 MAX_ATTEMPTS=2
+# 单次 CLI 调用的硬超时（秒）。没有这层兜底时，模型请求一旦挂在半路，
+# `command-code -p` 会一直等下去，只能等 job 级的 30 分钟 timeout 收场：
+# #122 实测「后端评审」在 19.5KB 补丁上跑了 22 分钟仍无输出（正常约 4 分钟）。
+# 600 秒对「读补丁 + 读规则 + 按需读源码」的完整评审足够宽裕；超时按失败处理，
+# 由下面的重试逻辑再试一次，仍失败则判空、不发残缺评论。
+ATTEMPT_TIMEOUT=600
 # 规范化的「无问题」结论（前后端共用同一句式，只差锚点词）
 NO_ISSUE_CANON='未发现需要修改的问题'
 # 「无问题」结论的常见变体。只在输出够短时启用（见 is_no_issue），
@@ -39,7 +45,8 @@ NO_ISSUE_CANON='未发现需要修改的问题'
 NO_ISSUE_RE='未发现(任何|需要(修改|改动|调整)的)?问题|没有发现(任何)?问题|未见(任何)?问题|没有问题|无需(修改|改动|调整)|无问题'
 
 run_once() {
-  command-code -p "$(cat ".pr-skill-review/${SIDE}-prompt.txt")" \
+  timeout "$ATTEMPT_TIMEOUT" \
+    command-code -p "$(cat ".pr-skill-review/${SIDE}-prompt.txt")" \
     --no-skills \
     --skill ".github/skill-review/skills/${SKILL}" \
     --model "$SKILL_REVIEW_MODEL" \
