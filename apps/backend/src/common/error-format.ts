@@ -12,6 +12,21 @@ export function toLoggableError(error: unknown): Error {
   return new Error(typeof error === 'string' ? error : safeString(error));
 }
 
+/** 白名单内的标量字段：是排障关键，且不会携带用户内容 */
+const SAFE_ERROR_SCALARS = ['code', 'status', 'errno', 'syscall'] as const;
+
+interface ErrorFieldSource {
+  type?: unknown;
+  name?: unknown;
+  message?: unknown;
+  stack?: unknown;
+  cause?: unknown;
+  code?: unknown;
+  status?: unknown;
+  errno?: unknown;
+  syscall?: unknown;
+}
+
 /**
  * pino 的 `err` 序列化器（`pinoHttp.serializers.err`）。
  *
@@ -21,20 +36,54 @@ export function toLoggableError(error: unknown): Error {
  * 模型回答全文）、`driverError`；OpenAI 等 SDK 错误自带响应体回显。等于把 SQL 与
  * 用户内容写进日志，而 `redact` 覆盖不到这些动态路径。
  *
- * 这里白名单到 `type/message/stack`（外加递归的 `cause`）：既保住按 `err.type`
- * 聚合、保留根因链，又不会随第三方错误形状漂移而泄漏。序列化器输出即最终日志
- * 形状，pino 不会再用默认序列化器二次处理。
+ * 两种输入形态都要处理（pino-http@11 的 `wrapErrorSerializer` 会先用默认序列化器
+ * 把 Error 摊平成普通对象再交给自定义函数，请求上下文走的正是这条路）：
+ * - 原始 `Error`：直接按白名单取值；
+ * - 已序列化的普通对象：同样按白名单重建，其余键（query/parameters/driverError/
+ *   response/raw…）一律丢弃。只靠 `instanceof Error` 判断会让请求内完全失效。
+ *
+ * 白名单：`type/message/stack` + 递归 `cause`，外加不含用户内容的标量
+ * `code`（SQLSTATE/驱动错误码）/`status`/`errno`/`syscall`——线上区分
+ * 「唯一键冲突 / 表不存在 / 连接被拒 / 供应商 429」只能靠它们。
  */
 export function serializeErrorForLog(value: unknown): unknown {
-  if (!(value instanceof Error)) return value;
-  return {
-    type: value.name,
-    message: value.message,
-    ...(value.stack ? { stack: value.stack } : {}),
-    ...(value.cause instanceof Error
-      ? { cause: serializeErrorForLog(value.cause) }
-      : {}),
-  };
+  if (value instanceof Error) return pickErrorFields(value);
+  if (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof (value as ErrorFieldSource).message === 'string'
+  ) {
+    return pickErrorFields(value);
+  }
+  return value;
+}
+
+function pickErrorFields(source: ErrorFieldSource): Record<string, unknown> {
+  const type =
+    typeof source.type === 'string'
+      ? source.type
+      : typeof source.name === 'string'
+        ? source.name
+        : 'Error';
+  const picked: Record<string, unknown> = { type };
+  if (typeof source.message === 'string') picked.message = source.message;
+  if (typeof source.stack === 'string') picked.stack = source.stack;
+  for (const key of SAFE_ERROR_SCALARS) {
+    const value = source[key];
+    if (typeof value === 'string' || typeof value === 'number') {
+      picked[key] = value;
+    }
+  }
+  const cause = source.cause;
+  if (cause instanceof Error) {
+    picked.cause = pickErrorFields(cause);
+  } else if (cause !== null && typeof cause === 'object') {
+    const fields = cause as ErrorFieldSource;
+    if (typeof fields.type === 'string' || typeof fields.message === 'string') {
+      picked.cause = pickErrorFields(fields);
+    }
+  }
+  return picked;
 }
 
 function safeString(value: unknown): string {

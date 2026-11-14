@@ -1,4 +1,5 @@
 import { ErrorCode, type ErrorCodeValue } from '@lucy/shared';
+import { HttpException } from '@nestjs/common';
 import { BaseUrlGuardError } from './base-url-blocked.error.js';
 import { PROVIDER_ERROR_MESSAGES, type ProviderErrorKind } from './messages.js';
 
@@ -9,6 +10,11 @@ import { PROVIDER_ERROR_MESSAGES, type ProviderErrorKind } from './messages.js';
  * 只认结构化 `status` 与常见网络错误字样；其余返回 null，交给调用方兜底。
  */
 export function providerErrorKind(error: unknown): ProviderErrorKind | null {
+  // Nest 自己的 HttpException 也带 status（NotFoundException → 404、
+  // BadGatewayException → 502、ServiceUnavailableException → 503）：那是应用内
+  // 拒绝（会话不存在、依赖不可用等），不是供应商应答。不排除会把「会话不存在」
+  // 报成「接口不存在，请检查 Base URL 与协议」。
+  if (error instanceof HttpException) return null;
   const status = (error as { status?: unknown } | null)?.status;
   if (status === 401 || status === 403) return 'unauthorized';
   if (status === 404) return 'notFound';

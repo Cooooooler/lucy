@@ -1,3 +1,9 @@
+import {
+  BadGatewayException,
+  NotFoundException,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { BaseUrlBlockedError } from './base-url-blocked.error.js';
 import {
   blockedErrorMessage,
@@ -20,6 +26,16 @@ describe('providerErrorKind', () => {
       providerErrorKind(new Error('getaddrinfo ENOTFOUND api.example.com')),
     ).toBe('network');
     expect(providerErrorKind(new Error('fetch failed'))).toBe('network');
+  });
+
+  it('Nest HttpException 不参与供应商归类（应用内拒绝会带 status）', () => {
+    // 404/401/502/503 的 HttpException 都带 status，误判会把「会话不存在」
+    // 报成「接口不存在，请检查 Base URL 与协议」
+    expect(providerErrorKind(new NotFoundException())).toBeNull();
+    expect(providerErrorKind(new UnauthorizedException())).toBeNull();
+    expect(providerErrorKind(new BadGatewayException())).toBeNull();
+    expect(providerErrorKind(new ServiceUnavailableException())).toBeNull();
+    expect(providerErrorMessage(new NotFoundException())).toBeNull();
   });
 
   it('未知错误返回 null（由调用方兜底），文案查表同样为 null', () => {
