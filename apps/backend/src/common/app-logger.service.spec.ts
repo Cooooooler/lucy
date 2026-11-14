@@ -57,6 +57,16 @@ describe('AppLogger', () => {
     );
   });
 
+  it('warnWith 省略 context 时补默认值，避免消息被当成 context', () => {
+    const { appLogger, warn } = makeLogger('u7');
+    appLogger.warnWith({ phase: 'x' }, 'msg');
+    expect(warn).toHaveBeenCalledWith(
+      { phase: 'x', user: 'u7' },
+      'msg',
+      AppLogger.name,
+    );
+  });
+
   it('debugWith 同样携带结构化字段与 userId', () => {
     const { appLogger, debug } = makeLogger('u6');
     appLogger.debugWith({ reason: 'aborted' }, 'send aborted', 'Svc');

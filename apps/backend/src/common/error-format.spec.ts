@@ -1,34 +1,46 @@
-import { errorLogFields } from './error-format.js';
+import pino from 'pino';
+import { toLoggableError } from './error-format.js';
 
-describe('errorLogFields', () => {
-  it('Error 抽成 type/message/stack 字段（可按 err.type 聚合）', () => {
-    const fields = errorLogFields(new TypeError('boom'));
-    expect(fields.type).toBe('TypeError');
-    expect(fields.message).toBe('boom');
-    expect(fields.stack).toContain('TypeError: boom');
+describe('toLoggableError', () => {
+  it('Error 原样返回（保留类名与 cause）', () => {
+    const cause = new TypeError('decrypt root');
+    const error = new RangeError('outer', { cause });
+
+    const loggable = toLoggableError(error);
+
+    expect(loggable).toBe(error);
+    expect(loggable.name).toBe('RangeError');
+    expect((loggable.cause as Error).name).toBe('TypeError');
   });
 
-  it('非 Error 用 typeof 与字符串化，不会因缺 name 输出 undefined', () => {
-    expect(errorLogFields('oops')).toEqual({ type: 'string', message: 'oops' });
-    expect(errorLogFields(null)).toEqual({ type: 'object', message: 'null' });
+  it('非 Error 包成 Error，保留可读 message', () => {
+    expect(toLoggableError('oops').message).toBe('oops');
+    expect(toLoggableError(null).message).toBe('null');
+    expect(toLoggableError({ code: 'x' }).message).toBe('{"code":"x"}');
   });
 
-  it('包装错误把根因抽成 cause 字段（与顶层字段同形）', () => {
-    const cause = new Error('decrypt root');
-    const fields = errorLogFields(new Error('API Key 解密失败', { cause }));
-    expect(fields).toMatchObject({
-      type: 'Error',
-      message: 'API Key 解密失败',
-      cause: { type: 'Error', message: 'decrypt root' },
-    });
-    expect(fields.cause?.stack).toContain('decrypt root');
-  });
-
-  it('cause 不是 Error 时不生成 cause 字段（避免 [object Object]）', () => {
-    const fields = errorLogFields(
-      new Error('outer', { cause: { code: 'x' } as unknown as Error }),
+  // 关键边界：pino 默认 serializers.err 会把普通对象当 Error 重新序列化，
+  // type 变成 constructor.name（'Object'），按 err.type 聚合就失效了
+  it('交给真实 pino 后 err.type 仍是真实类名', () => {
+    let output = '';
+    const logger = pino(
+      {},
+      {
+        write(chunk: string) {
+          output += chunk;
+        },
+      },
     );
-    expect(fields).not.toHaveProperty('cause');
-    expect(JSON.stringify(fields)).not.toContain('[object Object]');
+
+    logger.warn(
+      { err: toLoggableError(new RangeError('outer')) },
+      'model test failed',
+    );
+
+    const parsed = JSON.parse(output) as {
+      err: { type: string; message: string };
+    };
+    expect(parsed.err.type).toBe('RangeError');
+    expect(parsed.err.message).toBe('outer');
   });
 });

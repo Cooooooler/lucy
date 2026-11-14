@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
-import { errorLogFields } from '../common/error-format.js';
+import { toLoggableError } from '../common/error-format.js';
 import { MODEL_CREDENTIAL_MESSAGES } from '../common/messages.js';
 import {
   blockedErrorMessage,
@@ -89,7 +89,7 @@ export class ModelConnectionService {
       // 只记 message 时线上难以区分「配置错」与「平台/供应商故障」
       this.logger.warnWith(
         {
-          err: errorLogFields(error),
+          err: toLoggableError(error),
           modelProviderId: id,
           type: provider.type,
           vendor: provider.vendor,

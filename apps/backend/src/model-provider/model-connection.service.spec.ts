@@ -239,9 +239,10 @@ describe('ModelConnectionService', () => {
     expect(loggerWarn).toHaveBeenCalled();
     // 结构化字段：采集端按 err.type 聚合，无需正则解析 message
     const fields = loggerWarn.mock.calls.at(-1)?.[0] as {
-      err?: { type?: string };
+      err?: Error;
     };
-    expect(fields.err?.type).toBe('ModelCredentialError');
+    expect(fields.err).toBeInstanceOf(ModelCredentialError);
+    expect(fields.err?.name).toBe('ModelCredentialError');
   });
 
   it('其它错误：走通用兜底文案', async () => {
@@ -268,9 +269,10 @@ describe('ModelConnectionService', () => {
     expect(result.message).toBe('平台密钥已变更，请重新保存 API Key');
     expect(loggerWarn).toHaveBeenCalled();
     const fields = loggerWarn.mock.calls.at(-1)?.[0] as {
-      err?: { type?: string };
+      err?: Error;
     };
-    expect(fields.err?.type).toBe('ModelCredentialError');
+    expect(fields.err).toBeInstanceOf(ModelCredentialError);
+    expect(fields.err?.name).toBe('ModelCredentialError');
   });
 
   it('非属主/不存在：repo 未命中即 404（不构造客户端）', async () => {

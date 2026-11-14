@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
 import { DataSource, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
-import { errorLogFields } from '../common/error-format.js';
+import { toLoggableError } from '../common/error-format.js';
 import { ShutdownService } from '../common/shutdown.service.js';
 import type { ModelProvider } from '../model-provider/entities/model-provider.entity.js';
 import { ModelClientFactory } from '../model-provider/model-client.factory.js';
@@ -366,7 +366,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
       } catch (err) {
         // 标题生成失败不影响正文问答，仅记录日志（结构化字段便于按 err.type 聚合）
         this.logger.warnWith(
-          { err: errorLogFields(err), conversationId },
+          { err: toLoggableError(err), conversationId },
           '标题生成失败',
           ChatStreamService.name,
         );
@@ -531,7 +531,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
         // 落库失败不影响已发出的错误帧，也不能再抛到外层 catch 重复发帧：只补日志
         this.logger.warnWith(
           {
-            err: errorLogFields(saveError),
+            err: toLoggableError(saveError),
             conversationId: context.conversationId,
           },
           'saveFailure persist failed',
@@ -556,7 +556,7 @@ export class ChatStreamService implements BeforeApplicationShutdown {
     // 用户主动断线/停机（aborted）降为 debug，避免每次 SSE 断线刷 warn。
     // message 可能含主机端口、SQL 等基础设施细节，不得随 error 帧出网
     const fields = {
-      err: errorLogFields(error),
+      err: toLoggableError(error),
       conversationId,
       phase,
     };

@@ -32,13 +32,16 @@ export class AppLogger implements LoggerService {
   }
 
   /**
-   * 结构化告警：fields 作为 pino 字段合并（如 `{ err: errorLogFields(e), phase }`），
+   * 结构化告警：fields 作为 pino 字段合并（如 `{ err: toLoggableError(e), phase }`），
    * message 作为 msg。采集端可直接按 `err.type` / `phase` 聚合，不必正则解析文本。
+   *
+   * context 必须有值：nestjs-pino 把「最后一个可选参数」当 context，只传两个参数时
+   * 消息会被误当成 context、msg 变成 undefined，日志静默丢失消息。
    */
   warnWith(
     fields: Record<string, unknown>,
     message: string,
-    context?: string,
+    context: string = AppLogger.name,
   ): void {
     this.logger.warn({ ...fields, user: this.userId() }, message, context);
   }
@@ -61,7 +64,7 @@ export class AppLogger implements LoggerService {
   debugWith(
     fields: Record<string, unknown>,
     message: string,
-    context?: string,
+    context: string = AppLogger.name,
   ): void {
     this.logger.debug({ ...fields, user: this.userId() }, message, context);
   }

@@ -1,36 +1,20 @@
 /**
- * 失败日志的结构化字段：与 pino 的 `err` 序列化约定一致（type/message/stack），
- * 采集端可直接按 `err.type` 聚合、按 `err.stack` 定位，不再依赖正则解析 message 文本。
+ * 把任意失败值转成可交给 pino `err` 字段的 Error 实例。
  *
- * 包装错误把自己的根因挂在 `cause` 上，这里一并抽成嵌套字段（旧实现「优先取 cause 栈」
- * 是为了避免顶层包装栈淹没根因；结构化后两者都保留，采集端可按需取）。
- *
- * 两个失败出口（连接测试与 SSE 流）共用，避免格式各自漂移。
+ * 为什么不传归一化后的普通对象：pino 默认注册 `serializers.err`，会把带 `message`
+ * 字符串的对象当成 Error 重新序列化——`type` 被改写成 `constructor.name`（普通对象即
+ * `"Object"`），真实类名与 `cause` 丢失，按 `err.type` 聚合的目标反而失效。
+ * 直接传原始 Error，pino 会原生输出 `type/message/stack` 并展开 cause。
  */
-export interface ErrorLogFields {
-  type: string;
-  message: string;
-  stack?: string;
-  cause?: Omit<ErrorLogFields, 'cause'>;
+export function toLoggableError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  return new Error(typeof error === 'string' ? error : safeString(error));
 }
 
-export function errorLogFields(error: unknown): ErrorLogFields {
-  if (!(error instanceof Error)) {
-    return { type: typeof error, message: String(error) };
+function safeString(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
   }
-  const cause = error.cause;
-  return {
-    type: error.name,
-    message: error.message,
-    ...(error.stack ? { stack: error.stack } : {}),
-    ...(cause instanceof Error
-      ? {
-          cause: {
-            type: cause.name,
-            message: cause.message,
-            ...(cause.stack ? { stack: cause.stack } : {}),
-          },
-        }
-      : {}),
-  };
 }
