@@ -101,6 +101,20 @@ describe('toLoggableError', () => {
     expect(message).not.toContain('secret-token');
     expect(message).not.toContain('用户提问全文');
   });
+
+  it('非 Error 包装保留原始类型名、不伪造栈', () => {
+    const wrapped = toLoggableError({
+      name: 'ResponseError',
+      status_code: 429,
+      message: 'rate limited',
+    });
+
+    expect(wrapped.stack).toBeUndefined();
+    expect(wrapped.message).toBe('rate limited status_code=429');
+    const { parsed } = capture({ err: wrapped });
+    expect(parsed.err.type).toBe('Error');
+    expect(parsed.err.originalType).toBe('ResponseError');
+  });
 });
 
 describe('serializeErrorForLog', () => {
@@ -160,10 +174,11 @@ describe('serializeErrorForLog', () => {
     expect(parsed.err).not.toHaveProperty('driverError');
   });
 
-  it('保留排障标量：code/status/errno/syscall，丢弃其余自有属性', () => {
+  it('保留排障标量：code/status/status_code/errno/syscall，丢弃其余自有属性', () => {
     const error = Object.assign(new Error('connect ECONNREFUSED'), {
       code: 'ECONNREFUSED',
       status: 429,
+      status_code: 429,
       errno: -111,
       syscall: 'connect',
       response: { body: '供应商响应体' },
@@ -175,11 +190,29 @@ describe('serializeErrorForLog', () => {
       type: 'Error',
       code: 'ECONNREFUSED',
       status: 429,
+      status_code: 429,
       errno: -111,
       syscall: 'connect',
     });
     expect(text).not.toContain('供应商响应体');
     expect(parsed.err).not.toHaveProperty('response');
+  });
+
+  it('请求上下文（pino-http）下从 raw 恢复结构化 cause', () => {
+    // 默认序列化器把 cause 并进 message/stack 且不输出 cause 键，
+    // 原始错误只留在随后被丢弃的 raw 上——结构化 cause 需从 raw 恢复
+    const error = new Error('outer', {
+      cause: Object.assign(new Error('inner'), { code: 'ECONNREFUSED' }),
+    });
+
+    const { parsed } = captureViaPinoHttp({ err: error });
+
+    expect(parsed.err.type).toBe('Error');
+    expect(parsed.err.cause).toMatchObject({
+      type: 'Error',
+      message: 'inner',
+      code: 'ECONNREFUSED',
+    });
   });
 
   it('循环 cause 不会递归爆栈（限深 4，日志调用本身不再抛错）', () => {

@@ -13,9 +13,17 @@ export function providerErrorKind(error: unknown): ProviderErrorKind | null {
   // Nest 自己的 HttpException 也带 status（NotFoundException → 404、
   // BadGatewayException → 502、ServiceUnavailableException → 503）：那是应用内
   // 拒绝（会话不存在、依赖不可用等），不是供应商应答。不排除会把「会话不存在」
-  // 报成「接口不存在，请检查 Base URL 与协议」。
+  // 报成「接口或模型不存在，请检查 Base URL 与模型名」。
   if (error instanceof HttpException) return null;
-  const status = (error as { status?: unknown } | null)?.status;
+  // 供应商 SDK 的 HTTP 状态字段各不相同：OpenAI/Anthropic 用 `status`，
+  // Ollama（经 @langchain/ollama 的 ChatOllama）的 ResponseError 用 `status_code`。
+  // 只嗅探 `status` 会让 Ollama 的 429/5xx 全部回落「生成失败」。
+  const carrier = (error ?? {}) as {
+    status?: unknown;
+    status_code?: unknown;
+    statusCode?: unknown;
+  };
+  const status = carrier.status ?? carrier.status_code ?? carrier.statusCode;
   if (status === 401 || status === 403) return 'unauthorized';
   if (status === 404) return 'notFound';
   if (status === 429) return 'rateLimited';

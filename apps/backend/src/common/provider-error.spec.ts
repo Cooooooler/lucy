@@ -28,9 +28,25 @@ describe('providerErrorKind', () => {
     expect(providerErrorKind(new Error('fetch failed'))).toBe('network');
   });
 
+  it('Ollama ResponseError 用 status_code 承载状态（429/5xx 也要归类）', () => {
+    // ollama@0.6.3 的 ResponseError 只有 status_code，没有 status；
+    // 只嗅探 status 会让 Ollama 的限流/服务异常全部回落「生成失败」
+    expect(
+      providerErrorKind(
+        Object.assign(new Error('ollama 429'), { status_code: 429 }),
+      ),
+    ).toBe('rateLimited');
+    expect(
+      providerErrorKind(
+        Object.assign(new Error('ollama 500'), { status_code: 500 }),
+      ),
+    ).toBe('serverError');
+    expect(providerErrorKind({ statusCode: 404 })).toBe('notFound');
+  });
+
   it('Nest HttpException 不参与供应商归类（应用内拒绝会带 status）', () => {
     // 404/401/502/503 的 HttpException 都带 status，误判会把「会话不存在」
-    // 报成「接口不存在，请检查 Base URL 与协议」
+    // 报成「接口或模型不存在，请检查 Base URL 与模型名」
     expect(providerErrorKind(new NotFoundException())).toBeNull();
     expect(providerErrorKind(new UnauthorizedException())).toBeNull();
     expect(providerErrorKind(new BadGatewayException())).toBeNull();
@@ -46,7 +62,7 @@ describe('providerErrorKind', () => {
 
   it('文案可执行且与连接测试一致', () => {
     expect(providerErrorMessage({ status: 404 })).toBe(
-      '接口不存在，请检查 Base URL 与协议',
+      '接口或模型不存在，请检查 Base URL 与模型名',
     );
     expect(providerErrorMessage({ status: 429 })).toBe(
       '供应商限流，请稍后重试',

@@ -109,7 +109,7 @@ describe('classifyStreamError', () => {
       ),
     ).toEqual({
       code: ErrorCode.AI_PROVIDER_NOT_FOUND,
-      message: '接口不存在，请检查 Base URL 与协议',
+      message: '接口或模型不存在，请检查 Base URL 与模型名',
     });
   });
 

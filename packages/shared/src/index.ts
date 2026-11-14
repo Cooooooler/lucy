@@ -53,7 +53,8 @@ export const ErrorCode = {
   /** 供应商服务异常（HTTP 5xx）。消息：供应商服务异常。 */
   AI_PROVIDER_UNAVAILABLE: 50301,
   /**
-   * 供应商返回 404（Base URL 缺少路径段或协议写错时最常见）。消息：接口不存在，请检查 Base URL 与协议。
+   * 供应商返回 404（Base URL 缺少路径段/协议写错，或模型名不存在）。
+   * 消息：接口或模型不存在，请检查 Base URL 与模型名。
    * 与「生成失败」分开，前端才能给出可执行提示。
    */
   AI_PROVIDER_NOT_FOUND: 40403,

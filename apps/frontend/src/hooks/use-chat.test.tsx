@@ -254,7 +254,10 @@ describe('useChatStream', () => {
   it.each([
     [ErrorCode.AI_PROVIDER_RATE_LIMITED, '供应商限流，请稍后重试'],
     [ErrorCode.AI_PROVIDER_UNAVAILABLE, '供应商服务异常'],
-    [ErrorCode.AI_PROVIDER_NOT_FOUND, '接口不存在，请检查 Base URL 与协议'],
+    [
+      ErrorCode.AI_PROVIDER_NOT_FOUND,
+      '接口或模型不存在，请检查 Base URL 与模型名',
+    ],
     [ErrorCode.AI_PROVIDER_UNREACHABLE, '无法连接到 API Base URL'],
   ])('供应商失败码 %i 映射为可执行文案', async (code, text) => {
     mocks.createStreamRequest.mockReturnValue(

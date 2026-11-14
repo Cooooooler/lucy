@@ -172,7 +172,10 @@ export type ModelCredentialReason = keyof typeof MODEL_CREDENTIAL_MESSAGES;
  */
 export const PROVIDER_ERROR_MESSAGES = {
   unauthorized: 'API Key 无效或无权限',
-  notFound: '接口不存在，请检查 Base URL 与协议',
+  // 404 有两种语义：Base URL/协议写错，或模型名不存在（OpenAI 的
+  // model_not_found、Anthropic 的 not_found_error）。文案兼顾两者，
+  // 不把用户引去只改 Base URL。
+  notFound: '接口或模型不存在，请检查 Base URL 与模型名',
   rateLimited: '供应商限流，请稍后重试',
   serverError: '供应商服务异常',
   network: '无法连接到 API Base URL',
