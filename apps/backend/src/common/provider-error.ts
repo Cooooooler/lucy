@@ -1,3 +1,4 @@
+import { ErrorCode, type ErrorCodeValue } from '@lucy/shared';
 import { BaseUrlGuardError } from './base-url-blocked.error.js';
 import { PROVIDER_ERROR_MESSAGES, type ProviderErrorKind } from './messages.js';
 
@@ -30,6 +31,22 @@ export function providerErrorMessage(error: unknown): string | null {
   const kind = providerErrorKind(error);
   return kind ? PROVIDER_ERROR_MESSAGES[kind] : null;
 }
+
+/**
+ * 供应商分类 → 对话链路的 SSE 错误码（与 `PROVIDER_ERROR_MESSAGES` 一一对应）。
+ *
+ * 连接测试只关心文案，对话链路还要给出可区分的码；把「分类 → 码」收敛成这张表，
+ * 新增分类时缺键在编译期报错，两条链路不会各自 if 分支越补越不一致。
+ * `network` 在对话链路里只在流阶段使用（run 阶段的同类文案也可能是数据库连接失败，
+ * 由 `isInfrastructureError` 先判掉），见 `classifyStreamError`。
+ */
+export const PROVIDER_ERROR_CODES = {
+  unauthorized: ErrorCode.AI_CREDENTIAL_INVALID,
+  notFound: ErrorCode.AI_PROVIDER_NOT_FOUND,
+  rateLimited: ErrorCode.AI_PROVIDER_RATE_LIMITED,
+  serverError: ErrorCode.AI_PROVIDER_UNAVAILABLE,
+  network: ErrorCode.AI_PROVIDER_UNREACHABLE,
+} as const satisfies Record<ProviderErrorKind, ErrorCodeValue>;
 
 /**
  * 沿 SDK 包装错误的 `cause` 链找出 Base URL 守卫抛出的可执行文案。

@@ -30,6 +30,8 @@ const SSE_ERROR_TEXT: Partial<Record<ErrorCodeValue, string>> = {
   [ErrorCode.AI_GENERATE_TIMEOUT]: '模型响应超时，请稍后重试',
   [ErrorCode.AI_PROVIDER_RATE_LIMITED]: '供应商限流，请稍后重试',
   [ErrorCode.AI_PROVIDER_UNAVAILABLE]: '供应商服务异常',
+  [ErrorCode.AI_PROVIDER_NOT_FOUND]: '接口不存在，请检查 Base URL 与协议',
+  [ErrorCode.AI_PROVIDER_UNREACHABLE]: '无法连接到 API Base URL',
   [ErrorCode.AI_MODEL_REQUIRED]: '请先配置并选择模型',
   [ErrorCode.AI_MODEL_NOT_FOUND]: '所选模型不可用，请重新选择',
 };

@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { serializeErrorForLog } from './error-format.js';
 import {
   genReqId,
   loggerModuleOptions,
@@ -139,6 +140,13 @@ describe('loggerModuleOptions', () => {
       res,
     );
     expect(id).toBe('req-1');
+  });
+
+  it('注册白名单 err 序列化器（防止 SQL/绑定参数/响应体进日志）', () => {
+    const opts = loggerModuleOptions(cfg({ NODE_ENV: 'production' }));
+    expect(opts.pinoHttp).toMatchObject({
+      serializers: { err: serializeErrorForLog },
+    });
   });
 
   it('redact 脱敏敏感路径，renameContext 为 context', () => {
