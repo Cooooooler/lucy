@@ -1,3 +1,5 @@
+import { ErrorCode, type ErrorCodeValue } from '@lucy/shared';
+import { HttpException } from '@nestjs/common';
 import { BaseUrlGuardError } from './base-url-blocked.error.js';
 import { PROVIDER_ERROR_MESSAGES, type ProviderErrorKind } from './messages.js';
 
@@ -8,7 +10,20 @@ import { PROVIDER_ERROR_MESSAGES, type ProviderErrorKind } from './messages.js';
  * 只认结构化 `status` 与常见网络错误字样；其余返回 null，交给调用方兜底。
  */
 export function providerErrorKind(error: unknown): ProviderErrorKind | null {
-  const status = (error as { status?: unknown } | null)?.status;
+  // Nest 自己的 HttpException 也带 status（NotFoundException → 404、
+  // BadGatewayException → 502、ServiceUnavailableException → 503）：那是应用内
+  // 拒绝（会话不存在、依赖不可用等），不是供应商应答。不排除会把「会话不存在」
+  // 报成「接口或模型不存在，请检查 Base URL 与模型名」。
+  if (error instanceof HttpException) return null;
+  // 供应商 SDK 的 HTTP 状态字段各不相同：OpenAI/Anthropic 用 `status`，
+  // Ollama（经 @langchain/ollama 的 ChatOllama）的 ResponseError 用 `status_code`。
+  // 只嗅探 `status` 会让 Ollama 的 429/5xx 全部回落「生成失败」。
+  const carrier = (error ?? {}) as {
+    status?: unknown;
+    status_code?: unknown;
+    statusCode?: unknown;
+  };
+  const status = carrier.status ?? carrier.status_code ?? carrier.statusCode;
   if (status === 401 || status === 403) return 'unauthorized';
   if (status === 404) return 'notFound';
   if (status === 429) return 'rateLimited';
@@ -30,6 +45,22 @@ export function providerErrorMessage(error: unknown): string | null {
   const kind = providerErrorKind(error);
   return kind ? PROVIDER_ERROR_MESSAGES[kind] : null;
 }
+
+/**
+ * 供应商分类 → 对话链路的 SSE 错误码（与 `PROVIDER_ERROR_MESSAGES` 一一对应）。
+ *
+ * 连接测试只关心文案，对话链路还要给出可区分的码；把「分类 → 码」收敛成这张表，
+ * 新增分类时缺键在编译期报错，两条链路不会各自 if 分支越补越不一致。
+ * `network` 在对话链路里只在流阶段使用（run 阶段的同类文案也可能是数据库连接失败，
+ * 由 `isInfrastructureError` 先判掉），见 `classifyStreamError`。
+ */
+export const PROVIDER_ERROR_CODES = {
+  unauthorized: ErrorCode.AI_CREDENTIAL_INVALID,
+  notFound: ErrorCode.AI_PROVIDER_NOT_FOUND,
+  rateLimited: ErrorCode.AI_PROVIDER_RATE_LIMITED,
+  serverError: ErrorCode.AI_PROVIDER_UNAVAILABLE,
+  network: ErrorCode.AI_PROVIDER_UNREACHABLE,
+} as const satisfies Record<ProviderErrorKind, ErrorCodeValue>;
 
 /**
  * 沿 SDK 包装错误的 `cause` 链找出 Base URL 守卫抛出的可执行文案。

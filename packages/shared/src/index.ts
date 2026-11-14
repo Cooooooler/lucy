@@ -46,6 +46,21 @@ export const ErrorCode = {
    */
   AI_CREDENTIAL_INVALID: 40103,
   /**
+   * 供应商限流（HTTP 429）。消息：供应商限流，请稍后重试。
+   * 与「生成失败」分开，前端才能显示可执行提示而不是笼统的「生成失败」。
+   */
+  AI_PROVIDER_RATE_LIMITED: 42901,
+  /** 供应商服务异常（HTTP 5xx）。消息：供应商服务异常。 */
+  AI_PROVIDER_UNAVAILABLE: 50301,
+  /**
+   * 供应商返回 404（Base URL 缺少路径段/协议写错，或模型名不存在）。
+   * 消息：接口或模型不存在，请检查 Base URL 与模型名。
+   * 与「生成失败」分开，前端才能给出可执行提示。
+   */
+  AI_PROVIDER_NOT_FOUND: 40403,
+  /** 无法连接供应商地址（DNS 解析失败 / 拒绝连接 / 网络不可达）。消息：无法连接到 API Base URL。 */
+  AI_PROVIDER_UNREACHABLE: 50302,
+  /**
    * Base URL 指向受限地址（链路本地/云元数据）或返回被拒跟随的重定向。
    * 消息由服务端按守卫原因给出（可执行提示），前端不进 SSE_ERROR_TEXT 映射表、
    * 直接透传后端 message。

@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import pretty from 'pino-pretty';
+import { serializeErrorForLog } from './error-format.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -139,6 +140,9 @@ export function loggerModuleOptions(config: ConfigService): Params {
     pinoHttp: {
       level,
       genReqId,
+      // 白名单化 err 序列化（见 serializeErrorForLog）：默认序列化器会展开错误上
+      // 全部可枚举属性，把 TypeORM 的 SQL / 绑定参数（含用户内容）与 SDK 响应体写进日志
+      serializers: { err: serializeErrorForLog },
       redact: {
         paths: [
           'req.headers.authorization',

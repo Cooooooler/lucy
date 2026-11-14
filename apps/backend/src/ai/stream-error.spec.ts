@@ -77,6 +77,66 @@ describe('classifyStreamError', () => {
     });
   });
 
+  it('供应商 429/5xx 使用细分错误码与可执行文案', () => {
+    expect(
+      classifyStreamError(
+        Object.assign(new Error('rate limit'), { status: 429 }),
+        live,
+        'stream',
+      ),
+    ).toEqual({
+      code: ErrorCode.AI_PROVIDER_RATE_LIMITED,
+      message: '供应商限流，请稍后重试',
+    });
+    expect(
+      classifyStreamError(
+        Object.assign(new Error('upstream boom'), { status: 503 }),
+        live,
+        'stream',
+      ),
+    ).toEqual({
+      code: ErrorCode.AI_PROVIDER_UNAVAILABLE,
+      message: '供应商服务异常',
+    });
+  });
+
+  it('供应商 404 归「接口不存在」码（与连接测试同源，提示检查 Base URL）', () => {
+    expect(
+      classifyStreamError(
+        Object.assign(new Error('Not Found'), { status: 404 }),
+        live,
+        'stream',
+      ),
+    ).toEqual({
+      code: ErrorCode.AI_PROVIDER_NOT_FOUND,
+      message: '接口或模型不存在，请检查 Base URL 与模型名',
+    });
+  });
+
+  it('流阶段网络错误归「无法连接供应商」码；run 阶段沿用生成失败（可能是数据库连接）', () => {
+    const refused = Object.assign(new Error('connect ECONNREFUSED'), {
+      code: 'ECONNREFUSED',
+    });
+    expect(classifyStreamError(refused, live, 'stream')).toEqual({
+      code: ErrorCode.AI_PROVIDER_UNREACHABLE,
+      message: '无法连接到 API Base URL',
+    });
+    // run 阶段同一文案可能来自数据库/启动依赖，不臆断为供应商不可达
+    expect(classifyStreamError(refused, live, 'run')).toEqual({
+      code: ErrorCode.AI_GENERATE_FAILED,
+      message: '生成失败',
+    });
+  });
+
+  it('基础设施错误优先于供应商网络归类（DB 连接文案同形也不误报）', () => {
+    // pg-pool 的连接类失败是裸 Error：文案含 connect/refused，但结构化判据先命中
+    const poolError = new Error('timeout exceeded when trying to connect');
+    expect(classifyStreamError(poolError, live, 'stream')).toEqual({
+      code: ErrorCode.AI_GENERATE_FAILED,
+      message: '生成失败',
+    });
+  });
+
   it('QueryFailedError / SQLSTATE / 连接池文案都归为基础设施错误', () => {
     const qfe = new QueryFailedError(
       'SELECT 1',
