@@ -1,13 +1,10 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { EntityManager, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { BaseUrlGuardError } from '../common/base-url-blocked.error.js';
-import {
-  assertBaseUrlHostAllowed,
-  parsePrivateHostAllowlist,
-} from '../common/base-url-guard.js';
+import { assertBaseUrlHostAllowed } from '../common/base-url-guard.js';
+import { OUTBOUND_PRIVATE_HOST_ALLOWLIST } from '../common/guarded-fetch.service.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import {
@@ -41,9 +38,6 @@ import { toModelProviderItem } from './model-provider.mapper.js';
  */
 @Injectable()
 export class ModelProviderService {
-  /** 运维白名单：云端 vendor 也允许访问的私网主机（见 BaseUrlPolicy） */
-  private readonly allowedPrivateHosts: ReadonlySet<string>;
-
   constructor(
     private readonly logger: AppLogger,
     @InjectRepository(ModelProvider)
@@ -55,12 +49,10 @@ export class ModelProviderService {
     // 知识库重排引用的清理由知识库领域实现，这里只发指令（不写别人的表）
     @Inject(RERANK_REFERENCE_PORT)
     private readonly rerankReferences: RerankReferencePort,
-    config: ConfigService,
-  ) {
-    this.allowedPrivateHosts = parsePrivateHostAllowlist(
-      config.get('OUTBOUND_ALLOW_PRIVATE_HOSTS'),
-    );
-  }
+    // 与仅公网连接池共用同一份已解析白名单（CommonModule 提供），避免两处推导漂移
+    @Inject(OUTBOUND_PRIVATE_HOST_ALLOWLIST)
+    private readonly allowedPrivateHosts: ReadonlySet<string>,
+  ) {}
 
   /**
    * 保存校验的地址策略：与连接期连接池选择同源（`vendorBaseUrlPolicy`），
@@ -247,9 +239,12 @@ export class ModelProviderService {
         provider.apiKeyEncrypted = apiKey ? this.cipher.encrypt(apiKey) : '';
         provider.apiKeyLast4 = apiKey ? this.cipher.last4(apiKey) : '';
       }
-      // 按「落库后的 vendor + baseUrl 组合」校验，而不是只看本次传入的字段：
-      // 只改 vendor（ollama → openai）而不动 baseUrl 时，私网地址会绕过校验进云端配置。
-      this.assertBaseUrlForVendor(provider.baseUrl, provider.vendor);
+      // 只在本次请求可能改变策略组合时复检：只改 name/contextLength 等字段时，
+      // 存量行的 baseUrl（本限制上线前创建的）不构成新的暴露面，连接期守卫仍会兜底；
+      // 无条件复检会让这类行连改名都做不到，且错误文案指向请求里没传的 baseUrl。
+      if (dto.vendor !== undefined || dto.baseUrl !== undefined) {
+        this.assertBaseUrlForVendor(provider.baseUrl, provider.vendor);
+      }
       // 换厂商（如 ollama → openai）而未补 Key 时，落库前拦下，避免存出永远调不通的配置
       this.assertApiKeyForVendor(
         provider.vendor,

@@ -64,6 +64,27 @@ describe('envValidationSchema', () => {
     expect(validate({ OUTBOUND_CONNECT_TIMEOUT_MS: -1 }).error).toBeDefined();
   });
 
+  it('OUTBOUND_ALLOW_PRIVATE_HOSTS 只接受主机名/IP 字面量（拒绝协议/端口/路径）', () => {
+    expect(
+      validate({ OUTBOUND_ALLOW_PRIVATE_HOSTS: '' }).error,
+    ).toBeUndefined();
+    expect(
+      validate({
+        OUTBOUND_ALLOW_PRIVATE_HOSTS: 'vllm.lan, 192.168.1.20, [::1], fe80::1',
+      }).error,
+    ).toBeUndefined();
+    for (const invalid of [
+      'http://vllm.lan',
+      'vllm.lan:8000',
+      '192.168.1.0/24',
+      'vllm.lan, bad host',
+    ]) {
+      expect(
+        validate({ OUTBOUND_ALLOW_PRIVATE_HOSTS: invalid }).error,
+      ).toBeDefined();
+    }
+  });
+
   it('停机宽限期须为正；DB 上界允许 0（不限）但拒绝负值', () => {
     expect(validate({ SHUTDOWN_GRACE_MS: 5000 }).error).toBeUndefined();
     // 0 会让兜底强退立刻触发，等于没有优雅停机：启动期拦下

@@ -1,4 +1,13 @@
 import Joi from 'joi';
+import { isIP } from 'node:net';
+
+/** 白名单条目：主机名 / IPv4 / IPv6（IPv6 可带方括号），不含协议、端口与路径 */
+const ALLOWLIST_HOSTNAME_RE = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
+
+function isValidAllowlistEntry(entry: string): boolean {
+  const host = entry.replace(/^\[|\]$/g, '');
+  return isIP(host) !== 0 || ALLOWLIST_HOSTNAME_RE.test(entry);
+}
 
 export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
@@ -122,6 +131,17 @@ export const envValidationSchema = Joi.object({
     .max(2_147_483_647)
     .optional(),
   // 云端供应商（openai/anthropic）默认拒绝私网/回环 baseUrl；此处逗号分隔的主机名或
-  // IP 字面量（不含协议/端口）显式放行内网自建网关。Ollama 始终放行，无需列出
-  OUTBOUND_ALLOW_PRIVATE_HOSTS: Joi.string().allow('').optional(),
+  // IP 字面量（不含协议/端口）显式放行内网自建网关。Ollama 始终放行，无需列出。
+  // 逐条校验格式：写成 `http://vllm.lan` 或 `vllm.lan:8000` 会被解析时静默丢弃，
+  // 表现为「明明配了白名单还是被拒」，故在启动期直接拦下。
+  OUTBOUND_ALLOW_PRIVATE_HOSTS: Joi.string()
+    .allow('')
+    .custom((value: string, helpers) => {
+      const invalid = value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry && !isValidAllowlistEntry(entry));
+      return invalid.length === 0 ? value : helpers.error('any.invalid');
+    })
+    .optional(),
 });

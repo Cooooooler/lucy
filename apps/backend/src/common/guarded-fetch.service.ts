@@ -1,7 +1,6 @@
-import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
+import { Inject, Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppLogger } from './app-logger.service.js';
-import { parsePrivateHostAllowlist } from './base-url-guard.js';
 import { createGuardedFetch, type GuardedFetch } from './guarded-fetch.js';
 import { ShutdownService } from './shutdown.service.js';
 
@@ -22,6 +21,15 @@ export const OUTBOUND_FETCH = Symbol('OUTBOUND_FETCH');
  * `OUTBOUND_ALLOW_PRIVATE_HOSTS` 可显式放行内网自建网关。
  */
 export const OUTBOUND_FETCH_PUBLIC_ONLY = Symbol('OUTBOUND_FETCH_PUBLIC_ONLY');
+/**
+ * 已解析的私网白名单（`OUTBOUND_ALLOW_PRIVATE_HOSTS`）。
+ *
+ * 由 CommonModule 统一解析后注入：连接池（仅公网池）与保存校验（模型服务）
+ * 共用同一份，避免两处各自推导白名单语义导致策略漂移。
+ */
+export const OUTBOUND_PRIVATE_HOST_ALLOWLIST = Symbol(
+  'OUTBOUND_PRIVATE_HOST_ALLOWLIST',
+);
 
 /** 单个出站连接池 + 归因用的名字（停机日志要区分是哪个池卡住） */
 interface GuardedPool {
@@ -49,6 +57,8 @@ export class GuardedFetchService implements OnApplicationShutdown {
 
   constructor(
     config: ConfigService,
+    @Inject(OUTBOUND_PRIVATE_HOST_ALLOWLIST)
+    allowedPrivateHosts: ReadonlySet<string>,
     private readonly logger: AppLogger,
     private readonly shutdown: ShutdownService,
   ) {
@@ -62,12 +72,7 @@ export class GuardedFetchService implements OnApplicationShutdown {
     });
     this.publicOnly = createGuardedFetch({
       ...poolOptions,
-      policy: {
-        allowPrivateHosts: false,
-        allowedPrivateHosts: parsePrivateHostAllowlist(
-          config.get('OUTBOUND_ALLOW_PRIVATE_HOSTS'),
-        ),
-      },
+      policy: { allowPrivateHosts: false, allowedPrivateHosts },
     });
     this.pools = [
       { label: '私网放行', guard: this.privateAllowed },

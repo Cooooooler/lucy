@@ -33,8 +33,10 @@ describe('GuardedFetchService', () => {
 
   afterEach(() => vi.useRealTimers());
 
-  const build = (config = new ConfigService({})) =>
-    new GuardedFetchService(config, logger, shutdown);
+  const build = (
+    config = new ConfigService({}),
+    allowlist: ReadonlySet<string> = new Set(),
+  ) => new GuardedFetchService(config, allowlist, logger, shutdown);
 
   it('按厂商用途建两个池，并把 OUTBOUND_* 参数传给两者', () => {
     const service = build(
@@ -59,12 +61,8 @@ describe('GuardedFetchService', () => {
     expect(service.publicOnlyFetch).toBe(publicFetch);
   });
 
-  it('OUTBOUND_ALLOW_PRIVATE_HOSTS 解析为仅公网池的白名单', () => {
-    build(
-      new ConfigService({
-        OUTBOUND_ALLOW_PRIVATE_HOSTS: 'vllm.lan, 192.168.1.20',
-      }),
-    );
+  it('已解析的私网白名单透传给仅公网池（由 CommonModule 统一解析）', () => {
+    build(new ConfigService({}), new Set(['vllm.lan', '192.168.1.20']));
 
     expect(createGuardedFetchMock).toHaveBeenNthCalledWith(
       2,

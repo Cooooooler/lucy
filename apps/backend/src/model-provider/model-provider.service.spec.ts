@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
+import { OUTBOUND_PRIVATE_HOST_ALLOWLIST } from '../common/guarded-fetch.service.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
 import { RERANK_REFERENCE_PORT } from '../common/ports/rerank-reference.port.js';
 import {
@@ -48,7 +49,7 @@ describe('ModelProviderService', () => {
   let service: ModelProviderService;
 
   const buildService = async (
-    env: Record<string, unknown> = {},
+    allowlist: readonly string[] = [],
   ): Promise<ModelProviderService> => {
     const moduleRef = await Test.createTestingModule({
       // KeysetPaginator 走与生产一致的模块路径（验证 PaginationModule 真的导出它）
@@ -60,7 +61,10 @@ describe('ModelProviderService', () => {
         { provide: ApiKeyCipher, useValue: cipher },
         { provide: ModelProviderDefaultsService, useValue: defaults },
         { provide: RERANK_REFERENCE_PORT, useValue: rerankReferences },
-        { provide: ConfigService, useValue: new ConfigService(env) },
+        {
+          provide: OUTBOUND_PRIVATE_HOST_ALLOWLIST,
+          useValue: new Set(allowlist),
+        },
       ],
     }).compile();
     return moduleRef.get(ModelProviderService);
@@ -226,9 +230,7 @@ describe('ModelProviderService', () => {
   });
 
   it('create 云端 vendor 经 OUTBOUND_ALLOW_PRIVATE_HOSTS 白名单放行内网网关', async () => {
-    const allowlisted = await buildService({
-      OUTBOUND_ALLOW_PRIVATE_HOSTS: 'vllm.lan,192.168.1.20',
-    });
+    const allowlisted = await buildService(['vllm.lan', '192.168.1.20']);
     await expect(
       allowlisted.create('u1', {
         name: 'vllm',
@@ -288,6 +290,21 @@ describe('ModelProviderService', () => {
       }),
     ).rejects.toThrow(BadRequestException);
     expect(tx.save).not.toHaveBeenCalled();
+  });
+
+  it('update 只改无关字段时不复检存量 baseUrl（历史不合规行仍可改名）', async () => {
+    // 本限制上线前创建的 openai + 私网地址：连接期守卫仍会拦，改名不该被 baseUrl 挡住
+    const legacy = makeModelProvider({
+      vendor: ModelProviderVendor.OpenAI,
+      baseUrl: 'http://127.0.0.1:8000/v1',
+    });
+    txProviders.findOne.mockResolvedValue(legacy);
+
+    await expect(
+      service.update('u1', MODEL_ID, { name: 'renamed' }),
+    ).resolves.toBeTruthy();
+    expect(tx.save).toHaveBeenCalledWith(legacy);
+    expect(legacy.name).toBe('renamed');
   });
 
   it('update 换成需要 Key 的供应商却无 Key → 400', async () => {

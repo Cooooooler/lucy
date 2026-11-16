@@ -185,7 +185,7 @@ function isBlockedV6(input: string): boolean {
 
 /**
  * IPv6 非公网地址：未指定 `::`、回环 `::1`、唯一本地 fc00::/7、
- * 链路本地 fe80::/10，以及内嵌 IPv4 的私网形式（`::ffff:127.0.0.1` 等）。
+ * 链路本地 fe80::/10、组播 ff00::/8，以及内嵌 IPv4 的私网形式（`::ffff:127.0.0.1` 等）。
  */
 function isPrivateV6(input: string): boolean {
   const b = ipv6ToBytes(input);
@@ -194,6 +194,7 @@ function isPrivateV6(input: string): boolean {
   if (allZero(b, 0, 15) && b[15] === 1) return true; // ::1
   if ((b[0] & 0xfe) === 0xfc) return true; // fc00::/7 ULA
   if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return true; // fe80::/10
+  if (b[0] === 0xff) return true; // ff00::/8 组播（对齐 IPv4 的 a >= 224）
   const v4 = embeddedV4(b);
   return v4 !== null && isPrivateV4(v4);
 }

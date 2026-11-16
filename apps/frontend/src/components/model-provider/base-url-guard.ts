@@ -23,12 +23,13 @@ export const BLOCKED_BASE_URL_MESSAGE =
 export const PRIVATE_BASE_URL_MESSAGE =
   '云端供应商不允许私网/回环地址；内网自建网关需由服务端显式放行';
 
+/** 模块级常量：表单每次按键都会走到这里，正则字面量不应在热路径里反复分配 */
+const HOST_BRACKETS_RE = /^\[|\]$/g;
+const IPV4_OCTET_RE = /^\d{1,3}$/;
+
 /** 主机名/字面量归一化：去方括号与 zone、小写 */
 function normalizeHost(host: string): string {
-  return host
-    .replace(/^\[|\]$/g, '')
-    .split('%')[0]
-    .toLowerCase();
+  return host.replace(HOST_BRACKETS_RE, '').split('%')[0].toLowerCase();
 }
 
 const isBlockedV4 = (host: string, a: number, b: number): boolean =>
@@ -50,7 +51,7 @@ function parseIpv4(host: string): [number, number, number, number] | null {
   const parts = host.split('.');
   if (parts.length !== 4) return null;
   const octets = parts.map((part) =>
-    /^\d{1,3}$/.test(part) ? Number(part) : Number.NaN,
+    IPV4_OCTET_RE.test(part) ? Number(part) : Number.NaN,
   );
   if (octets.some((octet) => !Number.isInteger(octet) || octet > 255)) {
     return null;
@@ -116,6 +117,7 @@ function classifyIpv6(host: string): BaseUrlHostKind {
   const first = Number.parseInt(host.split(':')[0] || '0', 16);
   if ((first & 0xfe00) === 0xfc00) return 'private'; // fc00::/7 ULA
   if ((first & 0xffc0) === 0xfe80) return 'blocked'; // fe80::/10 链路本地
+  if ((first & 0xff00) === 0xff00) return 'private'; // ff00::/8 组播
   return 'public';
 }
 

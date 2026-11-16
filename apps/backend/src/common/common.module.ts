@@ -4,16 +4,19 @@ import {
   Module,
   NestModule,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ClsModule } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import { AppLogger } from './app-logger.service.js';
+import { parsePrivateHostAllowlist } from './base-url-guard.js';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
 import {
   GuardedFetchService,
   OUTBOUND_FETCH,
   OUTBOUND_FETCH_PUBLIC_ONLY,
+  OUTBOUND_PRIVATE_HOST_ALLOWLIST,
 } from './guarded-fetch.service.js';
 import { ApiResponseInterceptor } from './interceptors/api-response.interceptor.js';
 import { TimeoutInterceptor } from './interceptors/timeout.interceptor.js';
@@ -48,6 +51,13 @@ import { createValidationPipe } from './validation-pipe.js';
     ShutdownService,
     // 进程级出站基础设施：SSRF 守卫 + 共享 undici 连接池（对话/embedding/tokenizer 共用）
     GuardedFetchService,
+    // 私网白名单只解析一次：连接池与模型保存校验共用，避免两处推导漂移
+    {
+      provide: OUTBOUND_PRIVATE_HOST_ALLOWLIST,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService): ReadonlySet<string> =>
+        parsePrivateHostAllowlist(config.get('OUTBOUND_ALLOW_PRIVATE_HOSTS')),
+    },
     // 消费方只依赖 fetch 函数；连接池生命周期仍由 GuardedFetchService 统一关闭
     {
       provide: OUTBOUND_FETCH,
@@ -87,6 +97,7 @@ import { createValidationPipe } from './validation-pipe.js';
     GuardedFetchService,
     OUTBOUND_FETCH,
     OUTBOUND_FETCH_PUBLIC_ONLY,
+    OUTBOUND_PRIVATE_HOST_ALLOWLIST,
   ],
 })
 export class CommonModule implements NestModule {
