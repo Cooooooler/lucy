@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   BaseUrlGuardError,
+  BaseUrlPrivateAddressError,
   BaseUrlRedirectError,
 } from './base-url-blocked.error.js';
 import { createGuardedFetch, type GuardedFetch } from './guarded-fetch.js';
@@ -11,6 +12,11 @@ import { blockedErrorMessage } from './provider-error.js';
 const lookupMock = vi.hoisted(() => vi.fn());
 // 只影响域名解析；本文件的其它用例都用 IP 字面量，不会走到 lookup
 vi.mock('node:dns/promises', () => ({ lookup: lookupMock }));
+
+/** 本地 Ollama / tokenizer 的策略：允许私网/回环（本文件的服务就跑在 127.0.0.1） */
+const permissive = { allowPrivateHosts: true };
+/** 云端 vendor 的策略：只许公网 */
+const strict = { allowPrivateHosts: false };
 
 /**
  * 真 undici + 本地 HTTP 服务的集成用例：上面的单测把 undici 打成 mock，
@@ -36,7 +42,7 @@ describe('createGuardedFetch（真实 undici + 本地 HTTP）', () => {
       server.listen(0, '127.0.0.1', resolve),
     );
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
-    guard = createGuardedFetch();
+    guard = createGuardedFetch({ policy: permissive });
   });
 
   afterAll(async () => {
@@ -63,6 +69,20 @@ describe('createGuardedFetch（真实 undici + 本地 HTTP）', () => {
     // undici 会把 lookup 错误包成 `TypeError: fetch failed`，守卫错误留在 cause 链上
     expect(blockedErrorMessage(error)).toContain('受限地址');
     expect(requests).toBe(0);
+  });
+
+  it('仅公网策略下，回环字面量在发出请求前就被拒绝', async () => {
+    const publicOnly = createGuardedFetch({ policy: strict });
+    requests = 0;
+    try {
+      const error = await publicOnly
+        .fetch(baseUrl)
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(BaseUrlPrivateAddressError);
+      expect(requests).toBe(0);
+    } finally {
+      await publicOnly.destroy();
+    }
   });
 
   it('真实 fetch 的守卫拒绝保留领域错误，可提取可读文案', async () => {

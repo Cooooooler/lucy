@@ -1,9 +1,13 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ModelProviderFormDrawer } from './ModelProviderFormDrawer';
+import {
+  BLOCKED_BASE_URL_MESSAGE,
+  PRIVATE_BASE_URL_MESSAGE,
+} from './base-url-guard';
 import { makeModel } from './model-provider-test-fixture';
+import { ModelProviderFormDrawer } from './ModelProviderFormDrawer';
 
 const mutations = vi.hoisted(() => ({
   create: { mutateAsync: vi.fn(), isPending: false },
@@ -136,5 +140,67 @@ describe('ModelProviderFormDrawer', () => {
     });
     expect(await screen.findByText('模型类型')).toBeInTheDocument();
     expect(screen.queryByText('API 协议')).not.toBeInTheDocument();
+  });
+
+  it('云端 vendor 的私网 Base URL 给警告但仍可提交（服务端白名单不可见）', async () => {
+    renderDrawer();
+    await userEvent.type(
+      await screen.findByLabelText('模型名称'),
+      'lan-openai',
+    );
+    await userEvent.type(screen.getByLabelText('API Key'), 'sk-secret');
+    await userEvent.type(
+      screen.getByLabelText('API Base URL'),
+      'http://127.0.0.1:8000/v1',
+    );
+
+    expect(
+      await screen.findByText(PRIVATE_BASE_URL_MESSAGE),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /创\s*建/ }));
+    expect(mutations.create.mutateAsync).toHaveBeenCalledWith({
+      name: 'lan-openai',
+      type: 'llm',
+      vendor: 'openai',
+      baseUrl: 'http://127.0.0.1:8000/v1',
+      contextLength: 32768,
+      protocol: 'chat-completions',
+      apiKey: 'sk-secret',
+    });
+  });
+
+  it('链路本地/云元数据 Base URL 直接阻止提交', async () => {
+    renderDrawer();
+    await userEvent.type(await screen.findByLabelText('模型名称'), 'metadata');
+    await userEvent.type(screen.getByLabelText('API Key'), 'sk-secret');
+    await userEvent.type(
+      screen.getByLabelText('API Base URL'),
+      'http://169.254.169.254/latest/meta-data',
+    );
+    await userEvent.click(screen.getByRole('button', { name: /创\s*建/ }));
+
+    expect(
+      await screen.findByText(BLOCKED_BASE_URL_MESSAGE),
+    ).toBeInTheDocument();
+    expect(mutations.create.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('切换为 Ollama 后私网地址不再警告', async () => {
+    renderDrawer();
+    await userEvent.type(
+      await screen.findByLabelText('API Base URL'),
+      'http://127.0.0.1:8000/v1',
+    );
+    expect(
+      await screen.findByText(PRIVATE_BASE_URL_MESSAGE),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByLabelText('模型供应商'));
+    await userEvent.click(await screen.findByText('Ollama'));
+
+    await waitFor(() => {
+      expect(screen.queryByText(PRIVATE_BASE_URL_MESSAGE)).toBeNull();
+    });
   });
 });

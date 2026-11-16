@@ -185,15 +185,23 @@ describe('ModelProvider CRUD & connection test (e2e)', () => {
   });
 
   it('连接测试：不可达地址返回 ok=false（200）', async () => {
-    const created = await createModel();
-    await request(server)
-      .patch(`/v1/model-providers/${created.id}`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ baseUrl: 'http://127.0.0.1:1/v1' })
-      .expect(200);
+    // 用 ollama vendor：云端 vendor 的私网/回环 baseUrl 会被保存校验拦下
+    const created = (
+      await request(server)
+        .post('/v1/model-providers')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          ...createBody,
+          name: `ollama_unreachable_${suffix}`,
+          vendor: 'ollama',
+          baseUrl: 'http://127.0.0.1:1/v1',
+          apiKey: undefined,
+        })
+        .expect(201)
+    ).body as ApiBody<ModelItemData>;
 
     const res = await request(server)
-      .post(`/v1/model-providers/${created.id}/test-connection`)
+      .post(`/v1/model-providers/${created.data.id}/test-connection`)
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
     const result = (
@@ -203,6 +211,47 @@ describe('ModelProvider CRUD & connection test (e2e)', () => {
     expect(typeof result.message).toBe('string');
     // 不泄漏底层主机/端口
     expect(result.message).not.toContain('127.0.0.1');
+  });
+
+  it('云端 vendor 拒绝私网/回环 baseUrl，ollama 放行', async () => {
+    const cloud = await request(server)
+      .post('/v1/model-providers')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        ...createBody,
+        name: `cloud_private_${suffix}`,
+        vendor: 'openai',
+        baseUrl: 'http://127.0.0.1:8000/v1',
+      });
+    expect(cloud.status).toBe(400);
+
+    const updated = await request(server)
+      .post('/v1/model-providers')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        ...createBody,
+        name: `cloud_update_${suffix}`,
+        vendor: 'openai',
+      })
+      .expect(201);
+    const updatedId = (updated.body as ApiBody<ModelItemData>).data.id;
+    await request(server)
+      .patch(`/v1/model-providers/${updatedId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ baseUrl: 'http://192.168.1.10:8000/v1' })
+      .expect(400);
+
+    await request(server)
+      .post('/v1/model-providers')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        ...createBody,
+        name: `ollama_private_${suffix}`,
+        vendor: 'ollama',
+        baseUrl: 'http://192.168.1.10:11434',
+        apiKey: undefined,
+      })
+      .expect(201);
   });
 
   it('连接测试：不支持的类型返回 ok=false', async () => {

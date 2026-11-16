@@ -1,9 +1,10 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import type { ConfigService } from '@nestjs/config';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
+import { OUTBOUND_PRIVATE_HOST_ALLOWLIST } from '../common/guarded-fetch.service.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
 import { RERANK_REFERENCE_PORT } from '../common/ports/rerank-reference.port.js';
 import {
@@ -43,11 +44,18 @@ describe('ModelProviderService', () => {
   // 知识库重排引用的清理走窄端口（由知识库模块实现）
   const rerankReferences = { clearForModel: vi.fn() };
   const defaults = { clearForProvider: vi.fn() };
-  const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
+  // 直接持有 warnWith 的 mock 引用再断言：`expect(logger.warnWith)` 会触发 unbound-method
+  const loggerWarnWith = vi.fn();
+  const logger = {
+    log: vi.fn(),
+    warnWith: loggerWarnWith,
+  } as unknown as AppLogger;
   let cipher: ApiKeyCipher;
   let service: ModelProviderService;
 
-  const buildService = async (): Promise<ModelProviderService> => {
+  const buildService = async (
+    allowlist: readonly string[] = [],
+  ): Promise<ModelProviderService> => {
     const moduleRef = await Test.createTestingModule({
       // KeysetPaginator 走与生产一致的模块路径（验证 PaginationModule 真的导出它）
       imports: [PaginationModule],
@@ -58,6 +66,10 @@ describe('ModelProviderService', () => {
         { provide: ApiKeyCipher, useValue: cipher },
         { provide: ModelProviderDefaultsService, useValue: defaults },
         { provide: RERANK_REFERENCE_PORT, useValue: rerankReferences },
+        {
+          provide: OUTBOUND_PRIVATE_HOST_ALLOWLIST,
+          useValue: new Set(allowlist),
+        },
       ],
     }).compile();
     return moduleRef.get(ModelProviderService);
@@ -182,7 +194,182 @@ describe('ModelProviderService', () => {
     expect(tx.save).not.toHaveBeenCalled();
   });
 
-  it('update 换到需要 Key 的供应商却无 Key → 400', async () => {
+  it('create 云端 vendor 拒绝私网/回环 baseUrl（SSRF：内网管理接口）', async () => {
+    for (const baseUrl of [
+      'http://127.0.0.1:8000/v1',
+      'http://localhost:8000/v1',
+      'http://10.0.0.5/v1',
+      'http://192.168.1.10:8080/v1',
+      'http://[::1]:8000/v1',
+    ]) {
+      await expect(
+        service.create('u1', {
+          name: 'cloud',
+          type: ModelProviderType.Llm,
+          vendor: ModelProviderVendor.OpenAI,
+          baseUrl,
+          contextLength: 1,
+          apiKey: 'k',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    }
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('create ollama 仍可连 localhost / LAN', async () => {
+    for (const baseUrl of [
+      'http://localhost:11434',
+      'http://127.0.0.1:11434',
+      'http://192.168.1.10:11434',
+    ]) {
+      await expect(
+        service.create('u1', {
+          name: 'qwen',
+          type: ModelProviderType.Llm,
+          vendor: ModelProviderVendor.Ollama,
+          baseUrl,
+          contextLength: 1,
+        }),
+      ).resolves.toBeTruthy();
+    }
+  });
+
+  it('create 云端 vendor 经 OUTBOUND_ALLOW_PRIVATE_HOSTS 白名单放行内网网关', async () => {
+    const allowlisted = await buildService(['vllm.lan', '192.168.1.20']);
+    await expect(
+      allowlisted.create('u1', {
+        name: 'vllm',
+        type: ModelProviderType.Llm,
+        vendor: ModelProviderVendor.OpenAI,
+        baseUrl: 'http://vllm.lan:8000/v1',
+        contextLength: 1,
+        apiKey: 'k',
+      }),
+    ).resolves.toBeTruthy();
+    // 云端 vendor 命中全局白名单：落库成功后写结构化审计（只陈述命中白名单，不推断私网性）
+    expect(loggerWarnWith).toHaveBeenCalledWith(
+      { host: 'vllm.lan', ownerId: 'u1', vendor: 'openai' },
+      'baseUrl 命中全局出站白名单',
+      ModelProviderService.name,
+    );
+    await expect(
+      allowlisted.create('u1', {
+        name: 'vllm-ip',
+        type: ModelProviderType.Llm,
+        vendor: ModelProviderVendor.OpenAI,
+        baseUrl: 'http://192.168.1.20:8000/v1',
+        contextLength: 1,
+        apiKey: 'k',
+      }),
+    ).resolves.toBeTruthy();
+    expect(loggerWarnWith).toHaveBeenCalledWith(
+      { host: '192.168.1.20', ownerId: 'u1', vendor: 'openai' },
+      'baseUrl 命中全局出站白名单',
+      ModelProviderService.name,
+    );
+    // 白名单之外的同网段地址仍拒绝
+    await expect(
+      allowlisted.create('u1', {
+        name: 'other',
+        type: ModelProviderType.Llm,
+        vendor: ModelProviderVendor.OpenAI,
+        baseUrl: 'http://192.168.1.21:8000/v1',
+        contextLength: 1,
+        apiKey: 'k',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('白名单命中但落库失败时不写审计日志（事务回滚不留假记录）', async () => {
+    const allowlisted = await buildService(['192.168.1.20']);
+    repo.save.mockRejectedValueOnce(new Error('db down'));
+
+    await expect(
+      allowlisted.create('u1', {
+        name: 'vllm',
+        type: ModelProviderType.Llm,
+        vendor: ModelProviderVendor.OpenAI,
+        baseUrl: 'http://192.168.1.20:8000/v1',
+        contextLength: 1,
+        apiKey: 'k',
+      }),
+    ).rejects.toThrow('db down');
+    expect(loggerWarnWith).not.toHaveBeenCalled();
+  });
+
+  it('ollama 命中白名单不写审计日志（白名单不参与 ollama 判定）', async () => {
+    const allowlisted = await buildService(['127.0.0.1']);
+    await expect(
+      allowlisted.create('u1', {
+        name: 'qwen',
+        type: ModelProviderType.Llm,
+        vendor: ModelProviderVendor.Ollama,
+        baseUrl: 'http://127.0.0.1:11434',
+        contextLength: 1,
+      }),
+    ).resolves.toBeTruthy();
+    expect(loggerWarnWith).not.toHaveBeenCalled();
+  });
+
+  it('update 拒绝把 baseUrl 改到私网/回环（云端 vendor）', async () => {
+    txProviders.findOne.mockResolvedValue(makeModelProvider());
+    await expect(
+      service.update('u1', MODEL_ID, { baseUrl: 'http://127.0.0.1:8000/v1' }),
+    ).rejects.toThrow(BadRequestException);
+    expect(tx.save).not.toHaveBeenCalled();
+  });
+
+  it('update 只改 vendor（不传 baseUrl）时按新 vendor 复检私网地址', async () => {
+    // 存量 ollama 配置指向本地，切到云端 vendor 必须连 baseUrl 一起改
+    txProviders.findOne.mockResolvedValue(
+      makeModelProvider({
+        vendor: ModelProviderVendor.Ollama,
+        baseUrl: 'http://127.0.0.1:11434',
+        apiKeyEncrypted: '',
+        apiKeyLast4: '',
+      }),
+    );
+
+    await expect(
+      service.update('u1', MODEL_ID, {
+        vendor: ModelProviderVendor.OpenAI,
+        apiKey: 'sk-new',
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(tx.save).not.toHaveBeenCalled();
+  });
+
+  it('update 只改无关字段时不复检存量 baseUrl（历史不合规行仍可改名）', async () => {
+    // 本限制上线前创建的 openai + 私网地址：连接期守卫仍会拦，改名不该被 baseUrl 挡住
+    const legacy = makeModelProvider({
+      vendor: ModelProviderVendor.OpenAI,
+      baseUrl: 'http://127.0.0.1:8000/v1',
+    });
+    txProviders.findOne.mockResolvedValue(legacy);
+
+    await expect(
+      service.update('u1', MODEL_ID, { name: 'renamed' }),
+    ).resolves.toBeTruthy();
+    expect(tx.save).toHaveBeenCalledWith(legacy);
+    expect(legacy.name).toBe('renamed');
+  });
+
+  it('update 未实际改变 vendor/baseUrl 时不重复写白名单审计', async () => {
+    const allowlisted = await buildService(['192.168.1.20']);
+    txProviders.findOne.mockResolvedValue(
+      makeModelProvider({ baseUrl: 'http://192.168.1.20:8000/v1' }),
+    );
+
+    await expect(
+      allowlisted.update('u1', MODEL_ID, {
+        vendor: ModelProviderVendor.OpenAI,
+        baseUrl: 'http://192.168.1.20:8000/v1',
+      }),
+    ).resolves.toBeTruthy();
+    expect(loggerWarnWith).not.toHaveBeenCalled();
+  });
+
+  it('update 换成需要 Key 的供应商却无 Key → 400', async () => {
     const existing = makeModelProvider({
       vendor: ModelProviderVendor.Ollama,
       apiKeyEncrypted: '',

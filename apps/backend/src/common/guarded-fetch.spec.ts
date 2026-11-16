@@ -6,6 +6,15 @@ const agentClose = vi.hoisted(() => vi.fn());
 const agentDestroy = vi.hoisted(() => vi.fn());
 const assertHost = vi.hoisted(() => vi.fn());
 const resolveAddresses = vi.hoisted(() => vi.fn());
+const allowlistedHost = vi.hoisted(() => vi.fn());
+const normalizeHost = vi.hoisted(() =>
+  vi.fn((host: string) =>
+    host
+      .replace(/^\[|\]$/g, '')
+      .replace(/\.$/, '')
+      .toLowerCase(),
+  ),
+);
 
 vi.mock('undici', () => ({
   fetch: undiciFetch,
@@ -19,6 +28,8 @@ vi.mock('undici', () => ({
 }));
 vi.mock('./base-url-guard.js', () => ({
   assertBaseUrlHostAllowed: assertHost,
+  isAllowlistedHost: allowlistedHost,
+  normalizeHost,
   resolveAllowedAddresses: resolveAddresses,
 }));
 
@@ -26,21 +37,31 @@ import {
   BaseUrlBlockedError,
   BaseUrlRedirectError,
 } from './base-url-blocked.error.js';
+import type { BaseUrlPolicy } from './base-url-guard.js';
 import { createGuardedFetch } from './guarded-fetch.js';
 
-describe('createGuardedFetch', () => {
-  beforeEach(() => vi.clearAllMocks());
+/** 云端 vendor 的策略：只许公网 */
+const policy: BaseUrlPolicy = { allowPrivateHosts: false };
 
-  it('先做字面量校验，再以 manual redirect + 钉地址的 dispatcher 发起请求', async () => {
+describe('createGuardedFetch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    allowlistedHost.mockReturnValue(false);
+  });
+
+  it('先按策略做字面量校验，再以 manual redirect + 钉地址的 dispatcher 发起请求', async () => {
     undiciFetch.mockResolvedValue(new Response('ok', { status: 200 }));
-    const { fetch: guarded } = createGuardedFetch();
+    const { fetch: guarded } = createGuardedFetch({ policy });
 
     const res = await guarded('https://api.example.com/v1', {
       method: 'POST',
     });
 
     expect(res.status).toBe(200);
-    expect(assertHost).toHaveBeenCalledWith('https://api.example.com/v1');
+    expect(assertHost).toHaveBeenCalledWith(
+      'https://api.example.com/v1',
+      policy,
+    );
     expect(undiciFetch).toHaveBeenCalledWith(
       'https://api.example.com/v1',
       expect.objectContaining({ method: 'POST', redirect: 'manual' }),
@@ -51,7 +72,11 @@ describe('createGuardedFetch', () => {
   });
 
   it('把连接池参数传给 Agent（缺省走 undici 默认）', () => {
-    createGuardedFetch({ maxConnections: 5, connectTimeoutMs: 1200 });
+    createGuardedFetch({
+      policy,
+      maxConnections: 5,
+      connectTimeoutMs: 1200,
+    });
     const options = agentCtor.mock.calls[0]?.[0] as {
       connections?: number;
       connect: { timeout?: number };
@@ -61,18 +86,19 @@ describe('createGuardedFetch', () => {
   });
 
   it('close / destroy 分别关闭与强制销毁连接池', async () => {
-    const guard = createGuardedFetch();
+    const guard = createGuardedFetch({ policy });
     await guard.close();
     await guard.destroy();
     expect(agentClose).toHaveBeenCalledTimes(1);
     expect(agentDestroy).toHaveBeenCalledTimes(1);
   });
 
-  it('Agent 的 connect.lookup 校验后把地址钉给连接（防 DNS rebinding）', async () => {
+  it('Agent 的 connect.lookup 按同一策略校验后把地址钉给连接（防 DNS rebinding）', async () => {
     resolveAddresses.mockResolvedValue([
       { address: '93.184.216.34', family: 4 },
     ]);
-    createGuardedFetch();
+    const onAllowlistedAddress = vi.fn();
+    createGuardedFetch({ policy, onAllowlistedAddress });
     const options = agentCtor.mock.calls[0]?.[0] as {
       connect: {
         lookup: (
@@ -89,7 +115,12 @@ describe('createGuardedFetch', () => {
     await vi.waitFor(() => {
       expect(cb).toHaveBeenCalledWith(null, '93.184.216.34', 4);
     });
-    expect(resolveAddresses).toHaveBeenCalledWith('api.example.com');
+    // 解析地址命中白名单时的审计回调要透传给 lookup
+    expect(resolveAddresses).toHaveBeenCalledWith(
+      'api.example.com',
+      policy,
+      onAllowlistedAddress,
+    );
   });
 
   it('lookup 尊重调用方的地址族要求，无匹配时报错', async () => {
@@ -97,7 +128,7 @@ describe('createGuardedFetch', () => {
       { address: '93.184.216.34', family: 4 },
       { address: '2001:db8::1', family: 6 },
     ]);
-    createGuardedFetch();
+    createGuardedFetch({ policy });
     const options = agentCtor.mock.calls[0]?.[0] as {
       connect: {
         lookup: (
@@ -124,7 +155,7 @@ describe('createGuardedFetch', () => {
 
   it('lookup 校验失败时用错误回调，不建立连接', async () => {
     resolveAddresses.mockRejectedValue(new BaseUrlBlockedError('blocked'));
-    createGuardedFetch();
+    createGuardedFetch({ policy });
     const options = agentCtor.mock.calls[0]?.[0] as {
       connect: { lookup: (...args: unknown[]) => void };
     };
@@ -137,6 +168,24 @@ describe('createGuardedFetch', () => {
     });
   });
 
+  it('命中白名单时回调审计钩子（去重由调用方负责）', async () => {
+    allowlistedHost.mockReturnValue(true);
+    undiciFetch.mockResolvedValue(new Response('ok', { status: 200 }));
+    const onAllowlistedHost = vi.fn();
+    const { fetch: guarded } = createGuardedFetch({
+      policy,
+      onAllowlistedHost,
+    });
+
+    await guarded('http://vllm.lan:8000/v1');
+
+    expect(allowlistedHost).toHaveBeenCalledWith(
+      'http://vllm.lan:8000/v1',
+      undefined,
+    );
+    expect(onAllowlistedHost).toHaveBeenCalledWith('vllm.lan');
+  });
+
   it('3xx 先释放响应体再拒绝跟随重定向', async () => {
     const body = new ReadableStream();
     const cancel = vi.spyOn(body, 'cancel');
@@ -146,7 +195,7 @@ describe('createGuardedFetch', () => {
         headers: { location: 'http://169.254.169.254/' },
       }),
     );
-    const { fetch: guarded } = createGuardedFetch();
+    const { fetch: guarded } = createGuardedFetch({ policy });
     await expect(guarded('https://api.example.com/v1')).rejects.toThrow(
       BaseUrlRedirectError,
     );
@@ -155,12 +204,20 @@ describe('createGuardedFetch', () => {
 
   it('支持 URL / Request 入参并取其 URL', async () => {
     undiciFetch.mockResolvedValue(new Response('ok', { status: 200 }));
-    const { fetch: guarded } = createGuardedFetch();
+    const { fetch: guarded } = createGuardedFetch({ policy });
 
     await guarded(new URL('https://a.example/x'));
     await guarded(new Request('https://b.example/y'));
 
-    expect(assertHost).toHaveBeenNthCalledWith(1, 'https://a.example/x');
-    expect(assertHost).toHaveBeenNthCalledWith(2, 'https://b.example/y');
+    expect(assertHost).toHaveBeenNthCalledWith(
+      1,
+      'https://a.example/x',
+      policy,
+    );
+    expect(assertHost).toHaveBeenNthCalledWith(
+      2,
+      'https://b.example/y',
+      policy,
+    );
   });
 });

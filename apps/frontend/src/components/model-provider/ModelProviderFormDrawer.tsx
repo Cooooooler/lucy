@@ -7,6 +7,11 @@ import type {
   ModelProviderVendor,
 } from '@/api/types';
 import {
+  BLOCKED_BASE_URL_MESSAGE,
+  classifyBaseUrlHost,
+  PRIVATE_BASE_URL_MESSAGE,
+} from '@/components/model-provider/base-url-guard.ts';
+import {
   MODEL_TYPE_OPTIONS,
   PROTOCOL_OPTIONS,
   VENDOR_DEFAULT_BASE_URL,
@@ -215,6 +220,8 @@ export const ModelProviderFormDrawer: FC<ModelProviderFormDrawerProps> = ({
         <Form.Item
           name="baseUrl"
           label="API Base URL"
+          // vendor 变化时重新校验：从 ollama 切到云端后，私网地址要立刻给出提示
+          dependencies={['vendor']}
           rules={[
             {
               required: true,
@@ -222,6 +229,34 @@ export const ModelProviderFormDrawer: FC<ModelProviderFormDrawerProps> = ({
               message: '请输入 API Base URL',
             },
             { type: 'url', message: '请输入合法的 http/https 地址' },
+            // 链路本地/云元数据：后端任何策略下都拒绝，硬错误
+            {
+              validator: async (_rule, value: unknown) => {
+                if (
+                  typeof value === 'string' &&
+                  classifyBaseUrlHost(value) === 'blocked'
+                ) {
+                  throw new Error(BLOCKED_BASE_URL_MESSAGE);
+                }
+              },
+            },
+            // 私网/回环：云端供应商只给警告——服务端白名单（内网网关）前端不可见，
+            // 最终是否放行由后端裁决（400 会带同样的原因）
+            ...(vendor === 'ollama'
+              ? []
+              : [
+                  {
+                    warningOnly: true,
+                    validator: async (_rule: unknown, value: unknown) => {
+                      if (
+                        typeof value === 'string' &&
+                        classifyBaseUrlHost(value) === 'private'
+                      ) {
+                        throw new Error(PRIVATE_BASE_URL_MESSAGE);
+                      }
+                    },
+                  },
+                ]),
           ]}
         >
           <Input

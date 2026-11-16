@@ -1,4 +1,5 @@
 import Joi from 'joi';
+import { isValidAllowlistHost } from './base-url-guard.js';
 
 export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
@@ -120,5 +121,25 @@ export const envValidationSchema = Joi.object({
     .integer()
     .positive()
     .max(2_147_483_647)
+    .optional(),
+  // 云端供应商（openai/anthropic）默认拒绝私网/回环 baseUrl；此处逗号分隔的主机名或
+  // IP 字面量（不含协议/端口）显式放行内网自建网关。Ollama 始终放行，无需列出。
+  // 逐条校验格式：写成 `http://vllm.lan` 或 `vllm.lan:8000` 会被解析时静默丢弃，
+  // 表现为「明明配了白名单还是被拒」，故在启动期直接拦下。
+  OUTBOUND_ALLOW_PRIVATE_HOSTS: Joi.string()
+    .allow('')
+    .custom((value: string, helpers) => {
+      const invalid = value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry && !isValidAllowlistHost(entry));
+      return invalid.length === 0
+        ? value
+        : helpers.error('any.invalid', { value: invalid[0] });
+    })
+    .messages({
+      'any.invalid':
+        '{{#value}} 不是可生效的主机名/IP 字面量：不接受协议、端口、路径，不能是链路本地/云元数据地址；纯数字点分写法必须是合法 IP',
+    })
     .optional(),
 });
