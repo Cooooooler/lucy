@@ -131,10 +131,14 @@ function classifyIpv6(host: string): BaseUrlHostKind {
   if (host === '::' || host === '::1') return 'private';
   const v4 = embeddedV4(host);
   if (v4) return classifyIpv4Literal(v4) ?? 'public';
-  const first = Number.parseInt(host.split(':')[0] || '0', 16);
+  const groups = host.split(':');
+  const first = Number.parseInt(groups[0] || '0', 16);
+  const second = Number.parseInt(groups[1] || '0', 16);
   if ((first & 0xfe00) === 0xfc00) return 'private'; // fc00::/7 ULA
   if ((first & 0xffc0) === 0xfe80) return 'blocked'; // fe80::/10 链路本地
+  if ((first & 0xffc0) === 0xfec0) return 'private'; // fec0::/10 site-local（已废弃）
   if ((first & 0xff00) === 0xff00) return 'private'; // ff00::/8 组播
+  if (first === 0x2001 && second === 0x0db8) return 'private'; // 2001:db8::/32 文档段
   return 'public';
 }
 

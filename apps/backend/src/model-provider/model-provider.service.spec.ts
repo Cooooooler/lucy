@@ -246,8 +246,11 @@ describe('ModelProviderService', () => {
         apiKey: 'k',
       }),
     ).resolves.toBeTruthy();
-    // 主机名条目的私网性保存期无法判定，审计交给连接期（按解析结果/主机名）
-    expect(loggerWarn).not.toHaveBeenCalled();
+    // 云端 vendor 命中全局白名单：落库成功后写审计（只陈述命中白名单，不推断私网性）
+    expect(loggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('host=vllm.lan owner=u1 vendor=openai'),
+      ModelProviderService.name,
+    );
     await expect(
       allowlisted.create('u1', {
         name: 'vllm-ip',
@@ -258,7 +261,6 @@ describe('ModelProviderService', () => {
         apiKey: 'k',
       }),
     ).resolves.toBeTruthy();
-    // IP 字面量命中白名单：保存期即可确认「确实解除了私网限制」，留审计线索
     expect(loggerWarn).toHaveBeenCalledWith(
       expect.stringContaining('host=192.168.1.20 owner=u1 vendor=openai'),
       ModelProviderService.name,
@@ -274,6 +276,23 @@ describe('ModelProviderService', () => {
         apiKey: 'k',
       }),
     ).rejects.toThrow(BadRequestException);
+  });
+
+  it('白名单命中但落库失败时不写审计日志（事务回滚不留假记录）', async () => {
+    const allowlisted = await buildService(['192.168.1.20']);
+    repo.save.mockRejectedValueOnce(new Error('db down'));
+
+    await expect(
+      allowlisted.create('u1', {
+        name: 'vllm',
+        type: ModelProviderType.Llm,
+        vendor: ModelProviderVendor.OpenAI,
+        baseUrl: 'http://192.168.1.20:8000/v1',
+        contextLength: 1,
+        apiKey: 'k',
+      }),
+    ).rejects.toThrow('db down');
+    expect(loggerWarn).not.toHaveBeenCalled();
   });
 
   it('ollama 命中白名单不写审计日志（白名单不参与 ollama 判定）', async () => {

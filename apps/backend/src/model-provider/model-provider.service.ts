@@ -6,8 +6,6 @@ import { BaseUrlGuardError } from '../common/base-url-blocked.error.js';
 import {
   assertBaseUrlHostAllowed,
   isAllowlistedHost,
-  isLoopbackHostname,
-  isPrivateAddress,
   normalizeHost,
 } from '../common/base-url-guard.js';
 import { OUTBOUND_PRIVATE_HOST_ALLOWLIST } from '../common/guarded-fetch.service.js';
@@ -67,14 +65,13 @@ export class ModelProviderService {
    * 保存校验的地址策略：与连接期连接池选择同源（`vendorBaseUrlPolicy`），
    * 避免「保存放行、连接被拒」或反之。出站守卫的领域错误在 API 边界映射成 400。
    *
-   * 命中全局私网白名单时写一条带属主/供应商/主机的 warn：白名单对所有用户、
-   * 所有云端 vendor 生效，没有这条日志就无从审计「谁把出口指到了哪台内网主机」。
+   * 返回「命中全局出站白名单」标记：审计由调用方在**落库成功后**写，
+   * 事务回滚（缺 Key/写库失败）时不会留下与实际不符的记录。
    */
   private assertBaseUrlForVendor(
     baseUrl: string,
     vendor: ModelProviderVendor,
-    ownerId: string,
-  ): void {
+  ): boolean {
     try {
       assertBaseUrlHostAllowed(
         baseUrl,
@@ -86,19 +83,22 @@ export class ModelProviderService {
       }
       throw error;
     }
-    // 保存期只能确认「IP 字面量/回环主机名」这类私网性；域名条目交给连接期审计
-    // （解析出私网地址时由 lookup 回调记录），避免把公网主机也误记为命中私网白名单
-    const host = normalizeHost(new URL(baseUrl).hostname);
-    if (
+    return (
       !vendorAllowsPrivateHosts(vendor) &&
-      isAllowlistedHost(baseUrl, this.allowedPrivateHosts) &&
-      (isPrivateAddress(host) || isLoopbackHostname(host))
-    ) {
-      this.logger.warn(
-        `baseUrl 命中全局私网白名单 host=${host} owner=${ownerId} vendor=${vendor}`,
-        ModelProviderService.name,
-      );
-    }
+      isAllowlistedHost(baseUrl, this.allowedPrivateHosts)
+    );
+  }
+
+  /** 白名单命中的审计：只陈述事实（命中白名单），不推断主机是否私网 */
+  private logAllowlistedBaseUrl(
+    baseUrl: string,
+    vendor: ModelProviderVendor,
+    ownerId: string,
+  ): void {
+    this.logger.warn(
+      `baseUrl 命中全局出站白名单 host=${normalizeHost(new URL(baseUrl).hostname)} owner=${ownerId} vendor=${vendor}`,
+      ModelProviderService.name,
+    );
   }
 
   /**
@@ -112,7 +112,7 @@ export class ModelProviderService {
   ): Promise<ModelProviderItemDto> {
     const apiKey = dto.apiKey?.trim() ?? '';
     this.assertApiKeyForVendor(dto.vendor, apiKey.length > 0);
-    this.assertBaseUrlForVendor(dto.baseUrl, dto.vendor, userId);
+    const allowlisted = this.assertBaseUrlForVendor(dto.baseUrl, dto.vendor);
     const provider = await this.repo.save({
       ownerId: userId,
       name: dto.name,
@@ -124,6 +124,9 @@ export class ModelProviderService {
       apiKeyEncrypted: apiKey ? this.cipher.encrypt(apiKey) : '',
       apiKeyLast4: apiKey ? this.cipher.last4(apiKey) : '',
     });
+    if (allowlisted) {
+      this.logAllowlistedBaseUrl(dto.baseUrl, dto.vendor, userId);
+    }
     this.logger.log(
       `model provider create id=${provider.id}`,
       ModelProviderService.name,
@@ -242,6 +245,8 @@ export class ModelProviderService {
     // 读取、判据、写入、清理必须在同一事务里对着同一份当前值完成：
     // 事务外读到的快照会被并发 PATCH 覆盖（save 按快照差异把旧 type 写回去），
     // 「类型是否变了」也会基于陈旧值误判，进而多删或漏删默认设置。
+    // 审计标记带出事务，只在**提交成功**后写日志（回滚不留假记录）。
+    let allowlisted = false;
     const saved = await this.repo.manager.transaction(async (manager) => {
       const provider = await resolveOwnedModelProvider(
         manager.getRepository(ModelProvider),
@@ -269,7 +274,10 @@ export class ModelProviderService {
       // 存量行的 baseUrl（本限制上线前创建的）不构成新的暴露面，连接期守卫仍会兜底；
       // 无条件复检会让这类行连改名都做不到，且错误文案指向请求里没传的 baseUrl。
       if (dto.vendor !== undefined || dto.baseUrl !== undefined) {
-        this.assertBaseUrlForVendor(provider.baseUrl, provider.vendor, userId);
+        allowlisted = this.assertBaseUrlForVendor(
+          provider.baseUrl,
+          provider.vendor,
+        );
       }
       // 换厂商（如 ollama → openai）而未补 Key 时，落库前拦下，避免存出永远调不通的配置
       this.assertApiKeyForVendor(
@@ -290,6 +298,9 @@ export class ModelProviderService {
       }
       return updated;
     });
+    if (allowlisted) {
+      this.logAllowlistedBaseUrl(saved.baseUrl, saved.vendor, userId);
+    }
     this.logger.log(
       `model provider update id=${id}`,
       ModelProviderService.name,
