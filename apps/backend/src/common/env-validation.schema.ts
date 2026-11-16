@@ -17,6 +17,8 @@ const NUMERIC_HOST_RE = /^[0-9.]+$/;
 function isValidAllowlistEntry(entry: string): boolean {
   if (isBlockedHost(entry)) return false;
   const host = normalizeAllowlistHost(entry);
+  // 未指定地址（0.0.0.0 / ::）在 Linux 上会被路由到本机回环，放行它等于放行本机任意端口
+  if (host === '0.0.0.0' || host === '::') return false;
   if (isIP(host) !== 0) return true;
   if (NUMERIC_HOST_RE.test(host)) return false;
   return ALLOWLIST_HOSTNAME_RE.test(host);
