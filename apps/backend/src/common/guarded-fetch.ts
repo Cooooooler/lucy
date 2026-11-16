@@ -25,9 +25,12 @@ function requestUrlOf(input: RequestInfo | URL): string {
  * keep-alive 复用连接时不会重复 lookup，因此不会给每个请求增加一次 DNS 查询；
  * 新连接才解析，且受 undici 的连接超时/请求 signal 约束。
  */
-function createGuardedLookup(policy: BaseUrlPolicy): LookupFunction {
+function createGuardedLookup(
+  policy: BaseUrlPolicy,
+  onAllowlistedAddress?: (address: string) => void,
+): LookupFunction {
   return (hostname, options, callback) => {
-    resolveAllowedAddresses(hostname, policy)
+    resolveAllowedAddresses(hostname, policy, onAllowlistedAddress)
       .then((addresses) => {
         // 尊重调用方要求的地址族（如强制 IPv4 的接入点 / autoSelectFamily 探测）；
         // 过滤为空时明确报错，而不是把异族地址塞回 socket 造成难归因的连接失败
@@ -71,10 +74,12 @@ export interface GuardedFetchOptions {
   /** 地址策略：私网/回环是否放行（云端 vendor 与本地 Ollama 各用一个连接池） */
   policy: BaseUrlPolicy;
   /**
-   * 命中显式私网白名单时回调（参数为 URL 主机名）。
+   * 命中显式私网白名单时回调（参数为 URL 主机名 / 解析出的地址）。
    * 调用方负责去重后落审计日志：白名单是全局的，没有这条线索无从归因谁在用它。
    */
   onAllowlistedHost?: (host: string) => void;
+  /** 靠「解析地址」命中白名单而放行时的回调（主机名未列入的情形） */
+  onAllowlistedAddress?: (address: string) => void;
   maxConnections?: number;
   connectTimeoutMs?: number;
 }
@@ -97,7 +102,7 @@ export function createGuardedFetch(options: GuardedFetchOptions): GuardedFetch {
   const dispatcher = new Agent({
     ...(options.maxConnections ? { connections: options.maxConnections } : {}),
     connect: {
-      lookup: createGuardedLookup(options.policy),
+      lookup: createGuardedLookup(options.policy, options.onAllowlistedAddress),
       ...(options.connectTimeoutMs
         ? { timeout: options.connectTimeoutMs }
         : {}),

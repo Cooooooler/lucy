@@ -298,7 +298,7 @@ export function isAllowlistedHost(
  * 运维按 IP 放行、用户按域名填写（`http://vllm.lan` → 192.168.1.20）时，
  * 仅比对请求主机名会漏掉，连接期就被判私网拒绝；这里按解析地址再匹配一次。
  */
-function isAllowlistedAddress(
+export function isAllowlistedAddress(
   address: string,
   allowedHosts?: ReadonlySet<string>,
 ): boolean {
@@ -335,7 +335,7 @@ function privateHostAllowed(host: string, policy: BaseUrlPolicy): boolean {
  * 保存校验是同步、不做 DNS 的，只靠 IP 字面量判定会漏掉这个最常见写法；
  * 这里按保留用途直接归为私网（连接期 lookup 也会再拦一次）。
  */
-function isLoopbackHostname(host: string): boolean {
+export function isLoopbackHostname(host: string): boolean {
   return host === 'localhost' || host.endsWith('.localhost');
 }
 
@@ -377,15 +377,18 @@ export function assertBaseUrlHostAllowed(
  * 返回已校验的地址列表，调用方（undici 连接期 lookup）可把其中一个钉给连接，
  * 避免「校验时解析一次、连接时再解析一次」的 DNS rebinding 窗口。
  * 任一地址命中受限范围即抛 `BaseUrlBlockedError`；策略不允许私网时，任一解析结果为
- * 私网/回环即抛 `BaseUrlPrivateAddressError`（白名单按**请求的主机名/字面量**匹配）。
+ * 私网/回环即抛 `BaseUrlPrivateAddressError`（白名单按**请求的主机名/字面量**匹配，
+ * 解析出的地址命中白名单也会放行）。
  * 解析失败原样抛出（按网络错误归因）。
  *
+ * @param onAllowlistedAddress 靠解析地址命中白名单而放行时的回调（审计用）
  * @throws BaseUrlBlockedError 任一解析结果命中受限地址
  * @throws BaseUrlPrivateAddressError 策略不允许私网且任一解析结果为私网/回环
  */
 export async function resolveAllowedAddresses(
   hostname: string,
   policy: BaseUrlPolicy,
+  onAllowlistedAddress?: (address: string) => void,
 ): Promise<ResolvedHostAddress[]> {
   const bare = normalizeHost(hostname);
   const literalVersion = isIP(bare);
@@ -400,12 +403,16 @@ export async function resolveAllowedAddresses(
   const allowPrivate = privateHostAllowed(bare, policy);
   for (const { address } of addresses) {
     if (isBlockedAddress(address)) throwBaseUrlBlocked();
-    if (
-      !allowPrivate &&
-      !isAllowlistedAddress(address, policy.allowedPrivateHosts) &&
-      isPrivateAddress(address)
-    ) {
+    const allowlisted = isAllowlistedAddress(
+      address,
+      policy.allowedPrivateHosts,
+    );
+    if (!allowPrivate && !allowlisted && isPrivateAddress(address)) {
       throwPrivateAddressBlocked();
+    }
+    // 主机名不在白名单、靠解析地址放行：审计以「实际解除限制的依据」为准
+    if (!allowPrivate && allowlisted && isPrivateAddress(address)) {
+      onAllowlistedAddress?.(address);
     }
   }
   return addresses.map(({ address, family }) => ({

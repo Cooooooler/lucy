@@ -81,10 +81,18 @@ export class GuardedFetchService implements OnApplicationShutdown {
       ...poolOptions,
       policy: { allowPrivateHosts: false, allowedPrivateHosts },
       onAllowlistedHost: (host) => {
-        if (reportedAllowlistHosts.has(host)) return;
-        reportedAllowlistHosts.add(host);
+        if (reportedAllowlistHosts.has(`host:${host}`)) return;
+        reportedAllowlistHosts.add(`host:${host}`);
         this.logger.warn(
           `出站命中全局私网白名单 host=${host}`,
+          GuardedFetchService.name,
+        );
+      },
+      onAllowlistedAddress: (address) => {
+        if (reportedAllowlistHosts.has(`addr:${address}`)) return;
+        reportedAllowlistHosts.add(`addr:${address}`);
+        this.logger.warn(
+          `出站命中全局私网白名单 address=${address}`,
           GuardedFetchService.name,
         );
       },

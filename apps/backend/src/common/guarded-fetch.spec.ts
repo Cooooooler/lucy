@@ -88,7 +88,8 @@ describe('createGuardedFetch', () => {
     resolveAddresses.mockResolvedValue([
       { address: '93.184.216.34', family: 4 },
     ]);
-    createGuardedFetch({ policy });
+    const onAllowlistedAddress = vi.fn();
+    createGuardedFetch({ policy, onAllowlistedAddress });
     const options = agentCtor.mock.calls[0]?.[0] as {
       connect: {
         lookup: (
@@ -105,7 +106,12 @@ describe('createGuardedFetch', () => {
     await vi.waitFor(() => {
       expect(cb).toHaveBeenCalledWith(null, '93.184.216.34', 4);
     });
-    expect(resolveAddresses).toHaveBeenCalledWith('api.example.com', policy);
+    // 解析地址命中白名单时的审计回调要透传给 lookup
+    expect(resolveAddresses).toHaveBeenCalledWith(
+      'api.example.com',
+      policy,
+      onAllowlistedAddress,
+    );
   });
 
   it('lookup 尊重调用方的地址族要求，无匹配时报错', async () => {

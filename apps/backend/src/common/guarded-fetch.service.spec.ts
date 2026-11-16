@@ -78,18 +78,27 @@ describe('GuardedFetchService', () => {
     );
   });
 
-  it('仅公网池命中白名单时按 host 去重写审计日志', () => {
+  it('仅公网池命中白名单时按 host / 解析地址去重写审计日志', () => {
     build();
     const options = (
       createGuardedFetchMock.mock.calls[1] as unknown[] | undefined
-    )?.[0] as { onAllowlistedHost: (host: string) => void };
+    )?.[0] as {
+      onAllowlistedHost: (host: string) => void;
+      onAllowlistedAddress: (address: string) => void;
+    };
 
     options.onAllowlistedHost('vllm.lan');
     options.onAllowlistedHost('vllm.lan');
+    options.onAllowlistedAddress('192.168.1.20');
+    options.onAllowlistedAddress('192.168.1.20');
 
-    expect(loggerWarn).toHaveBeenCalledTimes(1);
+    expect(loggerWarn).toHaveBeenCalledTimes(2);
     expect(loggerWarn).toHaveBeenCalledWith(
       expect.stringContaining('host=vllm.lan'),
+      GuardedFetchService.name,
+    );
+    expect(loggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('address=192.168.1.20'),
       GuardedFetchService.name,
     );
   });

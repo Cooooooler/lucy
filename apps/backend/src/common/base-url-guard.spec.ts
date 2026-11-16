@@ -274,21 +274,24 @@ describe('resolveAllowedAddresses（解析后校验，供连接期钉住地址�
     ).resolves.toEqual([{ address: '10.0.0.8', family: 4 }]);
   });
 
-  it('白名单按 IP 放行时，域名解析到该 IP 也放行（保存期按域名能过，连接期不能反过来拒）', async () => {
+  it('白名单按 IP 放行时，域名解析到该 IP 也放行并回调审计', async () => {
     const policy: BaseUrlPolicy = {
       allowPrivateHosts: false,
       allowedPrivateHosts: new Set(['192.168.1.20']),
     };
+    const onAllowlistedAddress = vi.fn();
     lookup.mockResolvedValue([{ address: '192.168.1.20', family: 4 }]);
-    await expect(resolveAllowedAddresses('vllm.lan', policy)).resolves.toEqual([
-      { address: '192.168.1.20', family: 4 },
-    ]);
+    await expect(
+      resolveAllowedAddresses('vllm.lan', policy, onAllowlistedAddress),
+    ).resolves.toEqual([{ address: '192.168.1.20', family: 4 }]);
+    expect(onAllowlistedAddress).toHaveBeenCalledWith('192.168.1.20');
 
-    // 不在白名单里的解析结果仍拒绝
+    // 不在白名单里的解析结果仍拒绝，且不触发审计
     lookup.mockResolvedValue([{ address: '192.168.1.21', family: 4 }]);
-    await expect(resolveAllowedAddresses('other.lan', policy)).rejects.toThrow(
-      BaseUrlPrivateAddressError,
-    );
+    await expect(
+      resolveAllowedAddresses('other.lan', policy, onAllowlistedAddress),
+    ).rejects.toThrow(BaseUrlPrivateAddressError);
+    expect(onAllowlistedAddress).toHaveBeenCalledTimes(1);
   });
 
   it('白名单主机：解析到私网地址也放行；未列出的主机仍拒绝', async () => {

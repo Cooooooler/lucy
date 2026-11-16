@@ -246,11 +246,8 @@ describe('ModelProviderService', () => {
         apiKey: 'k',
       }),
     ).resolves.toBeTruthy();
-    // 全局白名单命中要留审计线索（属主/供应商/主机）
-    expect(loggerWarn).toHaveBeenCalledWith(
-      expect.stringContaining('host=vllm.lan owner=u1 vendor=openai'),
-      ModelProviderService.name,
-    );
+    // 主机名条目的私网性保存期无法判定，审计交给连接期（按解析结果/主机名）
+    expect(loggerWarn).not.toHaveBeenCalled();
     await expect(
       allowlisted.create('u1', {
         name: 'vllm-ip',
@@ -261,6 +258,11 @@ describe('ModelProviderService', () => {
         apiKey: 'k',
       }),
     ).resolves.toBeTruthy();
+    // IP 字面量命中白名单：保存期即可确认「确实解除了私网限制」，留审计线索
+    expect(loggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('host=192.168.1.20 owner=u1 vendor=openai'),
+      ModelProviderService.name,
+    );
     // 白名单之外的同网段地址仍拒绝
     await expect(
       allowlisted.create('u1', {

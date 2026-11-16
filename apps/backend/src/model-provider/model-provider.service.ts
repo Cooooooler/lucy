@@ -6,6 +6,9 @@ import { BaseUrlGuardError } from '../common/base-url-blocked.error.js';
 import {
   assertBaseUrlHostAllowed,
   isAllowlistedHost,
+  isLoopbackHostname,
+  isPrivateAddress,
+  normalizeHost,
 } from '../common/base-url-guard.js';
 import { OUTBOUND_PRIVATE_HOST_ALLOWLIST } from '../common/guarded-fetch.service.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
@@ -83,12 +86,16 @@ export class ModelProviderService {
       }
       throw error;
     }
+    // 保存期只能确认「IP 字面量/回环主机名」这类私网性；域名条目交给连接期审计
+    // （解析出私网地址时由 lookup 回调记录），避免把公网主机也误记为命中私网白名单
+    const host = normalizeHost(new URL(baseUrl).hostname);
     if (
       !vendorAllowsPrivateHosts(vendor) &&
-      isAllowlistedHost(baseUrl, this.allowedPrivateHosts)
+      isAllowlistedHost(baseUrl, this.allowedPrivateHosts) &&
+      (isPrivateAddress(host) || isLoopbackHostname(host))
     ) {
       this.logger.warn(
-        `baseUrl 命中全局私网白名单 host=${new URL(baseUrl).hostname} owner=${ownerId} vendor=${vendor}`,
+        `baseUrl 命中全局私网白名单 host=${host} owner=${ownerId} vendor=${vendor}`,
         ModelProviderService.name,
       );
     }
