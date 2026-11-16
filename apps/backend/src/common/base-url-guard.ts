@@ -378,10 +378,11 @@ function privateHostAllowed(host: string, policy: BaseUrlPolicy): boolean {
   const allowed = policy.allowedPrivateHosts;
   if (!allowed || allowed.size === 0) return false;
   const bare = normalizeHost(host);
-  if (allowed.has(bare)) return true;
-  return (
-    isLoopbackHostname(bare) && LOOPBACK_HOSTS.some((item) => allowed.has(item))
-  );
+  // localhost / *.localhost 与保留回环地址双向等价：任一回环形式在白名单里即放行
+  const isLoopbackForm =
+    isLoopbackHostname(bare) || LOOPBACK_HOSTS.some((item) => item === bare);
+  if (isLoopbackForm) return LOOPBACK_HOSTS.some((item) => allowed.has(item));
+  return allowed.has(bare);
 }
 
 /**

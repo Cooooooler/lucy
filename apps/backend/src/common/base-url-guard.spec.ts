@@ -124,6 +124,19 @@ describe('assertBaseUrlHostAllowed（仅公网策略：云端 vendor）', () => 
         allowedPrivateHosts: new Set(['::1']),
       }),
     ).not.toThrow();
+    // 反向也等价：白名单写 localhost 时，回环 IP 形式的 baseUrl 同样放行
+    expect(() =>
+      assertBaseUrlHostAllowed('http://127.0.0.1:8000/v1', {
+        allowPrivateHosts: false,
+        allowedPrivateHosts: new Set(['localhost']),
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertBaseUrlHostAllowed('http://[::1]:8000/v1', {
+        allowPrivateHosts: false,
+        allowedPrivateHosts: new Set(['localhost']),
+      }),
+    ).not.toThrow();
     expect(() =>
       assertBaseUrlHostAllowed('http://192.168.1.10:8000/v1', policy),
     ).not.toThrow();

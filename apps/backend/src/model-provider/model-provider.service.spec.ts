@@ -354,6 +354,21 @@ describe('ModelProviderService', () => {
     expect(legacy.name).toBe('renamed');
   });
 
+  it('update 未实际改变 vendor/baseUrl 时不重复写白名单审计', async () => {
+    const allowlisted = await buildService(['192.168.1.20']);
+    txProviders.findOne.mockResolvedValue(
+      makeModelProvider({ baseUrl: 'http://192.168.1.20:8000/v1' }),
+    );
+
+    await expect(
+      allowlisted.update('u1', MODEL_ID, {
+        vendor: ModelProviderVendor.OpenAI,
+        baseUrl: 'http://192.168.1.20:8000/v1',
+      }),
+    ).resolves.toBeTruthy();
+    expect(loggerWarnWith).not.toHaveBeenCalled();
+  });
+
   it('update 换成需要 Key 的供应商却无 Key → 400', async () => {
     const existing = makeModelProvider({
       vendor: ModelProviderVendor.Ollama,

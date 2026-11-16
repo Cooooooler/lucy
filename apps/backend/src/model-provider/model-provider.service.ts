@@ -251,7 +251,9 @@ export class ModelProviderService {
     // 事务外读到的快照会被并发 PATCH 覆盖（save 按快照差异把旧 type 写回去），
     // 「类型是否变了」也会基于陈旧值误判，进而多删或漏删默认设置。
     // 审计标记带出事务，只在**提交成功**后写日志（回滚不留假记录）。
+    // 与连接期一致：策略输入（vendor/baseUrl）实际变化时才记录，避免前端全量提交刷审计
     let allowlisted = false;
+    let policyInputChanged = false;
     const saved = await this.repo.manager.transaction(async (manager) => {
       const provider = await resolveOwnedModelProvider(
         manager.getRepository(ModelProvider),
@@ -262,6 +264,8 @@ export class ModelProviderService {
       );
 
       const previousType = provider.type;
+      const previousVendor = provider.vendor;
+      const previousBaseUrl = provider.baseUrl;
       if (dto.name !== undefined) provider.name = dto.name;
       if (dto.type !== undefined) provider.type = dto.type;
       if (dto.vendor !== undefined) provider.vendor = dto.vendor;
@@ -283,6 +287,9 @@ export class ModelProviderService {
           provider.baseUrl,
           provider.vendor,
         );
+        policyInputChanged =
+          provider.vendor !== previousVendor ||
+          provider.baseUrl !== previousBaseUrl;
       }
       // 换厂商（如 ollama → openai）而未补 Key 时，落库前拦下，避免存出永远调不通的配置
       this.assertApiKeyForVendor(
@@ -303,7 +310,7 @@ export class ModelProviderService {
       }
       return updated;
     });
-    if (allowlisted) {
+    if (allowlisted && policyInputChanged) {
       this.logAllowlistedBaseUrl(saved.baseUrl, saved.vendor, userId);
     }
     this.logger.log(
