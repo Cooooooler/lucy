@@ -17,9 +17,11 @@ permissions:
   contents: read
 
 jobs:
+  # runner 固定到 ubuntu-24.04：ubuntu-latest 自 2026-10-19 起迁移到 Ubuntu 26
+  # （actions/runner-images#14748），不锁定会让 Node/glibc/系统包随镜像静默变化
   lint-typecheck:
     name: Lint & Typecheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -43,7 +45,7 @@ jobs:
 
   backend-tests:
     name: Backend tests with coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       redis:
         image: redis/redis-stack-server:7.2.0-v16
@@ -79,7 +81,7 @@ jobs:
 
   frontend-tests:
     name: Frontend tests with coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -106,7 +108,7 @@ jobs:
 
   frontend-e2e:
     name: Frontend e2e smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -134,7 +136,7 @@ jobs:
 
   redis-tests:
     name: Redis package tests with coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       redis:
         image: redis/redis-stack-server:7.2.0-v16
@@ -164,7 +166,7 @@ jobs:
 
   shared-tests:
     name: Shared package tests with coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -190,7 +192,7 @@ jobs:
   sonarqube:
     name: SonarCloud Scan
     needs: [backend-tests, frontend-tests, redis-tests, shared-tests]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:

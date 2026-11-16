@@ -35,7 +35,9 @@ jobs:
     # 是为了不误伤 PR-Agent 自己的其余命令（/help、/add_docs 等）。
     if: >-
       github.event.issue.pull_request && github.event.sender.type != 'Bot' && startsWith(github.event.comment.body, '/') && !startsWith(github.event.comment.body, '/skill-review')
-    runs-on: ubuntu-latest
+    # runner 固定到 ubuntu-24.04：ubuntu-latest 自 2026-10-19 起迁移到 Ubuntu 26
+    # （actions/runner-images#14748），锁定镜像避免行为随平台静默变化
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Run PR Agent
