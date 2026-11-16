@@ -44,7 +44,12 @@ describe('ModelProviderService', () => {
   // 知识库重排引用的清理走窄端口（由知识库模块实现）
   const rerankReferences = { clearForModel: vi.fn() };
   const defaults = { clearForProvider: vi.fn() };
-  const logger = { log: vi.fn(), warn: vi.fn() } as unknown as AppLogger;
+  // 直接持有 warn 的 mock 引用再断言：`expect(logger.warn)` 会触发 unbound-method
+  const loggerWarn = vi.fn();
+  const logger = {
+    log: vi.fn(),
+    warn: loggerWarn,
+  } as unknown as AppLogger;
   let cipher: ApiKeyCipher;
   let service: ModelProviderService;
 
@@ -241,6 +246,11 @@ describe('ModelProviderService', () => {
         apiKey: 'k',
       }),
     ).resolves.toBeTruthy();
+    // 全局白名单命中要留审计线索（属主/供应商/主机）
+    expect(loggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('host=vllm.lan owner=u1 vendor=openai'),
+      ModelProviderService.name,
+    );
     await expect(
       allowlisted.create('u1', {
         name: 'vllm-ip',

@@ -3,7 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import type { EntityManager, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { BaseUrlGuardError } from '../common/base-url-blocked.error.js';
-import { assertBaseUrlHostAllowed } from '../common/base-url-guard.js';
+import {
+  assertBaseUrlHostAllowed,
+  isAllowlistedHost,
+} from '../common/base-url-guard.js';
 import { OUTBOUND_PRIVATE_HOST_ALLOWLIST } from '../common/guarded-fetch.service.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
@@ -57,10 +60,14 @@ export class ModelProviderService {
   /**
    * 保存校验的地址策略：与连接期连接池选择同源（`vendorBaseUrlPolicy`），
    * 避免「保存放行、连接被拒」或反之。出站守卫的领域错误在 API 边界映射成 400。
+   *
+   * 命中全局私网白名单时写一条带属主/供应商/主机的 warn：白名单对所有用户、
+   * 所有云端 vendor 生效，没有这条日志就无从审计「谁把出口指到了哪台内网主机」。
    */
   private assertBaseUrlForVendor(
     baseUrl: string,
     vendor: ModelProviderVendor,
+    ownerId: string,
   ): void {
     try {
       assertBaseUrlHostAllowed(
@@ -72,6 +79,12 @@ export class ModelProviderService {
         throw new BadRequestException(error.message);
       }
       throw error;
+    }
+    if (isAllowlistedHost(baseUrl, this.allowedPrivateHosts)) {
+      this.logger.warn(
+        `baseUrl 命中全局私网白名单 host=${new URL(baseUrl).hostname} owner=${ownerId} vendor=${vendor}`,
+        ModelProviderService.name,
+      );
     }
   }
 
@@ -86,7 +99,7 @@ export class ModelProviderService {
   ): Promise<ModelProviderItemDto> {
     const apiKey = dto.apiKey?.trim() ?? '';
     this.assertApiKeyForVendor(dto.vendor, apiKey.length > 0);
-    this.assertBaseUrlForVendor(dto.baseUrl, dto.vendor);
+    this.assertBaseUrlForVendor(dto.baseUrl, dto.vendor, userId);
     const provider = await this.repo.save({
       ownerId: userId,
       name: dto.name,
@@ -243,7 +256,7 @@ export class ModelProviderService {
       // 存量行的 baseUrl（本限制上线前创建的）不构成新的暴露面，连接期守卫仍会兜底；
       // 无条件复检会让这类行连改名都做不到，且错误文案指向请求里没传的 baseUrl。
       if (dto.vendor !== undefined || dto.baseUrl !== undefined) {
-        this.assertBaseUrlForVendor(provider.baseUrl, provider.vendor);
+        this.assertBaseUrlForVendor(provider.baseUrl, provider.vendor, userId);
       }
       // 换厂商（如 ollama → openai）而未补 Key 时，落库前拦下，避免存出永远调不通的配置
       this.assertApiKeyForVendor(

@@ -128,10 +128,19 @@ describe('assertBaseUrlHostAllowed（仅公网策略：云端 vendor）', () => 
 });
 
 describe('parsePrivateHostAllowlist', () => {
-  it('逗号分隔、去空白、小写、去 IPv6 方括号', () => {
+  it('逗号分隔、去空白、小写、IPv6 规范化为 URL.hostname 同形', () => {
     expect([
-      ...parsePrivateHostAllowlist(' VLLM.LAN, 192.168.1.10, [::1] ,'),
-    ]).toEqual(['vllm.lan', '192.168.1.10', '::1']);
+      ...parsePrivateHostAllowlist(
+        ' VLLM.LAN, 192.168.1.10, [::1] , 0:0:0:0:0:0:0:2, [::ffff:192.168.1.20]',
+      ),
+    ]).toEqual([
+      'vllm.lan',
+      '192.168.1.10',
+      '::1',
+      '::2',
+      // WHATWG 把 IPv4 映射地址改写成十六进制，白名单必须存同一形式才能匹配
+      '::ffff:c0a8:114',
+    ]);
   });
 
   it('缺失/空串/非字符串返回空集合', () => {

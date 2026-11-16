@@ -71,7 +71,7 @@ describe('envValidationSchema', () => {
     expect(
       validate({
         OUTBOUND_ALLOW_PRIVATE_HOSTS:
-          'vllm.lan, 192.168.1.20, [::1], vllm2.lan.',
+          'vllm.lan, 192.168.1.20, [::1], vllm2.lan., 0:0:0:0:0:0:0:2',
       }).error,
     ).toBeUndefined();
     for (const invalid of [

@@ -251,6 +251,25 @@ export function normalizeHost(host: string): string {
 }
 
 /**
+ * 白名单条目归一化：与运行期 `URL.hostname` 同形。
+ *
+ * WHATWG 会把 IPv6 改写成规范形式（`0:0:0:0:0:0:0:1` → `::1`、
+ * `[::ffff:192.168.1.20]` → `::ffff:c0a8:114`）：不做这一步，启动期校验通过、
+ * 运行期白名单却永不匹配。IPv4 与非 IP 主机名走普通归一化。
+ */
+export function normalizeAllowlistHost(entry: string): string {
+  const bare = entry.replace(/^\[|\]$/g, '');
+  if (isIP(bare) === 6) {
+    try {
+      return normalizeHost(new URL(`http://[${bare}]/`).hostname);
+    } catch {
+      // 非法 IPv6 交回普通归一化，由启动期格式校验报错
+    }
+  }
+  return normalizeHost(entry);
+}
+
+/**
  * 解析 `OUTBOUND_ALLOW_PRIVATE_HOSTS`：逗号分隔的主机名或 IP 字面量。
  * 容忍空串与多余空白；空条目直接丢弃（运维配置项不该让启动失败）。
  */
@@ -258,10 +277,19 @@ export function parsePrivateHostAllowlist(raw: unknown): ReadonlySet<string> {
   const hosts = new Set<string>();
   if (typeof raw !== 'string') return hosts;
   for (const entry of raw.split(',')) {
-    const host = normalizeHost(entry.trim());
+    const host = normalizeAllowlistHost(entry.trim());
     if (host) hosts.add(host);
   }
   return hosts;
+}
+
+/** baseUrl 主机是否命中显式私网白名单（保存路径据此写审计日志） */
+export function isAllowlistedHost(
+  baseUrl: string,
+  allowedHosts?: ReadonlySet<string>,
+): boolean {
+  if (!allowedHosts || allowedHosts.size === 0) return false;
+  return allowedHosts.has(normalizeHost(new URL(baseUrl).hostname));
 }
 
 function throwBaseUrlBlocked(): never {
