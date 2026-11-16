@@ -108,6 +108,13 @@ function embeddedV4(host: string): string | null {
       ? hextetsToV4(groups[groups.length - 2], groups[groups.length - 1])
       : null;
   }
+  // RFC 8215 本地用 NAT64 64:ff9b:1::/48
+  if (host.startsWith('64:ff9b:1::')) {
+    const groups = host.split(':').filter(Boolean);
+    return groups.length >= 2
+      ? hextetsToV4(groups[groups.length - 2], groups[groups.length - 1])
+      : null;
+  }
   const groups = host.split(':').filter(Boolean);
   // 6to4 2002:V4HI:V4LO::/48
   if (groups[0] === '2002' && groups.length >= 3) {
@@ -131,8 +138,19 @@ function classifyIpv6(host: string): BaseUrlHostKind {
   return 'public';
 }
 
+/** 上一次分类结果：两条表单规则（硬错误/警告）会对同一次输入各调一次，避免重复解析 */
+let lastInput: string | null = null;
+let lastKind: BaseUrlHostKind | null = null;
+
 /** 无法解析为 URL 时返回 null（交给表单的 url 规则报错） */
 export function classifyBaseUrlHost(baseUrl: string): BaseUrlHostKind | null {
+  if (baseUrl === lastInput) return lastKind;
+  lastKind = classifyUncached(baseUrl);
+  lastInput = baseUrl;
+  return lastKind;
+}
+
+function classifyUncached(baseUrl: string): BaseUrlHostKind | null {
   let host: string;
   try {
     host = normalizeHost(new URL(baseUrl.trim()).hostname);

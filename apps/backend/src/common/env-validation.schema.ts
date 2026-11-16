@@ -1,24 +1,22 @@
 import Joi from 'joi';
 import { isIP } from 'node:net';
-import { isBlockedHost } from './base-url-guard.js';
+import { isBlockedHost, normalizeHost } from './base-url-guard.js';
 
 /** 白名单条目：主机名 / IPv4 / IPv6（IPv6 可带方括号），不含协议、端口与路径 */
 const ALLOWLIST_HOSTNAME_RE = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
 /** 纯数字/点号：URL 归一化会改变形态（192.168.1.010 → 192.168.1.8），必须自身是合法 IP */
 const NUMERIC_HOST_RE = /^[0-9.]+$/;
 
-/** 与运行时 `normalizeHost` 同口径：去方括号、去 FQDN 尾点 */
-function normalizeAllowlistEntry(entry: string): string {
-  return entry.replace(/^\[|\]$/g, '').replace(/\.$/, '');
-}
-
 /**
  * 受限地址（链路本地/云元数据）在守卫里始终先于白名单判定，列进白名单也不会生效；
  * 与其让运维误以为已放行，不如在启动期直接拒绝。
+ *
+ * 归一化复用 `base-url-guard` 的 `normalizeHost`（含小写/zone/尾点），
+ * 与运行期白名单匹配保持同一口径。
  */
 function isValidAllowlistEntry(entry: string): boolean {
   if (isBlockedHost(entry)) return false;
-  const host = normalizeAllowlistEntry(entry);
+  const host = normalizeHost(entry);
   if (isIP(host) !== 0) return true;
   if (NUMERIC_HOST_RE.test(host)) return false;
   return ALLOWLIST_HOSTNAME_RE.test(host);

@@ -24,6 +24,9 @@ const BLOCKED_MESSAGE =
  * `allowedPrivateHosts` 是运维侧的显式白名单：内网自建网关（vLLM / LM Studio 等）
  * 用 OpenAI 兼容协议部署在 10.x/192.168.x 时，按**配置里书写的主机名或 IP 字面量**
  * 放行。它只解除「私网/回环」限制，链路本地/云元数据始终拦截。
+ *
+ * ⚠️ 白名单按主机名匹配、不含端口：放行 `vllm.lan` 等于放行该主机的所有端口
+ * （undici lookup 只拿到主机名，连接期无法按 host:port 判定）。
  */
 export interface BaseUrlPolicy {
   /** 是否允许私网、回环及其它非公网地址 */
@@ -171,6 +174,17 @@ function embeddedV4(bytes: number[]): string | null {
   ) {
     return v4At(bytes, 12);
   }
+  // RFC 8215 本地用 NAT64 64:ff9b:1::/48（同样取最后 32 位还原 IPv4）
+  if (
+    bytes[0] === 0x00 &&
+    bytes[1] === 0x64 &&
+    bytes[2] === 0xff &&
+    bytes[3] === 0x9b &&
+    bytes[4] === 0x00 &&
+    bytes[5] === 0x01
+  ) {
+    return v4At(bytes, 12);
+  }
   return null;
 }
 
@@ -226,8 +240,9 @@ export function isPrivateAddress(address: string): boolean {
  *
  * WHATWG URL 保留尾点（`http://localhost./` 的 hostname 是 `localhost.`），不归一化会
  * 让保存期校验与白名单匹配漏掉这种等价写法（连接期仍会被解析结果拦下，但已晚一步）。
+ * 启动期配置校验也复用它，避免两处推导漂移。
  */
-function normalizeHost(host: string): string {
+export function normalizeHost(host: string): string {
   return host
     .replace(/^\[|\]$/g, '')
     .split('%')[0]

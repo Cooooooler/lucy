@@ -33,6 +33,7 @@ describe('classifyBaseUrlHost', () => {
     ['IPv6 组播', 'http://[ff02::1]/'],
     ['IPv4 映射的回环（URL 归一化为十六进制）', 'http://[::ffff:127.0.0.1]/'],
     ['NAT64 内嵌私网', 'http://[64:ff9b::192.168.1.10]/'],
+    ['RFC 8215 本地 NAT64 内嵌私网', 'http://[64:ff9b:1::192.168.1.10]/'],
     ['6to4 内嵌私网', 'http://[2002:0a00:0001::]/'],
   ])('私网/回环主机：%s', (_label, url) => {
     expect(classifyBaseUrlHost(url)).toBe('private');
@@ -55,4 +56,11 @@ describe('classifyBaseUrlHost', () => {
       expect(classifyBaseUrlHost(value)).toBeNull();
     },
   );
+
+  it('重复分类同一输入时复用缓存且结果不变', () => {
+    expect(classifyBaseUrlHost('http://127.0.0.1/')).toBe('private');
+    expect(classifyBaseUrlHost('http://127.0.0.1/')).toBe('private');
+    expect(classifyBaseUrlHost('http://8.8.8.8/')).toBe('public');
+    expect(classifyBaseUrlHost('http://127.0.0.1/')).toBe('private');
+  });
 });
