@@ -89,14 +89,19 @@ export class ModelProviderService {
     );
   }
 
-  /** 白名单命中的审计：只陈述事实（命中白名单），不推断主机是否私网 */
+  /** 白名单命中的审计：结构化字段（按 owner/vendor 聚合），只陈述命中白名单、不推断私网性 */
   private logAllowlistedBaseUrl(
     baseUrl: string,
     vendor: ModelProviderVendor,
     ownerId: string,
   ): void {
-    this.logger.warn(
-      `baseUrl 命中全局出站白名单 host=${normalizeHost(new URL(baseUrl).hostname)} owner=${ownerId} vendor=${vendor}`,
+    this.logger.warnWith(
+      {
+        host: normalizeHost(new URL(baseUrl).hostname),
+        ownerId,
+        vendor,
+      },
+      'baseUrl 命中全局出站白名单',
       ModelProviderService.name,
     );
   }

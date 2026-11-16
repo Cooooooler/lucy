@@ -44,11 +44,11 @@ describe('ModelProviderService', () => {
   // 知识库重排引用的清理走窄端口（由知识库模块实现）
   const rerankReferences = { clearForModel: vi.fn() };
   const defaults = { clearForProvider: vi.fn() };
-  // 直接持有 warn 的 mock 引用再断言：`expect(logger.warn)` 会触发 unbound-method
-  const loggerWarn = vi.fn();
+  // 直接持有 warnWith 的 mock 引用再断言：`expect(logger.warnWith)` 会触发 unbound-method
+  const loggerWarnWith = vi.fn();
   const logger = {
     log: vi.fn(),
-    warn: loggerWarn,
+    warnWith: loggerWarnWith,
   } as unknown as AppLogger;
   let cipher: ApiKeyCipher;
   let service: ModelProviderService;
@@ -246,9 +246,10 @@ describe('ModelProviderService', () => {
         apiKey: 'k',
       }),
     ).resolves.toBeTruthy();
-    // 云端 vendor 命中全局白名单：落库成功后写审计（只陈述命中白名单，不推断私网性）
-    expect(loggerWarn).toHaveBeenCalledWith(
-      expect.stringContaining('host=vllm.lan owner=u1 vendor=openai'),
+    // 云端 vendor 命中全局白名单：落库成功后写结构化审计（只陈述命中白名单，不推断私网性）
+    expect(loggerWarnWith).toHaveBeenCalledWith(
+      { host: 'vllm.lan', ownerId: 'u1', vendor: 'openai' },
+      'baseUrl 命中全局出站白名单',
       ModelProviderService.name,
     );
     await expect(
@@ -261,8 +262,9 @@ describe('ModelProviderService', () => {
         apiKey: 'k',
       }),
     ).resolves.toBeTruthy();
-    expect(loggerWarn).toHaveBeenCalledWith(
-      expect.stringContaining('host=192.168.1.20 owner=u1 vendor=openai'),
+    expect(loggerWarnWith).toHaveBeenCalledWith(
+      { host: '192.168.1.20', ownerId: 'u1', vendor: 'openai' },
+      'baseUrl 命中全局出站白名单',
       ModelProviderService.name,
     );
     // 白名单之外的同网段地址仍拒绝
@@ -292,7 +294,7 @@ describe('ModelProviderService', () => {
         apiKey: 'k',
       }),
     ).rejects.toThrow('db down');
-    expect(loggerWarn).not.toHaveBeenCalled();
+    expect(loggerWarnWith).not.toHaveBeenCalled();
   });
 
   it('ollama 命中白名单不写审计日志（白名单不参与 ollama 判定）', async () => {
@@ -306,7 +308,7 @@ describe('ModelProviderService', () => {
         contextLength: 1,
       }),
     ).resolves.toBeTruthy();
-    expect(loggerWarn).not.toHaveBeenCalled();
+    expect(loggerWarnWith).not.toHaveBeenCalled();
   });
 
   it('update 拒绝把 baseUrl 改到私网/回环（云端 vendor）', async () => {

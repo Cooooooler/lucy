@@ -7,6 +7,14 @@ const agentDestroy = vi.hoisted(() => vi.fn());
 const assertHost = vi.hoisted(() => vi.fn());
 const resolveAddresses = vi.hoisted(() => vi.fn());
 const allowlistedHost = vi.hoisted(() => vi.fn());
+const normalizeHost = vi.hoisted(() =>
+  vi.fn((host: string) =>
+    host
+      .replace(/^\[|\]$/g, '')
+      .replace(/\.$/, '')
+      .toLowerCase(),
+  ),
+);
 
 vi.mock('undici', () => ({
   fetch: undiciFetch,
@@ -21,6 +29,7 @@ vi.mock('undici', () => ({
 vi.mock('./base-url-guard.js', () => ({
   assertBaseUrlHostAllowed: assertHost,
   isAllowlistedHost: allowlistedHost,
+  normalizeHost,
   resolveAllowedAddresses: resolveAddresses,
 }));
 

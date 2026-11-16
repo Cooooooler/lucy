@@ -4,6 +4,7 @@ import { BaseUrlRedirectError } from './base-url-blocked.error.js';
 import {
   assertBaseUrlHostAllowed,
   isAllowlistedHost,
+  normalizeHost,
   resolveAllowedAddresses,
   type BaseUrlPolicy,
 } from './base-url-guard.js';
@@ -115,7 +116,8 @@ export function createGuardedFetch(options: GuardedFetchOptions): GuardedFetch {
       options.onAllowlistedHost &&
       isAllowlistedHost(url, options.policy.allowedPrivateHosts)
     ) {
-      options.onAllowlistedHost(new URL(url).hostname);
+      // 与保存期/白名单匹配同一归一化形态（去 IPv6 方括号、FQDN 尾点）
+      options.onAllowlistedHost(normalizeHost(new URL(url).hostname));
     }
     const response = await undiciFetch(
       input as never,

@@ -16,8 +16,12 @@ describe('GuardedFetchService', () => {
   const privateFetch = vi.fn();
   const publicFetch = vi.fn();
   const loggerWarn = vi.fn();
+  const loggerWarnWith = vi.fn();
   const remainingGraceMs = vi.fn(() => 15000);
-  const logger = { warn: loggerWarn } as unknown as AppLogger;
+  const logger = {
+    warn: loggerWarn,
+    warnWith: loggerWarnWith,
+  } as unknown as AppLogger;
   const shutdown = { remainingGraceMs } as unknown as ShutdownService;
 
   beforeEach(() => {
@@ -92,13 +96,15 @@ describe('GuardedFetchService', () => {
     options.onAllowlistedAddress('192.168.1.20');
     options.onAllowlistedAddress('192.168.1.20');
 
-    expect(loggerWarn).toHaveBeenCalledTimes(2);
-    expect(loggerWarn).toHaveBeenCalledWith(
-      expect.stringContaining('host=vllm.lan'),
+    expect(loggerWarnWith).toHaveBeenCalledTimes(2);
+    expect(loggerWarnWith).toHaveBeenCalledWith(
+      { host: 'vllm.lan' },
+      '出站命中全局私网白名单',
       GuardedFetchService.name,
     );
-    expect(loggerWarn).toHaveBeenCalledWith(
-      expect.stringContaining('address=192.168.1.20'),
+    expect(loggerWarnWith).toHaveBeenCalledWith(
+      { address: '192.168.1.20' },
+      '出站命中全局私网白名单',
       GuardedFetchService.name,
     );
   });
