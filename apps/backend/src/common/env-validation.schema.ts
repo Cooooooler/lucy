@@ -11,15 +11,20 @@ const NUMERIC_HOST_RE = /^[0-9.]+$/;
  * 受限地址（链路本地/云元数据）在守卫里始终先于白名单判定，列进白名单也不会生效；
  * 与其让运维误以为已放行，不如在启动期直接拒绝。
  *
- * 归一化复用 `base-url-guard` 的 `normalizeAllowlistHost`（含小写/zone/尾点/IPv6 规范形式），
+ * 归一化复用 `base-url-guard` 的 `normalizeAllowlistHost`（URL 规范形式），
  * 与运行期白名单匹配保持同一口径。
  */
 function isValidAllowlistEntry(entry: string): boolean {
-  if (isBlockedHost(entry)) return false;
   const host = normalizeAllowlistHost(entry);
+  if (isBlockedHost(host)) return false;
   // 未指定地址（0.0.0.0 / ::）在 Linux 上会被路由到本机回环，放行它等于放行本机任意端口
   if (host === '0.0.0.0' || host === '::') return false;
-  if (isIP(host) !== 0) return true;
+  if (isIP(host) !== 0) {
+    // IPv6 允许任意合法写法（存 URL 规范形式）；IPv4 必须是规范点分字面量——
+    // `0x7f.1`、`192.168.1.010` 会被 URL 改写成别的地址，存下来永远匹配不上
+    const raw = entry.replace(/^\[|\]$/g, '').toLowerCase();
+    return isIP(raw) === 6 || raw === host;
+  }
   if (NUMERIC_HOST_RE.test(host)) return false;
   return ALLOWLIST_HOSTNAME_RE.test(host);
 }

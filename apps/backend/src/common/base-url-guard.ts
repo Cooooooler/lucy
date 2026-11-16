@@ -258,20 +258,22 @@ export function normalizeHost(host: string): string {
 /**
  * 白名单条目归一化：与运行期 `URL.hostname` 同形。
  *
- * WHATWG 会把 IPv6 改写成规范形式（`0:0:0:0:0:0:0:1` → `::1`、
- * `[::ffff:192.168.1.20]` → `::ffff:c0a8:114`）：不做这一步，启动期校验通过、
- * 运行期白名单却永不匹配。IPv4 与非 IP 主机名走普通归一化。
+ * WHATWG 不只改写 IPv6（`0:0:0:0:0:0:0:1` → `::1`、
+ * `[::ffff:192.168.1.20]` → `::ffff:c0a8:114`），也会把数字点数写法改写成点分 IPv4
+ * （`0x7f.1` → `127.0.0.1`、`192.168.1.010` → `192.168.1.8`）。不做这一步，
+ * 启动期校验通过、运行期白名单却永不匹配。
  */
 export function normalizeAllowlistHost(entry: string): string {
-  const bare = entry.replace(/^\[|\]$/g, '');
-  if (isIP(bare) === 6) {
-    try {
-      return normalizeHost(new URL(`http://[${bare}]/`).hostname);
-    } catch {
-      // 非法 IPv6 交回普通归一化，由启动期格式校验报错
-    }
+  const text = entry.trim();
+  if (!text) return '';
+  const bracketed =
+    text.includes(':') && !text.startsWith('[') ? `[${text}]` : text;
+  try {
+    return normalizeHost(new URL(`http://${bracketed}/`).hostname);
+  } catch {
+    // 非法条目交回普通归一化，由启动期格式校验报错
+    return normalizeHost(text);
   }
-  return normalizeHost(entry);
 }
 
 /**
