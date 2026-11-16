@@ -71,7 +71,9 @@ jobs:
     # fork 贡献者身份是 CONTRIBUTOR，不在名单内。）
     if: >-
       github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.sender.type != 'Bot' && startsWith(github.event.comment.body, '/skill-review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
-    runs-on: ubuntu-latest
+    # runner 固定到 ubuntu-24.04：ubuntu-latest 自 2026-10-19 起迁移到 Ubuntu 26
+    # （actions/runner-images#14748），锁定镜像避免行为随平台静默变化
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       # Command Code CLI 自身的鉴权。headless 下 CLI 必须先登录（实测：缺失时报
