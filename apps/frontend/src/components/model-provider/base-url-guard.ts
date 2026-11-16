@@ -26,10 +26,15 @@ export const PRIVATE_BASE_URL_MESSAGE =
 /** 模块级常量：表单每次按键都会走到这里，正则字面量不应在热路径里反复分配 */
 const HOST_BRACKETS_RE = /^\[|\]$/g;
 const IPV4_OCTET_RE = /^\d{1,3}$/;
+const FQDN_TRAILING_DOT_RE = /\.$/;
 
-/** 主机名/字面量归一化：去方括号与 zone、小写 */
+/** 主机名/字面量归一化：去方括号与 zone、去 FQDN 尾点、小写 */
 function normalizeHost(host: string): string {
-  return host.replace(HOST_BRACKETS_RE, '').split('%')[0].toLowerCase();
+  return host
+    .replace(HOST_BRACKETS_RE, '')
+    .split('%')[0]
+    .replace(FQDN_TRAILING_DOT_RE, '')
+    .toLowerCase();
 }
 
 const isBlockedV4 = (host: string, a: number, b: number): boolean =>

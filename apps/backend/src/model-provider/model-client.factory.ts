@@ -6,7 +6,7 @@ import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
-  OUTBOUND_FETCH,
+  OUTBOUND_FETCH_ALLOW_PRIVATE,
   OUTBOUND_FETCH_PUBLIC_ONLY,
 } from '../common/guarded-fetch.service.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
@@ -86,7 +86,7 @@ export class ModelClientFactory {
   constructor(
     private readonly cipher: ApiKeyCipher,
     private readonly config: ConfigService,
-    @Inject(OUTBOUND_FETCH) privateAllowedFetch: typeof fetch,
+    @Inject(OUTBOUND_FETCH_ALLOW_PRIVATE) privateAllowedFetch: typeof fetch,
     @Inject(OUTBOUND_FETCH_PUBLIC_ONLY) publicOnlyFetch: typeof fetch,
   ) {
     this.privateAllowedFetch = privateAllowedFetch;

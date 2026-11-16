@@ -4,6 +4,13 @@ import { isBlockedHost } from './base-url-guard.js';
 
 /** 白名单条目：主机名 / IPv4 / IPv6（IPv6 可带方括号），不含协议、端口与路径 */
 const ALLOWLIST_HOSTNAME_RE = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
+/** 纯数字/点号：URL 归一化会改变形态（192.168.1.010 → 192.168.1.8），必须自身是合法 IP */
+const NUMERIC_HOST_RE = /^[0-9.]+$/;
+
+/** 与运行时 `normalizeHost` 同口径：去方括号、去 FQDN 尾点 */
+function normalizeAllowlistEntry(entry: string): string {
+  return entry.replace(/^\[|\]$/g, '').replace(/\.$/, '');
+}
 
 /**
  * 受限地址（链路本地/云元数据）在守卫里始终先于白名单判定，列进白名单也不会生效；
@@ -11,8 +18,10 @@ const ALLOWLIST_HOSTNAME_RE = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
  */
 function isValidAllowlistEntry(entry: string): boolean {
   if (isBlockedHost(entry)) return false;
-  const host = entry.replace(/^\[|\]$/g, '');
-  return isIP(host) !== 0 || ALLOWLIST_HOSTNAME_RE.test(entry);
+  const host = normalizeAllowlistEntry(entry);
+  if (isIP(host) !== 0) return true;
+  if (NUMERIC_HOST_RE.test(host)) return false;
+  return ALLOWLIST_HOSTNAME_RE.test(host);
 }
 
 export const envValidationSchema = Joi.object({
@@ -147,7 +156,13 @@ export const envValidationSchema = Joi.object({
         .split(',')
         .map((entry) => entry.trim())
         .filter((entry) => entry && !isValidAllowlistEntry(entry));
-      return invalid.length === 0 ? value : helpers.error('any.invalid');
+      return invalid.length === 0
+        ? value
+        : helpers.error('any.invalid', { value: invalid[0] });
+    })
+    .messages({
+      'any.invalid':
+        '{{#value}} 不是可生效的主机名/IP 字面量：不接受协议、端口、路径，不能是链路本地/云元数据地址；纯数字点分写法必须是合法 IP',
     })
     .optional(),
 });

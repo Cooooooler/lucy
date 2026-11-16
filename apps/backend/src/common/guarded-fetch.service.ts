@@ -14,8 +14,13 @@ function positiveInt(value: unknown): number | undefined {
 const MAX_CLOSE_TIMEOUT_MS = 3000;
 const FORCE_EXIT_RESERVE_MS = 1000;
 
-/** 允许私网/回环的出站 fetch：Ollama（本地/LAN）与 tokenizer 使用 */
-export const OUTBOUND_FETCH = Symbol('OUTBOUND_FETCH');
+/**
+ * 允许私网/回环的出站 fetch：Ollama（本地/LAN）与 tokenizer 使用。
+ * 名字带显式语义，避免新消费方默认继承最宽松的策略（云端 vendor 必须用 PUBLIC_ONLY）。
+ */
+export const OUTBOUND_FETCH_ALLOW_PRIVATE = Symbol(
+  'OUTBOUND_FETCH_ALLOW_PRIVATE',
+);
 /**
  * 只允许公网的出站 fetch：云端 vendor（OpenAI/Anthropic）使用，
  * `OUTBOUND_ALLOW_PRIVATE_HOSTS` 可显式放行内网自建网关。

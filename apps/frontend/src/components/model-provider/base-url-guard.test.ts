@@ -16,6 +16,7 @@ describe('classifyBaseUrlHost', () => {
 
   it.each([
     ['localhost', 'http://localhost:11434'],
+    ['localhost（FQDN 尾点）', 'http://localhost./'],
     ['*.localhost', 'http://a.localhost:11434'],
     ['回环 IPv4', 'http://127.0.0.1:8000/v1'],
     ['10/8', 'http://10.0.0.5/v1'],
@@ -43,6 +44,7 @@ describe('classifyBaseUrlHost', () => {
     ['IPv6 链路本地', 'http://[fe80::1]/'],
     ['IPv4 映射的元数据', 'http://[::ffff:169.254.169.254]/'],
     ['GCP 元数据主机名', 'http://metadata.google.internal/computeMetadata/v1/'],
+    ['GCP 元数据主机名（尾点）', 'http://metadata.google.internal./'],
   ])('受限主机：%s', (_label, url) => {
     expect(classifyBaseUrlHost(url)).toBe('blocked');
   });

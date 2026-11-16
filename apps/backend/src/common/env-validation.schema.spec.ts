@@ -70,7 +70,8 @@ describe('envValidationSchema', () => {
     ).toBeUndefined();
     expect(
       validate({
-        OUTBOUND_ALLOW_PRIVATE_HOSTS: 'vllm.lan, 192.168.1.20, [::1]',
+        OUTBOUND_ALLOW_PRIVATE_HOSTS:
+          'vllm.lan, 192.168.1.20, [::1], vllm2.lan.',
       }).error,
     ).toBeUndefined();
     for (const invalid of [
@@ -78,6 +79,9 @@ describe('envValidationSchema', () => {
       'vllm.lan:8000',
       '192.168.1.0/24',
       'vllm.lan, bad host',
+      // 纯数字点分但不是合法 IP：URL 归一化后形态会变，运行期匹配不上
+      '192.168.1.010',
+      '1.2.3',
       // 链路本地/云元数据始终被守卫拦截，写进白名单也不会生效：启动期直接拒绝
       'fe80::1',
       '169.254.169.254',
@@ -87,6 +91,12 @@ describe('envValidationSchema', () => {
         validate({ OUTBOUND_ALLOW_PRIVATE_HOSTS: invalid }).error,
       ).toBeDefined();
     }
+
+    // 错误信息带上首个非法条目，避免「配了却不生效」无从排查
+    const { error } = validate({
+      OUTBOUND_ALLOW_PRIVATE_HOSTS: 'vllm.lan:8000',
+    });
+    expect(error?.message).toContain('vllm.lan:8000');
   });
 
   it('停机宽限期须为正；DB 上界允许 0（不限）但拒绝负值', () => {

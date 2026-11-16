@@ -14,7 +14,7 @@ import { parsePrivateHostAllowlist } from './base-url-guard.js';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
 import {
   GuardedFetchService,
-  OUTBOUND_FETCH,
+  OUTBOUND_FETCH_ALLOW_PRIVATE,
   OUTBOUND_FETCH_PUBLIC_ONLY,
   OUTBOUND_PRIVATE_HOST_ALLOWLIST,
 } from './guarded-fetch.service.js';
@@ -60,7 +60,7 @@ import { createValidationPipe } from './validation-pipe.js';
     },
     // 消费方只依赖 fetch 函数；连接池生命周期仍由 GuardedFetchService 统一关闭
     {
-      provide: OUTBOUND_FETCH,
+      provide: OUTBOUND_FETCH_ALLOW_PRIVATE,
       inject: [GuardedFetchService],
       useFactory: (service: GuardedFetchService): typeof fetch => service.fetch,
     },
@@ -95,7 +95,7 @@ import { createValidationPipe } from './validation-pipe.js';
     AppLogger,
     ShutdownService,
     GuardedFetchService,
-    OUTBOUND_FETCH,
+    OUTBOUND_FETCH_ALLOW_PRIVATE,
     OUTBOUND_FETCH_PUBLIC_ONLY,
     OUTBOUND_PRIVATE_HOST_ALLOWLIST,
   ],

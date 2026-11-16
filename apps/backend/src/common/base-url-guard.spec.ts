@@ -37,9 +37,11 @@ describe('assertBaseUrlHostAllowed（放行私网的策略）', () => {
 
   it.each([
     ['IPv4 链路本地/元数据', 'http://169.254.169.254/latest/meta-data'],
+    ['IPv4 链路本地/元数据（FQDN 尾点）', 'http://169.254.169.254./'],
     ['阿里云 ECS 元数据', 'http://100.100.100.200/latest/meta-data'],
     ['IPv4 十进制写法（URL 归一化后仍拦截）', 'http://2852039166/'],
     ['GCP 元数据主机名', 'http://metadata.google.internal/computeMetadata/v1/'],
+    ['GCP 元数据主机名（FQDN 尾点）', 'http://metadata.google.internal./'],
     ['IPv6 链路本地', 'http://[fe80::1]/'],
     ['AWS 元数据 IPv6', 'http://[fd00:ec2::254]/'],
     ['IPv4 映射的链路本地', 'http://[::ffff:169.254.169.254]/'],
@@ -70,6 +72,7 @@ describe('assertBaseUrlHostAllowed（仅公网策略：云端 vendor）', () => 
     ['回环 IPv4', 'http://127.0.0.1:11434/v1'],
     // RFC 6761 保留名：保存期不解析 DNS 也要拦住
     ['localhost 主机名', 'http://localhost:11434/v1'],
+    ['localhost（FQDN 尾点）', 'http://localhost./'],
     ['*.localhost 主机名', 'http://ollama.localhost:11434/v1'],
     ['10/8 私网', 'http://10.0.0.5/v1'],
     ['172.16/12 私网', 'http://172.20.1.1/v1'],
@@ -95,6 +98,10 @@ describe('assertBaseUrlHostAllowed（仅公网策略：云端 vendor）', () => 
     };
     expect(() =>
       assertBaseUrlHostAllowed('http://vllm.lan:8000/v1', policy),
+    ).not.toThrow();
+    // FQDN 尾点按同一归一化与白名单匹配
+    expect(() =>
+      assertBaseUrlHostAllowed('http://vllm.lan.:8000/v1', policy),
     ).not.toThrow();
     // 显式列出的 localhost 也放行（运维自担）
     expect(() =>

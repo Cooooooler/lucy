@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppLogger } from '../common/app-logger.service.js';
-import { OUTBOUND_FETCH } from '../common/guarded-fetch.service.js';
+import { OUTBOUND_FETCH_ALLOW_PRIVATE } from '../common/guarded-fetch.service.js';
 import { blockedErrorMessage } from '../common/provider-error.js';
 
 @Injectable()
@@ -14,7 +14,8 @@ export class TokenizerService {
   constructor(
     private readonly config: ConfigService,
     // OLLAMA_BASE_URL 指向本地部署：用允许私网/回环的出站池，与对话侧 ollama 同源
-    @Inject(OUTBOUND_FETCH) private readonly outboundFetch: typeof fetch,
+    @Inject(OUTBOUND_FETCH_ALLOW_PRIVATE)
+    private readonly outboundFetch: typeof fetch,
     private readonly logger: AppLogger,
   ) {
     this.maxCacheEntries = this.config.get<number>(

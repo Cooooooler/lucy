@@ -221,11 +221,17 @@ export function isPrivateAddress(address: string): boolean {
   return false;
 }
 
-/** 主机名/字面量归一化：去方括号与 zone、小写，便于与白名单比较 */
+/**
+ * 主机名/字面量归一化：去方括号与 zone、去 FQDN 尾点、小写。
+ *
+ * WHATWG URL 保留尾点（`http://localhost./` 的 hostname 是 `localhost.`），不归一化会
+ * 让保存期校验与白名单匹配漏掉这种等价写法（连接期仍会被解析结果拦下，但已晚一步）。
+ */
 function normalizeHost(host: string): string {
   return host
     .replace(/^\[|\]$/g, '')
     .split('%')[0]
+    .replace(/\.$/, '')
     .toLowerCase();
 }
 
@@ -254,11 +260,9 @@ function throwPrivateAddressBlocked(): never {
 /** 主机字面量（域名或 IP）是否命中受限地址；不做 DNS 解析（导出供启动期配置校验复用） */
 export function isBlockedHost(host: string): boolean {
   // 域名不做前缀判断：`169.254.cdn.example.com` 是合法域名，不能因前缀被误判；
-  // 只有 isIP 认可的 IPv4/IPv6 字面量才进入地址判定
-  return (
-    BLOCKED_HOSTNAMES.has(host.toLowerCase()) ||
-    isBlockedAddress(host.replace(/^\[|\]$/g, ''))
-  );
+  // 只有 isIP 认可的 IPv4/IPv6 字面量才进入地址判定（先归一化，尾点/IPv6 方括号都去掉）
+  const bare = normalizeHost(host);
+  return BLOCKED_HOSTNAMES.has(bare) || isBlockedAddress(bare);
 }
 
 /** 私网/回环是否被当前策略放行（策略整体放行或显式白名单） */
