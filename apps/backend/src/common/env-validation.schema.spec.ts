@@ -77,6 +77,10 @@ describe('envValidationSchema', () => {
     for (const invalid of [
       'http://vllm.lan',
       'vllm.lan:8000',
+      // 路径/查询/userinfo 不是主机名的一部分，不能被 URL 归一化静默截断
+      'vllm.lan/v1',
+      'vllm.lan?x=1',
+      'vllm.lan@evil.com',
       '192.168.1.0/24',
       'vllm.lan, bad host',
       // 纯数字点分但不是合法 IP：URL 归一化后形态会变，运行期匹配不上

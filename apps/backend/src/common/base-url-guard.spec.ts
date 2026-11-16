@@ -110,6 +110,19 @@ describe('assertBaseUrlHostAllowed（仅公网策略：云端 vendor）', () => 
         allowedPrivateHosts: new Set(['localhost']),
       }),
     ).not.toThrow();
+    // 回环地址等价：白名单写 127.0.0.1 时，用 localhost 的配置保存期也要放行
+    expect(() =>
+      assertBaseUrlHostAllowed('http://localhost:8000/v1', {
+        allowPrivateHosts: false,
+        allowedPrivateHosts: new Set(['127.0.0.1']),
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertBaseUrlHostAllowed('http://app.localhost/v1', {
+        allowPrivateHosts: false,
+        allowedPrivateHosts: new Set(['::1']),
+      }),
+    ).not.toThrow();
     expect(() =>
       assertBaseUrlHostAllowed('http://192.168.1.10:8000/v1', policy),
     ).not.toThrow();

@@ -328,11 +328,23 @@ export function isBlockedHost(host: string): boolean {
   return BLOCKED_HOSTNAMES.has(bare) || isBlockedAddress(bare);
 }
 
-/** 私网/回环是否被当前策略放行（策略整体放行或显式白名单） */
+/** 保留回环地址：白名单里任一形式都等价放行 `localhost` / `*.localhost` */
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '::1'] as const;
+
+/**
+ * 私网/回环是否被当前策略放行（策略整体放行或显式白名单）。
+ *
+ * `localhost` / `*.localhost` 与保留回环地址等价：白名单写了 `127.0.0.1` 时，
+ * 保存期用 `localhost` 的配置也要放行，否则会出现「保存拒绝、连接放行」的矛盾。
+ */
 function privateHostAllowed(host: string, policy: BaseUrlPolicy): boolean {
+  if (policy.allowPrivateHosts) return true;
+  const allowed = policy.allowedPrivateHosts;
+  if (!allowed || allowed.size === 0) return false;
+  const bare = normalizeHost(host);
+  if (allowed.has(bare)) return true;
   return (
-    policy.allowPrivateHosts ||
-    (policy.allowedPrivateHosts?.has(normalizeHost(host)) ?? false)
+    isLoopbackHostname(bare) && LOOPBACK_HOSTS.some((item) => allowed.has(item))
   );
 }
 

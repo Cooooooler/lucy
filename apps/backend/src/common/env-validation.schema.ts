@@ -15,15 +15,23 @@ const NUMERIC_HOST_RE = /^[0-9.]+$/;
  * 与运行期白名单匹配保持同一口径。
  */
 function isValidAllowlistEntry(entry: string): boolean {
-  const host = normalizeAllowlistHost(entry);
+  const raw = entry.trim();
+  if (!raw) return false;
+  const bare = raw.replace(/^\[|\]$/g, '');
+  const isIpv6 = isIP(bare) === 6;
+  // 主机名不含路径/查询/userinfo；冒号只允许出现在合法 IPv6 字面量里。
+  // 不做这层锚定校验，URL 归一化会把 vllm.lan/v1、vllm.lan@evil.com 静默截成主机名。
+  if (/[/?#@]/.test(raw)) return false;
+  if (raw.includes(':') && !isIpv6) return false;
+
+  const host = normalizeAllowlistHost(raw);
   if (isBlockedHost(host)) return false;
   // 未指定地址（0.0.0.0 / ::）在 Linux 上会被路由到本机回环，放行它等于放行本机任意端口
   if (host === '0.0.0.0' || host === '::') return false;
   if (isIP(host) !== 0) {
     // IPv6 允许任意合法写法（存 URL 规范形式）；IPv4 必须是规范点分字面量——
     // `0x7f.1`、`192.168.1.010` 会被 URL 改写成别的地址，存下来永远匹配不上
-    const raw = entry.replace(/^\[|\]$/g, '').toLowerCase();
-    return isIP(raw) === 6 || raw === host;
+    return isIpv6 || bare.toLowerCase() === host;
   }
   if (NUMERIC_HOST_RE.test(host)) return false;
   return ALLOWLIST_HOSTNAME_RE.test(host);
