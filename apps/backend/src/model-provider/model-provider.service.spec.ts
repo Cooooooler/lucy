@@ -1,5 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import type { ConfigService } from '@nestjs/config';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -47,7 +47,9 @@ describe('ModelProviderService', () => {
   let cipher: ApiKeyCipher;
   let service: ModelProviderService;
 
-  const buildService = async (): Promise<ModelProviderService> => {
+  const buildService = async (
+    env: Record<string, unknown> = {},
+  ): Promise<ModelProviderService> => {
     const moduleRef = await Test.createTestingModule({
       // KeysetPaginator 走与生产一致的模块路径（验证 PaginationModule 真的导出它）
       imports: [PaginationModule],
@@ -58,6 +60,7 @@ describe('ModelProviderService', () => {
         { provide: ApiKeyCipher, useValue: cipher },
         { provide: ModelProviderDefaultsService, useValue: defaults },
         { provide: RERANK_REFERENCE_PORT, useValue: rerankReferences },
+        { provide: ConfigService, useValue: new ConfigService(env) },
       ],
     }).compile();
     return moduleRef.get(ModelProviderService);
@@ -182,7 +185,112 @@ describe('ModelProviderService', () => {
     expect(tx.save).not.toHaveBeenCalled();
   });
 
-  it('update 换到需要 Key 的供应商却无 Key → 400', async () => {
+  it('create 云端 vendor 拒绝私网/回环 baseUrl（SSRF：内网管理接口）', async () => {
+    for (const baseUrl of [
+      'http://127.0.0.1:8000/v1',
+      'http://localhost:8000/v1',
+      'http://10.0.0.5/v1',
+      'http://192.168.1.10:8080/v1',
+      'http://[::1]:8000/v1',
+    ]) {
+      await expect(
+        service.create('u1', {
+          name: 'cloud',
+          type: ModelProviderType.Llm,
+          vendor: ModelProviderVendor.OpenAI,
+          baseUrl,
+          contextLength: 1,
+          apiKey: 'k',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    }
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('create ollama 仍可连 localhost / LAN', async () => {
+    for (const baseUrl of [
+      'http://localhost:11434',
+      'http://127.0.0.1:11434',
+      'http://192.168.1.10:11434',
+    ]) {
+      await expect(
+        service.create('u1', {
+          name: 'qwen',
+          type: ModelProviderType.Llm,
+          vendor: ModelProviderVendor.Ollama,
+          baseUrl,
+          contextLength: 1,
+        }),
+      ).resolves.toBeTruthy();
+    }
+  });
+
+  it('create 云端 vendor 经 OUTBOUND_ALLOW_PRIVATE_HOSTS 白名单放行内网网关', async () => {
+    const allowlisted = await buildService({
+      OUTBOUND_ALLOW_PRIVATE_HOSTS: 'vllm.lan,192.168.1.20',
+    });
+    await expect(
+      allowlisted.create('u1', {
+        name: 'vllm',
+        type: ModelProviderType.Llm,
+        vendor: ModelProviderVendor.OpenAI,
+        baseUrl: 'http://vllm.lan:8000/v1',
+        contextLength: 1,
+        apiKey: 'k',
+      }),
+    ).resolves.toBeTruthy();
+    await expect(
+      allowlisted.create('u1', {
+        name: 'vllm-ip',
+        type: ModelProviderType.Llm,
+        vendor: ModelProviderVendor.OpenAI,
+        baseUrl: 'http://192.168.1.20:8000/v1',
+        contextLength: 1,
+        apiKey: 'k',
+      }),
+    ).resolves.toBeTruthy();
+    // 白名单之外的同网段地址仍拒绝
+    await expect(
+      allowlisted.create('u1', {
+        name: 'other',
+        type: ModelProviderType.Llm,
+        vendor: ModelProviderVendor.OpenAI,
+        baseUrl: 'http://192.168.1.21:8000/v1',
+        contextLength: 1,
+        apiKey: 'k',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('update 拒绝把 baseUrl 改到私网/回环（云端 vendor）', async () => {
+    txProviders.findOne.mockResolvedValue(makeModelProvider());
+    await expect(
+      service.update('u1', MODEL_ID, { baseUrl: 'http://127.0.0.1:8000/v1' }),
+    ).rejects.toThrow(BadRequestException);
+    expect(tx.save).not.toHaveBeenCalled();
+  });
+
+  it('update 只改 vendor（不传 baseUrl）时按新 vendor 复检私网地址', async () => {
+    // 存量 ollama 配置指向本地，切到云端 vendor 必须连 baseUrl 一起改
+    txProviders.findOne.mockResolvedValue(
+      makeModelProvider({
+        vendor: ModelProviderVendor.Ollama,
+        baseUrl: 'http://127.0.0.1:11434',
+        apiKeyEncrypted: '',
+        apiKeyLast4: '',
+      }),
+    );
+
+    await expect(
+      service.update('u1', MODEL_ID, {
+        vendor: ModelProviderVendor.OpenAI,
+        apiKey: 'sk-new',
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(tx.save).not.toHaveBeenCalled();
+  });
+
+  it('update 换成需要 Key 的供应商却无 Key → 400', async () => {
     const existing = makeModelProvider({
       vendor: ModelProviderVendor.Ollama,
       apiKeyEncrypted: '',

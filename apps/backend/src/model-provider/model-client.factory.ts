@@ -5,8 +5,12 @@ import { ChatOllama, OllamaEmbeddings } from '@langchain/ollama';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { OUTBOUND_FETCH } from '../common/guarded-fetch.service.js';
+import {
+  OUTBOUND_FETCH,
+  OUTBOUND_FETCH_PUBLIC_ONLY,
+} from '../common/guarded-fetch.service.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
+import { vendorAllowsPrivateHosts } from './base-url-policy.js';
 import {
   ModelProviderProtocol,
   ModelProviderType,
@@ -73,16 +77,27 @@ export class ModelClientFactory {
   // 不会命中旧凭证/旧地址；provider 删除后条目由容量淘汰兜底。
   private readonly chatCache = new Map<string, BaseChatModel>();
   private readonly maxChatCacheEntries = 50;
-  // 出站请求统一走带 SSRF 校验的 fetch（连接期按解析后 IP 校验 + 不跟随重定向）；
+  // 出站请求统一走带 SSRF 校验的 fetch：云端 vendor 只许公网，Ollama 放行私网/回环。
+  // 两个连接池的策略在 undici lookup 里固化，这里按 vendor 选择对应函数；
   // 连接池生命周期由 GuardedFetchService 管理，这里只依赖函数本身
-  private readonly guardedFetch: typeof fetch;
+  private readonly privateAllowedFetch: typeof fetch;
+  private readonly publicOnlyFetch: typeof fetch;
 
   constructor(
     private readonly cipher: ApiKeyCipher,
     private readonly config: ConfigService,
-    @Inject(OUTBOUND_FETCH) guardedFetch: typeof fetch,
+    @Inject(OUTBOUND_FETCH) privateAllowedFetch: typeof fetch,
+    @Inject(OUTBOUND_FETCH_PUBLIC_ONLY) publicOnlyFetch: typeof fetch,
   ) {
-    this.guardedFetch = guardedFetch;
+    this.privateAllowedFetch = privateAllowedFetch;
+    this.publicOnlyFetch = publicOnlyFetch;
+  }
+
+  /** 与保存校验同源（`vendorAllowsPrivateHosts`）：vendor 决定用哪个守卫池 */
+  private guardedFetchFor(vendor: ModelProviderVendor): typeof fetch {
+    return vendorAllowsPrivateHosts(vendor)
+      ? this.privateAllowedFetch
+      : this.publicOnlyFetch;
   }
 
   /** 构造对话模型客户端（LLM 用；Moderation 走 buildOpenAiChat） */
@@ -134,7 +149,7 @@ export class ModelClientFactory {
           apiKey: this.requireApiKey(provider),
           anthropicApiUrl: provider.baseUrl,
           maxRetries: 0,
-          clientOptions: { fetch: this.guardedFetch },
+          clientOptions: { fetch: this.guardedFetchFor(provider.vendor) },
         });
       case ModelProviderVendor.Ollama:
         return new ChatOllama({
@@ -144,7 +159,7 @@ export class ModelClientFactory {
           // think 是实例级参数；numPredict 默认取 AI_OUTPUT_MAX_TOKENS，调用点可按需覆盖
           think: options.think,
           numPredict: options.numPredict ?? resolveOutputMaxTokens(this.config),
-          fetch: this.guardedFetch,
+          fetch: this.guardedFetchFor(provider.vendor),
         });
       default:
         return this.buildOpenAiChat(provider);
@@ -158,7 +173,7 @@ export class ModelClientFactory {
       apiKey: this.requireApiKey(provider),
       configuration: {
         baseURL: provider.baseUrl,
-        fetch: this.guardedFetch,
+        fetch: this.guardedFetchFor(provider.vendor),
       },
       useResponsesApi: provider.protocol === ModelProviderProtocol.Responses,
       maxRetries: 0,
@@ -173,7 +188,7 @@ export class ModelClientFactory {
         baseUrl: provider.baseUrl,
         headers: this.ollamaHeaders(provider),
         maxRetries: 0,
-        fetch: this.guardedFetch,
+        fetch: this.guardedFetchFor(provider.vendor),
       });
     }
     return new OpenAIEmbeddings({
@@ -181,7 +196,7 @@ export class ModelClientFactory {
       apiKey: this.requireApiKey(provider),
       configuration: {
         baseURL: provider.baseUrl,
-        fetch: this.guardedFetch,
+        fetch: this.guardedFetchFor(provider.vendor),
       },
       // Embeddings 走基类的 AsyncCaller，默认重试 6 次（指数退避）；OpenAI client 自带的
       // maxRetries 管不到这一层，不显式归零则连接测试超时返回后仍会在后台退避重试

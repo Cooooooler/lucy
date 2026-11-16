@@ -22,9 +22,15 @@ const config = new ConfigService({
   AI_OUTPUT_MAX_TOKENS: 32768,
 });
 const cipher = new ApiKeyCipher(config);
-// 可识别的守卫 fetch 标记：逐个客户端断言「确实接到了守卫」，而不是只看 instanceOf
-const markerFetch = vi.fn() as unknown as typeof fetch;
-const factory = new ModelClientFactory(cipher, config, markerFetch);
+// 可识别的守卫 fetch 标记：逐个客户端断言「接到了与 vendor 匹配的守卫池」，而不是只看 instanceOf
+const privateAllowedFetch = vi.fn() as unknown as typeof fetch;
+const publicOnlyFetch = vi.fn() as unknown as typeof fetch;
+const factory = new ModelClientFactory(
+  cipher,
+  config,
+  privateAllowedFetch,
+  publicOnlyFetch,
+);
 
 describe('ModelClientFactory', () => {
   const provider = makeModelProvider({
@@ -81,36 +87,36 @@ describe('ModelClientFactory', () => {
     expect(factory.buildEmbeddings(provider)).toBeInstanceOf(OpenAIEmbeddings);
   });
 
-  it('所有客户端都注入守卫 fetch（SSRF 不变量）', () => {
+  it('按 vendor 注入守卫 fetch：云端用仅公网池，Ollama 用私网放行池', () => {
     const openaiChat = factory.buildOpenAiChat(provider) as unknown as {
       clientConfig?: { fetch?: unknown };
     };
-    expect(openaiChat.clientConfig?.fetch).toBe(markerFetch);
+    expect(openaiChat.clientConfig?.fetch).toBe(publicOnlyFetch);
 
     const anthropic = factory.buildChat({
       ...provider,
       vendor: ModelProviderVendor.Anthropic,
     }) as unknown as { clientOptions?: { fetch?: unknown } };
-    expect(anthropic.clientOptions?.fetch).toBe(markerFetch);
+    expect(anthropic.clientOptions?.fetch).toBe(publicOnlyFetch);
 
     const ollama = factory.buildChat({
       ...provider,
       vendor: ModelProviderVendor.Ollama,
       apiKeyEncrypted: '',
     }) as unknown as { client?: { fetch?: unknown } };
-    expect(ollama.client?.fetch).toBe(markerFetch);
+    expect(ollama.client?.fetch).toBe(privateAllowedFetch);
 
     const openaiEmbeddings = factory.buildEmbeddings(provider) as unknown as {
       clientConfig?: { fetch?: unknown };
     };
-    expect(openaiEmbeddings.clientConfig?.fetch).toBe(markerFetch);
+    expect(openaiEmbeddings.clientConfig?.fetch).toBe(publicOnlyFetch);
 
     const ollamaEmbeddings = factory.buildEmbeddings({
       ...provider,
       vendor: ModelProviderVendor.Ollama,
       apiKeyEncrypted: '',
     }) as unknown as { client?: { fetch?: unknown } };
-    expect(ollamaEmbeddings.client?.fetch).toBe(markerFetch);
+    expect(ollamaEmbeddings.client?.fetch).toBe(privateAllowedFetch);
   });
 
   it('Ollama buildEmbeddings → OllamaEmbeddings', () => {
@@ -197,7 +203,8 @@ describe('ModelClientFactory', () => {
     const badFactory = new ModelClientFactory(
       new ApiKeyCipher(badConfig),
       badConfig,
-      markerFetch,
+      privateAllowedFetch,
+      publicOnlyFetch,
     );
     const client = badFactory.buildChat({
       ...provider,

@@ -13,6 +13,7 @@ import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
 import {
   GuardedFetchService,
   OUTBOUND_FETCH,
+  OUTBOUND_FETCH_PUBLIC_ONLY,
 } from './guarded-fetch.service.js';
 import { ApiResponseInterceptor } from './interceptors/api-response.interceptor.js';
 import { TimeoutInterceptor } from './interceptors/timeout.interceptor.js';
@@ -53,6 +54,13 @@ import { createValidationPipe } from './validation-pipe.js';
       inject: [GuardedFetchService],
       useFactory: (service: GuardedFetchService): typeof fetch => service.fetch,
     },
+    // 云端 vendor 用：只许公网（白名单见 OUTBOUND_ALLOW_PRIVATE_HOSTS）
+    {
+      provide: OUTBOUND_FETCH_PUBLIC_ONLY,
+      inject: [GuardedFetchService],
+      useFactory: (service: GuardedFetchService): typeof fetch =>
+        service.publicOnlyFetch,
+    },
     { provide: APP_INTERCEPTOR, useClass: ApiResponseInterceptor },
     // 序列化白名单全局生效（与 ApiResponseInterceptor 一致），而非按控制器逐个挂：
     // 实体上的 `@Exclude()` 只有经过它才生效，挂在单个控制器上时，同一实体从别的
@@ -73,7 +81,13 @@ import { createValidationPipe } from './validation-pipe.js';
       useValue: createValidationPipe(),
     },
   ],
-  exports: [AppLogger, ShutdownService, GuardedFetchService, OUTBOUND_FETCH],
+  exports: [
+    AppLogger,
+    ShutdownService,
+    GuardedFetchService,
+    OUTBOUND_FETCH,
+    OUTBOUND_FETCH_PUBLIC_ONLY,
+  ],
 })
 export class CommonModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

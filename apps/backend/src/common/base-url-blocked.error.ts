@@ -19,6 +19,21 @@ export class BaseUrlBlockedError extends BaseUrlGuardError {
   }
 }
 
+/**
+ * 云端供应商把 Base URL 指向私网/回环地址。
+ *
+ * 继承 `BaseUrlBlockedError`：两者同属「地址策略拒绝」，连接测试/对话链路的文案提取
+ * （`blockedErrorMessage`）与 `instanceof` 兜底无需新增分支；消息分开只为让用户
+ * 知道该改地址，而不是去反复怀疑供应商故障或 API Key。
+ */
+export class BaseUrlPrivateAddressError extends BaseUrlBlockedError {
+  constructor() {
+    super(
+      'API Base URL 指向私网/回环地址；云端供应商（OpenAI/Anthropic）不允许，请改用公网地址或选择 ollama',
+    );
+  }
+}
+
 /** 目标返回重定向；为防 302 指向元数据端点而拒绝跟随（与「地址受限」分开归因） */
 export class BaseUrlRedirectError extends BaseUrlGuardError {
   constructor() {

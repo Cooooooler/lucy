@@ -121,4 +121,7 @@ export const envValidationSchema = Joi.object({
     .positive()
     .max(2_147_483_647)
     .optional(),
+  // 云端供应商（openai/anthropic）默认拒绝私网/回环 baseUrl；此处逗号分隔的主机名或
+  // IP 字面量（不含协议/端口）显式放行内网自建网关。Ollama 始终放行，无需列出
+  OUTBOUND_ALLOW_PRIVATE_HOSTS: Joi.string().allow('').optional(),
 });

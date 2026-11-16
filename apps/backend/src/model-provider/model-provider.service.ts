@@ -1,9 +1,13 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { EntityManager, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { BaseUrlGuardError } from '../common/base-url-blocked.error.js';
-import { assertBaseUrlHostAllowed } from '../common/base-url-guard.js';
+import {
+  assertBaseUrlHostAllowed,
+  parsePrivateHostAllowlist,
+} from '../common/base-url-guard.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import {
@@ -11,6 +15,7 @@ import {
   type RerankReferencePort,
 } from '../common/ports/rerank-reference.port.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
+import { vendorBaseUrlPolicy } from './base-url-policy.js';
 import { CreateModelProviderDto } from './dto/create-model-provider.dto.js';
 import { ModelProviderListQueryDto } from './dto/model-provider-list-query.dto.js';
 import type {
@@ -28,18 +33,6 @@ import { resolveOwnedModelProvider } from './model-provider-access.js';
 import { ModelProviderDefaultsService } from './model-provider-defaults.service.js';
 import { toModelProviderItem } from './model-provider.mapper.js';
 
-/** API 边界映射：出站守卫的领域错误在保存配置时是 400，而不是 500 */
-function assertBaseUrlForApi(baseUrl: string): void {
-  try {
-    assertBaseUrlHostAllowed(baseUrl);
-  } catch (error) {
-    if (error instanceof BaseUrlGuardError) {
-      throw new BadRequestException(error.message);
-    }
-    throw error;
-  }
-}
-
 /**
  * 模型供应商领域服务：属主私有的 CRUD（create/list/get/update/remove）。
  *
@@ -48,6 +41,9 @@ function assertBaseUrlForApi(baseUrl: string): void {
  */
 @Injectable()
 export class ModelProviderService {
+  /** 运维白名单：云端 vendor 也允许访问的私网主机（见 BaseUrlPolicy） */
+  private readonly allowedPrivateHosts: ReadonlySet<string>;
+
   constructor(
     private readonly logger: AppLogger,
     @InjectRepository(ModelProvider)
@@ -59,7 +55,33 @@ export class ModelProviderService {
     // 知识库重排引用的清理由知识库领域实现，这里只发指令（不写别人的表）
     @Inject(RERANK_REFERENCE_PORT)
     private readonly rerankReferences: RerankReferencePort,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.allowedPrivateHosts = parsePrivateHostAllowlist(
+      config.get('OUTBOUND_ALLOW_PRIVATE_HOSTS'),
+    );
+  }
+
+  /**
+   * 保存校验的地址策略：与连接期连接池选择同源（`vendorBaseUrlPolicy`），
+   * 避免「保存放行、连接被拒」或反之。出站守卫的领域错误在 API 边界映射成 400。
+   */
+  private assertBaseUrlForVendor(
+    baseUrl: string,
+    vendor: ModelProviderVendor,
+  ): void {
+    try {
+      assertBaseUrlHostAllowed(
+        baseUrl,
+        vendorBaseUrlPolicy(vendor, this.allowedPrivateHosts),
+      );
+    } catch (error) {
+      if (error instanceof BaseUrlGuardError) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+  }
 
   /**
    * 创建一个模型供应商。
@@ -72,7 +94,7 @@ export class ModelProviderService {
   ): Promise<ModelProviderItemDto> {
     const apiKey = dto.apiKey?.trim() ?? '';
     this.assertApiKeyForVendor(dto.vendor, apiKey.length > 0);
-    assertBaseUrlForApi(dto.baseUrl);
+    this.assertBaseUrlForVendor(dto.baseUrl, dto.vendor);
     const provider = await this.repo.save({
       ownerId: userId,
       name: dto.name,
@@ -215,10 +237,7 @@ export class ModelProviderService {
       if (dto.name !== undefined) provider.name = dto.name;
       if (dto.type !== undefined) provider.type = dto.type;
       if (dto.vendor !== undefined) provider.vendor = dto.vendor;
-      if (dto.baseUrl !== undefined) {
-        assertBaseUrlForApi(dto.baseUrl);
-        provider.baseUrl = dto.baseUrl;
-      }
+      if (dto.baseUrl !== undefined) provider.baseUrl = dto.baseUrl;
       if (dto.protocol !== undefined) provider.protocol = dto.protocol;
       if (dto.contextLength !== undefined) {
         provider.contextLength = dto.contextLength;
@@ -228,6 +247,9 @@ export class ModelProviderService {
         provider.apiKeyEncrypted = apiKey ? this.cipher.encrypt(apiKey) : '';
         provider.apiKeyLast4 = apiKey ? this.cipher.last4(apiKey) : '';
       }
+      // 按「落库后的 vendor + baseUrl 组合」校验，而不是只看本次传入的字段：
+      // 只改 vendor（ollama → openai）而不动 baseUrl 时，私网地址会绕过校验进云端配置。
+      this.assertBaseUrlForVendor(provider.baseUrl, provider.vendor);
       // 换厂商（如 ollama → openai）而未补 Key 时，落库前拦下，避免存出永远调不通的配置
       this.assertApiKeyForVendor(
         provider.vendor,
