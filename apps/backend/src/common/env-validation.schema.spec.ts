@@ -64,13 +64,13 @@ describe('envValidationSchema', () => {
     expect(validate({ OUTBOUND_CONNECT_TIMEOUT_MS: -1 }).error).toBeDefined();
   });
 
-  it('OUTBOUND_ALLOW_PRIVATE_HOSTS 只接受主机名/IP 字面量（拒绝协议/端口/路径）', () => {
+  it('OUTBOUND_ALLOW_PRIVATE_HOSTS 只接受可生效的主机名/IP 字面量（拒绝协议/端口/路径/受限地址）', () => {
     expect(
       validate({ OUTBOUND_ALLOW_PRIVATE_HOSTS: '' }).error,
     ).toBeUndefined();
     expect(
       validate({
-        OUTBOUND_ALLOW_PRIVATE_HOSTS: 'vllm.lan, 192.168.1.20, [::1], fe80::1',
+        OUTBOUND_ALLOW_PRIVATE_HOSTS: 'vllm.lan, 192.168.1.20, [::1]',
       }).error,
     ).toBeUndefined();
     for (const invalid of [
@@ -78,6 +78,10 @@ describe('envValidationSchema', () => {
       'vllm.lan:8000',
       '192.168.1.0/24',
       'vllm.lan, bad host',
+      // 链路本地/云元数据始终被守卫拦截，写进白名单也不会生效：启动期直接拒绝
+      'fe80::1',
+      '169.254.169.254',
+      'metadata.google.internal',
     ]) {
       expect(
         validate({ OUTBOUND_ALLOW_PRIVATE_HOSTS: invalid }).error,

@@ -35,16 +35,21 @@ function normalizeHost(host: string): string {
 const isBlockedV4 = (host: string, a: number, b: number): boolean =>
   (a === 169 && b === 254) || host === '100.100.100.200';
 
-/** 与后端 isPrivateV4 同口径：私网、回环、CGNAT、未指定、链路本地、基准测试、组播/保留 */
-const isPrivateV4 = (a: number, b: number): boolean =>
+/** 与后端 isPrivateV4 同口径：私网、回环、CGNAT、未指定、链路本地、基准测试、文档/协议保留段、组播/保留 */
+const isPrivateV4 = (a: number, b: number, c: number): boolean =>
   a === 0 ||
   a === 10 ||
   a === 127 ||
   (a === 100 && b >= 64 && b <= 127) ||
   (a === 169 && b === 254) ||
   (a === 172 && b >= 16 && b <= 31) ||
+  (a === 192 && b === 0 && c === 0) || // 192.0.0.0/24 IETF 协议分配
+  (a === 192 && b === 0 && c === 2) || // 192.0.2.0/24 TEST-NET-1
+  (a === 192 && b === 88 && c === 99) || // 192.88.99.0/24 6to4 中继
   (a === 192 && b === 168) ||
   (a === 198 && (b === 18 || b === 19)) ||
+  (a === 198 && b === 51 && c === 100) || // 198.51.100.0/24 TEST-NET-2
+  (a === 203 && b === 0 && c === 113) || // 203.0.113.0/24 TEST-NET-3
   a >= 224;
 
 function parseIpv4(host: string): [number, number, number, number] | null {
@@ -63,9 +68,9 @@ function classifyIpv4(
   octets: [number, number, number, number],
   host: string,
 ): BaseUrlHostKind {
-  const [a, b] = octets;
+  const [a, b, c] = octets;
   if (isBlockedV4(host, a, b)) return 'blocked';
-  return isPrivateV4(a, b) ? 'private' : 'public';
+  return isPrivateV4(a, b, c) ? 'private' : 'public';
 }
 
 /** IPv4 字面量 → 分类；不是 IPv4 时返回 null */

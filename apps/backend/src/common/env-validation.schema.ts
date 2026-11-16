@@ -1,10 +1,16 @@
 import Joi from 'joi';
 import { isIP } from 'node:net';
+import { isBlockedHost } from './base-url-guard.js';
 
 /** 白名单条目：主机名 / IPv4 / IPv6（IPv6 可带方括号），不含协议、端口与路径 */
 const ALLOWLIST_HOSTNAME_RE = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
 
+/**
+ * 受限地址（链路本地/云元数据）在守卫里始终先于白名单判定，列进白名单也不会生效；
+ * 与其让运维误以为已放行，不如在启动期直接拒绝。
+ */
 function isValidAllowlistEntry(entry: string): boolean {
+  if (isBlockedHost(entry)) return false;
   const host = entry.replace(/^\[|\]$/g, '');
   return isIP(host) !== 0 || ALLOWLIST_HOSTNAME_RE.test(entry);
 }

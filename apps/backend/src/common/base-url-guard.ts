@@ -44,13 +44,14 @@ const isBlockedV4 = (host: string): boolean =>
   isLinkLocalV4(host) || isAliyunMetadataV4(host);
 
 /**
- * IPv4 非公网地址：私网、回环、CGNAT、未指定、链路本地、基准测试段与组播/保留段。
+ * IPv4 非公网地址：私网、回环、CGNAT、未指定、链路本地、基准测试、文档/协议
+ * 保留段与组播/保留段。
  *
  * 云端供应商的 baseUrl 指向这些地址等同于「拿服务端身份去探测内网」，
  * 因此默认拒绝；本地 Ollama 场景由策略整体豁免。
  */
 function isPrivateV4(host: string): boolean {
-  const [a, b] = host.split('.').map(Number);
+  const [a, b, c] = host.split('.').map(Number);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
   return (
     a === 0 || // 0.0.0.0/8 本网络
@@ -59,8 +60,13 @@ function isPrivateV4(host: string): boolean {
     (a === 100 && b >= 64 && b <= 127) || // 100.64.0.0/10 CGNAT
     (a === 169 && b === 254) || // 169.254.0.0/16 链路本地
     (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+    (a === 192 && b === 0 && c === 0) || // 192.0.0.0/24 IETF 协议分配
+    (a === 192 && b === 0 && c === 2) || // 192.0.2.0/24 TEST-NET-1
+    (a === 192 && b === 88 && c === 99) || // 192.88.99.0/24 6to4 中继（已废弃）
     (a === 192 && b === 168) || // 192.168.0.0/16
     (a === 198 && (b === 18 || b === 19)) || // 198.18.0.0/15 基准测试
+    (a === 198 && b === 51 && c === 100) || // 198.51.100.0/24 TEST-NET-2
+    (a === 203 && b === 0 && c === 113) || // 203.0.113.0/24 TEST-NET-3
     a >= 224 // 组播(224/4) / 保留(240/4) / 广播
   );
 }
@@ -245,12 +251,12 @@ function throwPrivateAddressBlocked(): never {
   throw new BaseUrlPrivateAddressError();
 }
 
-/** 主机字面量（域名或 IP）是否命中受限地址；不做 DNS 解析 */
-function isBlockedHostLiteral(host: string): boolean {
+/** 主机字面量（域名或 IP）是否命中受限地址；不做 DNS 解析（导出供启动期配置校验复用） */
+export function isBlockedHost(host: string): boolean {
   // 域名不做前缀判断：`169.254.cdn.example.com` 是合法域名，不能因前缀被误判；
   // 只有 isIP 认可的 IPv4/IPv6 字面量才进入地址判定
   return (
-    BLOCKED_HOSTNAMES.has(host) ||
+    BLOCKED_HOSTNAMES.has(host.toLowerCase()) ||
     isBlockedAddress(host.replace(/^\[|\]$/g, ''))
   );
 }
@@ -275,7 +281,7 @@ function isLoopbackHostname(host: string): boolean {
 
 /** 单个主机（字面量）按策略校验：受限地址永远拒绝，私网/回环由策略决定 */
 function assertHostAllowed(host: string, policy: BaseUrlPolicy): void {
-  if (isBlockedHostLiteral(host)) throwBaseUrlBlocked();
+  if (isBlockedHost(host)) throwBaseUrlBlocked();
   const bare = normalizeHost(host);
   if (
     !privateHostAllowed(bare, policy) &&
