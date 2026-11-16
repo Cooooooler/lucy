@@ -75,9 +75,19 @@ export class GuardedFetchService implements OnApplicationShutdown {
       ...poolOptions,
       policy: { allowPrivateHosts: true },
     });
+    // 白名单是全局的：命中时按 host 去重写一条审计日志，避免每个请求刷屏
+    const reportedAllowlistHosts = new Set<string>();
     this.publicOnly = createGuardedFetch({
       ...poolOptions,
       policy: { allowPrivateHosts: false, allowedPrivateHosts },
+      onAllowlistedHost: (host) => {
+        if (reportedAllowlistHosts.has(host)) return;
+        reportedAllowlistHosts.add(host);
+        this.logger.warn(
+          `出站命中全局私网白名单 host=${host}`,
+          GuardedFetchService.name,
+        );
+      },
     });
     this.pools = [
       { label: '私网放行', guard: this.privateAllowed },

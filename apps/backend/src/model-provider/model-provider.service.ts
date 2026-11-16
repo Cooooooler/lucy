@@ -15,7 +15,10 @@ import {
   type RerankReferencePort,
 } from '../common/ports/rerank-reference.port.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
-import { vendorBaseUrlPolicy } from './base-url-policy.js';
+import {
+  vendorAllowsPrivateHosts,
+  vendorBaseUrlPolicy,
+} from './base-url-policy.js';
 import { CreateModelProviderDto } from './dto/create-model-provider.dto.js';
 import { ModelProviderListQueryDto } from './dto/model-provider-list-query.dto.js';
 import type {
@@ -80,7 +83,10 @@ export class ModelProviderService {
       }
       throw error;
     }
-    if (isAllowlistedHost(baseUrl, this.allowedPrivateHosts)) {
+    if (
+      !vendorAllowsPrivateHosts(vendor) &&
+      isAllowlistedHost(baseUrl, this.allowedPrivateHosts)
+    ) {
       this.logger.warn(
         `baseUrl 命中全局私网白名单 host=${new URL(baseUrl).hostname} owner=${ownerId} vendor=${vendor}`,
         ModelProviderService.name,

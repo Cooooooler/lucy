@@ -292,6 +292,19 @@ export function isAllowlistedHost(
   return allowedHosts.has(normalizeHost(new URL(baseUrl).hostname));
 }
 
+/**
+ * 解析结果本身是否在显式白名单里。
+ *
+ * 运维按 IP 放行、用户按域名填写（`http://vllm.lan` → 192.168.1.20）时，
+ * 仅比对请求主机名会漏掉，连接期就被判私网拒绝；这里按解析地址再匹配一次。
+ */
+function isAllowlistedAddress(
+  address: string,
+  allowedHosts?: ReadonlySet<string>,
+): boolean {
+  return allowedHosts?.has(normalizeAllowlistHost(address)) ?? false;
+}
+
 function throwBaseUrlBlocked(): never {
   throw new BaseUrlBlockedError(BLOCKED_MESSAGE);
 }
@@ -387,7 +400,11 @@ export async function resolveAllowedAddresses(
   const allowPrivate = privateHostAllowed(bare, policy);
   for (const { address } of addresses) {
     if (isBlockedAddress(address)) throwBaseUrlBlocked();
-    if (!allowPrivate && isPrivateAddress(address)) {
+    if (
+      !allowPrivate &&
+      !isAllowlistedAddress(address, policy.allowedPrivateHosts) &&
+      isPrivateAddress(address)
+    ) {
       throwPrivateAddressBlocked();
     }
   }

@@ -3,6 +3,7 @@ import { Agent, fetch as undiciFetch } from 'undici';
 import { BaseUrlRedirectError } from './base-url-blocked.error.js';
 import {
   assertBaseUrlHostAllowed,
+  isAllowlistedHost,
   resolveAllowedAddresses,
   type BaseUrlPolicy,
 } from './base-url-guard.js';
@@ -69,6 +70,11 @@ export interface GuardedFetch {
 export interface GuardedFetchOptions {
   /** 地址策略：私网/回环是否放行（云端 vendor 与本地 Ollama 各用一个连接池） */
   policy: BaseUrlPolicy;
+  /**
+   * 命中显式私网白名单时回调（参数为 URL 主机名）。
+   * 调用方负责去重后落审计日志：白名单是全局的，没有这条线索无从归因谁在用它。
+   */
+  onAllowlistedHost?: (host: string) => void;
   maxConnections?: number;
   connectTimeoutMs?: number;
 }
@@ -98,7 +104,14 @@ export function createGuardedFetch(options: GuardedFetchOptions): GuardedFetch {
     },
   });
   const guardedFetch: typeof fetch = async (input, init) => {
-    assertBaseUrlHostAllowed(requestUrlOf(input), options.policy);
+    const url = requestUrlOf(input);
+    assertBaseUrlHostAllowed(url, options.policy);
+    if (
+      options.onAllowlistedHost &&
+      isAllowlistedHost(url, options.policy.allowedPrivateHosts)
+    ) {
+      options.onAllowlistedHost(new URL(url).hostname);
+    }
     const response = await undiciFetch(
       input as never,
       {

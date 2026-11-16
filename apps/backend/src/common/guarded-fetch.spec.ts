@@ -6,6 +6,7 @@ const agentClose = vi.hoisted(() => vi.fn());
 const agentDestroy = vi.hoisted(() => vi.fn());
 const assertHost = vi.hoisted(() => vi.fn());
 const resolveAddresses = vi.hoisted(() => vi.fn());
+const allowlistedHost = vi.hoisted(() => vi.fn());
 
 vi.mock('undici', () => ({
   fetch: undiciFetch,
@@ -19,6 +20,7 @@ vi.mock('undici', () => ({
 }));
 vi.mock('./base-url-guard.js', () => ({
   assertBaseUrlHostAllowed: assertHost,
+  isAllowlistedHost: allowlistedHost,
   resolveAllowedAddresses: resolveAddresses,
 }));
 
@@ -33,7 +35,10 @@ import { createGuardedFetch } from './guarded-fetch.js';
 const policy: BaseUrlPolicy = { allowPrivateHosts: false };
 
 describe('createGuardedFetch', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    allowlistedHost.mockReturnValue(false);
+  });
 
   it('先按策略做字面量校验，再以 manual redirect + 钉地址的 dispatcher 发起请求', async () => {
     undiciFetch.mockResolvedValue(new Response('ok', { status: 200 }));
@@ -146,6 +151,24 @@ describe('createGuardedFetch', () => {
     await vi.waitFor(() => {
       expect(cb).toHaveBeenCalledWith(expect.any(BaseUrlBlockedError), '', 0);
     });
+  });
+
+  it('命中白名单时回调审计钩子（去重由调用方负责）', async () => {
+    allowlistedHost.mockReturnValue(true);
+    undiciFetch.mockResolvedValue(new Response('ok', { status: 200 }));
+    const onAllowlistedHost = vi.fn();
+    const { fetch: guarded } = createGuardedFetch({
+      policy,
+      onAllowlistedHost,
+    });
+
+    await guarded('http://vllm.lan:8000/v1');
+
+    expect(allowlistedHost).toHaveBeenCalledWith(
+      'http://vllm.lan:8000/v1',
+      undefined,
+    );
+    expect(onAllowlistedHost).toHaveBeenCalledWith('vllm.lan');
   });
 
   it('3xx 先释放响应体再拒绝跟随重定向', async () => {

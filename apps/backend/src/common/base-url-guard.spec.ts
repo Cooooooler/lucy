@@ -274,6 +274,23 @@ describe('resolveAllowedAddresses（解析后校验，供连接期钉住地址�
     ).resolves.toEqual([{ address: '10.0.0.8', family: 4 }]);
   });
 
+  it('白名单按 IP 放行时，域名解析到该 IP 也放行（保存期按域名能过，连接期不能反过来拒）', async () => {
+    const policy: BaseUrlPolicy = {
+      allowPrivateHosts: false,
+      allowedPrivateHosts: new Set(['192.168.1.20']),
+    };
+    lookup.mockResolvedValue([{ address: '192.168.1.20', family: 4 }]);
+    await expect(resolveAllowedAddresses('vllm.lan', policy)).resolves.toEqual([
+      { address: '192.168.1.20', family: 4 },
+    ]);
+
+    // 不在白名单里的解析结果仍拒绝
+    lookup.mockResolvedValue([{ address: '192.168.1.21', family: 4 }]);
+    await expect(resolveAllowedAddresses('other.lan', policy)).rejects.toThrow(
+      BaseUrlPrivateAddressError,
+    );
+  });
+
   it('白名单主机：解析到私网地址也放行；未列出的主机仍拒绝', async () => {
     lookup.mockResolvedValue([{ address: '192.168.1.5', family: 4 }]);
     const policy: BaseUrlPolicy = {

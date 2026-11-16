@@ -52,11 +52,14 @@ describe('GuardedFetchService', () => {
       connectTimeoutMs: 900,
       policy: { allowPrivateHosts: true },
     });
-    expect(createGuardedFetchMock).toHaveBeenNthCalledWith(2, {
-      maxConnections: 7,
-      connectTimeoutMs: 900,
-      policy: { allowPrivateHosts: false, allowedPrivateHosts: new Set() },
-    });
+    expect(createGuardedFetchMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        maxConnections: 7,
+        connectTimeoutMs: 900,
+        policy: { allowPrivateHosts: false, allowedPrivateHosts: new Set() },
+      }),
+    );
     expect(service.fetch).toBe(privateFetch);
     expect(service.publicOnlyFetch).toBe(publicFetch);
   });
@@ -72,6 +75,22 @@ describe('GuardedFetchService', () => {
           allowedPrivateHosts: new Set(['vllm.lan', '192.168.1.20']),
         },
       }),
+    );
+  });
+
+  it('仅公网池命中白名单时按 host 去重写审计日志', () => {
+    build();
+    const options = (
+      createGuardedFetchMock.mock.calls[1] as unknown[] | undefined
+    )?.[0] as { onAllowlistedHost: (host: string) => void };
+
+    options.onAllowlistedHost('vllm.lan');
+    options.onAllowlistedHost('vllm.lan');
+
+    expect(loggerWarn).toHaveBeenCalledTimes(1);
+    expect(loggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('host=vllm.lan'),
+      GuardedFetchService.name,
     );
   });
 

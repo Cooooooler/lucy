@@ -274,6 +274,20 @@ describe('ModelProviderService', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
+  it('ollama 命中白名单不写审计日志（白名单不参与 ollama 判定）', async () => {
+    const allowlisted = await buildService(['127.0.0.1']);
+    await expect(
+      allowlisted.create('u1', {
+        name: 'qwen',
+        type: ModelProviderType.Llm,
+        vendor: ModelProviderVendor.Ollama,
+        baseUrl: 'http://127.0.0.1:11434',
+        contextLength: 1,
+      }),
+    ).resolves.toBeTruthy();
+    expect(loggerWarn).not.toHaveBeenCalled();
+  });
+
   it('update 拒绝把 baseUrl 改到私网/回环（云端 vendor）', async () => {
     txProviders.findOne.mockResolvedValue(makeModelProvider());
     await expect(
