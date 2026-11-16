@@ -38,7 +38,10 @@ function normalizeHost(host: string): string {
 }
 
 const isBlockedV4 = (host: string, a: number, b: number): boolean =>
-  (a === 169 && b === 254) || host === '100.100.100.200';
+  (a === 169 && b === 254) ||
+  host === '100.100.100.200' ||
+  // 未指定地址：Linux 上会路由到本机回环，后端任何策略都硬拒
+  host === '0.0.0.0';
 
 /** 与后端 isPrivateV4 同口径：私网、回环、CGNAT、未指定、链路本地、基准测试、文档/协议保留段、组播/保留 */
 const isPrivateV4 = (a: number, b: number, c: number): boolean =>
@@ -128,12 +131,15 @@ function embeddedV4(host: string): string | null {
 }
 
 function classifyIpv6(host: string): BaseUrlHostKind {
-  if (host === '::' || host === '::1') return 'private';
+  if (host === '::') return 'blocked'; // 未指定地址：Linux 上会路由到本机回环
+  if (host === '::1') return 'private';
   const v4 = embeddedV4(host);
   if (v4) return classifyIpv4Literal(v4) ?? 'public';
   const groups = host.split(':');
   const first = Number.parseInt(groups[0] || '0', 16);
   const second = Number.parseInt(groups[1] || '0', 16);
+  // AWS IMDS IPv6 fd00:ec2::/64：后端任何策略都硬拒（先于 ULA 判断）
+  if (first === 0xfd00 && second === 0x0ec2) return 'blocked';
   if ((first & 0xfe00) === 0xfc00) return 'private'; // fc00::/7 ULA
   if ((first & 0xffc0) === 0xfe80) return 'blocked'; // fe80::/10 链路本地
   if ((first & 0xffc0) === 0xfec0) return 'private'; // fec0::/10 site-local（已废弃）

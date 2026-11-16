@@ -1,41 +1,5 @@
 import Joi from 'joi';
-import { isIP } from 'node:net';
-import { isBlockedHost, normalizeAllowlistHost } from './base-url-guard.js';
-
-/** 白名单条目：主机名 / IPv4 / IPv6（IPv6 可带方括号），不含协议、端口与路径 */
-const ALLOWLIST_HOSTNAME_RE = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
-/** 纯数字/点号：URL 归一化会改变形态（192.168.1.010 → 192.168.1.8），必须自身是合法 IP */
-const NUMERIC_HOST_RE = /^[0-9.]+$/;
-
-/**
- * 受限地址（链路本地/云元数据）在守卫里始终先于白名单判定，列进白名单也不会生效；
- * 与其让运维误以为已放行，不如在启动期直接拒绝。
- *
- * 归一化复用 `base-url-guard` 的 `normalizeAllowlistHost`（URL 规范形式），
- * 与运行期白名单匹配保持同一口径。
- */
-function isValidAllowlistEntry(entry: string): boolean {
-  const raw = entry.trim();
-  if (!raw) return false;
-  const bare = raw.replace(/^\[|\]$/g, '');
-  const isIpv6 = isIP(bare) === 6;
-  // 主机名不含路径/查询/userinfo；冒号只允许出现在合法 IPv6 字面量里。
-  // 不做这层锚定校验，URL 归一化会把 vllm.lan/v1、vllm.lan@evil.com 静默截成主机名。
-  if (/[/?#@]/.test(raw)) return false;
-  if (raw.includes(':') && !isIpv6) return false;
-
-  const host = normalizeAllowlistHost(raw);
-  if (isBlockedHost(host)) return false;
-  // 未指定地址（0.0.0.0 / ::）在 Linux 上会被路由到本机回环，放行它等于放行本机任意端口
-  if (host === '0.0.0.0' || host === '::') return false;
-  if (isIP(host) !== 0) {
-    // IPv6 允许任意合法写法（存 URL 规范形式）；IPv4 必须是规范点分字面量——
-    // `0x7f.1`、`192.168.1.010` 会被 URL 改写成别的地址，存下来永远匹配不上
-    return isIpv6 || bare.toLowerCase() === host;
-  }
-  if (NUMERIC_HOST_RE.test(host)) return false;
-  return ALLOWLIST_HOSTNAME_RE.test(host);
-}
+import { isValidAllowlistHost } from './base-url-guard.js';
 
 export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
@@ -168,7 +132,7 @@ export const envValidationSchema = Joi.object({
       const invalid = value
         .split(',')
         .map((entry) => entry.trim())
-        .filter((entry) => entry && !isValidAllowlistEntry(entry));
+        .filter((entry) => entry && !isValidAllowlistHost(entry));
       return invalid.length === 0
         ? value
         : helpers.error('any.invalid', { value: invalid[0] });

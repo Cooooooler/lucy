@@ -23,7 +23,6 @@ describe('classifyBaseUrlHost', () => {
     ['172.16/12', 'http://172.20.1.1/v1'],
     ['192.168/16', 'http://192.168.1.10:8080/v1'],
     ['CGNAT', 'http://100.64.0.1/'],
-    ['未指定地址', 'http://0.0.0.0/'],
     ['IETF 协议分配段', 'http://192.0.0.9/'],
     ['TEST-NET-1', 'http://192.0.2.1/'],
     ['TEST-NET-2', 'http://198.51.100.7/'],
@@ -43,8 +42,11 @@ describe('classifyBaseUrlHost', () => {
 
   it.each([
     ['IPv4 链路本地/元数据', 'http://169.254.169.254/latest/meta-data'],
+    ['未指定地址 IPv4', 'http://0.0.0.0/'],
+    ['未指定地址 IPv6', 'http://[::]/'],
     ['阿里云元数据', 'http://100.100.100.200/'],
     ['IPv6 链路本地', 'http://[fe80::1]/'],
+    ['AWS 元数据 IPv6', 'http://[fd00:ec2::254]/'],
     ['IPv4 映射的元数据', 'http://[::ffff:169.254.169.254]/'],
     ['GCP 元数据主机名', 'http://metadata.google.internal/computeMetadata/v1/'],
     ['GCP 元数据主机名（尾点）', 'http://metadata.google.internal./'],

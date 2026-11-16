@@ -42,9 +42,12 @@ const isLinkLocalV4 = (host: string): boolean => host.startsWith('169.254.');
 const isAliyunMetadataV4 = (host: string): boolean =>
   host === '100.100.100.200';
 
-/** IPv4 受限地址：链路本地 + 云元数据精确端点 */
+/** IPv4 未指定地址：Linux 上连接 0.0.0.0 会被路由到本机回环，任何策略都拒绝 */
+const isUnspecifiedV4 = (host: string): boolean => host === '0.0.0.0';
+
+/** IPv4 受限地址：链路本地 + 云元数据精确端点 + 未指定地址 */
 const isBlockedV4 = (host: string): boolean =>
-  isLinkLocalV4(host) || isAliyunMetadataV4(host);
+  isLinkLocalV4(host) || isAliyunMetadataV4(host) || isUnspecifiedV4(host);
 
 /**
  * IPv4 非公网地址：私网、回环、CGNAT、未指定、链路本地、基准测试、文档/协议
@@ -195,6 +198,8 @@ function embeddedV4(bytes: number[]): string | null {
 function isBlockedV6(input: string): boolean {
   const b = ipv6ToBytes(input);
   if (!b) return false;
+  // 未指定地址 ::（Linux 上连接会路由到本机回环，白名单也不能豁免）
+  if (b.every((byte) => byte === 0)) return true;
   if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return true; // fe80::/10
   if (b[0] === 0xfd && b[1] === 0x00 && b[2] === 0x0e && b[3] === 0xc2) {
     return true; // AWS IMDS IPv6 fd00:ec2::/64
@@ -276,14 +281,45 @@ export function normalizeAllowlistHost(entry: string): string {
   }
 }
 
+/** 白名单条目：主机名 / IPv4 / IPv6（IPv6 可带方括号），不含协议、端口与路径 */
+const ALLOWLIST_HOSTNAME_RE = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
+/** 纯数字/点号：URL 归一化会改变形态（192.168.1.010 → 192.168.1.8），必须自身是合法 IP */
+const NUMERIC_HOST_RE = /^[0-9.]+$/;
+
+/**
+ * 白名单条目是否可用（启动期 Joi 校验与运行期解析共用这一处判据）。
+ *
+ * 先做锚定形态校验再按 URL 归一化比对：主机名不含路径/查询/userinfo，冒号只允许
+ * 出现在合法 IPv6 字面量里；IPv4 必须是规范点分写法（`0x7f.1` 会被 URL 改写成
+ * `127.0.0.1`，存下来与运行期主机名对不上）。
+ */
+export function isValidAllowlistHost(entry: string): boolean {
+  const raw = entry.trim();
+  if (!raw) return false;
+  const bare = raw.replace(/^\[|\]$/g, '');
+  const isIpv6 = isIP(bare) === 6;
+  if (/[/?#@]/.test(raw)) return false;
+  if (raw.includes(':') && !isIpv6) return false;
+
+  const host = normalizeAllowlistHost(raw);
+  if (isBlockedHost(host)) return false;
+  // 未指定地址（0.0.0.0 / ::）在 Linux 上会被路由到本机回环，放行它等于放行本机任意端口
+  if (host === '0.0.0.0' || host === '::') return false;
+  if (isIP(host) !== 0) return isIpv6 || bare.toLowerCase() === host;
+  if (NUMERIC_HOST_RE.test(host)) return false;
+  return ALLOWLIST_HOSTNAME_RE.test(host);
+}
+
 /**
  * 解析 `OUTBOUND_ALLOW_PRIVATE_HOSTS`：逗号分隔的主机名或 IP 字面量。
- * 容忍空串与多余空白；空条目直接丢弃（运维配置项不该让启动失败）。
+ * 容忍空串与多余空白；非法条目直接丢弃（生产路径已由启动期 Joi 校验拦下，
+ * 这里兜住脚本/测试等绕过校验的来源，避免「存了但永不匹配」）。
  */
 export function parsePrivateHostAllowlist(raw: unknown): ReadonlySet<string> {
   const hosts = new Set<string>();
   if (typeof raw !== 'string') return hosts;
   for (const entry of raw.split(',')) {
+    if (!entry.trim() || !isValidAllowlistHost(entry)) continue;
     const host = normalizeAllowlistHost(entry.trim());
     if (host) hosts.add(host);
   }
