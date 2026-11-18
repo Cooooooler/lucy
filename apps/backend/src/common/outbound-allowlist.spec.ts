@@ -66,6 +66,21 @@ describe('isAllowlistedHost', () => {
     expect(isAllowlistedHost('http://other.lan', allowlist)).toBe(false);
     expect(isAllowlistedHost('http://vllm.lan', new Set())).toBe(false);
   });
+
+  it('回环写法等价：任一形式在白名单即命中（与守卫放行判据一致）', () => {
+    expect(
+      isAllowlistedHost('http://localhost:11434', new Set(['127.0.0.1'])),
+    ).toBe(true);
+    expect(
+      isAllowlistedHost('http://127.0.0.1:11434', new Set(['localhost'])),
+    ).toBe(true);
+    expect(
+      isAllowlistedHost('http://app.localhost:11434', new Set(['::1'])),
+    ).toBe(true);
+    expect(
+      isAllowlistedHost('http://[::1]:11434', new Set(['localhost'])),
+    ).toBe(true);
+  });
 });
 
 describe('normalizeAllowlistHost', () => {

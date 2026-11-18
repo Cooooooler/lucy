@@ -375,6 +375,26 @@ describe('ModelProviderService', () => {
     expect(legacy.name).toBe('renamed');
   });
 
+  it('update 只改 vendor（baseUrl 未变）时不补写白名单审计', async () => {
+    const allowlisted = await buildService(['192.168.1.20']);
+    txProviders.findOne.mockResolvedValue(
+      makeModelProvider({
+        vendor: ModelProviderVendor.Ollama,
+        baseUrl: 'http://192.168.1.20:8000/v1',
+        apiKeyEncrypted: '',
+        apiKeyLast4: '',
+      }),
+    );
+
+    await expect(
+      allowlisted.update('u1', MODEL_ID, {
+        vendor: ModelProviderVendor.OpenAI,
+        apiKey: 'sk-new',
+      }),
+    ).resolves.toBeTruthy();
+    expect(loggerWarnWith).not.toHaveBeenCalled();
+  });
+
   it('update 未实际改变 vendor/baseUrl 时不重复写白名单审计', async () => {
     const allowlisted = await buildService(['192.168.1.20']);
     txProviders.findOne.mockResolvedValue(

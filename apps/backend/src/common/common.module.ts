@@ -57,7 +57,7 @@ import { createValidationPipe } from './validation-pipe.js';
       inject: [GuardedFetchService],
       useFactory: (service: GuardedFetchService): typeof fetch => service.fetch,
     },
-    // 云端 vendor 用：只许公网（白名单见 OUTBOUND_ALLOW_PRIVATE_HOSTS）
+    // 所有模型供应商（含 ollama）用：只许公网 + 显式白名单（OUTBOUND_ALLOW_PRIVATE_HOSTS）
     {
       provide: OUTBOUND_FETCH_PUBLIC_ONLY,
       inject: [GuardedFetchService],

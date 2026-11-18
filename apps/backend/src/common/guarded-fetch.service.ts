@@ -1,6 +1,7 @@
 import { Inject, Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppLogger } from './app-logger.service.js';
+import { publicOnlyBaseUrlPolicy } from './base-url-guard.js';
 import { createGuardedFetch, type GuardedFetch } from './guarded-fetch.js';
 import { OUTBOUND_PRIVATE_HOST_ALLOWLIST } from './outbound-allowlist.js';
 import { ShutdownService } from './shutdown.service.js';
@@ -73,7 +74,7 @@ export class GuardedFetchService implements OnApplicationShutdown {
     const reportedAllowlistHosts = new Set<string>();
     this.publicOnly = createGuardedFetch({
       ...poolOptions,
-      policy: { allowPrivateHosts: false, allowedPrivateHosts },
+      policy: publicOnlyBaseUrlPolicy(allowedPrivateHosts),
       onAllowlistedHost: (host) => {
         if (reportedAllowlistHosts.has(`host:${host}`)) return;
         reportedAllowlistHosts.add(`host:${host}`);

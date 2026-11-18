@@ -1,5 +1,10 @@
 import { isIP } from 'node:net';
-import { isBlockedHost, normalizeHost } from './ip-address.js';
+import {
+  isBlockedHost,
+  isLoopbackHostname,
+  LOOPBACK_HOSTS,
+  normalizeHost,
+} from './ip-address.js';
 
 /**
  * 出站私网白名单（`OUTBOUND_ALLOW_PRIVATE_HOSTS`）：
@@ -80,13 +85,32 @@ export function parsePrivateHostAllowlist(raw: unknown): ReadonlySet<string> {
   return hosts;
 }
 
+/**
+ * 主机是否在显式白名单里（保存期校验/审计与连接期守卫共用的唯一判据）。
+ *
+ * `localhost` / `*.localhost` 与保留回环地址等价：白名单写 `127.0.0.1` 时，
+ * 用 `localhost` 的配置同样算「因白名单而放行」，否则审计会漏记这类等价写法。
+ */
+export function isAllowlistedHostMatch(
+  host: string,
+  allowedHosts?: ReadonlySet<string>,
+): boolean {
+  if (!allowedHosts || allowedHosts.size === 0) return false;
+  const bare = normalizeHost(host);
+  const isLoopbackForm =
+    isLoopbackHostname(bare) || LOOPBACK_HOSTS.some((item) => item === bare);
+  if (isLoopbackForm) {
+    return LOOPBACK_HOSTS.some((item) => allowedHosts.has(item));
+  }
+  return allowedHosts.has(bare);
+}
+
 /** baseUrl 主机是否命中显式私网白名单（保存路径据此写审计日志） */
 export function isAllowlistedHost(
   baseUrl: string,
   allowedHosts?: ReadonlySet<string>,
 ): boolean {
-  if (!allowedHosts || allowedHosts.size === 0) return false;
-  return allowedHosts.has(normalizeHost(new URL(baseUrl).hostname));
+  return isAllowlistedHostMatch(new URL(baseUrl).hostname, allowedHosts);
 }
 
 /**

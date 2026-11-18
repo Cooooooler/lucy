@@ -9,10 +9,12 @@ import {
   isBlockedHost,
   isLoopbackHostname,
   isPrivateAddress,
-  LOOPBACK_HOSTS,
   normalizeHost,
 } from './ip-address.js';
-import { isAllowlistedAddress } from './outbound-allowlist.js';
+import {
+  isAllowlistedAddress,
+  isAllowlistedHostMatch,
+} from './outbound-allowlist.js';
 
 const BLOCKED_MESSAGE =
   'API Base URL 指向受限地址（链路本地/云元数据），请检查主机';
@@ -34,6 +36,18 @@ export interface BaseUrlPolicy {
   allowPrivateHosts: boolean;
   /** 显式放行私网的主机（小写主机名或 IP 字面量，不含协议/端口） */
   allowedPrivateHosts?: ReadonlySet<string>;
+}
+
+/**
+ * 用户可填写 baseUrl 的统一策略：只许公网 + 运维显式白名单。
+ *
+ * 保存校验与连接池都从这里取，避免两处各自拼字面量导致策略漂移；
+ * 策略已与 vendor 无关（ollama 同样受约束）。
+ */
+export function publicOnlyBaseUrlPolicy(
+  allowedPrivateHosts?: ReadonlySet<string>,
+): BaseUrlPolicy {
+  return { allowPrivateHosts: false, allowedPrivateHosts };
 }
 
 /** DNS 解析得到的地址（family 收窄为 4/6，供连接期 lookup 原样回传） */
@@ -58,14 +72,8 @@ function throwPrivateAddressBlocked(): never {
  */
 function privateHostAllowed(host: string, policy: BaseUrlPolicy): boolean {
   if (policy.allowPrivateHosts) return true;
-  const allowed = policy.allowedPrivateHosts;
-  if (!allowed || allowed.size === 0) return false;
-  const bare = normalizeHost(host);
-  // localhost / *.localhost 与保留回环地址双向等价：任一回环形式在白名单里即放行
-  const isLoopbackForm =
-    isLoopbackHostname(bare) || LOOPBACK_HOSTS.some((item) => item === bare);
-  if (isLoopbackForm) return LOOPBACK_HOSTS.some((item) => allowed.has(item));
-  return allowed.has(bare);
+  // localhost / *.localhost 与保留回环地址双向等价：与保存期审计共用同一判据
+  return isAllowlistedHostMatch(host, policy.allowedPrivateHosts);
 }
 
 /** 单个主机（字面量）按策略校验：受限地址永远拒绝，私网/回环由策略决定 */

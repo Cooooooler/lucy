@@ -3,7 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import type { EntityManager, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { BaseUrlGuardError } from '../common/base-url-blocked.error.js';
-import { assertBaseUrlHostAllowed } from '../common/base-url-guard.js';
+import {
+  assertBaseUrlHostAllowed,
+  publicOnlyBaseUrlPolicy,
+} from '../common/base-url-guard.js';
 import { normalizeHost } from '../common/ip-address.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
 import {
@@ -67,10 +70,10 @@ export class ModelProviderService {
    */
   private assertBaseUrlAllowed(baseUrl: string): boolean {
     try {
-      assertBaseUrlHostAllowed(baseUrl, {
-        allowPrivateHosts: false,
-        allowedPrivateHosts: this.allowedPrivateHosts,
-      });
+      assertBaseUrlHostAllowed(
+        baseUrl,
+        publicOnlyBaseUrlPolicy(this.allowedPrivateHosts),
+      );
     } catch (error) {
       if (error instanceof BaseUrlGuardError) {
         throw new BadRequestException(error.message);
@@ -255,7 +258,6 @@ export class ModelProviderService {
       );
 
       const previousType = provider.type;
-      const previousVendor = provider.vendor;
       const previousBaseUrl = provider.baseUrl;
       if (dto.name !== undefined) provider.name = dto.name;
       if (dto.type !== undefined) provider.type = dto.type;
@@ -275,9 +277,8 @@ export class ModelProviderService {
       // 无条件复检会让这类行连改名都做不到，且错误文案指向请求里没传的 baseUrl。
       if (dto.vendor !== undefined || dto.baseUrl !== undefined) {
         allowlisted = this.assertBaseUrlAllowed(provider.baseUrl);
-        policyInputChanged =
-          provider.vendor !== previousVendor ||
-          provider.baseUrl !== previousBaseUrl;
+        // 策略已与 vendor 无关：只有 baseUrl 真正变化才补写审计
+        policyInputChanged = provider.baseUrl !== previousBaseUrl;
       }
       // 换厂商（如 ollama → openai）而未补 Key 时，落库前拦下，避免存出永远调不通的配置
       this.assertApiKeyForVendor(
