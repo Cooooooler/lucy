@@ -55,7 +55,7 @@ export class ModelProviderService {
     // 知识库重排引用的清理由知识库领域实现，这里只发指令（不写别人的表）
     @Inject(RERANK_REFERENCE_PORT)
     private readonly rerankReferences: RerankReferencePort,
-    // 与仅公网连接池共用同一份已解析白名单（CommonModule 提供），避免两处推导漂移
+    // 与仅公网连接池共用同一份已解析白名单（OutboundAllowlistModule 提供），避免两处推导漂移
     @Inject(OUTBOUND_PRIVATE_HOST_ALLOWLIST)
     private readonly allowedPrivateHosts: ReadonlySet<string>,
   ) {}

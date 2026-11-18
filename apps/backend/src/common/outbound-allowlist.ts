@@ -1,17 +1,17 @@
-import { isIP } from 'node:net';
 import {
-  isBlockedHost,
+  classifyHostname,
   isLoopbackHostname,
   LOOPBACK_HOSTS,
   normalizeHost,
-} from './ip-address.js';
+} from '@lucy/shared';
+import { isIP } from 'node:net';
 
 /**
  * 出站私网白名单（`OUTBOUND_ALLOW_PRIVATE_HOSTS`）：
  * 条目归一化、格式校验、解析，以及保存/连接两处共用的匹配判据。
  *
- * 纯函数模块，只依赖 `node:net`：启动期配置校验可以直接 import 它，
- * 不会连带加载 DNS 或出站守卫实现。
+ * 只依赖 `node:net` 与 `@lucy/shared` 的纯函数分类：启动期配置校验可以直接
+ * import 它，不会连带加载 DNS 或出站守卫实现。
  */
 
 /** 已解析的私网白名单（`OUTBOUND_ALLOW_PRIVATE_HOSTS`） */
@@ -61,7 +61,7 @@ export function isValidAllowlistHost(entry: string): boolean {
   if (raw.includes(':') && !isIpv6) return false;
 
   const host = normalizeAllowlistHost(raw);
-  if (isBlockedHost(host)) return false;
+  if (classifyHostname(host) === 'blocked') return false;
   // 未指定地址（0.0.0.0 / ::）在 Linux 上会被路由到本机回环，放行它等于放行本机任意端口
   if (host === '0.0.0.0' || host === '::') return false;
   if (isIP(host) !== 0) return isIpv6 || bare.toLowerCase() === host;
