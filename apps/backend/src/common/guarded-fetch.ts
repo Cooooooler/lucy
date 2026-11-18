@@ -3,11 +3,11 @@ import { Agent, fetch as undiciFetch } from 'undici';
 import { BaseUrlRedirectError } from './base-url-blocked.error.js';
 import {
   assertBaseUrlHostAllowed,
-  isAllowlistedHost,
-  normalizeHost,
   resolveAllowedAddresses,
   type BaseUrlPolicy,
 } from './base-url-guard.js';
+import { normalizeHost } from './ip-address.js';
+import { isAllowlistedHost } from './outbound-allowlist.js';
 
 /** 取 fetch 入参的 URL 字符串（支持 string / URL / Request） */
 function requestUrlOf(input: RequestInfo | URL): string {
@@ -72,7 +72,7 @@ export interface GuardedFetch {
 
 /** 连接池参数（缺省走 undici 默认值；由 OUTBOUND_* 环境变量解析后传入） */
 export interface GuardedFetchOptions {
-  /** 地址策略：私网/回环是否放行（云端 vendor 与本地 Ollama 各用一个连接池） */
+  /** 地址策略：私网/回环是否放行（模型供应商与受信的 tokenizer 各用一个连接池） */
   policy: BaseUrlPolicy;
   /**
    * 命中显式私网白名单时回调（参数为 URL 主机名 / 解析出的地址）。

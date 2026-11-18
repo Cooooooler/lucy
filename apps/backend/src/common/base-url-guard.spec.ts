@@ -9,16 +9,14 @@ import {
 } from './base-url-blocked.error.js';
 import {
   assertBaseUrlHostAllowed,
-  isBlockedAddress,
-  isPrivateAddress,
-  parsePrivateHostAllowlist,
   resolveAllowedAddresses,
   type BaseUrlPolicy,
 } from './base-url-guard.js';
+import { isBlockedAddress, isPrivateAddress } from './ip-address.js';
 
-/** 本地模型（Ollama）与 tokenizer 的策略：私网/回环整体放行 */
+/** 受信来源（服务端自配 tokenizer）的策略：私网/回环整体放行 */
 const permissive: BaseUrlPolicy = { allowPrivateHosts: true };
-/** 云端供应商的策略：只许公网 */
+/** 模型供应商的策略：只许公网（私网需显式白名单） */
 const strict: BaseUrlPolicy = { allowPrivateHosts: false };
 
 describe('assertBaseUrlHostAllowed（放行私网的策略）', () => {
@@ -151,29 +149,6 @@ describe('assertBaseUrlHostAllowed（仅公网策略：云端 vendor）', () => 
     expect(() =>
       assertBaseUrlHostAllowed('http://192.168.1.11/', policy),
     ).toThrow(BaseUrlPrivateAddressError);
-  });
-});
-
-describe('parsePrivateHostAllowlist', () => {
-  it('逗号分隔、去空白、小写、IPv6 规范化为 URL.hostname 同形', () => {
-    expect([
-      ...parsePrivateHostAllowlist(
-        ' VLLM.LAN, 192.168.1.10, [::1] , 0:0:0:0:0:0:0:2, [::ffff:192.168.1.20]',
-      ),
-    ]).toEqual([
-      'vllm.lan',
-      '192.168.1.10',
-      '::1',
-      '::2',
-      // WHATWG 把 IPv4 映射地址改写成十六进制，白名单必须存同一形式才能匹配
-      '::ffff:c0a8:114',
-    ]);
-  });
-
-  it('缺失/空串/非字符串返回空集合', () => {
-    expect(parsePrivateHostAllowlist(undefined).size).toBe(0);
-    expect(parsePrivateHostAllowlist('').size).toBe(0);
-    expect(parsePrivateHostAllowlist(42).size).toBe(0);
   });
 });
 

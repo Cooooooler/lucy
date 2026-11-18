@@ -28,10 +28,12 @@ vi.mock('undici', () => ({
 }));
 vi.mock('./base-url-guard.js', () => ({
   assertBaseUrlHostAllowed: assertHost,
-  isAllowlistedHost: allowlistedHost,
-  normalizeHost,
   resolveAllowedAddresses: resolveAddresses,
 }));
+vi.mock('./outbound-allowlist.js', () => ({
+  isAllowlistedHost: allowlistedHost,
+}));
+vi.mock('./ip-address.js', () => ({ normalizeHost }));
 
 import {
   BaseUrlBlockedError,

@@ -3,23 +3,19 @@ import { InjectRepository } from '@nestjs/typeorm';
 import type { EntityManager, Repository } from 'typeorm';
 import { AppLogger } from '../common/app-logger.service.js';
 import { BaseUrlGuardError } from '../common/base-url-blocked.error.js';
-import {
-  assertBaseUrlHostAllowed,
-  isAllowlistedHost,
-  normalizeHost,
-} from '../common/base-url-guard.js';
-import { OUTBOUND_PRIVATE_HOST_ALLOWLIST } from '../common/guarded-fetch.service.js';
+import { assertBaseUrlHostAllowed } from '../common/base-url-guard.js';
+import { normalizeHost } from '../common/ip-address.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
+import {
+  isAllowlistedHost,
+  OUTBOUND_PRIVATE_HOST_ALLOWLIST,
+} from '../common/outbound-allowlist.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import {
   RERANK_REFERENCE_PORT,
   type RerankReferencePort,
 } from '../common/ports/rerank-reference.port.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
-import {
-  vendorAllowsPrivateHosts,
-  vendorBaseUrlPolicy,
-} from './base-url-policy.js';
 import { CreateModelProviderDto } from './dto/create-model-provider.dto.js';
 import { ModelProviderListQueryDto } from './dto/model-provider-list-query.dto.js';
 import type {
@@ -62,31 +58,26 @@ export class ModelProviderService {
   ) {}
 
   /**
-   * 保存校验的地址策略：与连接期连接池选择同源（`vendorBaseUrlPolicy`），
-   * 避免「保存放行、连接被拒」或反之。出站守卫的领域错误在 API 边界映射成 400。
+   * 保存校验的地址策略：所有 vendor 同口径（公网 + 显式白名单），与连接期
+   * `GuardedFetchService` 的 publicOnly 池一致，避免「保存放行、连接被拒」或反之。
+   * 出站守卫的领域错误在 API 边界映射成 400。
    *
    * 返回「命中全局出站白名单」标记：审计由调用方在**落库成功后**写，
    * 事务回滚（缺 Key/写库失败）时不会留下与实际不符的记录。
    */
-  private assertBaseUrlForVendor(
-    baseUrl: string,
-    vendor: ModelProviderVendor,
-  ): boolean {
+  private assertBaseUrlAllowed(baseUrl: string): boolean {
     try {
-      assertBaseUrlHostAllowed(
-        baseUrl,
-        vendorBaseUrlPolicy(vendor, this.allowedPrivateHosts),
-      );
+      assertBaseUrlHostAllowed(baseUrl, {
+        allowPrivateHosts: false,
+        allowedPrivateHosts: this.allowedPrivateHosts,
+      });
     } catch (error) {
       if (error instanceof BaseUrlGuardError) {
         throw new BadRequestException(error.message);
       }
       throw error;
     }
-    return (
-      !vendorAllowsPrivateHosts(vendor) &&
-      isAllowlistedHost(baseUrl, this.allowedPrivateHosts)
-    );
+    return isAllowlistedHost(baseUrl, this.allowedPrivateHosts);
   }
 
   /** 白名单命中的审计：结构化字段（按 owner/vendor 聚合），只陈述命中白名单、不推断私网性 */
@@ -117,7 +108,7 @@ export class ModelProviderService {
   ): Promise<ModelProviderItemDto> {
     const apiKey = dto.apiKey?.trim() ?? '';
     this.assertApiKeyForVendor(dto.vendor, apiKey.length > 0);
-    const allowlisted = this.assertBaseUrlForVendor(dto.baseUrl, dto.vendor);
+    const allowlisted = this.assertBaseUrlAllowed(dto.baseUrl);
     const provider = await this.repo.save({
       ownerId: userId,
       name: dto.name,
@@ -283,10 +274,7 @@ export class ModelProviderService {
       // 存量行的 baseUrl（本限制上线前创建的）不构成新的暴露面，连接期守卫仍会兜底；
       // 无条件复检会让这类行连改名都做不到，且错误文案指向请求里没传的 baseUrl。
       if (dto.vendor !== undefined || dto.baseUrl !== undefined) {
-        allowlisted = this.assertBaseUrlForVendor(
-          provider.baseUrl,
-          provider.vendor,
-        );
+        allowlisted = this.assertBaseUrlAllowed(provider.baseUrl);
         policyInputChanged =
           provider.vendor !== previousVendor ||
           provider.baseUrl !== previousBaseUrl;

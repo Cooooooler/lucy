@@ -4,7 +4,7 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLogger } from '../common/app-logger.service.js';
-import { OUTBOUND_PRIVATE_HOST_ALLOWLIST } from '../common/guarded-fetch.service.js';
+import { OUTBOUND_PRIVATE_HOST_ALLOWLIST } from '../common/outbound-allowlist.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
 import { RERANK_REFERENCE_PORT } from '../common/ports/rerank-reference.port.js';
 import {
@@ -145,7 +145,8 @@ describe('ModelProviderService', () => {
   });
 
   it('create ollama 省略 apiKey：存空串而非密文', async () => {
-    await service.create('u1', {
+    const allowlisted = await buildService(['localhost']);
+    await allowlisted.create('u1', {
       name: 'qwen2.5:7b',
       type: ModelProviderType.Llm,
       vendor: ModelProviderVendor.Ollama,
@@ -194,7 +195,7 @@ describe('ModelProviderService', () => {
     expect(tx.save).not.toHaveBeenCalled();
   });
 
-  it('create 云端 vendor 拒绝私网/回环 baseUrl（SSRF：内网管理接口）', async () => {
+  it('create 拒绝未放行的私网/回环 baseUrl（SSRF：内网管理接口）', async () => {
     for (const baseUrl of [
       'http://127.0.0.1:8000/v1',
       'http://localhost:8000/v1',
@@ -216,14 +217,30 @@ describe('ModelProviderService', () => {
     expect(repo.save).not.toHaveBeenCalled();
   });
 
-  it('create ollama 仍可连 localhost / LAN', async () => {
+  it('create ollama 也只在显式白名单内放行私网/回环（#127）', async () => {
+    // vendor 是请求体里用户可自由选择的字段：ollama 不能成为绕过白名单的旁路
+    await expect(
+      service.create('u1', {
+        name: 'qwen-private',
+        type: ModelProviderType.Llm,
+        vendor: ModelProviderVendor.Ollama,
+        baseUrl: 'http://192.168.1.10:11434',
+        contextLength: 1,
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    const allowlisted = await buildService([
+      'localhost',
+      '127.0.0.1',
+      '192.168.1.10',
+    ]);
     for (const baseUrl of [
       'http://localhost:11434',
       'http://127.0.0.1:11434',
       'http://192.168.1.10:11434',
     ]) {
       await expect(
-        service.create('u1', {
+        allowlisted.create('u1', {
           name: 'qwen',
           type: ModelProviderType.Llm,
           vendor: ModelProviderVendor.Ollama,
@@ -297,7 +314,7 @@ describe('ModelProviderService', () => {
     expect(loggerWarnWith).not.toHaveBeenCalled();
   });
 
-  it('ollama 命中白名单不写审计日志（白名单不参与 ollama 判定）', async () => {
+  it('ollama 命中白名单同样写审计日志（所有 vendor 同口径）', async () => {
     const allowlisted = await buildService(['127.0.0.1']);
     await expect(
       allowlisted.create('u1', {
@@ -308,10 +325,14 @@ describe('ModelProviderService', () => {
         contextLength: 1,
       }),
     ).resolves.toBeTruthy();
-    expect(loggerWarnWith).not.toHaveBeenCalled();
+    expect(loggerWarnWith).toHaveBeenCalledWith(
+      { host: '127.0.0.1', ownerId: 'u1', vendor: 'ollama' },
+      'baseUrl 命中全局出站白名单',
+      ModelProviderService.name,
+    );
   });
 
-  it('update 拒绝把 baseUrl 改到私网/回环（云端 vendor）', async () => {
+  it('update 拒绝把 baseUrl 改到未放行的私网/回环', async () => {
     txProviders.findOne.mockResolvedValue(makeModelProvider());
     await expect(
       service.update('u1', MODEL_ID, { baseUrl: 'http://127.0.0.1:8000/v1' }),
@@ -319,8 +340,8 @@ describe('ModelProviderService', () => {
     expect(tx.save).not.toHaveBeenCalled();
   });
 
-  it('update 只改 vendor（不传 baseUrl）时按新 vendor 复检私网地址', async () => {
-    // 存量 ollama 配置指向本地，切到云端 vendor 必须连 baseUrl 一起改
+  it('update 只改 vendor（不传 baseUrl）时同样复检存量 baseUrl', async () => {
+    // 存量 ollama 配置指向本地且未放行：附带改 vendor 的请求也不能绕开地址校验
     txProviders.findOne.mockResolvedValue(
       makeModelProvider({
         vendor: ModelProviderVendor.Ollama,
