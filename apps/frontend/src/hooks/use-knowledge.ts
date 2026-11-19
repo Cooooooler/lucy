@@ -32,6 +32,7 @@ import {
   type ListsSnapshot,
   filterOutItem,
   findItemInCache,
+  keepPrevious,
   patchItemInCache,
   prependToMatchingLists,
   rollbackToSnapshot,
@@ -348,7 +349,7 @@ export function useDocumentList(
     queryKey: knowledgeKeys.documentList(kbId ?? '', query),
     queryFn: () => listDocumentsApi(kbId!, query),
     enabled: !!kbId,
-    placeholderData: (prev) => prev,
+    placeholderData: keepPrevious,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
