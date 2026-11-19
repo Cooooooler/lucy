@@ -359,7 +359,12 @@ const FoldText = ({
 
   return (
     <>
-      <style>{FOLD_TEXT_STYLES}</style>
+      {/* 样式是静态全局 CSS：交给 React 19 的资源提升（`href` 去重 + `precedence` 排序）
+          提到 <head>。内联 <style> 会按实例各插一份——登录页同时挂两个 FoldText，
+          两份完全相同、各约 2.5KB 的规则会被重复解析。 */}
+      <style href="fold-text" precedence="default">
+        {FOLD_TEXT_STYLES}
+      </style>
       <span
         ref={rootRef}
         className={`fold-text ${className}`.trim()}

@@ -205,10 +205,11 @@ export type UseCursorListOptions<T> = {
  * 提到模块级的原因：若内联写成 `(prev) => prev`，每轮渲染都会产生新引用并进入
  * `useInfiniteQuery` 的 options，于是每次渲染都要重算一次 options——本文件与同目录的 hook
  * 都在强调引用稳定的重要性（见 `useResetListCache` 为何收 key 工厂那段），这里同理。
+ *
+ * 泛型形态同时服务 `useInfiniteQuery`（`InfiniteData<...>`）与页码式列表的 `useQuery`
+ * （`PageResult<...>`）：两处的占位语义都是「原样沿用上一份数据」。
  */
-const keepPreviousPage = <T>(
-  prev: InfiniteData<CursorPageResult<T>> | undefined,
-) => prev;
+export const keepPrevious = <T>(prev: T | undefined): T | undefined => prev;
 
 /**
  * 游标分页无限列表：所有列表页共用同一套 options。
@@ -225,7 +226,7 @@ export function useCursorList<T>({
   InfiniteData<CursorPageResult<T>>,
   Error
 > {
-  const placeholderData = keepPreviousData ? keepPreviousPage : undefined;
+  const placeholderData = keepPreviousData ? keepPrevious : undefined;
   return useInfiniteQuery({
     queryKey,
     queryFn: ({ pageParam }) =>
