@@ -20,7 +20,7 @@ export class BaseUrlBlockedError extends BaseUrlGuardError {
 }
 
 /**
- * 云端供应商把 Base URL 指向私网/回环地址。
+ * 模型供应商的 Base URL 指向未被服务端放行的私网/回环地址。
  *
  * 继承 `BaseUrlBlockedError`：两者同属「地址策略拒绝」，连接测试/对话链路的文案提取
  * （`blockedErrorMessage`）与 `instanceof` 兜底无需新增分支；消息分开只为让用户
@@ -29,7 +29,7 @@ export class BaseUrlBlockedError extends BaseUrlGuardError {
 export class BaseUrlPrivateAddressError extends BaseUrlBlockedError {
   constructor() {
     super(
-      'API Base URL 指向私网/回环地址；云端供应商（OpenAI/Anthropic）不允许，请改用公网地址或选择 ollama',
+      'API Base URL 指向私网/回环地址，该主机未被服务端放行；请改用公网地址或联系管理员',
     );
   }
 }

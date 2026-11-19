@@ -13,7 +13,12 @@ export default defineConfig({
     // 所以放在这里而不是各 spec 文件顶部（ESM 提升会让那里的赋值晚于 AppModule 求值）。
     // 库名与「只允许 *_test」的安全阀都来自 test/e2e-db-config.ts —— 直接跑
     // `vitest run --config vitest.e2e.config.ts`（不经过 prepare 脚本）同样会被那条断言挡住。
-    env: { DB_NAME: E2E_DB_NAME },
+    env: {
+      DB_NAME: E2E_DB_NAME,
+      // 模型 baseUrl 的私网/回环一律需显式放行（含 ollama）；e2e 要连本地假地址，
+      // 这里给出与生产同一条配置路径。
+      OUTBOUND_ALLOW_PRIVATE_HOSTS: '127.0.0.1,localhost,192.168.1.10',
+    },
     testTimeout: 30000,
     hookTimeout: 30000,
   },

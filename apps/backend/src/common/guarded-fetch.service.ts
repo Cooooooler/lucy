@@ -1,7 +1,9 @@
 import { Inject, Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppLogger } from './app-logger.service.js';
+import { publicOnlyBaseUrlPolicy } from './base-url-guard.js';
 import { createGuardedFetch, type GuardedFetch } from './guarded-fetch.js';
+import { OUTBOUND_PRIVATE_HOST_ALLOWLIST } from './outbound-allowlist.js';
 import { ShutdownService } from './shutdown.service.js';
 
 /** 正整数配置读取：非法/缺失返回 undefined，交回 undici 默认值 */
@@ -15,26 +17,19 @@ const MAX_CLOSE_TIMEOUT_MS = 3000;
 const FORCE_EXIT_RESERVE_MS = 1000;
 
 /**
- * 允许私网/回环的出站 fetch：Ollama（本地/LAN）与 tokenizer 使用。
- * 名字带显式语义，避免新消费方默认继承最宽松的策略（云端 vendor 必须用 PUBLIC_ONLY）。
+ * 允许私网/回环的出站 fetch：只给服务端自配的 tokenizer 地址使用
+ * （`OLLAMA_BASE_URL` 属受信配置）。
+ * 名字带显式语义，避免新消费方默认继承最宽松的策略——用户可填写的模型 baseUrl
+ * 一律走 PUBLIC_ONLY。
  */
 export const OUTBOUND_FETCH_ALLOW_PRIVATE = Symbol(
   'OUTBOUND_FETCH_ALLOW_PRIVATE',
 );
 /**
- * 只允许公网的出站 fetch：云端 vendor（OpenAI/Anthropic）使用，
- * `OUTBOUND_ALLOW_PRIVATE_HOSTS` 可显式放行内网自建网关。
+ * 只允许公网 + `OUTBOUND_ALLOW_PRIVATE_HOSTS` 白名单的出站 fetch：
+ * 所有模型供应商（含 ollama）共用，用户可自由填写的 baseUrl 不整体豁免私网。
  */
 export const OUTBOUND_FETCH_PUBLIC_ONLY = Symbol('OUTBOUND_FETCH_PUBLIC_ONLY');
-/**
- * 已解析的私网白名单（`OUTBOUND_ALLOW_PRIVATE_HOSTS`）。
- *
- * 由 CommonModule 统一解析后注入：连接池（仅公网池）与保存校验（模型服务）
- * 共用同一份，避免两处各自推导白名单语义导致策略漂移。
- */
-export const OUTBOUND_PRIVATE_HOST_ALLOWLIST = Symbol(
-  'OUTBOUND_PRIVATE_HOST_ALLOWLIST',
-);
 
 /** 单个出站连接池 + 归因用的名字（停机日志要区分是哪个池卡住） */
 interface GuardedPool {
@@ -49,9 +44,9 @@ interface GuardedPool {
  * 等所有出站路径复用同一套校验与连接池，停机时由 Nest 统一关闭。
  *
  * 地址策略按**用途**分成两个池（策略在 undici lookup 里固化，无法按请求切换）：
- * - `fetch`：私网/回环放行，本地 Ollama 与 tokenizer 用；
- * - `publicOnlyFetch`：只许公网，云端 vendor 用；`OUTBOUND_ALLOW_PRIVATE_HOSTS`
- *   是显式白名单（见 `BaseUrlPolicy`）。
+ * - `fetch`：私网/回环放行，只给服务端自配的 tokenizer 地址用；
+ * - `publicOnlyFetch`：只许公网，所有模型供应商（含 ollama）共用；
+ *   `OUTBOUND_ALLOW_PRIVATE_HOSTS` 是显式白名单（见 `BaseUrlPolicy`）。
  * 两个池共用 `OUTBOUND_*` 连接池参数，各自持有一份 undici Agent。
  */
 @Injectable()
@@ -79,7 +74,7 @@ export class GuardedFetchService implements OnApplicationShutdown {
     const reportedAllowlistHosts = new Set<string>();
     this.publicOnly = createGuardedFetch({
       ...poolOptions,
-      policy: { allowPrivateHosts: false, allowedPrivateHosts },
+      policy: publicOnlyBaseUrlPolicy(allowedPrivateHosts),
       onAllowlistedHost: (host) => {
         if (reportedAllowlistHosts.has(`host:${host}`)) return;
         reportedAllowlistHosts.add(`host:${host}`);
@@ -105,12 +100,12 @@ export class GuardedFetchService implements OnApplicationShutdown {
     ];
   }
 
-  /** 注入给 Ollama / tokenizer 的 `fetch`（允许私网/回环） */
+  /** 注入给 tokenizer 的 `fetch`（服务端自配地址，允许私网/回环） */
   get fetch(): typeof fetch {
     return this.privateAllowed.fetch;
   }
 
-  /** 注入给云端供应商 SDK 的 `fetch`（默认只许公网） */
+  /** 注入给模型供应商 SDK 的 `fetch`（只许公网 + 显式白名单，含 ollama） */
   get publicOnlyFetch(): typeof fetch {
     return this.publicOnly.fetch;
   }

@@ -5,21 +5,20 @@ import { AppLogger } from '../common/app-logger.service.js';
 import { BaseUrlGuardError } from '../common/base-url-blocked.error.js';
 import {
   assertBaseUrlHostAllowed,
-  isAllowlistedHost,
-  normalizeHost,
+  publicOnlyBaseUrlPolicy,
 } from '../common/base-url-guard.js';
-import { OUTBOUND_PRIVATE_HOST_ALLOWLIST } from '../common/guarded-fetch.service.js';
+import { normalizeHost } from '../common/ip-address.js';
 import { escapeLikePattern } from '../common/like-pattern.js';
+import {
+  isAllowlistedHost,
+  OUTBOUND_PRIVATE_HOST_ALLOWLIST,
+} from '../common/outbound-allowlist.js';
 import { KeysetPaginator } from '../common/pagination/keyset-paginator.js';
 import {
   RERANK_REFERENCE_PORT,
   type RerankReferencePort,
 } from '../common/ports/rerank-reference.port.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
-import {
-  vendorAllowsPrivateHosts,
-  vendorBaseUrlPolicy,
-} from './base-url-policy.js';
 import { CreateModelProviderDto } from './dto/create-model-provider.dto.js';
 import { ModelProviderListQueryDto } from './dto/model-provider-list-query.dto.js';
 import type {
@@ -56,26 +55,24 @@ export class ModelProviderService {
     // 知识库重排引用的清理由知识库领域实现，这里只发指令（不写别人的表）
     @Inject(RERANK_REFERENCE_PORT)
     private readonly rerankReferences: RerankReferencePort,
-    // 与仅公网连接池共用同一份已解析白名单（CommonModule 提供），避免两处推导漂移
+    // 与仅公网连接池共用同一份已解析白名单（OutboundAllowlistModule 提供），避免两处推导漂移
     @Inject(OUTBOUND_PRIVATE_HOST_ALLOWLIST)
     private readonly allowedPrivateHosts: ReadonlySet<string>,
   ) {}
 
   /**
-   * 保存校验的地址策略：与连接期连接池选择同源（`vendorBaseUrlPolicy`），
-   * 避免「保存放行、连接被拒」或反之。出站守卫的领域错误在 API 边界映射成 400。
+   * 保存校验的地址策略：所有 vendor 同口径（公网 + 显式白名单），与连接期
+   * `GuardedFetchService` 的 publicOnly 池一致，避免「保存放行、连接被拒」或反之。
+   * 出站守卫的领域错误在 API 边界映射成 400。
    *
    * 返回「命中全局出站白名单」标记：审计由调用方在**落库成功后**写，
    * 事务回滚（缺 Key/写库失败）时不会留下与实际不符的记录。
    */
-  private assertBaseUrlForVendor(
-    baseUrl: string,
-    vendor: ModelProviderVendor,
-  ): boolean {
+  private assertBaseUrlAllowed(baseUrl: string): boolean {
     try {
       assertBaseUrlHostAllowed(
         baseUrl,
-        vendorBaseUrlPolicy(vendor, this.allowedPrivateHosts),
+        publicOnlyBaseUrlPolicy(this.allowedPrivateHosts),
       );
     } catch (error) {
       if (error instanceof BaseUrlGuardError) {
@@ -83,10 +80,7 @@ export class ModelProviderService {
       }
       throw error;
     }
-    return (
-      !vendorAllowsPrivateHosts(vendor) &&
-      isAllowlistedHost(baseUrl, this.allowedPrivateHosts)
-    );
+    return isAllowlistedHost(baseUrl, this.allowedPrivateHosts);
   }
 
   /** 白名单命中的审计：结构化字段（按 owner/vendor 聚合），只陈述命中白名单、不推断私网性 */
@@ -117,7 +111,7 @@ export class ModelProviderService {
   ): Promise<ModelProviderItemDto> {
     const apiKey = dto.apiKey?.trim() ?? '';
     this.assertApiKeyForVendor(dto.vendor, apiKey.length > 0);
-    const allowlisted = this.assertBaseUrlForVendor(dto.baseUrl, dto.vendor);
+    const allowlisted = this.assertBaseUrlAllowed(dto.baseUrl);
     const provider = await this.repo.save({
       ownerId: userId,
       name: dto.name,
@@ -251,9 +245,9 @@ export class ModelProviderService {
     // 事务外读到的快照会被并发 PATCH 覆盖（save 按快照差异把旧 type 写回去），
     // 「类型是否变了」也会基于陈旧值误判，进而多删或漏删默认设置。
     // 审计标记带出事务，只在**提交成功**后写日志（回滚不留假记录）。
-    // 与连接期一致：策略输入（vendor/baseUrl）实际变化时才记录，避免前端全量提交刷审计
+    // 仅 baseUrl 实际变化时才记录，避免前端全量提交刷审计
     let allowlisted = false;
-    let policyInputChanged = false;
+    let baseUrlChanged = false;
     const saved = await this.repo.manager.transaction(async (manager) => {
       const provider = await resolveOwnedModelProvider(
         manager.getRepository(ModelProvider),
@@ -264,7 +258,6 @@ export class ModelProviderService {
       );
 
       const previousType = provider.type;
-      const previousVendor = provider.vendor;
       const previousBaseUrl = provider.baseUrl;
       if (dto.name !== undefined) provider.name = dto.name;
       if (dto.type !== undefined) provider.type = dto.type;
@@ -279,17 +272,13 @@ export class ModelProviderService {
         provider.apiKeyEncrypted = apiKey ? this.cipher.encrypt(apiKey) : '';
         provider.apiKeyLast4 = apiKey ? this.cipher.last4(apiKey) : '';
       }
-      // 只在本次请求可能改变策略组合时复检：只改 name/contextLength 等字段时，
+      // 只在本次请求涉及 vendor/baseUrl 时复检：只改 name/contextLength 等字段时，
       // 存量行的 baseUrl（本限制上线前创建的）不构成新的暴露面，连接期守卫仍会兜底；
       // 无条件复检会让这类行连改名都做不到，且错误文案指向请求里没传的 baseUrl。
       if (dto.vendor !== undefined || dto.baseUrl !== undefined) {
-        allowlisted = this.assertBaseUrlForVendor(
-          provider.baseUrl,
-          provider.vendor,
-        );
-        policyInputChanged =
-          provider.vendor !== previousVendor ||
-          provider.baseUrl !== previousBaseUrl;
+        allowlisted = this.assertBaseUrlAllowed(provider.baseUrl);
+        // 策略已与 vendor 无关：只有 baseUrl 真正变化才补写审计
+        baseUrlChanged = provider.baseUrl !== previousBaseUrl;
       }
       // 换厂商（如 ollama → openai）而未补 Key 时，落库前拦下，避免存出永远调不通的配置
       this.assertApiKeyForVendor(
@@ -310,7 +299,7 @@ export class ModelProviderService {
       }
       return updated;
     });
-    if (allowlisted && policyInputChanged) {
+    if (allowlisted && baseUrlChanged) {
       this.logAllowlistedBaseUrl(saved.baseUrl, saved.vendor, userId);
     }
     this.logger.log(

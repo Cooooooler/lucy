@@ -142,7 +142,7 @@ describe('ModelProviderFormDrawer', () => {
     expect(screen.queryByText('API 协议')).not.toBeInTheDocument();
   });
 
-  it('云端 vendor 的私网 Base URL 给警告但仍可提交（服务端白名单不可见）', async () => {
+  it('私网 Base URL 给警告但仍可提交（服务端白名单不可见）', async () => {
     renderDrawer();
     await userEvent.type(
       await screen.findByLabelText('模型名称'),
@@ -186,7 +186,7 @@ describe('ModelProviderFormDrawer', () => {
     expect(mutations.create.mutateAsync).not.toHaveBeenCalled();
   });
 
-  it('切换为 Ollama 后私网地址不再警告', async () => {
+  it('切换为 Ollama 后私网地址仍然警告（白名单对所有 vendor 生效）', async () => {
     renderDrawer();
     await userEvent.type(
       await screen.findByLabelText('API Base URL'),
@@ -200,7 +200,7 @@ describe('ModelProviderFormDrawer', () => {
     await userEvent.click(await screen.findByText('Ollama'));
 
     await waitFor(() => {
-      expect(screen.queryByText(PRIVATE_BASE_URL_MESSAGE)).toBeNull();
+      expect(screen.getByText(PRIVATE_BASE_URL_MESSAGE)).toBeInTheDocument();
     });
   });
 });

@@ -22,15 +22,9 @@ const config = new ConfigService({
   AI_OUTPUT_MAX_TOKENS: 32768,
 });
 const cipher = new ApiKeyCipher(config);
-// 可识别的守卫 fetch 标记：逐个客户端断言「接到了与 vendor 匹配的守卫池」，而不是只看 instanceOf
-const privateAllowedFetch = vi.fn() as unknown as typeof fetch;
+// 可识别的守卫 fetch 标记：逐个客户端断言「接到了守卫池」，而不是只看 instanceOf
 const publicOnlyFetch = vi.fn() as unknown as typeof fetch;
-const factory = new ModelClientFactory(
-  cipher,
-  config,
-  privateAllowedFetch,
-  publicOnlyFetch,
-);
+const factory = new ModelClientFactory(cipher, config, publicOnlyFetch);
 
 describe('ModelClientFactory', () => {
   const provider = makeModelProvider({
@@ -87,7 +81,7 @@ describe('ModelClientFactory', () => {
     expect(factory.buildEmbeddings(provider)).toBeInstanceOf(OpenAIEmbeddings);
   });
 
-  it('按 vendor 注入守卫 fetch：云端用仅公网池，Ollama 用私网放行池', () => {
+  it('所有 vendor（含 Ollama）都注入仅公网 + 白名单守卫池', () => {
     const openaiChat = factory.buildOpenAiChat(provider) as unknown as {
       clientConfig?: { fetch?: unknown };
     };
@@ -104,7 +98,7 @@ describe('ModelClientFactory', () => {
       vendor: ModelProviderVendor.Ollama,
       apiKeyEncrypted: '',
     }) as unknown as { client?: { fetch?: unknown } };
-    expect(ollama.client?.fetch).toBe(privateAllowedFetch);
+    expect(ollama.client?.fetch).toBe(publicOnlyFetch);
 
     const openaiEmbeddings = factory.buildEmbeddings(provider) as unknown as {
       clientConfig?: { fetch?: unknown };
@@ -116,7 +110,7 @@ describe('ModelClientFactory', () => {
       vendor: ModelProviderVendor.Ollama,
       apiKeyEncrypted: '',
     }) as unknown as { client?: { fetch?: unknown } };
-    expect(ollamaEmbeddings.client?.fetch).toBe(privateAllowedFetch);
+    expect(ollamaEmbeddings.client?.fetch).toBe(publicOnlyFetch);
   });
 
   it('Ollama buildEmbeddings → OllamaEmbeddings', () => {
@@ -203,7 +197,6 @@ describe('ModelClientFactory', () => {
     const badFactory = new ModelClientFactory(
       new ApiKeyCipher(badConfig),
       badConfig,
-      privateAllowedFetch,
       publicOnlyFetch,
     );
     const client = badFactory.buildChat({

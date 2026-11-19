@@ -185,7 +185,7 @@ describe('ModelProvider CRUD & connection test (e2e)', () => {
   });
 
   it('连接测试：不可达地址返回 ok=false（200）', async () => {
-    // 用 ollama vendor：云端 vendor 的私网/回环 baseUrl 会被保存校验拦下
+    // 127.0.0.1 由 vitest.e2e.config 的 OUTBOUND_ALLOW_PRIVATE_HOSTS 显式放行
     const created = (
       await request(server)
         .post('/v1/model-providers')
@@ -213,7 +213,7 @@ describe('ModelProvider CRUD & connection test (e2e)', () => {
     expect(result.message).not.toContain('127.0.0.1');
   });
 
-  it('云端 vendor 拒绝私网/回环 baseUrl，ollama 放行', async () => {
+  it('私网/回环 baseUrl 只对白名单主机放行（所有 vendor 同口径，#127）', async () => {
     const cloud = await request(server)
       .post('/v1/model-providers')
       .set('Authorization', `Bearer ${token}`)
@@ -221,7 +221,7 @@ describe('ModelProvider CRUD & connection test (e2e)', () => {
         ...createBody,
         name: `cloud_private_${suffix}`,
         vendor: 'openai',
-        baseUrl: 'http://127.0.0.1:8000/v1',
+        baseUrl: 'http://10.0.0.5:8000/v1',
       });
     expect(cloud.status).toBe(400);
 
@@ -238,15 +238,29 @@ describe('ModelProvider CRUD & connection test (e2e)', () => {
     await request(server)
       .patch(`/v1/model-providers/${updatedId}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ baseUrl: 'http://192.168.1.10:8000/v1' })
+      .send({ baseUrl: 'http://10.0.0.5:8000/v1' })
       .expect(400);
 
+    // ollama 不再是旁路：未放行的私网地址同样拒绝
     await request(server)
       .post('/v1/model-providers')
       .set('Authorization', `Bearer ${token}`)
       .send({
         ...createBody,
         name: `ollama_private_${suffix}`,
+        vendor: 'ollama',
+        baseUrl: 'http://10.0.0.5:11434',
+        apiKey: undefined,
+      })
+      .expect(400);
+
+    // 白名单内的本地/LAN 地址（含 ollama）仍可保存
+    await request(server)
+      .post('/v1/model-providers')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        ...createBody,
+        name: `ollama_allowlisted_${suffix}`,
         vendor: 'ollama',
         baseUrl: 'http://192.168.1.10:11434',
         apiKey: undefined,

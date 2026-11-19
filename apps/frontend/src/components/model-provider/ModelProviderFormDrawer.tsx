@@ -220,7 +220,7 @@ export const ModelProviderFormDrawer: FC<ModelProviderFormDrawerProps> = ({
         <Form.Item
           name="baseUrl"
           label="API Base URL"
-          // vendor 变化时重新校验：从 ollama 切到云端后，私网地址要立刻给出提示
+          // vendor 变化会回填默认 Base URL，重新校验以立即反映新地址的提示
           dependencies={['vendor']}
           rules={[
             {
@@ -240,23 +240,19 @@ export const ModelProviderFormDrawer: FC<ModelProviderFormDrawerProps> = ({
                 }
               },
             },
-            // 私网/回环：云端供应商只给警告——服务端白名单（内网网关）前端不可见，
-            // 最终是否放行由后端裁决（400 会带同样的原因）
-            ...(vendor === 'ollama'
-              ? []
-              : [
-                  {
-                    warningOnly: true,
-                    validator: async (_rule: unknown, value: unknown) => {
-                      if (
-                        typeof value === 'string' &&
-                        classifyBaseUrlHost(value) === 'private'
-                      ) {
-                        throw new Error(PRIVATE_BASE_URL_MESSAGE);
-                      }
-                    },
-                  },
-                ]),
+            // 私网/回环：所有 vendor（含 ollama）都只给警告——服务端白名单前端不可见，
+            // 最终是否放行由后端裁决（未放行时 400 会带同样的原因）
+            {
+              warningOnly: true,
+              validator: async (_rule: unknown, value: unknown) => {
+                if (
+                  typeof value === 'string' &&
+                  classifyBaseUrlHost(value) === 'private'
+                ) {
+                  throw new Error(PRIVATE_BASE_URL_MESSAGE);
+                }
+              },
+            },
           ]}
         >
           <Input

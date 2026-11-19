@@ -13,7 +13,8 @@ export class TokenizerService {
 
   constructor(
     private readonly config: ConfigService,
-    // OLLAMA_BASE_URL 指向本地部署：用允许私网/回环的出站池，与对话侧 ollama 同源
+    // OLLAMA_BASE_URL 是服务端自配的受信地址：用允许私网/回环的出站池；
+    // 用户填写的模型 baseUrl 一律走仅公网 + 显式白名单的池
     @Inject(OUTBOUND_FETCH_ALLOW_PRIVATE)
     private readonly outboundFetch: typeof fetch,
     private readonly logger: AppLogger,

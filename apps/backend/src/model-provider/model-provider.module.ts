@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommonModule } from '../common/common.module.js';
+import { OutboundAllowlistModule } from '../common/outbound-allowlist.module.js';
 import { PaginationModule } from '../common/pagination/pagination.module.js';
 import { KnowledgeReferencesModule } from '../knowledge/knowledge-references.module.js';
 import { ApiKeyCipher } from './api-key-cipher.service.js';
@@ -15,6 +16,8 @@ import { ModelProviderService } from './model-provider.service.js';
 @Module({
   imports: [
     CommonModule,
+    // 保存校验与出站连接池共用同一份已解析白名单（配置域，不依赖出站基础设施）
+    OutboundAllowlistModule,
     // KeysetPaginator 与领域无关，由 common 侧的模块提供，这里只消费
     PaginationModule,
     // RERANK_REFERENCE_PORT：知识库侧实现、这里显式引入（无反向依赖，不成环）

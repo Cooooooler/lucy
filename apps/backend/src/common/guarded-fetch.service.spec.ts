@@ -68,7 +68,7 @@ describe('GuardedFetchService', () => {
     expect(service.publicOnlyFetch).toBe(publicFetch);
   });
 
-  it('已解析的私网白名单透传给仅公网池（由 CommonModule 统一解析）', () => {
+  it('已解析的私网白名单透传给仅公网池（由 OutboundAllowlistModule 统一解析）', () => {
     build(new ConfigService({}), new Set(['vllm.lan', '192.168.1.20']));
 
     expect(createGuardedFetchMock).toHaveBeenNthCalledWith(

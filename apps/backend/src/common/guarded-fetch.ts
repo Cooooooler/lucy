@@ -3,11 +3,11 @@ import { Agent, fetch as undiciFetch } from 'undici';
 import { BaseUrlRedirectError } from './base-url-blocked.error.js';
 import {
   assertBaseUrlHostAllowed,
-  isAllowlistedHost,
-  normalizeHost,
   resolveAllowedAddresses,
   type BaseUrlPolicy,
 } from './base-url-guard.js';
+import { normalizeHost } from './ip-address.js';
+import { isAllowlistedHost } from './outbound-allowlist.js';
 
 /** 取 fetch 入参的 URL 字符串（支持 string / URL / Request） */
 function requestUrlOf(input: RequestInfo | URL): string {
@@ -72,7 +72,7 @@ export interface GuardedFetch {
 
 /** 连接池参数（缺省走 undici 默认值；由 OUTBOUND_* 环境变量解析后传入） */
 export interface GuardedFetchOptions {
-  /** 地址策略：私网/回环是否放行（云端 vendor 与本地 Ollama 各用一个连接池） */
+  /** 地址策略：私网/回环是否放行（模型供应商与受信的 tokenizer 各用一个连接池） */
   policy: BaseUrlPolicy;
   /**
    * 命中显式私网白名单时回调（参数为 URL 主机名 / 解析出的地址）。
@@ -93,9 +93,10 @@ export interface GuardedFetchOptions {
  * 3. `redirect: 'manual'`：不跟随重定向，避免 302 指向元数据端点；
  *    3xx 先释放响应体再抛可读错误（不读 body 时连接不会归还连接池）。
  *
- * 策略在**构造时**固化：undici 的 lookup 拿不到调用方的 vendor 语义，同一条
- * keep-alive 连接也不该在两种策略间切换。调用方按策略各建一个池（见
- * `GuardedFetchService`），SDK 侧注入与 vendor 匹配的那个 fetch。
+ * 策略在**构造时**固化，同一条 keep-alive 连接不应在两种策略间切换。
+ * `GuardedFetchService` 建两个池：模型侧（所有 vendor 含 ollama）统一用
+ * publicOnly（私网需 `OUTBOUND_ALLOW_PRIVATE_HOSTS`），private 池只给服务端
+ * 自配的 tokenizer 地址。
  *
  * 以函数形式注入各 SDK 的 `fetch` 选项（OpenAI/Anthropic/Ollama 均支持）。
  */
