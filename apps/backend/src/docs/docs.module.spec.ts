@@ -39,28 +39,22 @@ describe('DocsModule', () => {
   });
 
   describe('setup', () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-
-    afterEach(() => {
-      process.env.NODE_ENV = originalNodeEnv;
-    });
-
+    // nodeEnv 由调用方（main.ts 经 ConfigService）传入，测试直接用入参驱动，
+    // 不再改写进程级 process.env
     it('production 环境跳过文档路由注册', () => {
-      process.env.NODE_ENV = 'production';
       const app = makeAppMock();
-      DocsModule.setup(app as unknown as INestApplication);
+      DocsModule.setup(app as unknown as INestApplication, 'production');
       expect(app.use).not.toHaveBeenCalled();
       expect(app.getHttpAdapter).not.toHaveBeenCalled();
     });
 
     it('非 production 注册 /docs 与 /docs-json', () => {
-      process.env.NODE_ENV = 'development';
       const getMock = vi.fn();
       const app = {
         use: vi.fn(),
         getHttpAdapter: vi.fn(() => ({ get: getMock })),
       };
-      DocsModule.setup(app as unknown as INestApplication);
+      DocsModule.setup(app as unknown as INestApplication, 'development');
       expect(app.use).toHaveBeenCalledWith('/docs', expect.any(Function));
       expect(app.getHttpAdapter).toHaveBeenCalled();
       expect(getMock).toHaveBeenCalledWith('/docs-json', expect.any(Function));

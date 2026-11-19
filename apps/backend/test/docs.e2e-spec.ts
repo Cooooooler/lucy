@@ -39,7 +39,7 @@ describe('Scalar docs (dev)', () => {
       imports: [AppModule],
     }).compile();
     app = moduleRef.createNestApplication();
-    DocsModule.setup(app);
+    DocsModule.setup(app, 'test');
     await app.init();
   });
 
@@ -105,7 +105,7 @@ describe('Scalar docs (production no-op)', () => {
       imports: [AppModule],
     }).compile();
     app = moduleRef.createNestApplication();
-    DocsModule.setup(app);
+    DocsModule.setup(app, 'production');
     await app.init();
   });
 

@@ -17,6 +17,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
+import { AppLogger } from '../common/app-logger.service.js';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { SuccessMessage } from '../common/decorators/success-message.decorator.js';
@@ -39,6 +40,7 @@ export class AiController {
     private readonly aiService: AiService,
     // SSE 端点走独立的流式服务（会话 CRUD 与「流式生成 + 中断/超时 + 落库状态机」是两件事）
     private readonly chatStream: ChatStreamService,
+    private readonly logger: AppLogger,
   ) {}
 
   @Post('conversations')
@@ -168,6 +170,23 @@ export class AiController {
             res.write('data: [DONE]\n\n');
           }
           res.end();
+        },
+        // 必须显式处理：RxJS 在订阅缺省 error 回调时会把错误 rethrow 到宿主环境，
+        // 那个异常落在事件循环里、不属于任何请求上下文，会撞上 main.ts 的
+        // `uncaughtException` → `process.exit(1)`，把单条流的故障放大成整进程退出。
+        // ChatStreamService 正常路径已自行发 error 帧并以 complete 收尾，走到这里的是
+        // 意料之外的失败（如客户端断开后 res.write 抛错），只补日志并关闭本响应。
+        error: (err: unknown) => {
+          this.logger.error(
+            `SSE 流异常终止 conversation=${id}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+            err instanceof Error ? err.stack : undefined,
+            AiController.name,
+          );
+          if (!res.destroyed && !res.writableEnded) {
+            res.end();
+          }
         },
       });
     // 客户端断开时取消订阅，触发 service 的 AbortController 中断模型流

@@ -12,11 +12,22 @@ describe('AiController', () => {
   };
   // SSE 端点已改走 ChatStreamService
   const chatStream = { sendMessage: vi.fn() };
+  const logger = {
+    log: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    verbose: vi.fn(),
+  };
   let controller: AiController;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    controller = new AiController(aiService as never, chatStream as never);
+    controller = new AiController(
+      aiService as never,
+      chatStream as never,
+      logger as never,
+    );
   });
 
   const user = { userId: '1', jti: 'j', role: 'user' };
@@ -116,5 +127,21 @@ describe('AiController', () => {
 
     getCloseHandler()();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('sendMessage 流意外出错时记录日志并关闭响应，不向进程抛出（否则会触发 uncaughtException 退出）', () => {
+    const { res } = mockRes();
+    // 生产者的同步抛错由 RxJS 转成 error 通知；缺省 error 回调时它会被 rethrow 到宿主环境
+    chatStream.sendMessage.mockReturnValue(
+      new Observable<AiStreamEvent>(() => {
+        throw new Error('write boom');
+      }),
+    );
+
+    expect(() =>
+      controller.send(res as never, user, 'c1', { content: 'hi' }),
+    ).not.toThrow();
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(res.end).toHaveBeenCalledTimes(1);
   });
 });
