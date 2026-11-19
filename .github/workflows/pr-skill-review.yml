@@ -34,6 +34,10 @@ name: PR Skill Review
 # `/skill-review` 时后一次顶掉前一次，符合预期（两次针对同一 head 时结果相同，只留一轮）。
 # 并发组按「是否是 /skill-review」分桶（见下方 concurrency），机器人评论不再取消在跑评审。
 
+# 前后端评审并行执行（同一 job 内后台进程 + wait）：整轮耗时取较长的一侧，
+# 而不是两者相加。串行时前端那段完全是白等——后端 84KB 补丁常需 5~18 分钟，
+# 前端 12KB 约 0.5~9 分钟。两侧各自的重试/超时逻辑不变，一侧失败不影响另一侧出结果。
+#
 # 鉴权：官方 headless 登录是 OAuth（不适合 CI）。这里用仓库 owner 的 Command Code
 # 账号 API key（COMMAND_CODE_API_KEY，headless 下 CLI 据此登录），模型调用走该账号
 # 额度、经 Command Code 网关，不再走 BYOK：网关模型由 CLI 自带目录解析窗口与输出
@@ -185,15 +189,18 @@ jobs:
           command-code --list-models | head -c 4000
           echo
 
-      - name: Frontend review (vercel-react-best-practices)
-        if: steps.diff.outputs.fe_bytes != '0'
-        # 评审失败也应保留已有结果并照常发评论，故不断阻断
+      - name: Reviews (frontend + backend in parallel)
+        # 两侧都无补丁时走 N/A 快路径，不启动评审
+        if: steps.status-start.outputs.skip != 'true'
+        # 两侧互不依赖：并行启动，整轮耗时取较长的一侧，而不是两者相加。
+        # 各自仍保留「早停/超时重试一次」逻辑；一侧失败不影响另一侧出结果。
+        # 评审失败也要保留已有结果并照常发评论，故本步骤 continue-on-error。
         continue-on-error: true
         env:
-          REVIEW_SIDE: frontend
-          REVIEW_SKILL: vercel-react-best-practices
-          REVIEW_ANCHOR: 前端
+          FE_PATCH: ${{ steps.diff.outputs.fe_bytes }}
+          BE_PATCH: ${{ steps.diff.outputs.be_bytes }}
         run: |
+          set -uo pipefail
           cat > .pr-skill-review/frontend-prompt.txt <<'PROMPT'
           /skill:vercel-react-best-practices
 
@@ -213,16 +220,6 @@ jobs:
           - 不要输出思考过程，不要修改任何文件
           PROMPT
 
-          bash .github/skill-review/scripts/review-with-retry.sh
-
-      - name: Backend review (nestjs-best-practices)
-        if: steps.diff.outputs.be_bytes != '0'
-        continue-on-error: true
-        env:
-          REVIEW_SIDE: backend
-          REVIEW_SKILL: nestjs-best-practices
-          REVIEW_ANCHOR: 后端
-        run: |
           cat > .pr-skill-review/backend-prompt.txt <<'PROMPT'
           /skill:nestjs-best-practices
 
@@ -242,7 +239,30 @@ jobs:
           - 不要输出思考过程，不要修改任何文件
           PROMPT
 
-          bash .github/skill-review/scripts/review-with-retry.sh
+          # 后台并行启动；日志按侧重定向，收尾统一打印，避免并行输出互相穿插。
+          pids=()
+          run_side() {
+            REVIEW_SIDE="$1" REVIEW_SKILL="$2" REVIEW_ANCHOR="$3" \
+              bash .github/skill-review/scripts/review-with-retry.sh \
+              > ".pr-skill-review/$1.log" 2>&1
+          }
+          if [ "${FE_PATCH:-0}" != "0" ]; then
+            run_side frontend vercel-react-best-practices 前端 &
+            pids+=("$!")
+          fi
+          if [ "${BE_PATCH:-0}" != "0" ]; then
+            run_side backend nestjs-best-practices 后端 &
+            pids+=("$!")
+          fi
+          for pid in "${pids[@]}"; do
+            wait "$pid" || true
+          done
+          for side in frontend backend; do
+            if [ -f ".pr-skill-review/${side}.log" ]; then
+              echo "===== ${side} review log ====="
+              cat ".pr-skill-review/${side}.log"
+            fi
+          done
 
       - name: Assemble comment body
         id: body
