@@ -144,4 +144,45 @@ describe('AiController', () => {
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(res.end).toHaveBeenCalledTimes(1);
   });
+
+  it('sendMessage 以非 Error 值出错时按 String 记日志且不带栈', () => {
+    const { res } = mockRes();
+    // RxJS 的 error 通知不要求 Error：SDK/中间层可能 reject 字符串或普通对象
+    chatStream.sendMessage.mockReturnValue(
+      new Observable<AiStreamEvent>((sub) => sub.error('boom-string')),
+    );
+
+    controller.send(res as never, user, 'c1', { content: 'hi' });
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('boom-string'),
+      undefined,
+      AiController.name,
+    );
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('sendMessage 出错且响应已结束（writableEnded）时不再重复 end', () => {
+    const { res } = mockRes();
+    res.writableEnded = true;
+    chatStream.sendMessage.mockReturnValue(
+      new Observable<AiStreamEvent>((sub) => sub.error(new Error('late'))),
+    );
+
+    controller.send(res as never, user, 'c1', { content: 'hi' });
+
+    expect(res.end).not.toHaveBeenCalled();
+  });
+
+  it('sendMessage 出错且连接已销毁时不再尝试 end', () => {
+    const { res } = mockRes();
+    res.destroyed = true;
+    chatStream.sendMessage.mockReturnValue(
+      new Observable<AiStreamEvent>((sub) => sub.error(new Error('gone'))),
+    );
+
+    controller.send(res as never, user, 'c1', { content: 'hi' });
+
+    expect(res.end).not.toHaveBeenCalled();
+  });
 });
