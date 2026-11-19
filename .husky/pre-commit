@@ -1,3 +1,7 @@
+#!/usr/bin/env sh
+# shebang 不是 husky v9 的要求（_ 里的 shim 用 `sh -e` 调本文件），但它让本文件在
+# core.hooksPath 误指到 .husky（旧版 husky 留下的本地配置）时仍能被 git 直接 exec；
+# 缺了它 git 只会报一句 "cannot spawn .husky/pre-commit: No such file or directory"。
 set -e
 pnpm typegen
 git add packages/shared/src/generated/openapi.ts
