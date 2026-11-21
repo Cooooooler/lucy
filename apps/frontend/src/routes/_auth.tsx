@@ -4,7 +4,9 @@ import { createFileRoute, Outlet, redirect } from '@tanstack/react-router';
 
 const AuthLayout = () => {
   return (
-    <RippleDistortion src="/public/auth_background.avif">
+    // public/ 下的文件在构建时被拷到站点根：URL 必须写 /auth_background.avif。
+    // 写成 /public/... 只有 dev server 能命中，生产构建后是 404（背景只剩黑色）。
+    <RippleDistortion src="/auth_background.avif">
       <div className={'h-full w-full overflow-y-auto'}>
         <div
           className={

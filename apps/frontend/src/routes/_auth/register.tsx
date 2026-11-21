@@ -223,7 +223,7 @@ const SignupPageBlock = () => {
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
+                      onClick={() => setShowPassword((visible) => !visible)}
                       className="absolute top-1/2 right-3 -translate-y-1/2 text-white/40 transition-colors hover:text-white/60"
                     >
                       {showPassword ? (
@@ -303,7 +303,7 @@ const SignupPageBlock = () => {
                     <button
                       type="button"
                       onClick={() =>
-                        setShowConfirmPassword(!showConfirmPassword)
+                        setShowConfirmPassword((visible) => !visible)
                       }
                       className="absolute top-1/2 right-3 -translate-y-1/2 text-white/40 transition-colors hover:text-white/60"
                     >
