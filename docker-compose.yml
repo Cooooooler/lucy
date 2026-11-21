@@ -21,5 +21,27 @@ services:
       timeout: 3s
       retries: 5
 
+  # 与 Redis 一样是本地开发的强依赖：db:migrate / 后端单测里的仓储用例 / 后端 e2e
+  # 都需要一个真实 Postgres。此前只能手工准备，导致 e2e 事实上只能在「碰巧装过 PG」
+  # 的机器上跑，也一直没有进入 CI。
+  postgres:
+    image: postgres:17-alpine
+    container_name: lucy-postgres
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:5432:5432'
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: lucy
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   redis-data:
+  postgres-data:

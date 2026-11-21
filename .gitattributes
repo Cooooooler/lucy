@@ -3,3 +3,8 @@
 # 工具改写过的工作区文件（LF）会被判成 modified，但内容其实无变化。
 apps/frontend/src/routeTree.gen.ts text eol=lf
 packages/shared/src/generated/openapi.ts text eol=lf
+
+# Shell 脚本必须是 LF，否则 Windows 检出后 shebang 带上 CR，Git Bash / sh 会报
+# bad interpreter（`#!/usr/bin/env sh\r`）。husky 钩子与 CI 脚本都在此列。
+*.sh text eol=lf
+.husky/* text eol=lf

@@ -2,5 +2,7 @@ pnpm-lock.yaml
 package-lock.json
 yarn.lock
 packages/shared/src/generated/
+# TanStack Router 插件生成，格式化会与插件输出漂移（每次 pnpm format 都产生 diff）
+apps/frontend/src/routeTree.gen.ts
 # 上游技能原样 vendor，避免 prettier 改写规则示例
 .github/skill-review/skills/

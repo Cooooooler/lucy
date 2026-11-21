@@ -24,24 +24,30 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.33.2
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.19.0
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Build shared package
-        run: pnpm --filter @lucy/shared build
-      - name: Build redis package
-        run: pnpm --filter @coool/redis-nest build
-      - name: Build file-nest package
-        run: pnpm --filter @coool/file-nest build
+      # 安装 pnpm/Node/依赖并构建内部包（shared / redis / file-nest）。
+      # 抽成 composite action：这四步原本逐字复制在每个 job 里。
+      - uses: ./.github/actions/setup
+      # 无 --fix：CI 只校验，不在 runner 上静默改代码（本地 lint 仍带 --fix）。
+      # 根目录脚本（scripts/、*.config.js）也要覆盖——它们不属于任何包的 lint 任务。
       - name: Lint
-        run: pnpm lint
+        run: pnpm lint:ci
       - name: Typecheck
         run: pnpm typecheck
+
+  # 应用打包校验：lint/typecheck/单测都不覆盖打包期失败
+  # （React Compiler 的回调提升、ESM 相对导入漏 .js、tailwind/vite 插件配置、
+  #  Nest 的 tsc 产物与装饰器元数据）。此前 CI 从未真正构建过应用产物。
+  build:
+    name: Build apps
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # 内部包由 turbo 的 ^build 依赖负责构建，这里不必重复
+      - uses: ./.github/actions/setup
+        with:
+          build-internal-packages: 'false'
+      - name: Build all packages
+        run: pnpm build
 
   backend-tests:
     name: Backend tests with coverage
@@ -55,20 +61,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.33.2
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.19.0
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Build shared package
-        run: pnpm --filter @lucy/shared build
-      - name: Build redis package
-        run: pnpm --filter @coool/redis-nest build
-      - name: Build file-nest package
-        run: pnpm --filter @coool/file-nest build
+      - uses: ./.github/actions/setup
       - name: Backend tests with coverage
         run: pnpm --filter @lucy/backend test:cov
       - name: Upload coverage report
@@ -79,6 +72,43 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # 后端 e2e：真实 Postgres + Redis，跑迁移往返（migrate → revert → migrate）
+  # 与邮箱归一的数据验证，以及 7 个 spec 的接口级全链路。
+  # 此前完全没进 CI——单测用 mock 覆盖不到「迁移能回滚」「DI 全链路装配」这类问题。
+  backend-e2e:
+    name: Backend e2e
+    runs-on: ubuntu-24.04
+    services:
+      redis:
+        image: redis/redis-stack-server:7.2.0-v16
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        # 迁移/CREATE DATABASE 需要库已就绪，否则 prepare 脚本会连不上
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      # test:e2e 会先跑 test/prepare-e2e-db.ts（重建 lucy_test → 迁移 → 往返校验）
+      # 再跑 vitest；两个 required secret 由 src/test/setup.ts 注入测试值。
+      - name: Backend e2e
+        run: pnpm --filter @lucy/backend test:e2e
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
+
   frontend-tests:
     name: Frontend tests with coverage
     runs-on: ubuntu-24.04
@@ -86,16 +116,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.33.2
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.19.0
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Build shared package
-        run: pnpm --filter @lucy/shared build
+      - uses: ./.github/actions/setup
       - name: Frontend tests with coverage
         run: pnpm --filter @lucy/frontend test:cov
       - name: Upload coverage report
@@ -111,16 +132,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.33.2
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.19.0
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Build shared package
-        run: pnpm --filter @lucy/shared build
+      - uses: ./.github/actions/setup
       # 只装 chromium：整套冒烟用例在浏览器网络层拦掉全部 /api 请求，不需要后端
       - name: Install Playwright browser
         run: pnpm --filter @lucy/frontend exec playwright install --with-deps chromium
@@ -146,14 +158,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
+      - uses: ./.github/actions/setup
         with:
-          version: 10.33.2
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.19.0
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          build-internal-packages: 'false'
       - name: Redis package tests with coverage
         run: pnpm --filter @coool/redis-nest test:cov
       - name: Upload coverage report
@@ -171,14 +178,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
+      - uses: ./.github/actions/setup
         with:
-          version: 10.33.2
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.19.0
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          build-internal-packages: 'false'
       - name: Shared package tests with coverage
         run: pnpm --filter @lucy/shared test:cov
       - name: Upload coverage report
@@ -189,9 +191,57 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  file-nest-tests:
+    name: File-nest package tests with coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          build-internal-packages: 'false'
+      - name: File-nest package tests with coverage
+        run: pnpm --filter @coool/file-nest test:cov
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: file-nest-coverage
+          path: packages/file-nest/coverage
+          if-no-files-found: error
+          retention-days: 1
+
+  # 契约生成物漂移校验：packages/shared/src/generated/openapi.ts 是提交进仓库的生成产物，
+  # 改后端 DTO/实体后必须重新生成。pre-commit 会跑 typegen，但 --no-verify 或忘记提交
+  # 都会让契约静默落后；这里以「重新生成后是否有 diff」为准。
+  contract-drift:
+    name: Contract drift check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          # typegen 经 turbo 运行，其 dependsOn（gen:openapi → ^build）会构建内部包
+          build-internal-packages: 'false'
+      - name: Regenerate contract types
+        # 生成脚本会编译 AppModule；两个 required secret 由 src/test/setup.ts 注入测试值
+        # （vitest.gen.config.ts 已挂 setupFiles），无需在这里重复声明。
+        run: pnpm typegen
+      - name: Fail if generated types are stale
+        run: |
+          if ! git diff --exit-code packages/shared/src/generated/openapi.ts; then
+            echo "::error::packages/shared/src/generated/openapi.ts 与后端契约不一致，请在本地跑 pnpm typegen 并提交"
+            exit 1
+          fi
+
   sonarqube:
     name: SonarCloud Scan
-    needs: [backend-tests, frontend-tests, redis-tests, shared-tests]
+    needs:
+      - backend-tests
+      - frontend-tests
+      - redis-tests
+      - shared-tests
+      - file-nest-tests
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -217,6 +267,11 @@ jobs:
         with:
           name: shared-coverage
           path: packages/shared/coverage
+      - name: Download file-nest coverage report
+        uses: actions/download-artifact@v8
+        with:
+          name: file-nest-coverage
+          path: packages/file-nest/coverage
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v8
         env:

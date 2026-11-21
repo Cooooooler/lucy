@@ -1,0 +1,44 @@
+name: Setup workspace
+description: 安装 pnpm / Node 与 workspace 依赖，并按需构建内部包（shared / redis / file-nest）
+
+# 所有 job 的公共前奏。抽成 composite action 的理由：
+# - 这 4 步（pnpm、node、install、内部包 build）逐字重复在每个 job 里，改一次要改六处；
+# - pnpm store 缓存与 Node 版本只需声明一次。
+#
+# 版本单源：`version` 不传 → pnpm/action-setup 读 package.json 的 packageManager；
+# Node 版本由 .nvmrc 提供 → 与 engines.node 一起维护，不再在 6 个 job 里各写一遍。
+
+inputs:
+  build-internal-packages:
+    description: 是否构建 shared / redis / file-nest（要跑 test / typecheck 的 job 需要；纯构建 job 由 turbo 代劳）
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v6
+      with:
+        # 按 pnpm-lock.yaml 的哈希缓存 store：依赖没变就省掉全部下载
+        cache: true
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version-file: .nvmrc
+
+    - name: Install dependencies
+      # --frozen-lockfile：lockfile 与 package.json 不一致时直接失败，不在 CI 里静默改写
+      shell: bash
+      run: pnpm install --frozen-lockfile
+
+    # 消费方「运行/构建」走 exports.import → dist，所以 test / typecheck 前必须先构建
+    # （typecheck 本身读 src 不受影响，但 vitest 加载的是 dist）。
+    - name: Build internal packages
+      if: inputs.build-internal-packages == 'true'
+      shell: bash
+      run: |
+        pnpm --filter @lucy/shared build
+        pnpm --filter @coool/redis-nest build
+        pnpm --filter @coool/file-nest build

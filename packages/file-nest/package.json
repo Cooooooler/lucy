@@ -28,6 +28,7 @@
     "docs:build": "vitepress build docs",
     "docs:dev": "vitepress dev docs",
     "lint": "eslint \"src/**/*.ts\" --fix",
+    "lint:ci": "eslint \"src/**/*.ts\" --max-warnings 0",
     "prepublishOnly": "pnpm run build && pnpm run test",
     "test": "vitest run",
     "test:cov": "vitest run --coverage",

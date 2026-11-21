@@ -19,8 +19,9 @@
       "outputs": ["src/generated/openapi.ts"]
     },
     "lint": {},
+    "lint:ci": {},
     "test": {
-      "dependsOn": ["build"]
+      "dependsOn": ["^build"]
     },
     "typecheck": {
       "dependsOn": ["^build"]

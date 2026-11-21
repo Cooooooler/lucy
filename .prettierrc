@@ -3,6 +3,7 @@
   "singleQuote": true,
   "trailingComma": "all",
   "proseWrap": "never",
+  "endOfLine": "auto",
   "overrides": [
     {
       "files": ".prettierrc",

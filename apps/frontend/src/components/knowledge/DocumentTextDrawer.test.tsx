@@ -7,6 +7,10 @@ vi.mock('@/hooks/use-knowledge', () => ({ useDocument: vi.fn() }));
 
 const mockedUseDocument = vi.mocked(useDocument);
 
+// XMarkdown（marked + dompurify，约 44KB）是 lazy() 动态 import，正文要等 chunk 加载完
+// 才提交。findBy* 默认超时 1000ms，全量并行跑时这个 import 常超过 1s，会偶发超时。
+const LAZY_CHUNK_TIMEOUT = 5000;
+
 const row = {
   id: 'd1',
   knowledgeBaseId: 'kb1',
@@ -54,8 +58,14 @@ describe('DocumentTextDrawer', () => {
     renderDrawer(row);
 
     expect(await screen.findByText('intro.md')).toBeInTheDocument();
-    // XMarkdown 为懒加载：正文经 Suspense 后才提交
-    expect(await screen.findByText('解析出来的正文')).toBeInTheDocument();
+    // XMarkdown 为懒加载：正文经 Suspense 后才提交。
+    // findBy* 默认只等 1000ms，而全量并行跑时这个动态 import 常超过 1s
+    // （chunk 编译 + 模块求值），会偶发超时。给懒加载留更宽的窗口。
+    expect(
+      await screen.findByText('解析出来的正文', undefined, {
+        timeout: LAZY_CHUNK_TIMEOUT,
+      }),
+    ).toBeInTheDocument();
   });
 
   it('解析全文按 Markdown 渲染（标题、列表等语法生效）', async () => {
@@ -67,7 +77,11 @@ describe('DocumentTextDrawer', () => {
     renderDrawer(row);
 
     expect(
-      await screen.findByRole('heading', { name: '文档标题' }),
+      await screen.findByRole(
+        'heading',
+        { name: '文档标题' },
+        { timeout: LAZY_CHUNK_TIMEOUT },
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText('条目一')).toBeInTheDocument();
   });
