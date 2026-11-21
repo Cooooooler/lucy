@@ -22,6 +22,13 @@
 #      实测两次被误判的输出分别是 2492 / 2584 字节的真实评审（含模型读完 5705 行补丁的说明）。
 # 两次都不合格则输出判空：Assemble 步骤已有空保护，不会发出残缺评论。
 # 每次判废都会把「字节数 + 汉字数 + 前 400 字节」打到 stderr，便于在 CI 日志里直接定位原因。
+#
+# 重试会降一档推理强度（--effort low）：默认强度下 deepseek-v4.1-flash 在
+# 「大技能 + 大补丁」上下文里可能把输出预算全花在 reasoning 上——#132 的 run
+# 44941214672 实测最后三轮连续 outputTokens=0（只有 thinking、没有正文），CLI 内部
+# continuation_recovery 重试两次后放弃，text 模式只剩最后一句旁白（157/92 字节），
+# 于是被判废。同一条命令加 --effort low 后 15 轮正常收尾、输出完整中文评审。
+# 降档只用于重试：首轮仍走 CLI 默认强度，不牺牲正常情况下的评审深度。
 set -uo pipefail
 
 SIDE="${REVIEW_SIDE:?REVIEW_SIDE 未设置}"
@@ -48,13 +55,21 @@ NO_ISSUE_CANON='未发现需要修改的问题'
 # 「无问题」结论的常见变体。只在输出够短时启用（见 is_no_issue），
 # 避免长评审正文里偶然出现这些词被误判成「无问题」。
 NO_ISSUE_RE='未发现(任何|需要(修改|改动|调整)的)?问题|没有发现(任何)?问题|未见(任何)?问题|没有问题|无需(修改|改动|调整)|无问题'
+# 重试用的推理强度（见文件头注释）。空字符串表示不传 --effort，沿用 CLI 默认。
+RETRY_EFFORT=low
 
 run_once() {
+  local effort="${1:-}"
+  local effort_args=()
+  if [ -n "$effort" ]; then
+    effort_args=(--effort "$effort")
+  fi
   timeout -k "$ATTEMPT_KILL_GRACE" "$ATTEMPT_TIMEOUT" \
     command-code -p "$(cat ".pr-skill-review/${SIDE}-prompt.txt")" \
     --no-skills \
     --skill ".github/skill-review/skills/${SKILL}" \
     --model "$SKILL_REVIEW_MODEL" \
+    "${effort_args[@]}" \
     --trust \
     --skip-onboarding \
     --no-auto-update \
@@ -107,9 +122,9 @@ attempt=1
 run_once
 while ! is_valid && [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
   report_invalid "$attempt"
-  echo "${SIDE} review attempt ${attempt} invalid (early-stop suspected), retrying..." >&2
+  echo "${SIDE} review attempt ${attempt} invalid (early-stop suspected), retrying with --effort ${RETRY_EFFORT}..." >&2
   attempt=$((attempt + 1))
-  run_once
+  run_once "$RETRY_EFFORT"
 done
 
 if is_valid; then
