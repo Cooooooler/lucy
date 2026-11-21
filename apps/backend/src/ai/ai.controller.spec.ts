@@ -12,11 +12,22 @@ describe('AiController', () => {
   };
   // SSE 端点已改走 ChatStreamService
   const chatStream = { sendMessage: vi.fn() };
+  const logger = {
+    log: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    verbose: vi.fn(),
+  };
   let controller: AiController;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    controller = new AiController(aiService as never, chatStream as never);
+    controller = new AiController(
+      aiService as never,
+      chatStream as never,
+      logger as never,
+    );
   });
 
   const user = { userId: '1', jti: 'j', role: 'user' };
@@ -116,5 +127,62 @@ describe('AiController', () => {
 
     getCloseHandler()();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('sendMessage 流意外出错时记录日志并关闭响应，不向进程抛出（否则会触发 uncaughtException 退出）', () => {
+    const { res } = mockRes();
+    // 生产者的同步抛错由 RxJS 转成 error 通知；缺省 error 回调时它会被 rethrow 到宿主环境
+    chatStream.sendMessage.mockReturnValue(
+      new Observable<AiStreamEvent>(() => {
+        throw new Error('write boom');
+      }),
+    );
+
+    expect(() =>
+      controller.send(res as never, user, 'c1', { content: 'hi' }),
+    ).not.toThrow();
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('sendMessage 以非 Error 值出错时按 String 记日志且不带栈', () => {
+    const { res } = mockRes();
+    // RxJS 的 error 通知不要求 Error：SDK/中间层可能 reject 字符串或普通对象
+    chatStream.sendMessage.mockReturnValue(
+      new Observable<AiStreamEvent>((sub) => sub.error('boom-string')),
+    );
+
+    controller.send(res as never, user, 'c1', { content: 'hi' });
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('boom-string'),
+      undefined,
+      AiController.name,
+    );
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('sendMessage 出错且响应已结束（writableEnded）时不再重复 end', () => {
+    const { res } = mockRes();
+    res.writableEnded = true;
+    chatStream.sendMessage.mockReturnValue(
+      new Observable<AiStreamEvent>((sub) => sub.error(new Error('late'))),
+    );
+
+    controller.send(res as never, user, 'c1', { content: 'hi' });
+
+    expect(res.end).not.toHaveBeenCalled();
+  });
+
+  it('sendMessage 出错且连接已销毁时不再尝试 end', () => {
+    const { res } = mockRes();
+    res.destroyed = true;
+    chatStream.sendMessage.mockReturnValue(
+      new Observable<AiStreamEvent>((sub) => sub.error(new Error('gone'))),
+    );
+
+    controller.send(res as never, user, 'c1', { content: 'hi' });
+
+    expect(res.end).not.toHaveBeenCalled();
   });
 });

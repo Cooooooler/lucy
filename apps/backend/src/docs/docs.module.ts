@@ -21,8 +21,15 @@ export class DocsModule {
     return SwaggerModule.createDocument(app, config);
   }
 
-  static setup(app: INestApplication): void {
-    if (process.env.NODE_ENV === 'production') {
+  /**
+   * 挂载文档路由。
+   *
+   * `nodeEnv` 由调用方经 `ConfigService` 解析后传入（`main.ts`），本类不直读
+   * `process.env`：取值/校验集中在 `envValidationSchema` 一处。显式传参也让
+   * 「生产环境不暴露文档」这条策略能被单测直接覆盖，无需改动进程级环境变量。
+   */
+  static setup(app: INestApplication, nodeEnv: string | undefined): void {
+    if (nodeEnv === 'production') {
       return;
     }
     const document = this.buildDocument(app);
