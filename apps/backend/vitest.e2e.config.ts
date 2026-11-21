@@ -9,6 +9,10 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     include: ['test/**/*.e2e-spec.ts'],
+    // 与单测同一份 env 注入：envValidationSchema 里 JWT_SECRET / MODEL_PROVIDER_SECRET_KEY
+    // 是 required，而 AppModule 在模块求值时就执行 ConfigModule.forRoot() 并校验。
+    // 此前这里漏配，导致「本地有 apps/backend/.env 才跑得起来、CI 与干净检出直接失败」。
+    setupFiles: ['./src/test/setup.ts'],
     // e2e 必须打独立的测试库：库名必须在 import 阶段之前生效（见 test/prepare-e2e-db.ts 的说明），
     // 所以放在这里而不是各 spec 文件顶部（ESM 提升会让那里的赋值晚于 AppModule 求值）。
     // 库名与「只允许 *_test」的安全阀都来自 test/e2e-db-config.ts —— 直接跑

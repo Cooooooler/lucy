@@ -84,8 +84,8 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 推上去之后每一轮 push 都要付一次 CI + 评审的代价，本地跑一遍远比远端便宜：
 
 - **先 `pnpm --filter @lucy/shared build`**：消费方「运行/构建」走 `exports.import` → `dist`，忘了构建会读到过期 `dist`，出现「常量是 undefined」这类假失败（typecheck 读 `src` 不受影响，所以更容易误判）
-- `pnpm lint` / `pnpm typecheck` / `pnpm test`
-- 改了 `apps/backend/test/**` 或后端启动装配 → **`pnpm --filter @lucy/backend test:e2e`**（真 Postgres + Redis；**Build 工作流不跑后端 e2e**，本地不跑等于没验；前端 e2e 另在 Build 的 `frontend-e2e` job 跑）
+- `pnpm lint:ci` / `pnpm typecheck` / `pnpm test`（`lint:ci` 不带 `--fix`，与 CI 同语义；本地 `pnpm lint` 仍会顺手修）
+- 改了 `apps/backend/test/**` 或后端启动装配 → **`pnpm --filter @lucy/backend test:e2e`**（真 Postgres + Redis；Build 的 `backend-e2e` job 也会跑，但要等 CI 一轮才知道结果；前端 e2e 另在 `frontend-e2e` job 跑）。本地服务用 `docker compose up -d` 起，Postgres 与 Redis 都在 `docker-compose.yml` 里
 - 改了 `apps/frontend/**` 的页面、路由或组件 → **`pnpm --filter @lucy/frontend test:e2e`**（Playwright 冒烟，首次需 `playwright install chromium`；API 全部在网络层被拦截，不需要后端）
 - 改了 DTO/实体 → `pnpm typegen`，生成物一并提交（勿手改，见上文「不要改动生成文件」）
 - pre-commit 会跑 `typegen + lint-staged + typecheck + 全仓 test`，慢是正常的；**不要 `--no-verify`**
@@ -103,7 +103,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 | 反馈 | 位置 | 判读 |
 | --- | --- | --- |
-| CI（Build：lint / typecheck、backend/frontend/redis/shared 的 test+coverage、frontend e2e；**没有 file-nest 测试 job**） | Actions `Build` | 全部 job 绿 |
+| CI（Build：lint / typecheck、`build` 打包、backend/frontend/redis/shared/file-nest 的 test+coverage、backend e2e、frontend e2e、契约漂移） | Actions `Build` | 全部 job 绿 |
 | Sonar 质量门禁 | SonarCloud 检查 / `get_project_quality_gate_status` | 本仓门禁共 **6 条**：`new_reliability_rating ≤ 1`、`new_security_rating ≤ 1`、`new_maintainability_rating ≤ 1`、`new_coverage ≥ 80`、`new_duplicated_lines_density ≤ 3`、`new_security_hotspots_reviewed = 100%`。重复率的检测范围见 `sonar-project.properties` 的 `sonar.cpd.exclusions`——测试文件与后端 DTO 不参与重复率，但它们仍参与代码规范/漏洞扫描 |
 | 技能评审 | PR **会话评论**（不是行内 review thread） | **仅手动触发**（PR 里评论 `/skill-review`）后才有，未触发时该行恒为空；`gh api repos/<owner>/<repo>/issues/<n>/comments --jq '.[-1].body'` 读**最新一条**，并核对其「评审 commit」是否等于当前 head |
 
