@@ -28,7 +28,12 @@
 # 44941214672 实测最后三轮连续 outputTokens=0（只有 thinking、没有正文），CLI 内部
 # continuation_recovery 重试两次后放弃，text 模式只剩最后一句旁白（157/92 字节），
 # 于是被判废。同一条命令加 --effort low 后 15 轮正常收尾、输出完整中文评审。
-# 降档只用于重试：首轮仍走 CLI 默认强度，不牺牲正常情况下的评审深度。
+# 但降档并不总够：#132 的 17.7KB 补丁（含 SSE 修复）在 --effort low 下仍复现
+# （run 44947769810：两次都只有 78/173 字节旁白），本地用 CLI 1.93 同样复现——
+# 上下文涨到 ~70k~100k 后该模型会连续只吐 reasoning。因此重试还要换模型：
+# SKILL_REVIEW_FALLBACK_MODEL（workflow 传入，默认 z-ai/glm-5.3-flash）。
+# 实测同一补丁 + 同一 prompt，glm-5.3-flash 6 轮 37 秒产出完整中文评审。
+# 降档 + 换模型只用于重试：首轮仍走主模型与 CLI 默认强度，不牺牲正常评审质量。
 set -uo pipefail
 
 SIDE="${REVIEW_SIDE:?REVIEW_SIDE 未设置}"
@@ -55,11 +60,14 @@ NO_ISSUE_CANON='未发现需要修改的问题'
 # 「无问题」结论的常见变体。只在输出够短时启用（见 is_no_issue），
 # 避免长评审正文里偶然出现这些词被误判成「无问题」。
 NO_ISSUE_RE='未发现(任何|需要(修改|改动|调整)的)?问题|没有发现(任何)?问题|未见(任何)?问题|没有问题|无需(修改|改动|调整)|无问题'
-# 重试用的推理强度（见文件头注释）。空字符串表示不传 --effort，沿用 CLI 默认。
+# 重试用的推理强度与模型（见文件头注释）。空字符串 effort 表示不传 --effort，
+# 沿用 CLI 默认；未配置备用模型时退回主模型。
 RETRY_EFFORT=low
+RETRY_MODEL="${SKILL_REVIEW_FALLBACK_MODEL:-$SKILL_REVIEW_MODEL}"
 
 run_once() {
   local effort="${1:-}"
+  local model="${2:-$SKILL_REVIEW_MODEL}"
   local effort_args=()
   if [ -n "$effort" ]; then
     effort_args=(--effort "$effort")
@@ -68,7 +76,7 @@ run_once() {
     command-code -p "$(cat ".pr-skill-review/${SIDE}-prompt.txt")" \
     --no-skills \
     --skill ".github/skill-review/skills/${SKILL}" \
-    --model "$SKILL_REVIEW_MODEL" \
+    --model "$model" \
     "${effort_args[@]}" \
     --trust \
     --skip-onboarding \
@@ -122,9 +130,9 @@ attempt=1
 run_once
 while ! is_valid && [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
   report_invalid "$attempt"
-  echo "${SIDE} review attempt ${attempt} invalid (early-stop suspected), retrying with --effort ${RETRY_EFFORT}..." >&2
+  echo "${SIDE} review attempt ${attempt} invalid (early-stop suspected), retrying with ${RETRY_MODEL} --effort ${RETRY_EFFORT}..." >&2
   attempt=$((attempt + 1))
-  run_once "$RETRY_EFFORT"
+  run_once "$RETRY_EFFORT" "$RETRY_MODEL"
 done
 
 if is_valid; then
