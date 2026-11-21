@@ -88,6 +88,10 @@ jobs:
       # 简写 deepseek-v4.1-flash 也可；不再走 BYOK providers.json）。
       # 固定为 DeepSeek V4.1 Flash。
       SKILL_REVIEW_MODEL: deepseek/deepseek-v4.1-flash
+      # 判废重试时换用的模型（配合 --effort low）。主模型在「大技能 + 大补丁」
+      # 上下文涨到 ~70k~100k 后会间歇性地只返回 reasoning、outputTokens=0，
+      # 降档也压不住（#132 的 run 44947769810）；glm-5.3-flash 同补丁 37 秒正常收尾。
+      SKILL_REVIEW_FALLBACK_MODEL: z-ai/glm-5.3-flash
     steps:
       - name: Resolve review target
         # issue_comment 的载荷里只有 issue.number，没有 base/head；统一在这里解析成后续
