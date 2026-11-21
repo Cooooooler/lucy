@@ -17,6 +17,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
+import { Subscription } from 'rxjs';
 import { AppLogger } from '../common/app-logger.service.js';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
@@ -157,38 +158,69 @@ export class AiController {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
-    const subscription = this.chatStream
-      .sendMessage(user.userId, id, dto)
-      .subscribe({
-        next: (event) => {
-          if (!res.destroyed && !res.writableEnded) {
-            res.write(`data: ${JSON.stringify(event)}\n\n`);
-          }
-        },
+    // 本响应是否已经收尾。不只看 writableEnded/destroyed：end() 抛错时 writableEnded
+    // 不会置位，靠这个本地标记保证只收尾一次。
+    let closed = false;
+    const isClosed = (): boolean =>
+      closed || res.destroyed || res.writableEnded;
+    const logStreamError = (message: string, err: unknown): void => {
+      this.logger.error(
+        `SSE ${message} conversation=${id}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        err instanceof Error ? err.stack : undefined,
+        AiController.name,
+      );
+    };
+    const closeResponse = (): void => {
+      if (isClosed()) {
+        return;
+      }
+      closed = true;
+      try {
+        res.end();
+      } catch (err) {
+        logStreamError('关闭响应失败', err);
+      }
+    };
+
+    // 用 Subscription 容器承接内层订阅：写帧失败时可能在 subscribe() 返回前就要退订
+    // （同步数据源），直接引用返回值会拿不到。
+    const subscription = new Subscription();
+    // 写帧统一走这里：res.write 在客户端断开后可能同步抛错。RxJS 对 next/complete
+    // 回调里抛出的异常不会交给下面的 error 回调，而是经 handleUnhandledError 异步
+    // 重抛到宿主事件循环（最终命中 main.ts 的 uncaughtException → process.exit(1)）。
+    // 所以这里就地兜住，失败即记日志、退订并尽力关闭响应，让写失败止步于单条连接。
+    const writeFrame = (chunk: string): void => {
+      if (isClosed()) {
+        return;
+      }
+      try {
+        res.write(chunk);
+      } catch (err) {
+        logStreamError('写帧失败', err);
+        subscription.unsubscribe();
+        closeResponse();
+      }
+    };
+
+    subscription.add(
+      this.chatStream.sendMessage(user.userId, id, dto).subscribe({
+        next: (event) => writeFrame(`data: ${JSON.stringify(event)}\n\n`),
         complete: () => {
-          if (!res.destroyed && !res.writableEnded) {
-            res.write('data: [DONE]\n\n');
-          }
-          res.end();
+          writeFrame('data: [DONE]\n\n');
+          closeResponse();
         },
         // 必须显式处理：RxJS 在订阅缺省 error 回调时会把错误 rethrow 到宿主环境，
         // 那个异常落在事件循环里、不属于任何请求上下文，会撞上 main.ts 的
         // `uncaughtException` → `process.exit(1)`，把单条流的故障放大成整进程退出。
-        // ChatStreamService 正常路径已自行发 error 帧并以 complete 收尾，走到这里的是
-        // 意料之外的失败（如客户端断开后 res.write 抛错），只补日志并关闭本响应。
+        // 走到这里的是源发出的 error 通知；写帧本身的异常由上面的 writeFrame 兜住。
         error: (err: unknown) => {
-          this.logger.error(
-            `SSE 流异常终止 conversation=${id}: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-            err instanceof Error ? err.stack : undefined,
-            AiController.name,
-          );
-          if (!res.destroyed && !res.writableEnded) {
-            res.end();
-          }
+          logStreamError('流异常终止', err);
+          closeResponse();
         },
-      });
+      }),
+    );
     // 客户端断开时取消订阅，触发 service 的 AbortController 中断模型流
     res.on('close', () => subscription.unsubscribe());
   }

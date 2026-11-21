@@ -185,4 +185,57 @@ describe('AiController', () => {
 
     expect(res.end).not.toHaveBeenCalled();
   });
+
+  it('sendMessage 写帧同步抛错时就地兜住：记日志、退订并关闭响应，不向进程抛出', () => {
+    const { res } = mockRes();
+    const unsubscribe = vi.fn();
+    // 客户端断开后 res.write 会同步抛错；这个异常发生在 next 回调里，
+    // RxJS 不会交给 error 回调，而是异步重抛到宿主环境（uncaughtException）
+    res.write.mockImplementation(() => {
+      throw new Error('socket gone');
+    });
+    chatStream.sendMessage.mockReturnValue({
+      subscribe: (observer: { next: (event: AiStreamEvent) => void }) => {
+        observer.next({
+          type: 'delta',
+          requestId: 'r1',
+          role: 'ai',
+          data: { content: '你' },
+        });
+        return { unsubscribe };
+      },
+    });
+
+    expect(() =>
+      controller.send(res as never, user, 'c1', { content: 'hi' }),
+    ).not.toThrow();
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('socket gone'),
+      expect.any(String),
+      AiController.name,
+    );
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('sendMessage 收尾帧写失败时同样兜住，且只 end 一次', () => {
+    const { res } = mockRes();
+    const unsubscribe = vi.fn();
+    res.write.mockImplementation(() => {
+      throw new Error('closed pipe');
+    });
+    chatStream.sendMessage.mockReturnValue({
+      subscribe: (observer: { complete: () => void }) => {
+        observer.complete();
+        return { unsubscribe };
+      },
+    });
+
+    expect(() =>
+      controller.send(res as never, user, 'c1', { content: 'hi' }),
+    ).not.toThrow();
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
 });
