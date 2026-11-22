@@ -4,6 +4,7 @@ import {
   VERSION_NEUTRAL,
   VersioningType,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
@@ -18,10 +19,13 @@ async function bootstrap() {
   // 用 Pino Logger 替换 Nest 默认 Logger（已缓冲的启动日志随后刷新）
   app.useLogger(app.get(Logger));
   app.flushLogs();
+  // 配置统一经 ConfigService 读取（而不是直读 process.env）：取值/默认值与
+  // envValidationSchema 的校验同源，启动期就拦下非法配置（`devops-use-config-module`）
+  const config = app.get(ConfigService);
   app.use(helmet());
   // 未配置 CORS_ORIGIN 时 origin:false 即仅同源（不返回 CORS 头），安全默认；跨源需显式白名单
   app.enableCors({
-    origin: resolveCorsOrigin(),
+    origin: resolveCorsOrigin(config.get<string>('CORS_ORIGIN')),
     credentials: true,
   });
   app.use(cookieParser());
@@ -41,7 +45,7 @@ async function bootstrap() {
     next();
   });
 
-  DocsModule.setup(app);
+  DocsModule.setup(app, config.get<string>('NODE_ENV'));
   // 优雅停机：SIGTERM/SIGINT 触发 Nest 关闭生命周期 —— 先 `beforeApplicationShutdown`
   // （ShutdownService 置停机位使新请求被拒/健康检查 503，ChatStreamService 中止在途 SSE
   // 并等待其落库收敛），再 dispose 服务器、释放 DB/Redis 连接。整个过程的**兜底强退**与
@@ -57,6 +61,8 @@ async function bootstrap() {
     new NestLogger('Bootstrap').error('Uncaught exception', error.stack);
     process.exit(1);
   });
-  await app.listen(process.env.PORT ?? 3000);
+  // 显式 Number：ConfigService 可能返回字符串（与 app.module 的 REDIS_PORT 同口径）；
+  // 字符串端口会被 Node 当成 pipe path 而不是监听端口
+  await app.listen(Number(config.get<number>('PORT', 3000)));
 }
 await bootstrap();
