@@ -1,0 +1,35 @@
+appId: com.lucy.desktop
+productName: Lucy
+copyright: Copyright © 2026 Lucy
+
+directories:
+  output: release
+
+# 只有 electron-vite 的三段产物需要入包：
+# main/preload 已打成 CJS，renderer 已全量打包，生产依赖为空，因此不收集 node_modules。
+files:
+  - out/**/*
+  - package.json
+
+asar: true
+# 打包默认不上传（需要发布时显式传 --publish）
+publish: null
+# 提高压缩率，减小安装包体积（构建时间略增）
+compression: maximum
+# 没有原生模块，跳过 @electron/rebuild
+npmRebuild: false
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Lucy

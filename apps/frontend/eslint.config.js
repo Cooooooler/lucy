@@ -34,6 +34,14 @@ export default defineConfig([
     },
   },
 
+  // 渲染进程 Vite 配置片段在 Node 中执行（process.env），补 Node 全局
+  {
+    files: ['vite.shared.ts'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
+
   // Prettier 集成（收尾）
   ...prettier,
 ]);
