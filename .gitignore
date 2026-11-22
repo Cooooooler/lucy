@@ -1,6 +1,8 @@
 dist
 node_modules
 build
+/apps/desktop/out/
+/apps/desktop/release/
 *.tsbuildinfo
 logs
 *.log

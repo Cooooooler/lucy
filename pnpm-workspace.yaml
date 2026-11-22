@@ -2,6 +2,23 @@ packages:
   - 'apps/*'
   - 'packages/*'
 
+# electron-builder 的 Squirrel.Windows 目标依赖 electron-winstaller，但我们只用 NSIS；
+# 显式忽略它的构建脚本，避免每次 install 都提示需要 approve-builds。
+ignoredBuiltDependencies:
+  - electron-winstaller
+
+# 已知的开发期 peer 漂移（不影响运行时），显式放行以消除安装噪音：
+# - openapi-typescript 仍声明 typescript ^5，仓库统一用 TS 6
+# - @commitlint/read 的传递依赖期望 conventional-commits-parser ^7，实际 6.x
+# - vitepress/@docsearch 的 React 组件仅用于文档站，声明 <19，应用侧是 19
+peerDependencyRules:
+  allowedVersions:
+    typescript: '6'
+    conventional-commits-parser: '6'
+    react: '19'
+    react-dom: '19'
+    '@types/react': '19'
+
 # 跨包共享依赖的单一版本源。@nestjs/* 全树版本必须一致（Nest DI 依赖类身份），ioredis 被 backend 与 redis 包共享。
 catalog:
   '@nestjs/common': ^11.0.1

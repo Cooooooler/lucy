@@ -4,10 +4,11 @@ This file provides guidance to coding agents (Command Code / Claude Code) when w
 
 ## 项目概览
 
-pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/*`），所有工作区包统一为 ESM（根 `package.json` 未声明 `type`，`commitlint.config.js` 仍是 CJS）：
+pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/*`），工作区包统一为 ESM（例外：`apps/desktop` 不声明 `type: module`，Electron main/preload 按 CJS 产出；根 `package.json` 未声明 `type`，`commitlint.config.js` 仍是 CJS）：
 
 - `apps/backend` — NestJS 11（Express），TypeScript ESM（`type: module`，`nodenext`），Vitest 4（unplugin-swc 提供装饰器元数据），PostgreSQL + TypeORM + Redis（经 `@coool/redis-nest`，RedisBloom）+ 文件存储（经 `@coool/file-nest`）
 - `apps/frontend` — Vite + React 19 + TypeScript，TanStack Router/Query/Store，antd 6 + ProComponents，Tailwind CSS 4，Vitest + jsdom
+- `apps/desktop` — Electron 桌面端（electron-vite v6）：`main`/`preload` 在 `apps/desktop/src`，`renderer` 直接复用 `apps/frontend` 源码与 Vite 插件；后端仍是独立运行的 NestJS，不打进桌面端
 - `packages/shared` — `@lucy/shared` 共享类型与常量，tsup 构建为纯 ESM（`dist/index.js` + `dist/index.d.ts`）
 - `packages/redis` — `@coool/redis-nest` 自研 NestJS Redis 集成模块（ioredis：连接管理/序列化/DI/多数据源/统一异常/`RedisService.raw` 逃生舱），后端 `RedisModule` 消费它；`packages/redis/README.md` + VitePress 文档见 `packages/redis/docs/`
 - `packages/file-nest` — `@coool/file-nest` 文件存储集成模块（`StorageDriver` 抽象 + `LocalStorageDriver`，`FileService` 只处理字节并返回 `StoredFile`，不落库任何元数据；`FileModule.forRoot/forRootAsync` 全局注册），后端 `FileModule` 消费它；tsup 构建双格式（esm + cjs），VitePress 文档见 `packages/file-nest/docs/`
@@ -17,15 +18,16 @@ pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/
 | 命令 | 说明 |
 | --- | --- |
 | `pnpm install` | 安装依赖（CI 用 `--frozen-lockfile`） |
-| `pnpm dev` | Turbo 并行启动所有应用 |
+| `pnpm dev` | 默认并行启动后端 + Electron 桌面端（`@lucy/backend` + `@lucy/desktop`） |
 | `pnpm dev:backend` / `pnpm dev:frontend` | 只启动某个应用（`--filter`） |
+| `pnpm dev:web` / `pnpm dev:all` | 只跑浏览器端 / 同时跑全部 dev 任务（Web 5173、Electron renderer 5174） |
 | `pnpm build` | Turbo 构建 |
 | `pnpm lint` | Turbo 跑 lint |
 | `pnpm test` | Turbo 跑测试（**turbo.json 中 test 依赖 build，会先构建**） |
 | `pnpm typecheck` | Turbo 跑 typecheck（依赖 `^build`，先构建依赖包） |
 | `pnpm typegen` | 从后端 Swagger spec 重新生成共享契约类型（先 `gen:openapi` 出 spec，再 openapi-typescript） |
 | `pnpm format` | 根目录 prettier 全量格式化 |
-| `pnpm clean` | `scripts/clean.mjs` 清理各工作区 `dist/.umi/.umi-production/.mfsu/.swc/coverage/node_modules` 及 `.tsbuildinfo` |
+| `pnpm clean` | `scripts/clean.mjs` 清理各工作区 `dist/out/.umi/.umi-production/.mfsu/.swc/coverage/node_modules` 及 `.tsbuildinfo` |
 | `pnpm commit` | commitizen 交互式提交（遵循 Conventional Commits） |
 
 按包执行：
@@ -38,11 +40,16 @@ pnpm --filter @lucy/backend test:e2e                          # 后端 e2e（tes
 pnpm --filter @lucy/frontend test                             # 前端全部单测
 pnpm --filter @lucy/frontend test src/stores/auth.test.ts     # 单个测试文件
 pnpm --filter @lucy/frontend test:e2e                         # 前端 e2e 冒烟（Playwright；首次需先装浏览器）
+pnpm --filter @lucy/desktop dev                               # Electron 开发（main/preload 热重启 + renderer HMR）
+pnpm --filter @lucy/desktop build                             # 构建 out/{main,preload,renderer}
+pnpm --filter @lucy/desktop preview                           # 用构建产物启动（需后端已在 3000，或设 LUCY_BACKEND_URL）
+pnpm --filter @lucy/desktop run pack                          # 打包为未压缩目录 release/win-unpacked（electron-builder --dir）
+pnpm --filter @lucy/desktop run dist:win                      # 生成 NSIS 安装包 release/Lucy-<version>-x64-setup.exe
 pnpm --filter @lucy/shared build                              # 构建 shared（消费方 build / 运行前先构建；typecheck 读 src 免构建）
 pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 ```
 
-**filter 名**：backend=`@lucy/backend`、shared=`@lucy/shared`、frontend=`@lucy/frontend`、redis=`@coool/redis-nest`、file-nest=`@coool/file-nest`。
+**filter 名**：backend=`@lucy/backend`、shared=`@lucy/shared`、frontend=`@lucy/frontend`、desktop=`@lucy/desktop`、redis=`@coool/redis-nest`、file-nest=`@coool/file-nest`。
 
 ## 关键约定与注意事项
 
@@ -216,6 +223,17 @@ Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite bui
 - **目录**：`src/api`（hook-fetch HTTP 客户端）、`src/auth`（AuthProvider）、`src/backgrounds`（视觉特效）、`src/components`、`src/hooks`、`src/routes`、`src/stores`、`src/test`（fixtures + setup）、`src/theme`、`src/assets`。
 - **测试**：Vitest + jsdom + Testing Library。前端覆盖率门槛 **60%**（`apps/frontend/vitest.config.ts`，排除视觉特效、路由、生成代码等非业务模块）；后端门槛 **80%**（`apps/backend/vitest.config.ts`）。
 - **e2e 冒烟**（`e2e/smoke.spec.ts` + `playwright.config.ts`，CI 里是独立 job `frontend-e2e`）：逐个打开全部路由，断言文档标题 / 页面锚点 / 落地路径，并要求**控制台无 error、无未捕获异常**。全程在浏览器网络层拦掉 `/api/**`（连同 `/v1/**` 一起拦，以免隐式依赖上面那处 NODE_ENV 修正），不依赖后端进程。存在的理由：React Compiler 会把 `useCallback(fn, [])` 这类「不依赖响应式值」的回调提升到模块作用域，一旦它捕获了不该捕获的局部变量就只在运行时炸（`ReferenceError` + 整页白屏），而 tsc / lint / vitest 全都发现不了（前端 vitest 用 `@vitejs/plugin-react`，没有加载 React Compiler preset）。本地首次跑需 `pnpm --filter @lucy/frontend exec playwright install chromium`；webServer 显式绑 `127.0.0.1`——vite 默认绑 IPv6，用 `localhost` 探测会看不到已在跑的 dev server，转而自己再启一个并撞端口。
+
+### apps/desktop（Electron）
+
+electron-vite v6 三段构建：`main`/`preload` 在 `apps/desktop/src`，`renderer` 直接把 `apps/frontend` 作为 Vite root（插件/别名/`/api` 代理统一在 `apps/frontend/vite.shared.ts`，Web 与 Electron 共用一份）。入口 `src/main/index.ts`、`src/preload/index.ts`，产物 `out/main`、`out/preload`、`out/renderer`，`package.json#main` 指向 `out/main/index.js`。
+
+- **后端独立运行**：桌面端不托管 NestJS（不改 Postgres/Redis 依赖）。dev 时 renderer 经 electron-vite 的 `/api` 代理访问 `localhost:3000`；build/preview 时 `src/main/server.ts` 起一个只绑 `127.0.0.1` 的本地 HTTP 服务，同时把 `/api`、`/v1` 反代到后端（`LUCY_BACKEND_URL` 可覆盖）。渲染进程始终是同源 HTTP，HttpOnly + SameSite=Lax 的 refresh cookie 正常生效，避免 `file://` 下登录失效。
+- **renderer base 必须为 `/`**：electron-vite 在 production 强制 `base: './'`（file:// 设计），会让 `/knowledge/:id` 这类嵌套路由刷新后把 `./assets/*` 解析到 `/knowledge/assets/*`。配置里用 post 阶段的插件改回 `/`；静态服务器对无扩展名路径做 SPA fallback。
+- **dev 端口**：Electron renderer 固定 5174（严格端口），与浏览器端 5173 错开，`pnpm dev:all` 可同时跑。
+- **安全基线**（`src/main/security.ts` + `webPreferences`）：`sandbox`/`contextIsolation` 开，`nodeIntegration`（含 worker/subframe）关，`webSecurity` 开，`allowRunningInsecureContent`/`experimentalFeatures`/`webviewTag` 关；同时下发 CSP（prod 严格，dev 放行 Vite HMR 与内联脚本；`img-src` 额外放行 Unsplash 背景图）、默认拒绝所有权限请求（仅放行 `clipboard-sanitized-write`，供表格 copyable）、`will-navigate` 只允许同 origin、新窗口一律 deny 且仅把 http(s) 外链交给系统浏览器、禁止 `<webview>`。新增远程资源/外部能力时同步更新 `security.ts` 的 CSP 与权限白名单。
+- **打包分发**（electron-builder 26，配置 `electron-builder.yml`）：`run pack` 产出未压缩目录 `release/win-unpacked`，`run dist:win` 产出 NSIS 安装包 `release/Lucy-<version>-x64-setup.exe`（非一键安装、允许改安装目录）。只打包 `out/**` + `package.json`：renderer 已全量打包并压缩（`minify: true`）、main/preload 已打成 CJS，生产依赖为空，因此不收集 `node_modules`（`npmRebuild: false`）。`publish: null` 防止误上传；`compression: maximum`。应用图标为 `apps/desktop/build-resources/icon.png`（由 `apps/frontend/public/favicon.svg` 经 Playwright 渲染为 512x512）。注意 `pnpm ... pack` 会命中 pnpm 内置命令，必须写成 `pnpm ... run pack`。代码签名未配置，Windows 会提示未知发布者；需要签名时设置 `CSC_LINK`/`CSC_KEY_PASSWORD`（macOS）或 `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD`（Windows）后重跑即可。
+- **安装包不含后端**：NestJS/Postgres/Redis 仍需独立运行，桌面端启动后访问 `http://localhost:3000`（或设置 `LUCY_BACKEND_URL`），否则 API 请求返回 502。
 
 ### packages/shared（@lucy/shared）
 

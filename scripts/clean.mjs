@@ -6,6 +6,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const targets = [
   'dist',
+  'out',
+  'release',
   '.umi',
   '.umi-production',
   '.mfsu',
