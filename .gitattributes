@@ -8,3 +8,12 @@ packages/shared/src/generated/openapi.ts text eol=lf
 # bad interpreter（`#!/usr/bin/env sh\r`）。husky 钩子与 CI 脚本都在此列。
 *.sh text eol=lf
 .husky/* text eol=lf
+
+# Electron 桌面端与共享 Vite 配置：保持 LF（与仓库 blob 一致），避免 Windows 检出后
+# 再次 add 时反复提示 “LF will be replaced by CRLF”。图标等二进制文件不受影响。
+apps/desktop/**/*.ts text eol=lf
+apps/desktop/**/*.mjs text eol=lf
+apps/desktop/**/*.json text eol=lf
+apps/desktop/**/*.yml text eol=lf
+apps/frontend/vite.config.ts text eol=lf
+apps/frontend/vite.shared.ts text eol=lf

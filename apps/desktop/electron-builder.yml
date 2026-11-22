@@ -4,6 +4,9 @@ copyright: Copyright © 2026 Lucy
 
 directories:
   output: release
+  # icon.png 由 apps/frontend/public/favicon.svg 渲染生成（512x512），
+  # electron-builder 会自动转换为 Windows .ico
+  buildResources: build-resources
 
 # 只有 electron-vite 的三段产物需要入包：
 # main/preload 已打成 CJS，renderer 已全量打包，生产依赖为空，因此不收集 node_modules。
@@ -20,6 +23,7 @@ compression: maximum
 npmRebuild: false
 
 win:
+  icon: build-resources/icon.png
   target:
     - target: nsis
       arch:

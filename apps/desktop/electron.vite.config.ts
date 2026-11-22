@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import {
   createRendererPlugins,
   normalizeDevNodeEnv,
+  rendererChunkSizeWarningLimit,
   rendererOptimizeDeps,
   rendererProxy,
   rendererResolve,
@@ -54,6 +55,9 @@ export default defineConfig(({ command }) => {
       build: {
         outDir: resolve(__dirname, 'out/renderer'),
         emptyOutDir: true,
+        // electron-vite 默认 minify: false（便于调试），生产包应压缩
+        minify: true,
+        chunkSizeWarningLimit: rendererChunkSizeWarningLimit,
         rollupOptions: {
           input: resolve(frontendRoot, 'index.html'),
         },

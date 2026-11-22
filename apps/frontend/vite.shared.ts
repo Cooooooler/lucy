@@ -43,6 +43,13 @@ export const rendererOptimizeDeps = {
 };
 
 /**
+ * 路由级 autoCodeSplitting 已生效；antd/pro-components 的懒加载路由块压缩后
+ * 单体仍会 >500kB（Table 约 690kB，gzip 约 214kB），属预期体积。
+ * Web 与 Electron 构建共用这个阈值，避免每次构建都刷无意义的 chunk-size 告警。
+ */
+export const rendererChunkSizeWarningLimit = 1700;
+
+/**
  * `/api` → 后端（浏览器 dev / Electron renderer dev 共用）。
  * 走代理让渲染进程只看见同源，因此刷新令牌的 HttpOnly cookie 天然生效，也不触发 CORS。
  */
