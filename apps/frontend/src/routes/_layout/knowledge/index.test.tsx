@@ -1,6 +1,7 @@
 import type { KnowledgeBase } from '@/api/types.ts';
 import { VirtualCardGrid } from '@/components/card-list/VirtualCardGrid.tsx';
 import { makeKb } from '@/components/knowledge/knowledge-test-fixture.ts';
+import { clearPageStateCaches } from '@/components/page-state-cache';
 import { useInfiniteKnowledgeBaseList } from '@/hooks/use-knowledge';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
@@ -164,6 +165,8 @@ async function submitSearch(value: string) {
 describe('routes/_layout/knowledge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 筛选条件现在由 <PageStateCache> 会话内缓存，用例之间必须复位
+    clearPageStateCaches();
     mockedList.mockReturnValue(noopQuery());
     for (const mutation of Object.values(mutationMocks)) {
       mutation.isPending = false;
@@ -363,6 +366,28 @@ describe('routes/_layout/knowledge', () => {
         visibility: 'public',
       }),
     );
+  });
+
+  it('重新进入页面时恢复上次的筛选（关键词 + 可见性）', async () => {
+    const first = renderRoute();
+
+    await submitSearch('产品');
+    await userEvent.click(screen.getByText('公开'));
+    await waitFor(() =>
+      expect(mockedList.mock.calls.at(-1)?.[0]).toEqual({
+        name: '产品',
+        visibility: 'public',
+      }),
+    );
+    first.unmount();
+
+    renderRoute();
+
+    expect(mockedList).toHaveBeenLastCalledWith({
+      name: '产品',
+      visibility: 'public',
+    });
+    expect(screen.getByPlaceholderText('按名称搜索知识库')).toHaveValue('产品');
   });
 
   it('清空关键词时按空条件重新查询', async () => {

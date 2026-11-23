@@ -11,6 +11,7 @@ import {
   type VisibilityFilter,
 } from '@/components/knowledge/KnowledgeToolbar.tsx';
 import { PageShell } from '@/components/page-shell';
+import { PageStateCache, usePageState } from '@/components/page-state-cache';
 import { pendingIdOf } from '@/hooks/pending-id.ts';
 import {
   useDeleteKnowledgeBase,
@@ -40,8 +41,8 @@ const EMPTY_LABEL: CardGridEmptyLabel = {
 const KnowledgeComponent = () => {
   const { message, modal } = App.useApp();
 
-  // 页面状态缓存已移除：不再保存/恢复上次的筛选与滚动位置，
-  // 每次进入都是空筛选、从列表顶部开始。
+  // 滚动位置仍不恢复（虚拟网格的锚点恢复已随旧缓存层移除）；
+  // 筛选条件属于「再次进入要恢复」的页面状态，由 <PageStateCache> 承载。
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
     null,
   );
@@ -49,8 +50,11 @@ const KnowledgeComponent = () => {
     scrollElement?.scrollTo({ top: 0 });
   }, [scrollElement]);
 
-  const [committedName, setCommittedName] = useState('');
-  const [visibility, setVisibility] = useState<VisibilityFilter>('all');
+  const [committedName, setCommittedName] = usePageState('name', '');
+  const [visibility, setVisibility] = usePageState<VisibilityFilter>(
+    'visibility',
+    'all',
+  );
   /** 单例表单抽屉的目标：create / edit(kb) / 关闭(null) */
   const [formTarget, setFormTarget] = useState<
     { mode: 'create' } | { mode: 'edit'; kb: KnowledgeBase } | null
@@ -172,7 +176,7 @@ const KnowledgeComponent = () => {
       setCommittedName(value);
       resetToTop();
     },
-    [resetToTop],
+    [resetToTop, setCommittedName],
   );
 
   const handleVisibilityChange = useCallback(
@@ -180,7 +184,7 @@ const KnowledgeComponent = () => {
       setVisibility(value);
       resetToTop();
     },
-    [resetToTop],
+    [resetToTop, setVisibility],
   );
 
   /** 刷新：重新加载当前筛选，并回到列表顶部 */
@@ -231,7 +235,7 @@ const KnowledgeComponent = () => {
         onVisibilityChange={handleVisibilityChange}
         onSearch={handleSearch}
         onRefresh={handleRefresh}
-        defaultKeyword=""
+        defaultKeyword={committedName}
         onCreate={handleCreate}
       />
       {/* 滚动交给 PageShell 自身：滚动条贴限宽容器右缘，而不是被内边距推离 */}
@@ -263,6 +267,13 @@ const KnowledgeComponent = () => {
   );
 };
 
+/** 缓存作用域只包页面本体：表单抽屉等临时状态不经过 usePageState，因此不会被恢复 */
+const KnowledgeRoute = () => (
+  <PageStateCache cacheKey="knowledge-list">
+    <KnowledgeComponent />
+  </PageStateCache>
+);
+
 export const Route = createFileRoute('/_layout/knowledge/')({
-  component: KnowledgeComponent,
+  component: KnowledgeRoute,
 });
