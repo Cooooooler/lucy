@@ -8,7 +8,7 @@ describe('queryClient', () => {
     const defaults = queryClient.getDefaultOptions();
     expect(defaults.queries?.retry).toBe(1);
     expect(defaults.queries?.staleTime).toBe(0);
-    expect(defaults.queries?.gcTime).toBe(0);
+    expect(defaults.queries?.gcTime).toBe(5 * 60 * 1000);
     expect(defaults.queries?.refetchOnWindowFocus).toBe(false);
     expect(defaults.mutations?.retry).toBe(false);
   });
