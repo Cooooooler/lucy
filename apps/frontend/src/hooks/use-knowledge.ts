@@ -26,12 +26,15 @@ import type {
   PageResult,
 } from '@lucy/shared';
 import {
+  type QueryClient,
   useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
 import { useCallback } from 'react';
+import { type CachePatch, applyOptimistic } from './lib/optimistic';
+import { patchCursorPageItem, removeCursorPageItem } from './lib/query-shapes';
 
 /** 默认每页条数（游标分页，同时是列表 queryKey 的一部分） */
 export const KNOWLEDGE_PAGE_SIZE = 20;
@@ -71,6 +74,110 @@ export const knowledgeKeys = {
     [...knowledgeKeys.documents(kbId), id] as const,
 };
 
+// ==== 乐观更新 ============================================================
+
+type VisibilityVariables = {
+  id: string;
+  visibility: KnowledgeBaseVisibility;
+};
+
+/** 写回缓存：详情（精确 key）+ 所有筛选条件的列表分页（前缀），不触发 refetch */
+function patchBaseInCache(
+  queryClient: QueryClient,
+  id: string,
+  patch: Partial<KnowledgeBase>,
+) {
+  queryClient.setQueryData<KnowledgeBase>(knowledgeKeys.base(id), (old) =>
+    old?.id === id ? { ...old, ...patch } : old,
+  );
+  queryClient.setQueriesData(
+    { queryKey: knowledgeKeys.baseListAll() },
+    patchCursorPageItem<KnowledgeBase>(id, patch),
+  );
+}
+
+/** 点赞/取消点赞：详情与列表里的同一条目同步改，计数做下限保护 */
+function likeCachePatches(id: string, isLiked: boolean): CachePatch<string>[] {
+  const delta = isLiked ? 1 : -1;
+  const nextFields = (item: KnowledgeBase) => ({
+    isLiked,
+    likeCount: Math.max(0, item.likeCount + delta),
+  });
+  return [
+    {
+      queryKey: knowledgeKeys.base(id),
+      exact: true,
+      apply: (old) => {
+        const base = old as KnowledgeBase | undefined;
+        return base?.id === id ? { ...base, ...nextFields(base) } : base;
+      },
+    },
+    {
+      queryKey: knowledgeKeys.baseListAll(),
+      apply: patchCursorPageItem<KnowledgeBase>(id, nextFields),
+    },
+  ];
+}
+
+/** 可见性切换：列表 key 末位是筛选条件，新值不再满足筛选时把条目移出该列表 */
+function visibilityCachePatches(
+  id: string,
+  visibility: KnowledgeBaseVisibility,
+): CachePatch<VisibilityVariables>[] {
+  return [
+    {
+      queryKey: knowledgeKeys.base(id),
+      exact: true,
+      apply: (old) => {
+        const base = old as KnowledgeBase | undefined;
+        return base?.id === id ? { ...base, visibility } : base;
+      },
+    },
+    {
+      queryKey: knowledgeKeys.baseListAll(),
+      apply: (old, _vars, queryKey) => {
+        // key 约定为 [...baseListAll(), 查询参数]（见 knowledgeKeys.baseList）
+        const filter = queryKey.at(-1) as KnowledgeListQuery | undefined;
+        const stays = !filter?.visibility || filter.visibility === visibility;
+        return stays
+          ? patchCursorPageItem<KnowledgeBase>(id, { visibility })(old)
+          : removeCursorPageItem<KnowledgeBase>(id)(old);
+      },
+    },
+  ];
+}
+
+function deleteCachePatches(id: string): CachePatch<string>[] {
+  return [
+    {
+      queryKey: knowledgeKeys.baseListAll(),
+      apply: removeCursorPageItem<KnowledgeBase>(id),
+    },
+  ];
+}
+
+/**
+ * 失败收尾：回滚快照 + 失效一次。
+ *
+ * 快照是整份列表数组，同缓存上并发写多个条目时，后失败那次的回滚会连带撤销先前
+ * 成功的乐观写入，因此需要失效让缓存收敛到服务端真相（只在失败路径，避免成功路径
+ * 重放已加载的分页）。
+ */
+async function rollbackAndRevalidate(
+  queryClient: QueryClient,
+  rollback: (() => void) | undefined,
+  id: string,
+) {
+  rollback?.();
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: knowledgeKeys.baseListAll() }),
+    queryClient.invalidateQueries({
+      queryKey: knowledgeKeys.base(id),
+      exact: true,
+    }),
+  ]);
+}
+
 // ==== 知识库查询 ==========================================================
 
 /**
@@ -91,7 +198,6 @@ export function useInfiniteKnowledgeBaseList(
       }),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    refetchOnWindowFocus: false,
   });
 }
 
@@ -109,7 +215,6 @@ export function useKnowledgeBase(id: string | undefined) {
     queryKey: knowledgeKeys.base(id ?? ''),
     queryFn: () => getKnowledgeBaseApi(id!),
     enabled: !!id,
-    refetchOnWindowFocus: false,
   });
 }
 
@@ -146,69 +251,87 @@ export function useUpdateKnowledgeBase() {
   });
 }
 
-/** 单独切换可见性：独立端点，成功后失效详情与列表。 */
+/** 单独切换可见性：乐观改写详情与列表，成功后用服务端值收敛 */
 export function useUpdateKnowledgeVisibility() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (variables: {
-      id: string;
-      visibility: KnowledgeBaseVisibility;
-    }) => updateKnowledgeVisibilityApi(variables.id, variables.visibility),
-    onSuccess: async (_data, { id }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: knowledgeKeys.base(id) }),
-        queryClient.invalidateQueries({
-          queryKey: knowledgeKeys.baseListAll(),
-        }),
-      ]);
-    },
+    mutationFn: (variables: VisibilityVariables) =>
+      updateKnowledgeVisibilityApi(variables.id, variables.visibility),
+    onMutate: async (variables) => ({
+      rollback: await applyOptimistic(
+        queryClient,
+        visibilityCachePatches(variables.id, variables.visibility),
+        variables,
+      ),
+    }),
+    onSuccess: (updated) =>
+      patchBaseInCache(queryClient, updated.id, {
+        visibility: updated.visibility,
+        updatedAt: updated.updatedAt,
+      }),
+    onError: (_error, variables, context) =>
+      rollbackAndRevalidate(queryClient, context?.rollback, variables.id),
   });
 }
 
-/** 删除知识库，成功后清掉详情缓存并失效列表。 */
+/** 删除知识库：先从列表移除（可回滚），成功后清掉详情及其文档缓存 */
 export function useDeleteKnowledgeBase() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteKnowledgeBaseApi(id),
-    onSuccess: async (_data, id) => {
+    onMutate: async (id) => ({
+      rollback: await applyOptimistic(queryClient, deleteCachePatches(id), id),
+    }),
+    onSuccess: (_data, id) => {
       // base(id) 前缀同时覆盖其下的 documents 缓存
       queryClient.removeQueries({ queryKey: knowledgeKeys.base(id) });
-      await queryClient.invalidateQueries({
-        queryKey: knowledgeKeys.baseListAll(),
-      });
     },
+    onError: (_error, id, context) =>
+      rollbackAndRevalidate(queryClient, context?.rollback, id),
   });
 }
 
-/** 点赞知识库，成功后失效详情与列表（重新拉取真实点赞态）。 */
+/** 点赞知识库：乐观写入点赞态与计数，成功后用服务端返回值覆盖 */
 export function useLikeKnowledgeBase() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => likeKnowledgeBaseApi(id),
-    onSuccess: async (_data, id) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: knowledgeKeys.base(id) }),
-        queryClient.invalidateQueries({
-          queryKey: knowledgeKeys.baseListAll(),
-        }),
-      ]);
-    },
+    onMutate: async (id) => ({
+      rollback: await applyOptimistic(
+        queryClient,
+        likeCachePatches(id, true),
+        id,
+      ),
+    }),
+    onSuccess: (result, id) =>
+      patchBaseInCache(queryClient, id, {
+        likeCount: result.likeCount,
+        isLiked: result.isLiked,
+      }),
+    onError: (_error, id, context) =>
+      rollbackAndRevalidate(queryClient, context?.rollback, id),
   });
 }
 
-/** 取消点赞知识库，成功后失效详情与列表。 */
+/** 取消点赞知识库：同点赞，方向相反 */
 export function useUnlikeKnowledgeBase() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => unlikeKnowledgeBaseApi(id),
-    onSuccess: async (_data, id) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: knowledgeKeys.base(id) }),
-        queryClient.invalidateQueries({
-          queryKey: knowledgeKeys.baseListAll(),
-        }),
-      ]);
-    },
+    onMutate: async (id) => ({
+      rollback: await applyOptimistic(
+        queryClient,
+        likeCachePatches(id, false),
+        id,
+      ),
+    }),
+    onSuccess: (result, id) =>
+      patchBaseInCache(queryClient, id, {
+        likeCount: result.likeCount,
+        isLiked: result.isLiked,
+      }),
+    onError: (_error, id, context) =>
+      rollbackAndRevalidate(queryClient, context?.rollback, id),
   });
 }
 
@@ -227,7 +350,6 @@ export function useDocumentList(
     queryKey: knowledgeKeys.documentList(kbId ?? '', query),
     queryFn: () => listDocumentsApi(kbId!, query),
     enabled: !!kbId,
-    refetchOnWindowFocus: false,
   });
 }
 
@@ -236,7 +358,6 @@ export function useDocument(kbId: string | undefined, id: string | undefined) {
     queryKey: knowledgeKeys.document(kbId ?? '', id ?? ''),
     queryFn: () => getDocumentApi(kbId!, id!),
     enabled: !!kbId && !!id,
-    refetchOnWindowFocus: false,
   });
 }
 
