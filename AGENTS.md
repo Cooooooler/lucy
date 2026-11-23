@@ -18,9 +18,9 @@ pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/
 | 命令 | 说明 |
 | --- | --- |
 | `pnpm install` | 安装依赖（CI 用 `--frozen-lockfile`） |
-| `pnpm dev` | 默认并行启动后端 + Electron 桌面端（`@lucy/backend` + `@lucy/desktop`） |
+| `pnpm dev` | `scripts/dev.mjs`：先启动后端并等待 `/health/ready` 就绪，再启动 Electron 桌面端；关闭 Electron 时连同后端一并停止 |
 | `pnpm dev:backend` / `pnpm dev:frontend` | 只启动某个应用（`--filter`） |
-| `pnpm dev:web` / `pnpm dev:all` | 只跑浏览器端 / 同时跑全部 dev 任务（Web 5173、Electron renderer 5174） |
+| `pnpm dev:web` / `pnpm dev:all` | 只跑浏览器端 / 后端就绪后同时启动浏览器端与 Electron（Web 5173、Electron renderer 5174），退出时全部停止 |
 | `pnpm build` | Turbo 构建 |
 | `pnpm lint` | Turbo 跑 lint |
 | `pnpm test` | Turbo 跑测试（**turbo.json 中 test 依赖 build，会先构建**） |
@@ -231,6 +231,7 @@ electron-vite v6 三段构建：`main`/`preload` 在 `apps/desktop/src`，`rende
 - **后端独立运行**：桌面端不托管 NestJS（不改 Postgres/Redis 依赖）。dev 时 renderer 经 electron-vite 的 `/api` 代理访问 `localhost:3000`；build/preview 时 `src/main/server.ts` 起一个只绑 `127.0.0.1` 的本地 HTTP 服务，同时把 `/api`、`/v1` 反代到后端（`LUCY_BACKEND_URL` 可覆盖）。渲染进程始终是同源 HTTP，HttpOnly + SameSite=Lax 的 refresh cookie 正常生效，避免 `file://` 下登录失效。
 - **renderer base 必须为 `/`**：electron-vite 在 production 强制 `base: './'`（file:// 设计），会让 `/knowledge/:id` 这类嵌套路由刷新后把 `./assets/*` 解析到 `/knowledge/assets/*`。配置里用 post 阶段的插件改回 `/`；静态服务器对无扩展名路径做 SPA fallback。
 - **dev 端口**：Electron renderer 固定 5174（严格端口），与浏览器端 5173 错开，`pnpm dev:all` 可同时跑。
+- **dev 生命周期**：`pnpm dev` / `dev:desktop` / `dev:all` 由 `scripts/dev.mjs` 编排——后端探测 `/health/ready` 通过后才启动 Electron（`--all` 时同时启动浏览器端）；Electron 窗口关闭（electron-vite 随 Electron 退出）或任一服务异常退出时，按进程树停止全部服务，避免后端与 `nest start --watch` 孙进程残留。就绪等待默认 120s，可用 `DEV_READY_TIMEOUT_MS` 调整；DB/Redis 未就绪时后端返回 degraded，脚本只告警不阻塞。
 - **安全基线**（`src/main/security.ts` + `webPreferences`）：`sandbox`/`contextIsolation` 开，`nodeIntegration`（含 worker/subframe）关，`webSecurity` 开，`allowRunningInsecureContent`/`experimentalFeatures`/`webviewTag` 关；同时下发 CSP（prod 严格，dev 放行 Vite HMR 与内联脚本；`img-src` 额外放行 Unsplash 背景图）、默认拒绝所有权限请求（仅放行 `clipboard-sanitized-write`，供表格 copyable）、`will-navigate` 只允许同 origin、新窗口一律 deny 且仅把 http(s) 外链交给系统浏览器、禁止 `<webview>`。新增远程资源/外部能力时同步更新 `security.ts` 的 CSP 与权限白名单。
 - **打包分发**（electron-builder 26，配置 `electron-builder.yml`）：`run pack` 产出未压缩目录 `release/win-unpacked`，`run dist:win` 产出 NSIS 安装包 `release/Lucy-<version>-x64-setup.exe`（非一键安装、允许改安装目录）。只打包 `out/**` + `package.json`：renderer 已全量打包并压缩（`minify: true`）、main/preload 已打成 CJS，生产依赖为空，因此不收集 `node_modules`（`npmRebuild: false`）。`publish: null` 防止误上传；`compression: maximum`。应用图标为 `apps/desktop/build-resources/icon.png`（由 `apps/frontend/public/favicon.svg` 经 Playwright 渲染为 512x512）。注意 `pnpm ... pack` 会命中 pnpm 内置命令，必须写成 `pnpm ... run pack`。代码签名未配置，Windows 会提示未知发布者；需要签名时设置 `CSC_LINK`/`CSC_KEY_PASSWORD`（macOS）或 `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD`（Windows）后重跑即可。
 - **安装包不含后端**：NestJS/Postgres/Redis 仍需独立运行，桌面端启动后访问 `http://localhost:3000`（或设置 `LUCY_BACKEND_URL`），否则 API 请求返回 502。
