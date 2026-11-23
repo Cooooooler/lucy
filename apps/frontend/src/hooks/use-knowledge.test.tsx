@@ -97,9 +97,6 @@ function createWrapper() {
   return createWrapperWithClient(createTestQueryClient());
 }
 
-const defaultListKey = () =>
-  knowledgeKeys.baseList({ limit: KNOWLEDGE_PAGE_SIZE });
-
 describe('useInfiniteKnowledgeBaseList', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -161,7 +158,7 @@ describe('useInfiniteKnowledgeBaseList', () => {
     );
   });
 
-  it('换筛选后切回已缓存的筛选命中缓存，不重放历史分页', async () => {
+  it('换筛选后切回会重新请求，不复用缓存', async () => {
     api.listKnowledgeBasesApi.mockImplementation(
       (query: { visibility?: string; cursor?: string } = {}) => {
         if (query.visibility === 'private') {
@@ -190,19 +187,21 @@ describe('useInfiniteKnowledgeBaseList', () => {
     await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
     expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(2);
 
-    // 切到私有：新条件无缓存，正常请求一次
+    // 切到私有：新条件正常请求一次
     rerender({ visibility: 'private' });
-    await waitFor(() => expect(result.current.isPlaceholderData).toBe(false));
-    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(3);
+    await waitFor(() =>
+      expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(3),
+    );
+    expect(result.current.isPlaceholderData).toBe(false);
 
-    // 切回全部：命中已有缓存，不得把两页历史分页重放一遍
+    // 切回全部：缓存已关闭，重新请求（refetch 会把已加载的两页重放一遍）
     rerender({});
-    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(3);
+    await waitFor(() =>
+      expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(5),
+    );
   });
 
-  it('卸载后在 gcTime 内重新挂载不重放历史分页', async () => {
+  it('卸载后重新挂载会重新请求首页（不缓存）', async () => {
     api.listKnowledgeBasesApi.mockResolvedValue(cursorPage([makeBase()], 'c1'));
     const client = createTestQueryClient();
     const { result, unmount } = renderHook(
@@ -210,19 +209,19 @@ describe('useInfiniteKnowledgeBaseList', () => {
       { wrapper: createWrapperWithClient(client) },
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(client.getQueryData(defaultListKey())).toBeDefined();
+    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(1);
 
     unmount();
-
-    // 缓存未到 gcTime：保留而非释放
-    expect(client.getQueryData(defaultListKey())).toBeDefined();
 
     renderHook(() => useInfiniteKnowledgeBaseList(), {
       wrapper: createWrapperWithClient(client),
     });
-    // 给潜在的 refetch 留出微/宏任务窗口
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(2),
+    );
+    expect(api.listKnowledgeBasesApi.mock.calls.at(-1)?.[0]).toMatchObject({
+      cursor: undefined,
+    });
   });
 });
 
@@ -294,17 +293,14 @@ describe('useKnowledgeBase', () => {
 describe('useCreateKnowledgeBase', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('创建后插入匹配过滤条件的列表首页顶部（不 refetch）', async () => {
-    const created = makeBase({ id: 'kb-new', name: '新产品' });
-    api.createKnowledgeBaseApi.mockResolvedValue(created);
+  it('创建成功后失效列表缓存', async () => {
+    api.createKnowledgeBaseApi.mockResolvedValue(makeBase({ id: 'kb-new' }));
     const client = createTestQueryClient();
-    client.setQueryData(
-      defaultListKey(),
-      infiniteCache([cursorPage([makeBase({ id: 'kb1' })])]),
-    );
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
     const mutation = renderHook(() => useCreateKnowledgeBase(), {
       wrapper: createWrapperWithClient(client),
     });
+
     await act(async () => {
       await mutation.result.current.mutateAsync({
         name: '新产品',
@@ -312,228 +308,106 @@ describe('useCreateKnowledgeBase', () => {
         visibility: 'private',
       });
     });
-    const cached = client.getQueryData<{
-      pages: Array<{ list: KnowledgeBase[] }>;
-    }>(defaultListKey());
-    expect(cached?.pages[0].list.map((kb) => kb.id)).toEqual(['kb-new', 'kb1']);
-  });
 
-  it('不匹配当前过滤条件时不插入列表', async () => {
-    const created = makeBase({ id: 'kb-priv', visibility: 'private' });
-    api.createKnowledgeBaseApi.mockResolvedValue(created);
-    const client = createTestQueryClient();
-    const publicKey = knowledgeKeys.baseList({
-      limit: KNOWLEDGE_PAGE_SIZE,
-      visibility: 'public',
-    });
-    client.setQueryData(
-      publicKey,
-      infiniteCache([
-        cursorPage([makeBase({ id: 'kb1', visibility: 'public' })]),
-      ]),
+    expect(api.createKnowledgeBaseApi).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: knowledgeKeys.baseListAll(),
+      }),
     );
-    const mutation = renderHook(() => useCreateKnowledgeBase(), {
-      wrapper: createWrapperWithClient(client),
-    });
-    await act(async () => {
-      await mutation.result.current.mutateAsync({
-        name: '私有库',
-        description: '私有库描述',
-        visibility: 'private',
-      });
-    });
-    const cached = client.getQueryData<{
-      pages: Array<{ list: KnowledgeBase[] }>;
-    }>(publicKey);
-    expect(cached?.pages[0].list.map((kb) => kb.id)).toEqual(['kb1']);
   });
 });
 
 describe('useUpdateKnowledgeBase', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('乐观就地更新列表分页与详情缓存', async () => {
-    const updated = makeBase({
-      id: 'kb1',
-      name: '新标题',
-      visibility: 'public',
-      updatedAt: '2024-02-02T00:00:00Z',
-    });
-    api.updateKnowledgeBaseApi.mockResolvedValue(updated);
+  it('更新成功后失效详情与列表缓存', async () => {
+    api.updateKnowledgeBaseApi.mockResolvedValue(makeBase());
     const client = createTestQueryClient();
-    client.setQueryData(
-      defaultListKey(),
-      infiniteCache([cursorPage([makeBase()])]),
-    );
-    client.setQueryData(knowledgeKeys.base('kb1'), makeBase());
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
     const mutation = renderHook(() => useUpdateKnowledgeBase(), {
       wrapper: createWrapperWithClient(client),
     });
+
     await act(async () => {
       await mutation.result.current.mutateAsync({
         id: 'kb1',
         input: { name: '新标题', visibility: 'public' },
       });
     });
-    const cached = client.getQueryData<{
-      pages: Array<{ list: KnowledgeBase[] }>;
-    }>(defaultListKey());
-    expect(cached?.pages[0].list[0].name).toBe('新标题');
-    expect(cached?.pages[0].list[0].visibility).toBe('public');
-    expect(
-      client.getQueryData<KnowledgeBase>(knowledgeKeys.base('kb1'))?.name,
-    ).toBe('新标题');
-  });
 
-  it('失败时回滚列表与详情缓存', async () => {
-    api.updateKnowledgeBaseApi.mockRejectedValue(new Error('network error'));
-    const client = createTestQueryClient();
-    client.setQueryData(
-      defaultListKey(),
-      infiniteCache([cursorPage([makeBase()])]),
+    expect(api.updateKnowledgeBaseApi).toHaveBeenCalledWith('kb1', {
+      name: '新标题',
+      visibility: 'public',
+    });
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: knowledgeKeys.base('kb1'),
+      }),
     );
-    client.setQueryData(knowledgeKeys.base('kb1'), makeBase());
-    const mutation = renderHook(() => useUpdateKnowledgeBase(), {
-      wrapper: createWrapperWithClient(client),
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: knowledgeKeys.baseListAll(),
     });
-    await act(async () => {
-      try {
-        await mutation.result.current.mutateAsync({
-          id: 'kb1',
-          input: { name: '新标题', visibility: 'private' },
-        });
-      } catch {
-        // 预期失败
-      }
-    });
-    const cached = client.getQueryData<{
-      pages: Array<{ list: KnowledgeBase[] }>;
-    }>(defaultListKey());
-    expect(cached?.pages[0].list[0].name).toBe('产品文档');
-    expect(
-      client.getQueryData<KnowledgeBase>(knowledgeKeys.base('kb1'))?.name,
-    ).toBe('产品文档');
   });
 });
 
 describe('useUpdateKnowledgeVisibility', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('调用独立端点并乐观更新可见性', async () => {
-    const updated = makeBase({
-      id: 'kb1',
-      visibility: 'public',
-      updatedAt: '2024-02-02T00:00:00Z',
-    });
-    api.updateKnowledgeVisibilityApi.mockResolvedValue(updated);
-    const client = createTestQueryClient();
-    client.setQueryData(
-      defaultListKey(),
-      infiniteCache([cursorPage([makeBase()])]),
+  it('调用独立端点并失效详情与列表', async () => {
+    api.updateKnowledgeVisibilityApi.mockResolvedValue(
+      makeBase({ visibility: 'public' }),
     );
-    client.setQueryData(knowledgeKeys.base('kb1'), makeBase());
+    const client = createTestQueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
     const mutation = renderHook(() => useUpdateKnowledgeVisibility(), {
       wrapper: createWrapperWithClient(client),
     });
+
     await act(async () => {
       await mutation.result.current.mutateAsync({
         id: 'kb1',
         visibility: 'public',
       });
     });
+
     expect(api.updateKnowledgeVisibilityApi).toHaveBeenCalledWith(
       'kb1',
       'public',
     );
-    const cached = client.getQueryData<{
-      pages: Array<{ list: KnowledgeBase[] }>;
-    }>(defaultListKey());
-    expect(cached?.pages[0].list[0].visibility).toBe('public');
-    expect(
-      client.getQueryData<KnowledgeBase>(knowledgeKeys.base('kb1'))?.visibility,
-    ).toBe('public');
-  });
-
-  it('失败时回滚可见性缓存', async () => {
-    api.updateKnowledgeVisibilityApi.mockRejectedValue(
-      new Error('network error'),
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: knowledgeKeys.base('kb1'),
+      }),
     );
-    const client = createTestQueryClient();
-    client.setQueryData(
-      defaultListKey(),
-      infiniteCache([cursorPage([makeBase()])]),
-    );
-    client.setQueryData(knowledgeKeys.base('kb1'), makeBase());
-    const mutation = renderHook(() => useUpdateKnowledgeVisibility(), {
-      wrapper: createWrapperWithClient(client),
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: knowledgeKeys.baseListAll(),
     });
-    await act(async () => {
-      try {
-        await mutation.result.current.mutateAsync({
-          id: 'kb1',
-          visibility: 'public',
-        });
-      } catch {
-        // 预期失败
-      }
-    });
-    const cached = client.getQueryData<{
-      pages: Array<{ list: KnowledgeBase[] }>;
-    }>(defaultListKey());
-    expect(cached?.pages[0].list[0].visibility).toBe('private');
-    expect(
-      client.getQueryData<KnowledgeBase>(knowledgeKeys.base('kb1'))?.visibility,
-    ).toBe('private');
   });
 });
 
 describe('useDeleteKnowledgeBase', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('乐观从列表分页移除并清掉详情缓存', async () => {
+  it('删除成功后清详情缓存并失效列表', async () => {
     api.deleteKnowledgeBaseApi.mockResolvedValue(null);
     const client = createTestQueryClient();
-    client.setQueryData(
-      defaultListKey(),
-      infiniteCache([
-        cursorPage([makeBase({ id: 'kb1' }), makeBase({ id: 'kb2' })]),
-      ]),
-    );
     client.setQueryData(knowledgeKeys.base('kb1'), makeBase());
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
     const mutation = renderHook(() => useDeleteKnowledgeBase(), {
       wrapper: createWrapperWithClient(client),
     });
+
     await act(async () => {
       await mutation.result.current.mutateAsync('kb1');
     });
-    const cached = client.getQueryData<{
-      pages: Array<{ list: KnowledgeBase[] }>;
-    }>(defaultListKey());
-    expect(cached?.pages[0].list.map((kb) => kb.id)).toEqual(['kb2']);
-    expect(client.getQueryData(knowledgeKeys.base('kb1'))).toBeUndefined();
-  });
 
-  it('失败时回滚列表缓存', async () => {
-    api.deleteKnowledgeBaseApi.mockRejectedValue(new Error('network error'));
-    const client = createTestQueryClient();
-    client.setQueryData(
-      defaultListKey(),
-      infiniteCache([cursorPage([makeBase()])]),
+    expect(client.getQueryData(knowledgeKeys.base('kb1'))).toBeUndefined();
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: knowledgeKeys.baseListAll(),
+      }),
     );
-    const mutation = renderHook(() => useDeleteKnowledgeBase(), {
-      wrapper: createWrapperWithClient(client),
-    });
-    await act(async () => {
-      try {
-        await mutation.result.current.mutateAsync('kb1');
-      } catch {
-        // 预期失败
-      }
-    });
-    const cached = client.getQueryData<{
-      pages: Array<{ list: KnowledgeBase[] }>;
-    }>(defaultListKey());
-    expect(cached?.pages[0].list.map((kb) => kb.id)).toEqual(['kb1']);
   });
 });
 
@@ -544,72 +418,31 @@ function describeLikeMutationTests(opts: {
     mutateAsync: (id: string) => Promise<unknown>;
   };
   apiMock: ReturnType<typeof vi.fn>;
-  initialIsLiked: boolean;
 }) {
   describe(opts.name, () => {
     beforeEach(() => vi.clearAllMocks());
 
-    it('成功后以服务端返回值覆盖缓存', async () => {
-      opts.apiMock.mockResolvedValue({
-        likeCount: 9,
-        isLiked: !opts.initialIsLiked,
-      });
+    it('成功后失效详情与列表缓存', async () => {
+      opts.apiMock.mockResolvedValue({ likeCount: 9, isLiked: true });
       const client = createTestQueryClient();
-      client.setQueryData(
-        defaultListKey(),
-        infiniteCache([
-          cursorPage([
-            makeBase({
-              id: 'kb1',
-              likeCount: 4,
-              isLiked: opts.initialIsLiked,
-            }),
-          ]),
-        ]),
-      );
+      const invalidate = vi.spyOn(client, 'invalidateQueries');
       const mutation = renderHook(() => opts.useHook(), {
         wrapper: createWrapperWithClient(client),
       });
+
       await act(async () => {
         await mutation.result.current.mutateAsync('kb1');
       });
-      const cached = client.getQueryData<{
-        pages: Array<{ list: KnowledgeBase[] }>;
-      }>(defaultListKey());
-      expect(cached?.pages[0].list[0].isLiked).toBe(!opts.initialIsLiked);
-      expect(cached?.pages[0].list[0].likeCount).toBe(9);
-    });
 
-    it('失败时回滚缓存', async () => {
-      opts.apiMock.mockRejectedValue(new Error('network error'));
-      const client = createTestQueryClient();
-      client.setQueryData(
-        defaultListKey(),
-        infiniteCache([
-          cursorPage([
-            makeBase({
-              id: 'kb1',
-              likeCount: 4,
-              isLiked: opts.initialIsLiked,
-            }),
-          ]),
-        ]),
+      expect(opts.apiMock).toHaveBeenCalledWith('kb1');
+      await waitFor(() =>
+        expect(invalidate).toHaveBeenCalledWith({
+          queryKey: knowledgeKeys.base('kb1'),
+        }),
       );
-      const mutation = renderHook(() => opts.useHook(), {
-        wrapper: createWrapperWithClient(client),
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: knowledgeKeys.baseListAll(),
       });
-      await act(async () => {
-        try {
-          await mutation.result.current.mutateAsync('kb1');
-        } catch {
-          // 预期失败
-        }
-      });
-      const cached = client.getQueryData<{
-        pages: Array<{ list: KnowledgeBase[] }>;
-      }>(defaultListKey());
-      expect(cached?.pages[0].list[0].isLiked).toBe(opts.initialIsLiked);
-      expect(cached?.pages[0].list[0].likeCount).toBe(4);
     });
   });
 }
@@ -618,48 +451,12 @@ describeLikeMutationTests({
   name: 'useLikeKnowledgeBase',
   useHook: useLikeKnowledgeBase,
   apiMock: api.likeKnowledgeBaseApi,
-  initialIsLiked: false,
 });
 
 describeLikeMutationTests({
   name: 'useUnlikeKnowledgeBase',
   useHook: useUnlikeKnowledgeBase,
   apiMock: api.unlikeKnowledgeBaseApi,
-  initialIsLiked: true,
-});
-
-describe('useLikeKnowledgeBase 乐观计数', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it('缓存中存在目标时立即 +1', async () => {
-    let resolveApi: (v: unknown) => void = () => {};
-    api.likeKnowledgeBaseApi.mockImplementation(
-      () => new Promise((resolve) => (resolveApi = resolve)),
-    );
-    const client = createTestQueryClient();
-    client.setQueryData(
-      defaultListKey(),
-      infiniteCache([cursorPage([makeBase({ likeCount: 3, isLiked: false })])]),
-    );
-    const mutation = renderHook(() => useLikeKnowledgeBase(), {
-      wrapper: createWrapperWithClient(client),
-    });
-    let pending: Promise<unknown> = Promise.resolve();
-    act(() => {
-      pending = mutation.result.current.mutateAsync('kb1');
-    });
-    await waitFor(() => {
-      const cached = client.getQueryData<{
-        pages: Array<{ list: KnowledgeBase[] }>;
-      }>(defaultListKey());
-      expect(cached?.pages[0].list[0].likeCount).toBe(4);
-      expect(cached?.pages[0].list[0].isLiked).toBe(true);
-    });
-    await act(async () => {
-      resolveApi({ likeCount: 4, isLiked: true });
-      await pending;
-    });
-  });
 });
 
 describe('useDocumentList', () => {

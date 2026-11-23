@@ -10,25 +10,18 @@ import {
 } from '@/api/model-provider';
 import type {
   CreateModelProviderRequest,
-  ModelProvider,
   ModelProviderType,
   ModelProviderVendor,
   UpdateModelProviderRequest,
 } from '@/api/types';
 import type { ModelProviderListQuery } from '@lucy/shared';
-import type { QueryClient } from '@tanstack/react-query';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo } from 'react';
 import {
-  type ListCacheKeys,
-  filterOutItem,
-  findItemInCache,
-  patchItemInCache,
-  prependToMatchingLists,
-  rollbackToSnapshot,
-  snapshotLists,
-  useCursorList,
-} from './lib/infinite-cache';
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+import { useMemo } from 'react';
 
 /** 默认每页条数（游标分页，同时是列表 queryKey 的一部分） */
 export const MODEL_PROVIDER_PAGE_SIZE = 20;
@@ -52,56 +45,35 @@ export const modelProviderKeys = {
   item: (id: string) => [...modelProviderKeys.all, id] as const,
 };
 
-/** 模型的列表前缀 + 详情 key：缓存操作只需这两个 */
-const modelCacheKeys = (id: string): ListCacheKeys => ({
-  listAll: modelProviderKeys.listAll(),
-  item: modelProviderKeys.item(id),
-});
-
-/** 判断新建的模型是否属于当前过滤条件；不属于则不应插入列表 */
-function matchesFilter(item: ModelProvider, filter: unknown): boolean {
-  const current = filter as ModelProviderListQuery | undefined;
-  if (current?.type && item.type !== current.type) return false;
-  if (current?.vendor && item.vendor !== current.vendor) return false;
-  if (
-    current?.name &&
-    !item.name.toLowerCase().includes(current.name.toLowerCase())
-  ) {
-    return false;
-  }
-  return true;
-}
-
-/** 统一更新模型缓存：详情 + 所有列表分页（乐观更新，不触发 refetch） */
-function patchModelInCache(
-  queryClient: QueryClient,
-  id: string,
-  patch: Partial<ModelProvider>,
-) {
-  patchItemInCache<ModelProvider>(queryClient, modelCacheKeys(id), id, patch);
-}
-
 // ==== 查询 ================================================================
 
 /**
  * 游标分页模型列表（无限滚动）。
- * 与知识库列表同策略：换筛选用上一组数据占位保持可见，返回时零请求复用缓存。
+ * 缓存已整体关闭：每次挂载从首页重新请求，不复用历史分页。
  */
 export function useInfiniteModelProviderList(
   filter: ModelProviderListFilter = {},
   limit = MODEL_PROVIDER_PAGE_SIZE,
   enabled = true,
 ) {
-  return useCursorList<ModelProvider>({
+  return useInfiniteQuery({
     queryKey: modelProviderKeys.list({ ...filter, limit }),
-    fetchPage: (cursor) => listModelProvidersApi({ ...filter, limit, cursor }),
+    queryFn: ({ pageParam }) =>
+      listModelProvidersApi({
+        ...filter,
+        limit,
+        cursor: pageParam ?? undefined,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    refetchOnWindowFocus: false,
     enabled,
   });
 }
 
 /**
  * 某一类型下的全部模型（只用于「默认模型设置」的下拉选项）。
- * 复用无限列表的查询与缓存形态，创建/修改/删除的乐观更新同样能命中。
+ * 复用无限列表的查询与缓存形态，创建/修改/删除的失效同样能命中。
  */
 export function useModelProvidersByType(
   type: ModelProviderType,
@@ -119,7 +91,7 @@ export function useModelProvidersByType(
 
 /**
  * 单个模型详情：只需要一条记录时按 id 取，避免为了显示一个名字拉整份列表。
- * 与列表共用乐观更新的 item key（增/改/删都会命中）。
+ * 与列表共用 item key（增/改/删都会失效它）。
  */
 export function useModelProvider(id: string | undefined) {
   return useQuery({
@@ -150,8 +122,7 @@ export function useUpdateModelProviderDefaults() {
 }
 
 /**
- * 聊天页用的 LLM 模型：复用无限列表（同一 queryKey 与 `{ pages }` 缓存形态，
- * 增/改/删的乐观更新才能命中；普通 useQuery 的 `{ list }` 形态会被更新器静默忽略），只取首页。
+ * 聊天页用的 LLM 模型：复用无限列表（同一 queryKey 与 `{ pages }` 缓存形态），只取首页。
  */
 export function useLlmModelProviders(limit = 100) {
   const query = useInfiniteModelProviderList({ type: 'llm' }, limit);
@@ -164,23 +135,21 @@ export function useLlmModelProviders(limit = 100) {
   return { models, isLoading: query.isLoading };
 }
 
+/** 创建模型，成功后失效列表（重新拉取首页）。 */
 export function useCreateModelProvider() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateModelProviderRequest) =>
       createModelProviderApi(input),
-    onSuccess: (created) =>
-      prependToMatchingLists<ModelProvider>(
-        queryClient,
-        modelProviderKeys.listAll(),
-        created,
-        matchesFilter,
-      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: modelProviderKeys.listAll(),
+      });
+    },
   });
 }
 
-/** 更新模型。乐观就地更新，onError 回滚。
- * `input` 可能含明文 apiKey——**绝不**写入缓存：只回填展示安全字段。 */
+/** 更新模型，成功后失效详情与列表（不把明文 apiKey 写入任何缓存）。 */
 export function useUpdateModelProvider() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -188,97 +157,29 @@ export function useUpdateModelProvider() {
       id: string;
       input: UpdateModelProviderRequest;
     }) => updateModelProviderApi(variables.id, variables.input),
-    onMutate: async ({ id, input }) => {
+    onSuccess: async (_data, { id }) => {
       await Promise.all([
-        queryClient.cancelQueries({ queryKey: modelProviderKeys.listAll() }),
-        queryClient.cancelQueries({ queryKey: modelProviderKeys.item(id) }),
+        queryClient.invalidateQueries({
+          queryKey: modelProviderKeys.item(id),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: modelProviderKeys.listAll(),
+        }),
       ]);
-      const previousItem = queryClient.getQueryData<ModelProvider>(
-        modelProviderKeys.item(id),
-      );
-      const previousLists = snapshotLists(
-        queryClient,
-        modelProviderKeys.listAll(),
-      );
-      // 显式挑出展示安全字段，避免把 input.apiKey 明文带进缓存
-      const { name, type, vendor, baseUrl, protocol, contextLength } = input;
-      const safe: Partial<ModelProvider> = {};
-      if (name !== undefined) safe.name = name;
-      if (type !== undefined) safe.type = type;
-      if (vendor !== undefined) safe.vendor = vendor;
-      if (baseUrl !== undefined) safe.baseUrl = baseUrl;
-      if (protocol !== undefined) safe.protocol = protocol;
-      if (contextLength !== undefined) safe.contextLength = contextLength;
-      patchModelInCache(queryClient, id, safe);
-      return { previousItem, previousLists };
-    },
-    onSuccess: (updated) => {
-      const {
-        name,
-        type,
-        vendor,
-        baseUrl,
-        protocol,
-        contextLength,
-        apiKeyMasked,
-        updatedAt,
-      } = updated;
-      patchModelInCache(queryClient, updated.id, {
-        name,
-        type,
-        vendor,
-        baseUrl,
-        protocol,
-        contextLength,
-        apiKeyMasked,
-        updatedAt,
-      });
-    },
-    onError: (_err, { id }, context) => {
-      if (context?.previousItem) {
-        queryClient.setQueryData(
-          modelProviderKeys.item(id),
-          context.previousItem,
-        );
-      }
-      rollbackToSnapshot(queryClient, context?.previousLists);
     },
   });
 }
 
-/** 删除模型。乐观移除，onError 回滚。 */
+/** 删除模型，成功后清掉详情缓存并失效列表。 */
 export function useDeleteModelProvider() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteModelProviderApi(id),
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({
+    onSuccess: async (_data, id) => {
+      queryClient.removeQueries({ queryKey: modelProviderKeys.item(id) });
+      await queryClient.invalidateQueries({
         queryKey: modelProviderKeys.listAll(),
       });
-      const previousLists = snapshotLists(
-        queryClient,
-        modelProviderKeys.listAll(),
-      );
-      const previousItem = findItemInCache<ModelProvider>(
-        queryClient,
-        modelCacheKeys(id),
-        id,
-      );
-      queryClient.removeQueries({ queryKey: modelProviderKeys.item(id) });
-      queryClient.setQueriesData(
-        { queryKey: modelProviderKeys.listAll() },
-        (old) => filterOutItem<ModelProvider>(old, id),
-      );
-      return { previousLists, previousItem };
-    },
-    onError: (_err, id, context) => {
-      rollbackToSnapshot(queryClient, context?.previousLists);
-      if (context?.previousItem) {
-        queryClient.setQueryData(
-          modelProviderKeys.item(id),
-          context.previousItem,
-        );
-      }
     },
   });
 }

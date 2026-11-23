@@ -42,12 +42,6 @@ export type VirtualCardGridProps<T extends { id: string }> = {
   emptyLabel: CardGridEmptyLabel;
   /** 单张卡片：只渲染卡片本身，定位/列宽/行间距由网格统一承担 */
   renderItem: (item: T) => ReactNode;
-  /** 挂载时一次性恢复到的首可见项索引（来自会话内视图状态） */
-  initialRestoreIndex?: number;
-  /** 本次挂载的恢复动作结束（调用方据此清掉锚点，避免重挂时回放） */
-  onRestoreDone?: () => void;
-  /** 首可见项索引变化回调（滚动中持续上报） */
-  onFirstVisibleItemChange?: (index: number) => void;
 };
 
 const SKELETON_KEYS = ['sk-1', 'sk-2', 'sk-3', 'sk-4', 'sk-5', 'sk-6'];
@@ -163,11 +157,8 @@ const CardGridVirtual = <T extends { id: string }>({
   isPlaceholderData,
   fetchNextPage,
   renderItem,
-  initialRestoreIndex,
-  onRestoreDone,
-  onFirstVisibleItemChange,
 }: VirtualCardGridProps<T>) => {
-  const { layout, virtualItems, totalSize, restorePending } = useVirtualGrid({
+  const { layout, virtualItems, totalSize } = useVirtualGrid({
     scrollElement,
     count: items.length,
     hasNextPage,
@@ -175,9 +166,6 @@ const CardGridVirtual = <T extends { id: string }>({
     isFetchNextPageError,
     fetchNextPage,
     isPlaceholderData,
-    initialRestoreIndex,
-    onRestoreDone,
-    onFirstVisibleItemChange,
   });
 
   // 列宽与卡片位置全部交给 CSS calc：内容宽度 = 容器宽度，按列数均分。
@@ -189,36 +177,30 @@ const CardGridVirtual = <T extends { id: string }>({
   return (
     <>
       <div style={{ position: 'relative', height: totalSize }}>
-        {/* 恢复未完成（restorePending）时不渲染卡片：此时虚拟化的可视区间还按顶部算，
-            先渲染等于白挂一整窗卡片，随后恢复又会挂恢复位置那一窗——两窗白挂一次。
-            该分支只在 layout effect 解锁恢复前存在，React 会在绘制前完成重渲染，用户看不到空网格；
-            容器高度仍用 totalSize，滚动条与几何不变。 */}
-        {restorePending
-          ? null
-          : virtualItems.map((virtualItem) => {
-              const item = items[virtualItem.index];
-              if (!item) return null;
-              return (
-                <div
-                  key={item.id}
-                  data-index={virtualItem.index}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left:
-                      virtualItem.lane === 0
-                        ? '0'
-                        : `calc(${(virtualItem.lane ?? 0) * layout.gap}px + ${virtualItem.lane} * (${columnWidth}))`,
-                    width: `calc(${columnWidth})`,
-                    transform: `translateY(${virtualItem.start}px)`,
-                    paddingBottom: layout.gap,
-                  }}
-                >
-                  {/* 卡片由调用方提供；这里不包箭头函数、不额外引入每次渲染都变化的引用 */}
-                  {renderItem(item)}
-                </div>
-              );
-            })}
+        {virtualItems.map((virtualItem) => {
+          const item = items[virtualItem.index];
+          if (!item) return null;
+          return (
+            <div
+              key={item.id}
+              data-index={virtualItem.index}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left:
+                  virtualItem.lane === 0
+                    ? '0'
+                    : `calc(${(virtualItem.lane ?? 0) * layout.gap}px + ${virtualItem.lane} * (${columnWidth}))`,
+                width: `calc(${columnWidth})`,
+                transform: `translateY(${virtualItem.start}px)`,
+                paddingBottom: layout.gap,
+              }}
+            >
+              {/* 卡片由调用方提供；这里不包箭头函数、不额外引入每次渲染都变化的引用 */}
+              {renderItem(item)}
+            </div>
+          );
+        })}
       </div>
       <CardGridFooter
         hasNextPage={hasNextPage}

@@ -11,7 +11,7 @@ import {
   type VisibilityFilter,
 } from '@/components/knowledge/KnowledgeToolbar.tsx';
 import { PageShell } from '@/components/page-shell';
-import { useKnowledgeViewState } from '@/hooks/use-knowledge-view-state.ts';
+import { pendingIdOf } from '@/hooks/pending-id.ts';
 import {
   useDeleteKnowledgeBase,
   useInfiniteKnowledgeBaseList,
@@ -21,10 +21,6 @@ import {
   useUpdateKnowledgeVisibility,
   type KnowledgeListFilter,
 } from '@/hooks/use-knowledge.ts';
-import {
-  pendingIdOf,
-  useListPageChrome,
-} from '@/hooks/use-list-page-chrome.ts';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { App } from 'antd';
 import { useCallback, useMemo, useState } from 'react';
@@ -43,31 +39,18 @@ const EMPTY_LABEL: CardGridEmptyLabel = {
 
 const KnowledgeComponent = () => {
   const { message, modal } = App.useApp();
-  const {
-    initialFilter,
-    initialRestoreIndex,
-    saveFilter,
-    saveFirstVisibleIndex,
-  } = useKnowledgeViewState();
 
-  // 恢复锚点、滚动容器、以及「回顶 + 作废锚点 + 写回 store」三件套都由公共件持有
-  const {
-    restoreIndex,
-    consumeRestore,
-    scrollElement,
-    setScrollElement,
-    resetToTop,
-    onFilterChange,
-  } = useListPageChrome<KnowledgeListFilter>({
-    initialRestoreIndex,
-    saveFilter,
-  });
-
-  // 初值来自会话 store：SPA 返回时自动还原上次筛选
-  const [committedName, setCommittedName] = useState(initialFilter.name ?? '');
-  const [visibility, setVisibility] = useState<VisibilityFilter>(
-    initialFilter.visibility ?? 'all',
+  // 页面状态缓存已移除：不再保存/恢复上次的筛选与滚动位置，
+  // 每次进入都是空筛选、从列表顶部开始。
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
+    null,
   );
+  const resetToTop = useCallback(() => {
+    scrollElement?.scrollTo({ top: 0 });
+  }, [scrollElement]);
+
+  const [committedName, setCommittedName] = useState('');
+  const [visibility, setVisibility] = useState<VisibilityFilter>('all');
   /** 单例表单抽屉的目标：create / edit(kb) / 关闭(null) */
   const [formTarget, setFormTarget] = useState<
     { mode: 'create' } | { mode: 'edit'; kb: KnowledgeBase } | null
@@ -187,20 +170,20 @@ const KnowledgeComponent = () => {
   const handleSearch = useCallback(
     (value: string) => {
       setCommittedName(value);
-      onFilterChange({ name: value || undefined });
+      resetToTop();
     },
-    [onFilterChange],
+    [resetToTop],
   );
 
   const handleVisibilityChange = useCallback(
     (value: VisibilityFilter) => {
       setVisibility(value);
-      onFilterChange({ visibility: value === 'all' ? undefined : value });
+      resetToTop();
     },
-    [onFilterChange],
+    [resetToTop],
   );
 
-  /** 刷新：丢弃所有筛选的列表缓存并让当前筛选从第一页重新加载 */
+  /** 刷新：重新加载当前筛选，并回到列表顶部 */
   const handleRefresh = useCallback(() => {
     resetToTop();
     void refreshList();
@@ -248,7 +231,7 @@ const KnowledgeComponent = () => {
         onVisibilityChange={handleVisibilityChange}
         onSearch={handleSearch}
         onRefresh={handleRefresh}
-        defaultKeyword={initialFilter.name ?? ''}
+        defaultKeyword=""
         onCreate={handleCreate}
       />
       {/* 滚动交给 PageShell 自身：滚动条贴限宽容器右缘，而不是被内边距推离 */}
@@ -268,9 +251,6 @@ const KnowledgeComponent = () => {
           hasFilter={Boolean(filter.name || filter.visibility)}
           emptyLabel={EMPTY_LABEL}
           renderItem={renderItem}
-          initialRestoreIndex={restoreIndex}
-          onRestoreDone={consumeRestore}
-          onFirstVisibleItemChange={saveFirstVisibleIndex}
         />
         <KnowledgeFormDrawer
           open={!!formTarget}

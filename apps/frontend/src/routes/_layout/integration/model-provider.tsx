@@ -12,7 +12,7 @@ import {
   type ModelVendorFilter,
 } from '@/components/model-provider/ModelProviderToolbar.tsx';
 import { PageShell } from '@/components/page-shell';
-import { pendingIdOf, useListPageChrome } from '@/hooks/use-list-page-chrome';
+import { pendingIdOf } from '@/hooks/pending-id';
 import {
   useDeleteModelProvider,
   useInfiniteModelProviderList,
@@ -20,7 +20,6 @@ import {
   useUpdateModelProvider,
   type ModelProviderListFilter,
 } from '@/hooks/use-model-provider';
-import { useModelProviderViewState } from '@/hooks/use-model-provider-view-state';
 import { createFileRoute } from '@tanstack/react-router';
 import { App } from 'antd';
 import { useCallback, useMemo, useState } from 'react';
@@ -39,29 +38,18 @@ const EMPTY_LABEL: CardGridEmptyLabel = {
 
 const ModelProviderComponent = () => {
   const { message, modal } = App.useApp();
-  const {
-    initialFilter,
-    initialRestoreIndex,
-    saveFilter,
-    saveFirstVisibleIndex,
-  } = useModelProviderViewState();
 
-  // 恢复锚点、滚动容器、以及「回顶 + 作废锚点 + 写回 store」三件套都由公共件持有（与知识库同一套）
-  const {
-    restoreIndex,
-    consumeRestore,
-    scrollElement,
-    setScrollElement,
-    onFilterChange,
-  } = useListPageChrome<ModelProviderListFilter>({
-    initialRestoreIndex,
-    saveFilter,
-  });
-
-  const [committedName, setCommittedName] = useState(initialFilter.name ?? '');
-  const [vendor, setVendor] = useState<ModelVendorFilter>(
-    initialFilter.vendor ?? 'all',
+  // 页面状态缓存已移除：不再保存/恢复上次的筛选与滚动位置，
+  // 每次进入都是空筛选、从列表顶部开始。
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
+    null,
   );
+  const resetToTop = useCallback(() => {
+    scrollElement?.scrollTo({ top: 0 });
+  }, [scrollElement]);
+
+  const [committedName, setCommittedName] = useState('');
+  const [vendor, setVendor] = useState<ModelVendorFilter>('all');
   /** 单例表单抽屉的目标：create / edit(model) / 关闭(null) */
   const [formTarget, setFormTarget] = useState<
     { mode: 'create' } | { mode: 'edit'; model: ModelProvider } | null
@@ -166,17 +154,17 @@ const ModelProviderComponent = () => {
   const handleSearch = useCallback(
     (value: string) => {
       setCommittedName(value);
-      onFilterChange({ name: value || undefined });
+      resetToTop();
     },
-    [onFilterChange],
+    [resetToTop],
   );
 
   const handleVendorChange = useCallback(
     (value: ModelVendorFilter) => {
       setVendor(value);
-      onFilterChange({ vendor: value === 'all' ? undefined : value });
+      resetToTop();
     },
-    [onFilterChange],
+    [resetToTop],
   );
 
   // 卡片只接收该条目自己的 pending 标记；回调用 useCallback 包裹让引用在
@@ -202,7 +190,7 @@ const ModelProviderComponent = () => {
         vendor={vendor}
         onVendorChange={handleVendorChange}
         onSearch={handleSearch}
-        defaultKeyword={initialFilter.name ?? ''}
+        defaultKeyword=""
         onCreate={handleCreate}
         onOpenDefaults={handleOpenDefaults}
       />
@@ -223,9 +211,6 @@ const ModelProviderComponent = () => {
           hasFilter={Boolean(filter.name || filter.vendor)}
           emptyLabel={EMPTY_LABEL}
           renderItem={renderItem}
-          initialRestoreIndex={restoreIndex}
-          onRestoreDone={consumeRestore}
-          onFirstVisibleItemChange={saveFirstVisibleIndex}
         />
         <ModelProviderFormDrawer
           open={!!formTarget}

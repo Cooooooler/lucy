@@ -1,12 +1,10 @@
 import type { ModelProvider } from '@/api/types.ts';
-import { VirtualCardGrid } from '@/components/card-list/VirtualCardGrid.tsx';
 import { makeModel } from '@/components/model-provider/model-provider-test-fixture.ts';
 import {
   useInfiniteModelProviderList,
   useModelProviderDefaults,
   useModelProvidersByType,
 } from '@/hooks/use-model-provider';
-import { useModelProviderViewState } from '@/hooks/use-model-provider-view-state';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
@@ -85,15 +83,9 @@ vi.mock('@/components/card-list/VirtualCardGrid.tsx', async () => {
   };
 });
 
-vi.mock('@/hooks/use-model-provider-view-state', () => ({
-  useModelProviderViewState: vi.fn(),
-}));
-
 const mockedList = vi.mocked(useInfiniteModelProviderList);
 const mockedDefaults = vi.mocked(useModelProviderDefaults);
 const mockedModelsByType = vi.mocked(useModelProvidersByType);
-const mockedGrid = vi.mocked(VirtualCardGrid);
-const mockedViewState = vi.mocked(useModelProviderViewState);
 
 function noopQuery() {
   return {
@@ -118,21 +110,6 @@ function mockItems(items: ModelProvider[]) {
   } as unknown as ReturnType<typeof useInfiniteModelProviderList>);
 }
 
-function mockViewState(
-  initialFilter: { name?: string; vendor?: ModelProvider['vendor'] } = {},
-  initialRestoreIndex = 0,
-) {
-  const saveFilter = vi.fn();
-  const saveFirstVisibleIndex = vi.fn();
-  mockedViewState.mockReturnValue({
-    initialFilter,
-    initialRestoreIndex,
-    saveFilter,
-    saveFirstVisibleIndex,
-  });
-  return { saveFilter, saveFirstVisibleIndex };
-}
-
 function renderRoute() {
   const C = ModelProviderRoute.options.component as FC;
   return render(
@@ -140,13 +117,6 @@ function renderRoute() {
       <C />
     </AntdApp>,
   );
-}
-
-function lastGridProps() {
-  return mockedGrid.mock.calls.at(-1)?.[0] as unknown as Record<
-    string,
-    unknown
-  >;
 }
 
 describe('routes/_layout/integration/model-provider', () => {
@@ -158,7 +128,6 @@ describe('routes/_layout/integration/model-provider', () => {
       mutation.variables = undefined;
       mutation.mutateAsync.mockResolvedValue(undefined);
     }
-    mockViewState();
     mockedDefaults.mockReturnValue({
       data: { defaults: [] },
       isLoading: false,
@@ -167,25 +136,14 @@ describe('routes/_layout/integration/model-provider', () => {
     mockedModelsByType.mockReturnValue({ models: [], isLoading: false });
   });
 
-  it('用 store 中冻结的筛选与恢复索引初始化', () => {
-    const { saveFirstVisibleIndex } = mockViewState(
-      { name: 'gpt', vendor: 'openai' },
-      7,
-    );
-
+  it('默认以空筛选初始化', () => {
     renderRoute();
 
     expect(mockedList).toHaveBeenLastCalledWith({
-      name: 'gpt',
-      vendor: 'openai',
+      name: undefined,
+      vendor: undefined,
     });
-    expect(screen.getByPlaceholderText('按名称搜索模型')).toHaveValue('gpt');
-    expect(lastGridProps()).toMatchObject({
-      initialRestoreIndex: 7,
-      onFirstVisibleItemChange: saveFirstVisibleIndex,
-      hasFilter: true,
-      emptyLabel: { filtered: '没有匹配的模型', initial: '暂无模型' },
-    });
+    expect(screen.getByPlaceholderText('按名称搜索模型')).toHaveValue('');
   });
 
   it('点击「新增模型」打开单例表单抽屉', async () => {
@@ -294,17 +252,25 @@ describe('routes/_layout/integration/model-provider', () => {
     );
   });
 
-  it('改变筛选写回 store 并作废恢复锚点', async () => {
-    const { saveFilter } = mockViewState({}, 5);
+  it('改变筛选时按新条件查询', async () => {
     renderRoute();
 
     await userEvent.click(screen.getByText('OpenAI'));
-    expect(saveFilter).toHaveBeenCalledWith({ vendor: 'openai' });
-    expect(lastGridProps().initialRestoreIndex).toBe(0);
+    await waitFor(() =>
+      expect(mockedList.mock.calls.at(-1)?.[0]).toEqual({
+        name: undefined,
+        vendor: 'openai',
+      }),
+    );
 
     const input = screen.getByPlaceholderText('按名称搜索模型');
     await userEvent.type(input, 'gpt{Enter}');
-    expect(saveFilter).toHaveBeenCalledWith({ name: 'gpt' });
+    await waitFor(() =>
+      expect(mockedList.mock.calls.at(-1)?.[0]).toEqual({
+        name: 'gpt',
+        vendor: 'openai',
+      }),
+    );
   });
 
   it('把 mutation 的 pending 态落到对应卡片的禁用态', () => {
