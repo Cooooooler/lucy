@@ -11,7 +11,7 @@ import { defineConfig, devices } from '@playwright/test';
  * 信封化假数据，所以不需要 DB / Redis / Nest 进程。
  */
 export default defineConfig({
-  testDir: './e2e',
+  testDir: './test/e2e',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

@@ -11,6 +11,11 @@
     "target": "ES2023",
     "sourceMap": true,
     "types": ["node", "vitest/globals", "multer"],
+    // 测试集中到 test/ 后，用别名避免深层相对路径；构建产物不引用这些别名（测试被 build 排除）
+    "paths": {
+      "@/*": ["./src/*"],
+      "@test/*": ["./test/*"]
+    },
     "outDir": "./dist",
     "incremental": true,
     // NestJS 依赖构造器外的属性初始化（@Inject/装饰器注入），保留为 false

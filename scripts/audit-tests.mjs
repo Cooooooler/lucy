@@ -16,10 +16,9 @@ import process from 'node:process';
 
 const ROOT = process.cwd();
 const TARGETS = [
-  'apps/backend/src',
   'apps/backend/test',
-  'apps/frontend/src',
-  'apps/frontend/e2e',
+  'apps/frontend/test',
+  'apps/desktop/test',
   'packages',
 ];
 const SKIP_DIRS = new Set([

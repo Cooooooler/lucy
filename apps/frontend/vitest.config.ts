@@ -1,10 +1,14 @@
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+
+const testDir = fileURLToPath(new URL('./test', import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     tsconfigPaths: true,
+    alias: { '@test': testDir },
   },
   test: {
     // React 19 的 act() 仅在 development 构建导出；外部 NODE_ENV=production 时 react
@@ -22,8 +26,8 @@ export default defineConfig({
     },
     // 禁用 it.only：否则一次误提交会让 CI 只跑被聚焦的用例仍然全绿
     allowOnly: false,
-    setupFiles: ['./src/test/setup.ts'],
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    setupFiles: ['./test/support/setup.ts'],
+    include: ['test/unit/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'lcov'],
@@ -44,7 +48,6 @@ export default defineConfig({
         'src/components/ui/**',
         'src/components/bits/**',
         'src/backgrounds/**',
-        'src/test/**',
         // 纯类型文件（仅类型声明，无运行时逻辑）
         'src/api/types.ts',
         'src/**/*.{test,spec}.{ts,tsx}',

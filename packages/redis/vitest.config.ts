@@ -8,6 +8,7 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     allowOnly: false,
+    include: ['test/**/*.test.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'lcov'],

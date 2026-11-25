@@ -100,8 +100,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
-      # test:e2e 会先跑 test/prepare-e2e-db.ts（重建 lucy_test → 迁移 → 往返校验）
-      # 再跑 vitest；两个 required secret 由 src/test/setup.ts 注入测试值。
+      # test:e2e 会先跑 test/support/prepare-e2e-db.ts（重建 lucy_test → 迁移 → 往返校验）
+      # 再跑 vitest；两个 required secret 由 test/support/setup.ts 注入测试值。
       - name: Backend e2e
         run: pnpm --filter @lucy/backend test:e2e
         env:
@@ -267,7 +267,7 @@ jobs:
           # typegen 经 turbo 运行，其 dependsOn（gen:openapi → ^build）会构建内部包
           build-internal-packages: 'false'
       - name: Regenerate contract types
-        # 生成脚本会编译 AppModule；两个 required secret 由 src/test/setup.ts 注入测试值
+        # 生成脚本会编译 AppModule；两个 required secret 由 test/support/setup.ts 注入测试值
         # （vitest.gen.config.ts 已挂 setupFiles），无需在这里重复声明。
         run: pnpm typegen
       - name: Fail if generated types are stale

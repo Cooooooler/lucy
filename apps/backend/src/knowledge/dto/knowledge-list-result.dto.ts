@@ -104,7 +104,7 @@ export class KnowledgeListResultDto implements CursorPageResult<KnowledgeBaseIte
  * `originalName`/`ext`/`mime`/`size` 来自 `files` 表（查询 `innerJoin` 后投影而来）：
  * 文件表格要文件名/类型/大小，逐个再查一次详情就是 N+1。
  * 这四个字段在详情契约里**同样存在**——详情字段集 = 列表字段集 + content，
- * 由 `scripts/gen-openapi.spec.ts` 钉住。
+ * 由 `test/tooling/gen-openapi.spec.ts` 钉住。
  */
 export class KnowledgeDocumentListItemDto {
   @ApiProperty({ description: '文档 ID' })

@@ -1,7 +1,18 @@
+import { fileURLToPath } from 'node:url';
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
+const srcDir = fileURLToPath(new URL('./src', import.meta.url));
+const testDir = fileURLToPath(new URL('./test', import.meta.url));
+
 export default defineConfig({
+  // 测试已集中到 test/，用别名替代一长串 ../../../src
+  resolve: {
+    alias: {
+      '@': srcDir,
+      '@test': testDir,
+    },
+  },
   // esbuild 不输出 design:paramtypes，NestJS DI 依赖该元数据，故用 SWC 转换
   plugins: [swc.vite()],
   test: {
@@ -9,8 +20,8 @@ export default defineConfig({
     globals: true,
     // 提交 it.only 会让 CI 只跑一个用例却仍然全绿；这里直接禁用（Vitest 默认允许）
     allowOnly: false,
-    include: ['src/**/*.spec.ts'],
-    setupFiles: ['./src/test/setup.ts'],
+    include: ['test/unit/**/*.spec.ts'],
+    setupFiles: ['./test/support/setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'lcov'],
@@ -23,7 +34,6 @@ export default defineConfig({
         'src/db/migrations/**',
         'src/db/data-source.ts',
         'src/main.ts',
-        'src/test/**',
         'src/**/dto/**',
         // 只把真正只做转发的控制器排除在覆盖率门禁外（其行为由 e2e 覆盖），
         // 否则每加一个端点就得补一条纯委托断言，正是测试规模膨胀的来源。

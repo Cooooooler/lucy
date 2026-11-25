@@ -1,0 +1,192 @@
+import { envValidationSchema } from '@/common/env-validation.schema.js';
+
+/** 最小合法 env：JWT_SECRET 与 MODEL_PROVIDER_SECRET_KEY 必填 */
+const BASE = {
+  JWT_SECRET: 'x'.repeat(32),
+  MODEL_PROVIDER_SECRET_KEY: 'y'.repeat(32),
+};
+
+const validate = (env: Record<string, unknown>) =>
+  envValidationSchema.validate(
+    { ...BASE, ...env },
+    { abortEarly: false, allowUnknown: true },
+  ) as { error?: Error; value: Record<string, unknown> };
+
+describe('envValidationSchema', () => {
+  it('仅需 JWT_SECRET 与 MODEL_PROVIDER_SECRET_KEY；带 default 的项消费方用 getOrThrow，其余默认由消费方持有', () => {
+    const { error, value } = validate({});
+    expect(error).toBeUndefined();
+    // 消费方用 getOrThrow 的项：默认值只此一处（否则会与消费方 fallback 形成两份）
+    expect(value.REQUEST_TIMEOUT_MS).toBe(120000);
+    expect(value.SHUTDOWN_GRACE_MS).toBe(15000);
+    expect(value.DB_STATEMENT_TIMEOUT_MS).toBe(30000);
+    expect(value.DB_IDLE_TX_TIMEOUT_MS).toBe(60000);
+    // 其余只校验、不设默认：缺席即 undefined，避免与消费方 fallback 形成两份默认值
+    expect(value.LOG_LEVEL).toBeUndefined();
+    expect(value.OLLAMA_BASE_URL).toBeUndefined();
+    expect(value.BLOOM_ERROR_RATE).toBeUndefined();
+    expect(value.FILE_STORAGE).toBeUndefined();
+    expect(value.MODEL_TEST_TIMEOUT_MS).toBeUndefined();
+  });
+
+  it('MODEL_PROVIDER_SECRET_KEY 必填且至少 32 字符；MODEL_TEST_TIMEOUT_MS 须为正整数', () => {
+    // 直接校验（不走 merge BASE 的 validate）：缺 key 必须失败
+    expect(
+      envValidationSchema.validate(
+        { JWT_SECRET: 'x'.repeat(32) },
+        { abortEarly: false, allowUnknown: true },
+      ).error,
+    ).toBeDefined();
+    expect(
+      validate({ MODEL_PROVIDER_SECRET_KEY: 'short' }).error,
+    ).toBeDefined();
+    expect(
+      validate({ MODEL_PROVIDER_SECRET_KEY: 'z'.repeat(32) }).error,
+    ).toBeUndefined();
+
+    expect(validate({ MODEL_TEST_TIMEOUT_MS: 15000 }).error).toBeUndefined();
+    expect(validate({ MODEL_TEST_TIMEOUT_MS: 0 }).error).toBeDefined();
+    expect(validate({ MODEL_TEST_TIMEOUT_MS: -1 }).error).toBeDefined();
+    expect(
+      validate({ MODEL_TEST_TIMEOUT_MS: 2_147_483_648 }).error,
+    ).toBeDefined();
+  });
+
+  it('OUTBOUND_* 可选且须为正整数（缺省走 undici 默认）', () => {
+    expect(validate({}).value.OUTBOUND_MAX_CONNECTIONS).toBeUndefined();
+    expect(
+      validate({
+        OUTBOUND_MAX_CONNECTIONS: 64,
+        OUTBOUND_CONNECT_TIMEOUT_MS: 10000,
+      }).error,
+    ).toBeUndefined();
+    expect(validate({ OUTBOUND_MAX_CONNECTIONS: 0 }).error).toBeDefined();
+    expect(validate({ OUTBOUND_CONNECT_TIMEOUT_MS: -1 }).error).toBeDefined();
+  });
+
+  it('OUTBOUND_ALLOW_PRIVATE_HOSTS 只接受可生效的主机名/IP 字面量（拒绝协议/端口/路径/受限地址）', () => {
+    expect(
+      validate({ OUTBOUND_ALLOW_PRIVATE_HOSTS: '' }).error,
+    ).toBeUndefined();
+    expect(
+      validate({
+        OUTBOUND_ALLOW_PRIVATE_HOSTS:
+          'vllm.lan, 192.168.1.20, [::1], vllm2.lan., 0:0:0:0:0:0:0:2',
+      }).error,
+    ).toBeUndefined();
+    for (const invalid of [
+      'http://vllm.lan',
+      'vllm.lan:8000',
+      // 路径/查询/userinfo 不是主机名的一部分，不能被 URL 归一化静默截断
+      'vllm.lan/v1',
+      'vllm.lan?x=1',
+      'vllm.lan@evil.com',
+      '192.168.1.0/24',
+      'vllm.lan, bad host',
+      // 纯数字点分但不是合法 IP：URL 归一化后形态会变，运行期匹配不上
+      '192.168.1.010',
+      '1.2.3',
+      // 数字点数写法会被 URL 改写成别的 IPv4（0x7f.1 → 127.0.0.1）
+      '0x7f.1',
+      '1.2.3.0x4',
+      // 未指定地址在 Linux 上会被路由到本机回环，放行等于放行本机任意端口
+      '0.0.0.0',
+      '::',
+      // 十六进制写法的链路本地/元数据：归一化后仍属受限地址
+      '0xa9fea9fe',
+      // 链路本地/云元数据始终被守卫拦截，写进白名单也不会生效：启动期直接拒绝
+      'fe80::1',
+      '169.254.169.254',
+      'metadata.google.internal',
+    ]) {
+      expect(
+        validate({ OUTBOUND_ALLOW_PRIVATE_HOSTS: invalid }).error,
+      ).toBeDefined();
+    }
+
+    // 错误信息带上首个非法条目，避免「配了却不生效」无从排查
+    const { error } = validate({
+      OUTBOUND_ALLOW_PRIVATE_HOSTS: 'vllm.lan:8000',
+    });
+    expect(error?.message).toContain('vllm.lan:8000');
+  });
+
+  it('停机宽限期须为正；DB 上界允许 0（不限）但拒绝负值', () => {
+    expect(validate({ SHUTDOWN_GRACE_MS: 5000 }).error).toBeUndefined();
+    // 0 会让兜底强退立刻触发，等于没有优雅停机：启动期拦下
+    expect(validate({ SHUTDOWN_GRACE_MS: 0 }).error).toBeDefined();
+    expect(validate({ SHUTDOWN_GRACE_MS: -1 }).error).toBeDefined();
+    // 0 是 Postgres 的「不限」语义
+    expect(validate({ DB_STATEMENT_TIMEOUT_MS: 0 }).error).toBeUndefined();
+    expect(validate({ DB_STATEMENT_TIMEOUT_MS: -1 }).error).toBeDefined();
+    expect(validate({ DB_IDLE_TX_TIMEOUT_MS: 0 }).error).toBeUndefined();
+    expect(validate({ DB_IDLE_TX_TIMEOUT_MS: -1 }).error).toBeDefined();
+  });
+
+  it('停机宽限期与 DB 上界拒绝超 int32：setTimeout 会按 1ms 处理、Postgres 在建连时报错', () => {
+    expect(validate({ SHUTDOWN_GRACE_MS: 2_147_483_648 }).error).toBeDefined();
+    expect(
+      validate({ DB_STATEMENT_TIMEOUT_MS: 2_147_483_648 }).error,
+    ).toBeDefined();
+    expect(
+      validate({ DB_IDLE_TX_TIMEOUT_MS: 2_147_483_648 }).error,
+    ).toBeDefined();
+  });
+
+  it('REQUEST_TIMEOUT_MS 允许 0（禁用），拒绝负值/非整数/超上限', () => {
+    expect(validate({ REQUEST_TIMEOUT_MS: 0 }).error).toBeUndefined();
+    // 负值几乎必然是误配：启动期拒绝，而非当成「禁用」静默吞掉
+    expect(validate({ REQUEST_TIMEOUT_MS: -1 }).error).toBeDefined();
+    expect(validate({ REQUEST_TIMEOUT_MS: -1000 }).error).toBeDefined();
+    // 非整数 / 非数值 / 超出 setTimeout 32 位上限仍失败
+    expect(validate({ REQUEST_TIMEOUT_MS: 1.5 }).error).toBeDefined();
+    expect(validate({ REQUEST_TIMEOUT_MS: 'abc' }).error).toBeDefined();
+    expect(validate({ REQUEST_TIMEOUT_MS: 2_147_483_648 }).error).toBeDefined();
+  });
+
+  it('轮换/宽限期允许 0（0 有明确语义：每次轮换 / 无宽限期）', () => {
+    expect(validate({ REFRESH_ROTATION_MS: 0 }).error).toBeUndefined();
+    expect(validate({ REUSE_GRACE_SECONDS: 0 }).error).toBeUndefined();
+    // 负值仍失败
+    expect(validate({ REFRESH_ROTATION_MS: -1 }).error).toBeDefined();
+    expect(validate({ REUSE_GRACE_SECONDS: -1 }).error).toBeDefined();
+  });
+
+  it('LOG_LEVEL 限制为 pino 合法等级（非法值启动即失败）', () => {
+    expect(validate({ LOG_LEVEL: 'debug' }).error).toBeUndefined();
+    expect(validate({ LOG_LEVEL: 'verbose' }).error).toBeDefined();
+  });
+
+  it('LOG_PRETTY 接受 0/1/true/false（兼容一直可用的写法），其余拒绝', () => {
+    for (const value of ['0', '1', 'true', 'false']) {
+      expect(validate({ LOG_PRETTY: value }).error).toBeUndefined();
+    }
+    expect(validate({ LOG_PRETTY: 'yes' }).error).toBeDefined();
+  });
+
+  it('OLLAMA_BASE_URL 必须是合法 URI', () => {
+    expect(
+      validate({ OLLAMA_BASE_URL: 'http://localhost:11434' }).error,
+    ).toBeUndefined();
+    expect(validate({ OLLAMA_BASE_URL: 'not a url' }).error).toBeDefined();
+  });
+
+  it('BLOOM_ERROR_RATE 须严格介于 0 与 1（BF.RESERVE 拒绝 1，rate=1 会恒判存在）', () => {
+    expect(validate({ BLOOM_ERROR_RATE: 0.01 }).error).toBeUndefined();
+    expect(validate({ BLOOM_ERROR_RATE: 1 }).error).toBeDefined();
+    expect(validate({ BLOOM_ERROR_RATE: 0 }).error).toBeDefined();
+  });
+
+  it('BLOOM_CAPACITY 拒绝非整数；FILE_STORAGE 仅接受 local', () => {
+    expect(validate({ BLOOM_CAPACITY: 'abc' }).error).toBeDefined();
+    expect(validate({ FILE_STORAGE: 'local' }).error).toBeUndefined();
+    expect(validate({ FILE_STORAGE: 's3' }).error).toBeDefined();
+  });
+
+  it('非空字符串项拒绝空串（空串 != undefined，不会触发消费方的 ?? 回退）', () => {
+    expect(validate({ AI_TITLE_PROMPT: '' }).error).toBeDefined();
+    expect(validate({ AI_TITLE_PROMPT: '标题：' }).error).toBeUndefined();
+    // 系统提示允许留空（= 不注入系统提示）
+    expect(validate({ AI_SYSTEM_PROMPT: '' }).error).toBeUndefined();
+  });
+});

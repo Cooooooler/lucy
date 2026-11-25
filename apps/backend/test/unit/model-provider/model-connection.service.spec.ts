@@ -1,0 +1,283 @@
+import { AppLogger } from '@/common/app-logger.service.js';
+import { BaseUrlBlockedError } from '@/common/base-url-blocked.error.js';
+import {
+  ModelProvider,
+  ModelProviderType,
+} from '@/model-provider/entities/model-provider.entity.js';
+import {
+  ModelClientFactory,
+  UnsupportedModelTypeError,
+} from '@/model-provider/model-client.factory.js';
+import { ModelConnectionService } from '@/model-provider/model-connection.service.js';
+import { ModelCredentialError } from '@/model-provider/model-credential.error.js';
+import { ConfigService } from '@nestjs/config';
+import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import {
+  MODEL_ID,
+  makeModelProvider,
+} from '@test/support/model-provider.fixtures.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+describe('ModelConnectionService', () => {
+  const repo = { findOne: vi.fn() };
+  const factory = {
+    buildChat: vi.fn(),
+    buildOpenAiChat: vi.fn(),
+    buildEmbeddings: vi.fn(),
+    assertSupported: vi.fn(),
+  };
+  // 直接持有 warnWith 的 mock 引用再断言：`expect(logger.warnWith)` 会触发 unbound-method
+  const loggerWarn = vi.fn();
+  const logger = {
+    log: vi.fn(),
+    warnWith: loggerWarn,
+  } as unknown as AppLogger;
+  let timeoutMs = 15000;
+  const config = {
+    get: (_key: string, def: number) => (timeoutMs === 0 ? def : timeoutMs),
+  } as unknown as ConfigService;
+
+  let service: ModelConnectionService;
+
+  const buildService = async (): Promise<ModelConnectionService> => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ModelConnectionService,
+        { provide: AppLogger, useValue: logger },
+        { provide: getRepositoryToken(ModelProvider), useValue: repo },
+        { provide: ModelClientFactory, useValue: factory },
+        { provide: ConfigService, useValue: config },
+      ],
+    }).compile();
+    return moduleRef.get(ModelConnectionService);
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    timeoutMs = 15000;
+    // clearAllMocks 只清调用记录、不清实现：显式复位上一条用例可能留下的
+    // assertSupported 抛错实现，避免它对后续用例持续生效
+    factory.assertSupported.mockImplementation(() => undefined);
+    repo.findOne.mockResolvedValue(makeModelProvider());
+    service = await buildService();
+  });
+
+  it('不支持的类型直接给出结论，不发起调用', async () => {
+    repo.findOne.mockResolvedValue(
+      makeModelProvider({ type: ModelProviderType.Tts }),
+    );
+    factory.assertSupported.mockImplementation((type: ModelProviderType) => {
+      throw new UnsupportedModelTypeError(type);
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result).toEqual({
+      ok: false,
+      message: '该模型类型暂不支持连通性测试',
+      latencyMs: null,
+      detail: null,
+    });
+    expect(factory.buildChat).not.toHaveBeenCalled();
+  });
+
+  it('LLM 连通：返回 ok 与回复片段', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi.fn().mockResolvedValue({ content: '你好，我是模型' }),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.ok).toBe(true);
+    expect(result.message).toBe('连接成功');
+    expect(result.detail).toBe('回复：你好，我是模型');
+    expect(result.latencyMs).toBeTypeOf('number');
+  });
+
+  it('Moderation 连通：走 moderateContent', async () => {
+    repo.findOne.mockResolvedValue(
+      makeModelProvider({ type: ModelProviderType.Moderation }),
+    );
+    factory.buildOpenAiChat.mockReturnValue({
+      moderateContent: vi.fn().mockResolvedValue({ results: [{}, {}] }),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.ok).toBe(true);
+    expect(result.detail).toBe('审核返回 2 条结果');
+  });
+
+  it('Text Embedding 连通：返回向量维度', async () => {
+    repo.findOne.mockResolvedValue(
+      makeModelProvider({ type: ModelProviderType.TextEmbedding }),
+    );
+    factory.buildEmbeddings.mockReturnValue({
+      embedQuery: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.ok).toBe(true);
+    expect(result.detail).toBe('向量维度 3');
+  });
+
+  it('超时：返回「连接超时」且不泄漏底层细节', async () => {
+    timeoutMs = 5;
+    factory.buildChat.mockReturnValue({
+      invoke: vi.fn(() => new Promise(() => {})),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('连接超时');
+    expect(loggerWarn).toHaveBeenCalled();
+  });
+
+  it('鉴权失败：401 归一为 API Key 文案', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error('Unauthorized'), { status: 401 }),
+        ),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('API Key 无效或无权限');
+    expect(typeof result.latencyMs).toBe('number');
+    expect(result.detail).toBeNull();
+  });
+
+  it('网络不可达：归一为「无法连接到 API Base URL」', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi.fn().mockRejectedValue(new Error('fetch failed')),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.message).toBe('无法连接到 API Base URL');
+  });
+
+  it('守卫拒绝（经 SDK 包在 cause 上）仍返回可执行文案', async () => {
+    const wrapped = Object.assign(new Error('APIConnectionError'), {
+      cause: new BaseUrlBlockedError('API Base URL 返回重定向，已拒绝跟随'),
+    });
+    factory.buildChat.mockReturnValue({
+      invoke: vi.fn().mockRejectedValue(wrapped),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('API Base URL 返回重定向，已拒绝跟随');
+  });
+
+  it('解密失败：归因为平台密钥问题而非「检查配置」（Provider 密文与密钥不匹配）', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi
+        .fn()
+        .mockRejectedValue(
+          new ModelCredentialError(
+            'decrypt-failed',
+            'API Key 解密失败：tag 不匹配',
+          ),
+        ),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('平台密钥已变更，请重新保存 API Key');
+    expect(result.detail).toBeNull();
+  });
+
+  it('未配置 API Key：归因单独文案（不再落进连接失败兜底）', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi
+        .fn()
+        .mockRejectedValue(
+          new ModelCredentialError('missing', '模型 qwen 未配置 API Key'),
+        ),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.message).toBe('该模型未配置 API Key，请保存后重试');
+  });
+
+  it('供应商 429：归一为限流文案', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error(' rate limit'), { status: 429 }),
+        ),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.message).toBe('供应商限流，请稍后重试');
+  });
+
+  it('供应商 5xx：归一为供应商服务异常文案', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error('upstream error'), { status: 502 }),
+        ),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.message).toBe('供应商服务异常');
+  });
+
+  it('失败日志带错误类名（便于按类聚合「配置错 vs 平台/供应商故障」）', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi
+        .fn()
+        .mockRejectedValue(
+          new ModelCredentialError('decrypt-failed', 'API Key 解密失败'),
+        ),
+    });
+
+    await service.test('u1', MODEL_ID);
+    expect(loggerWarn).toHaveBeenCalled();
+    // 结构化字段：采集端按 err.type 聚合，无需正则解析 message
+    const fields = loggerWarn.mock.calls.at(-1)?.[0] as {
+      err?: Error;
+    };
+    expect(fields.err).toBeInstanceOf(ModelCredentialError);
+    expect(fields.err?.name).toBe('ModelCredentialError');
+  });
+
+  it('其它错误：走通用兜底文案', async () => {
+    factory.buildChat.mockReturnValue({
+      invoke: vi.fn().mockRejectedValue(new Error('boom')),
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.message).toBe('连接失败，请检查配置');
+  });
+
+  it('构造客户端阶段抛错（解密失败/缺 Key 的真实路径）：归因文案与日志类名仍生效', async () => {
+    // 生产路径是 buildChat 构造期同步抛出（requireApiKey/decrypt），不是 invoke 的
+    // rejection；该用例钉住「错误发生在 withTimeout 竞速之前」的构造期归因
+    factory.buildChat.mockImplementation(() => {
+      throw new ModelCredentialError(
+        'decrypt-failed',
+        'API Key 解密失败：tag 不匹配',
+      );
+    });
+
+    const result = await service.test('u1', MODEL_ID);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('平台密钥已变更，请重新保存 API Key');
+    expect(loggerWarn).toHaveBeenCalled();
+    const fields = loggerWarn.mock.calls.at(-1)?.[0] as {
+      err?: Error;
+    };
+    expect(fields.err).toBeInstanceOf(ModelCredentialError);
+    expect(fields.err?.name).toBe('ModelCredentialError');
+  });
+
+  it('非属主/不存在：repo 未命中即 404（不构造客户端）', async () => {
+    repo.findOne.mockResolvedValue(null);
+    await expect(service.test('u2', MODEL_ID)).rejects.toThrow();
+    expect(factory.assertSupported).not.toHaveBeenCalled();
+  });
+});

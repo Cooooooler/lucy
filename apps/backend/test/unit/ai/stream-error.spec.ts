@@ -1,0 +1,182 @@
+import { classifyStreamError } from '@/ai/stream-error.js';
+import { BaseUrlBlockedError } from '@/common/base-url-blocked.error.js';
+import { ModelCredentialError } from '@/model-provider/model-credential.error.js';
+import { ErrorCode } from '@lucy/shared';
+import { QueryFailedError } from 'typeorm';
+
+// 未中止的 signal：绝大多数用例验证的是错误本身，不该被 signal.aborted 分支短路
+const live = new AbortController().signal;
+
+function abortedSignal(reason?: string): AbortSignal {
+  const controller = new AbortController();
+  if (reason) controller.abort(new Error(reason));
+  else controller.abort();
+  return controller.signal;
+}
+
+describe('classifyStreamError', () => {
+  it('signal 中止：reason 含 timeout 归模型超时，否则归生成中断', () => {
+    expect(
+      classifyStreamError(
+        new Error('x'),
+        abortedSignal('request timed out'),
+        'stream',
+      ),
+    ).toEqual({
+      code: ErrorCode.AI_GENERATE_TIMEOUT,
+      message: '模型调用超时',
+    });
+    expect(
+      classifyStreamError(new Error('x'), abortedSignal(), 'stream'),
+    ).toEqual({
+      code: ErrorCode.AI_GENERATE_ABORTED,
+      message: '生成中断',
+    });
+  });
+
+  it('凭证错误：按 reason 给可执行提示（corrupt 与密钥轮换区分）', () => {
+    expect(
+      classifyStreamError(
+        new ModelCredentialError('decrypt-failed', 'boom'),
+        live,
+        'stream',
+      ),
+    ).toEqual({
+      code: ErrorCode.AI_CREDENTIAL_INVALID,
+      message: '平台密钥已变更，请重新保存 API Key',
+    });
+    expect(
+      classifyStreamError(
+        new ModelCredentialError('corrupt', 'boom'),
+        live,
+        'stream',
+      ),
+    ).toEqual({
+      code: ErrorCode.AI_CREDENTIAL_INVALID,
+      message: 'API Key 密文损坏，请重新保存',
+    });
+  });
+
+  it('Base URL 守卫错误（经 SDK 包装）使用独立码并透传可执行文案', () => {
+    const wrapped = new Error('APIConnectionError', {
+      cause: new BaseUrlBlockedError('API Base URL 指向受限地址'),
+    });
+    expect(classifyStreamError(wrapped, live, 'stream')).toEqual({
+      code: ErrorCode.AI_BASE_URL_BLOCKED,
+      message: 'API Base URL 指向受限地址',
+    });
+  });
+
+  it('供应商 401/403 归凭证无效码（与连接测试同源，可执行提示）', () => {
+    const unauthorized = Object.assign(new Error('Unauthorized'), {
+      status: 401,
+    });
+    expect(classifyStreamError(unauthorized, live, 'stream')).toEqual({
+      code: ErrorCode.AI_CREDENTIAL_INVALID,
+      message: 'API Key 无效或无权限',
+    });
+  });
+
+  it('供应商 429/5xx 使用细分错误码与可执行文案', () => {
+    expect(
+      classifyStreamError(
+        Object.assign(new Error('rate limit'), { status: 429 }),
+        live,
+        'stream',
+      ),
+    ).toEqual({
+      code: ErrorCode.AI_PROVIDER_RATE_LIMITED,
+      message: '供应商限流，请稍后重试',
+    });
+    expect(
+      classifyStreamError(
+        Object.assign(new Error('upstream boom'), { status: 503 }),
+        live,
+        'stream',
+      ),
+    ).toEqual({
+      code: ErrorCode.AI_PROVIDER_UNAVAILABLE,
+      message: '供应商服务异常',
+    });
+  });
+
+  it('供应商 404 归「接口不存在」码（与连接测试同源，提示检查 Base URL）', () => {
+    expect(
+      classifyStreamError(
+        Object.assign(new Error('Not Found'), { status: 404 }),
+        live,
+        'stream',
+      ),
+    ).toEqual({
+      code: ErrorCode.AI_PROVIDER_NOT_FOUND,
+      message: '接口或模型不存在，请检查 Base URL 与模型名',
+    });
+  });
+
+  it('流阶段网络错误归「无法连接供应商」码；run 阶段沿用生成失败（可能是数据库连接）', () => {
+    const refused = Object.assign(new Error('connect ECONNREFUSED'), {
+      code: 'ECONNREFUSED',
+    });
+    expect(classifyStreamError(refused, live, 'stream')).toEqual({
+      code: ErrorCode.AI_PROVIDER_UNREACHABLE,
+      message: '无法连接到 API Base URL',
+    });
+    // run 阶段同一文案可能来自数据库/启动依赖，不臆断为供应商不可达
+    expect(classifyStreamError(refused, live, 'run')).toEqual({
+      code: ErrorCode.AI_GENERATE_FAILED,
+      message: '生成失败',
+    });
+  });
+
+  it('基础设施错误优先于供应商网络归类（DB 连接文案同形也不误报）', () => {
+    // pg-pool 的连接类失败是裸 Error：文案含 connect/refused，但结构化判据先命中
+    const poolError = new Error('timeout exceeded when trying to connect');
+    expect(classifyStreamError(poolError, live, 'stream')).toEqual({
+      code: ErrorCode.AI_GENERATE_FAILED,
+      message: '生成失败',
+    });
+  });
+
+  it('QueryFailedError / SQLSTATE / 连接池文案都归为基础设施错误', () => {
+    const qfe = new QueryFailedError(
+      'SELECT 1',
+      [],
+      Object.assign(new Error('canceling statement due to statement timeout'), {
+        code: '57014',
+      }),
+    );
+    expect(classifyStreamError(qfe, live, 'stream')).toEqual({
+      code: ErrorCode.AI_GENERATE_FAILED,
+      message: '生成失败',
+    });
+    const bareSqlState = Object.assign(
+      new Error('canceling statement due to statement timeout'),
+      { code: '57P01' },
+    );
+    expect(classifyStreamError(bareSqlState, live, 'stream').code).toBe(
+      ErrorCode.AI_GENERATE_FAILED,
+    );
+    expect(
+      classifyStreamError(
+        new Error('timeout exceeded when trying to connect'),
+        live,
+        'stream',
+      ).code,
+    ).toBe(ErrorCode.AI_GENERATE_FAILED);
+  });
+
+  it('阶段决定超时启发式：stream 阶段 ETIMEDOUT 归模型超时，run 阶段归生成失败', () => {
+    const timeout = Object.assign(
+      new Error('connect ETIMEDOUT 10.0.0.5:5432'),
+      { code: 'ETIMEDOUT' },
+    );
+    expect(classifyStreamError(timeout, live, 'stream')).toEqual({
+      code: ErrorCode.AI_GENERATE_TIMEOUT,
+      message: '模型调用超时',
+    });
+    expect(classifyStreamError(timeout, live, 'run')).toEqual({
+      code: ErrorCode.AI_GENERATE_FAILED,
+      message: '生成失败',
+    });
+  });
+});

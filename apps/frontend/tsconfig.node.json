@@ -8,6 +8,9 @@
 
     /* Bundler mode */
     "module": "nodenext",
+    "paths": {
+      "@test/*": ["./test/*"]
+    },
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
@@ -15,5 +18,5 @@
 
     "erasableSyntaxOnly": true
   },
-  "include": ["vite.config.ts", "playwright.config.ts", "e2e"]
+  "include": ["vite.config.ts", "playwright.config.ts", "test/e2e"]
 }
