@@ -27,6 +27,7 @@ import type {
 } from '@lucy/shared';
 import {
   type QueryClient,
+  type QueryKey,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -34,7 +35,11 @@ import {
 } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { type CachePatch, applyOptimistic } from './lib/optimistic';
-import { patchCursorPageItem, removeCursorPageItem } from './lib/query-shapes';
+import {
+  patchCursorPageItem,
+  patchOrRemoveCursorPageItem,
+  removeCursorPageItem,
+} from './lib/query-shapes';
 
 /** 默认每页条数（游标分页，同时是列表 queryKey 的一部分） */
 export const KNOWLEDGE_PAGE_SIZE = 20;
@@ -119,7 +124,23 @@ function likeCachePatches(id: string, isLiked: boolean): CachePatch<string>[] {
   ];
 }
 
-/** 可见性切换：列表 key 末位是筛选条件，新值不再满足筛选时把条目移出该列表 */
+/** 列表 key 约定为 [...baseListAll(), 查询参数]（见 knowledgeKeys.baseList） */
+function listFilterOf(queryKey: QueryKey): KnowledgeListQuery | undefined {
+  return queryKey.at(-1) as KnowledgeListQuery | undefined;
+}
+
+/** 改写后的条目是否仍能满足列表筛选（name 为后端 ILIKE 的子串匹配） */
+function matchesListFilter(
+  filter: KnowledgeListQuery | undefined,
+  item: Pick<KnowledgeBase, 'name' | 'visibility'>,
+) {
+  if (filter?.visibility && filter.visibility !== item.visibility) return false;
+  return !(
+    filter?.name && !item.name.toLowerCase().includes(filter.name.toLowerCase())
+  );
+}
+
+/** 可见性切换：新值不再满足筛选时把条目移出该列表 */
 function visibilityCachePatches(
   id: string,
   visibility: KnowledgeBaseVisibility,
@@ -135,14 +156,12 @@ function visibilityCachePatches(
     },
     {
       queryKey: knowledgeKeys.baseListAll(),
-      apply: (old, _vars, queryKey) => {
-        // key 约定为 [...baseListAll(), 查询参数]（见 knowledgeKeys.baseList）
-        const filter = queryKey.at(-1) as KnowledgeListQuery | undefined;
-        const stays = !filter?.visibility || filter.visibility === visibility;
-        return stays
-          ? patchCursorPageItem<KnowledgeBase>(id, { visibility })(old)
-          : removeCursorPageItem<KnowledgeBase>(id)(old);
-      },
+      apply: (old, _vars, queryKey) =>
+        patchOrRemoveCursorPageItem<KnowledgeBase>(
+          id,
+          (next) => matchesListFilter(listFilterOf(queryKey), next),
+          { visibility },
+        )(old),
     },
   ];
 }
@@ -152,6 +171,53 @@ function deleteCachePatches(id: string): CachePatch<string>[] {
     {
       queryKey: knowledgeKeys.baseListAll(),
       apply: removeCursorPageItem<KnowledgeBase>(id),
+    },
+  ];
+}
+
+type UpdateVariables = {
+  id: string;
+  input: UpdateKnowledgeBaseRequest;
+};
+
+/** 编辑表单提交的字段（后端 UpdateKnowledgeBaseDto 只接受这三项） */
+function updateFields(
+  input: UpdateKnowledgeBaseRequest,
+): Partial<KnowledgeBase> {
+  return {
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.description !== undefined
+      ? { description: input.description }
+      : {}),
+    ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
+  };
+}
+
+/**
+ * 编辑：与可见性切换同策略——详情就地改写，列表按改写后的 name/visibility
+ * 重新判断是否仍满足筛选，不再满足的条目从该列表移除。
+ */
+function updateCachePatches(
+  id: string,
+  fields: Partial<KnowledgeBase>,
+): CachePatch<UpdateVariables>[] {
+  return [
+    {
+      queryKey: knowledgeKeys.base(id),
+      exact: true,
+      apply: (old) => {
+        const base = old as KnowledgeBase | undefined;
+        return base?.id === id ? { ...base, ...fields } : base;
+      },
+    },
+    {
+      queryKey: knowledgeKeys.baseListAll(),
+      apply: (old, _vars, queryKey) =>
+        patchOrRemoveCursorPageItem<KnowledgeBase>(
+          id,
+          (next) => matchesListFilter(listFilterOf(queryKey), next),
+          fields,
+        )(old),
     },
   ];
 }
@@ -182,7 +248,9 @@ async function rollbackAndRevalidate(
 
 /**
  * 游标分页知识库列表（无限滚动）。
- * 缓存已整体关闭：每次挂载从首页重新请求，不复用历史分页。
+ *
+ * `staleTime: 3 分钟`：3 分钟内视为新鲜，重新进入页面直接复用缓存、不重放已加载分页。
+ * gcTime 不覆盖，继承基础配置（5 分钟）：离开页面后缓存短期保留，回来仍可命中。
  */
 export function useInfiniteKnowledgeBaseList(
   filter: KnowledgeListFilter = {},
@@ -198,6 +266,7 @@ export function useInfiniteKnowledgeBaseList(
       }),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 3 * 60 * 1000,
   });
 }
 
@@ -218,36 +287,45 @@ export function useKnowledgeBase(id: string | undefined) {
   });
 }
 
-/** 创建知识库，成功后失效列表（重新拉取首页）。 */
+/** 创建知识库，成功后执行与刷新按钮相同的重置（见 useRefreshKnowledgeBaseList）。 */
 export function useCreateKnowledgeBase() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateKnowledgeBaseRequest) =>
       createKnowledgeBaseApi(input),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
+      await queryClient.resetQueries({
         queryKey: knowledgeKeys.baseListAll(),
       });
     },
   });
 }
 
-/** 更新知识库（名称/描述/可见性），成功后失效详情与列表。 */
+/**
+ * 更新知识库（名称/描述/可见性）：乐观改写详情与列表，成功后用服务端值收敛。
+ * 改名或改可见性后可能不再满足当前筛选，对应列表里的条目会立即移除。
+ */
 export function useUpdateKnowledgeBase() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (variables: {
-      id: string;
-      input: UpdateKnowledgeBaseRequest;
-    }) => updateKnowledgeBaseApi(variables.id, variables.input),
-    onSuccess: async (_data, { id }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: knowledgeKeys.base(id) }),
-        queryClient.invalidateQueries({
-          queryKey: knowledgeKeys.baseListAll(),
-        }),
-      ]);
-    },
+    mutationFn: (variables: UpdateVariables) =>
+      updateKnowledgeBaseApi(variables.id, variables.input),
+    onMutate: async (variables) => ({
+      rollback: await applyOptimistic(
+        queryClient,
+        updateCachePatches(variables.id, updateFields(variables.input)),
+        variables,
+      ),
+    }),
+    onSuccess: (updated) =>
+      patchBaseInCache(queryClient, updated.id, {
+        name: updated.name,
+        description: updated.description,
+        visibility: updated.visibility,
+        updatedAt: updated.updatedAt,
+      }),
+    onError: (_error, variables, context) =>
+      rollbackAndRevalidate(queryClient, context?.rollback, variables.id),
   });
 }
 

@@ -49,7 +49,9 @@ export const modelProviderKeys = {
 
 /**
  * 游标分页模型列表（无限滚动）。
- * 缓存已整体关闭：每次挂载从首页重新请求，不复用历史分页。
+ *
+ * gcTime 继承基础配置（5 分钟）；staleTime 继承基础配置（0），重新挂载会重新请求，
+ * infinite query 按已加载页数逐页重放。
  */
 export function useInfiniteModelProviderList(
   filter: ModelProviderListFilter = {},

@@ -189,7 +189,7 @@ describe('useInfiniteKnowledgeBaseList', () => {
     );
   });
 
-  it('换筛选后切回会重新请求，不复用缓存', async () => {
+  it('换筛选后切回 3 分钟内复用缓存，不重新请求', async () => {
     api.listKnowledgeBasesApi.mockImplementation(
       (query: { visibility?: string; cursor?: string } = {}) => {
         if (query.visibility === 'private') {
@@ -225,34 +225,49 @@ describe('useInfiniteKnowledgeBaseList', () => {
     );
     expect(result.current.isPlaceholderData).toBe(false);
 
-    // 切回全部：缓存已关闭，重新请求（refetch 会把已加载的两页重放一遍）
+    // gcTime 继承基础配置（5 分钟）：两个筛选的缓存并存；
+    // staleTime 为 3 分钟，切回「全部」直接复用，不再请求
     rerender({});
-    await waitFor(() =>
-      expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(5),
-    );
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
+    expect(
+      client.getQueryCache().findAll({ queryKey: knowledgeKeys.baseListAll() }),
+    ).toHaveLength(2);
+    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(3);
   });
 
-  it('卸载后重新挂载会重新请求首页（不缓存）', async () => {
-    api.listKnowledgeBasesApi.mockResolvedValue(cursorPage([makeBase()], 'c1'));
+  it('翻到第 2 页后离开再进入，3 分钟内复用缓存（不重放分页）', async () => {
+    api.listKnowledgeBasesApi.mockImplementation(
+      (query: { cursor?: string } = {}) =>
+        Promise.resolve(
+          query.cursor
+            ? cursorPage([makeBase({ id: 'b' })], null)
+            : cursorPage([makeBase({ id: 'a' })], 'c1'),
+        ),
+    );
     const client = createTestQueryClient();
     const { result, unmount } = renderHook(
       () => useInfiniteKnowledgeBaseList(),
       { wrapper: createWrapperWithClient(client) },
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(result.current.hasNextPage).toBe(true));
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
+    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(2);
 
     unmount();
 
-    renderHook(() => useInfiniteKnowledgeBaseList(), {
-      wrapper: createWrapperWithClient(client),
-    });
-    await waitFor(() =>
-      expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(2),
+    // gcTime 继承基础配置（5 分钟）且 3 分钟内仍新鲜：重新进入直接复用，不发请求
+    const { result: remounted } = renderHook(
+      () => useInfiniteKnowledgeBaseList(),
+      { wrapper: createWrapperWithClient(client) },
     );
-    expect(api.listKnowledgeBasesApi.mock.calls.at(-1)?.[0]).toMatchObject({
-      cursor: undefined,
-    });
+    await waitFor(() => expect(remounted.current.isSuccess).toBe(true));
+
+    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(2);
+    expect(remounted.current.data?.pages).toHaveLength(2);
   });
 });
 
@@ -324,16 +339,32 @@ describe('useKnowledgeBase', () => {
 describe('useCreateKnowledgeBase', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('创建成功后失效列表缓存', async () => {
+  it('创建成功后按「刷新」处理：丢弃所有筛选的列表缓存并重取第一页', async () => {
     api.createKnowledgeBaseApi.mockResolvedValue(makeBase({ id: 'kb-new' }));
+    api.listKnowledgeBasesApi.mockResolvedValue(cursorPage([makeBase()], null));
     const client = createTestQueryClient();
-    const invalidate = vi.spyOn(client, 'invalidateQueries');
-    const mutation = renderHook(() => useCreateKnowledgeBase(), {
-      wrapper: createWrapperWithClient(client),
+    // 预置「公开」筛选的缓存，模拟之前访问过（刷新后应一并作废）
+    const publicKey = knowledgeKeys.baseList({
+      limit: KNOWLEDGE_PAGE_SIZE,
+      visibility: 'public',
     });
+    client.setQueryData(
+      publicKey,
+      infiniteCache([cursorPage([makeBase({ id: 'pub' })])]),
+    );
+
+    const { result } = renderHook(
+      () => ({
+        list: useInfiniteKnowledgeBaseList(),
+        create: useCreateKnowledgeBase(),
+      }),
+      { wrapper: createWrapperWithClient(client) },
+    );
+    await waitFor(() => expect(result.current.list.isSuccess).toBe(true));
+    expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      await mutation.result.current.mutateAsync({
+      await result.current.create.mutateAsync({
         name: '新产品',
         description: '新产品描述',
         visibility: 'private',
@@ -341,20 +372,81 @@ describe('useCreateKnowledgeBase', () => {
     });
 
     expect(api.createKnowledgeBaseApi).toHaveBeenCalledTimes(1);
+    // 其它筛选的缓存被清空：下次进入同样从第一页重来
+    expect(client.getQueryData(publicKey)).toBeUndefined();
+    // 当前筛选从第一页重新加载（不重放已加载分页）
     await waitFor(() =>
-      expect(invalidate).toHaveBeenCalledWith({
-        queryKey: knowledgeKeys.baseListAll(),
-      }),
+      expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(2),
     );
+    expect(api.listKnowledgeBasesApi).toHaveBeenLastCalledWith({
+      limit: KNOWLEDGE_PAGE_SIZE,
+      cursor: undefined,
+    });
+    expect(result.current.list.data?.pages).toHaveLength(1);
   });
 });
 
 describe('useUpdateKnowledgeBase', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('更新成功后失效详情与列表缓存', async () => {
-    api.updateKnowledgeBaseApi.mockResolvedValue(makeBase());
+  const nameFilterKey = knowledgeKeys.baseList({
+    limit: KNOWLEDGE_PAGE_SIZE,
+    name: '产品',
+  });
+
+  /** 详情 + 无筛选列表 + 名称筛选列表都放一条匹配「产品」的条目 */
+  function seed(client: QueryClient) {
+    const item = makeBase({ name: '产品文档', visibility: 'public' });
+    client.setQueryData(knowledgeKeys.base('kb1'), item);
+    client.setQueryData(
+      unfilteredListKey(),
+      infiniteCache([cursorPage([item])]),
+    );
+    client.setQueryData(nameFilterKey, infiniteCache([cursorPage([item])]));
+  }
+
+  it('请求返回前就改写详情与列表；改名后不匹配的筛选列表立即移除条目', async () => {
+    const pending = deferred<KnowledgeBase>();
+    api.updateKnowledgeBaseApi.mockReturnValue(pending.promise);
     const client = createTestQueryClient();
+    seed(client);
+    const mutation = renderHook(() => useUpdateKnowledgeBase(), {
+      wrapper: createWrapperWithClient(client),
+    });
+
+    act(() => {
+      mutation.result.current.mutate({
+        id: 'kb1',
+        input: { name: '新标题', visibility: 'private' },
+      });
+    });
+
+    // 请求还没回来，缓存已是新值
+    await waitFor(() =>
+      expect(
+        client.getQueryData<KnowledgeBase>(knowledgeKeys.base('kb1')),
+      ).toMatchObject({ name: '新标题', visibility: 'private' }),
+    );
+    expect(firstListItem(client, unfilteredListKey())).toMatchObject({
+      name: '新标题',
+      visibility: 'private',
+    });
+    // 名称筛选不再匹配，条目立即消失
+    expect(firstListItem(client, nameFilterKey)).toBeUndefined();
+
+    await act(async () => {
+      pending.resolve(makeBase({ name: '新标题', visibility: 'private' }));
+      await pending.promise;
+    });
+    await waitFor(() => expect(mutation.result.current.isSuccess).toBe(true));
+  });
+
+  it('成功路径用响应收敛，不整段失效', async () => {
+    api.updateKnowledgeBaseApi.mockResolvedValue(
+      makeBase({ name: '新标题', visibility: 'private' }),
+    );
+    const client = createTestQueryClient();
+    seed(client);
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     const mutation = renderHook(() => useUpdateKnowledgeBase(), {
       wrapper: createWrapperWithClient(client),
@@ -363,22 +455,44 @@ describe('useUpdateKnowledgeBase', () => {
     await act(async () => {
       await mutation.result.current.mutateAsync({
         id: 'kb1',
-        input: { name: '新标题', visibility: 'public' },
+        input: { name: '新标题', visibility: 'private' },
       });
     });
 
     expect(api.updateKnowledgeBaseApi).toHaveBeenCalledWith('kb1', {
       name: '新标题',
-      visibility: 'public',
+      visibility: 'private',
     });
-    await waitFor(() =>
-      expect(invalidate).toHaveBeenCalledWith({
-        queryKey: knowledgeKeys.base('kb1'),
-      }),
-    );
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: knowledgeKeys.baseListAll(),
+    expect(
+      client.getQueryData<KnowledgeBase>(knowledgeKeys.base('kb1'))?.name,
+    ).toBe('新标题');
+    expect(firstListItem(client, unfilteredListKey())?.name).toBe('新标题');
+    expect(firstListItem(client, nameFilterKey)).toBeUndefined();
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('失败时回滚详情与所有列表', async () => {
+    api.updateKnowledgeBaseApi.mockRejectedValue(new Error('boom'));
+    const client = createTestQueryClient();
+    seed(client);
+    const mutation = renderHook(() => useUpdateKnowledgeBase(), {
+      wrapper: createWrapperWithClient(client),
     });
+
+    await act(async () => {
+      await expect(
+        mutation.result.current.mutateAsync({
+          id: 'kb1',
+          input: { name: '新标题', visibility: 'private' },
+        }),
+      ).rejects.toThrow('boom');
+    });
+
+    expect(
+      client.getQueryData<KnowledgeBase>(knowledgeKeys.base('kb1'))?.name,
+    ).toBe('产品文档');
+    expect(firstListItem(client, unfilteredListKey())?.name).toBe('产品文档');
+    expect(firstListItem(client, nameFilterKey)?.name).toBe('产品文档');
   });
 });
 

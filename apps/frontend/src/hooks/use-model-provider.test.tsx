@@ -90,8 +90,8 @@ describe('use-model-provider', () => {
     });
   });
 
-  it('换筛选后切回会重新请求，不复用缓存', async () => {
-    // 缓存已关闭：切回已看过的筛选会重新请求（refetch 会把已加载的两页重放一遍）
+  it('换筛选后切回会重新请求（staleTime 继承 0）', async () => {
+    // staleTime 继承 0：切回已看过的筛选会重新请求（refetch 会把已加载的两页重放一遍）
     api.listModelProvidersApi.mockImplementation(
       (query: { type?: string; cursor?: string } = {}) => {
         if (query.type === 'llm') {
@@ -127,7 +127,11 @@ describe('use-model-provider', () => {
     );
     expect(result.current.isPlaceholderData).toBe(false);
 
-    // 切回全部：缓存已关闭，重新请求（两页重放）
+    // gcTime 继承基础配置（5 分钟）：两个筛选的缓存并存；staleTime 为 0，
+    // 切回「全部」会重新请求，infinite query 把已加载的两页逐页重放
+    expect(
+      client.getQueryCache().findAll({ queryKey: modelProviderKeys.listAll() }),
+    ).toHaveLength(2);
     rerender({});
     await waitFor(() =>
       expect(api.listModelProvidersApi).toHaveBeenCalledTimes(5),
