@@ -7,7 +7,8 @@ import {
 } from '@/hooks/use-users';
 import { authStore } from '@/stores/auth';
 import { makeUser } from '@/test/fixtures';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createTestQueryClient } from '@/test/query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { redirect } from '@tanstack/react-router';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
@@ -69,7 +70,7 @@ function renderPage() {
   ).options.component;
   return render(
     <AntdApp>
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={createTestQueryClient()}>
         <Component />
       </QueryClientProvider>
     </AntdApp>,

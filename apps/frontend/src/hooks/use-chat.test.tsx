@@ -1,7 +1,6 @@
+import { createQueryWrapper as createWrapper } from '@/test/query';
 import { ErrorCode, type AiStreamEvent } from '@lucy/shared';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChatStream } from './use-chat';
 
@@ -15,15 +14,6 @@ vi.mock('./use-ai', () => ({
   conversationListAll: ['ai', 'conversations', 'list'],
 }));
 vi.mock('@/api/ai', () => ({ createStreamRequest: mocks.createStreamRequest }));
-
-function createWrapper() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
-}
 
 const requestId = 'r1';
 const delta = (content: string): AiStreamEvent => ({

@@ -6,6 +6,7 @@ import {
   KnowledgeRetrievalMode,
 } from '../knowledge/entities/knowledge-base.entity.js';
 import { KnowledgeDocument } from '../knowledge/entities/knowledge-document.entity.js';
+import { aliasStub, chainable } from './support/query-builder.js';
 
 /**
  * knowledge 模块测试的共享夹具：实体构造、QueryBuilder stub、游标/别名等。
@@ -154,22 +155,6 @@ export const makeKbItem = (over: Partial<KbItem> = {}): KbItem => ({
   ...over,
 });
 
-/**
- * 主别名 + 实体元数据 stub：`KeysetPaginator` 从 QueryBuilder 自身解析别名与排序列名
- * （不再由调用方传 alias），故 mock 的 QueryBuilder 要提供 `expressionMap.mainAlias`；
- * 列名映射与实体上的 `name:` 一致。
- */
-export const aliasStub = (name: string) => ({
-  name,
-  hasMetadata: true,
-  metadata: {
-    name: `${name}Entity`,
-    findColumnWithPropertyName: (property: string) => ({
-      databaseName: property === 'createdAt' ? 'created_at' : 'id',
-    }),
-  },
-});
-
 /** likeRepo 聚合查询用的 QueryBuilder stub 形状（显式标注，避免声明类型引用 vitest 内部的 Procedure） */
 type LikeQb = {
   select: Mock;
@@ -182,19 +167,17 @@ type LikeQb = {
 
 /** 可链式 QueryBuilder mock：供 likeRepo 的聚合查询用（getRawMany） */
 export const makeLikeQb = (): LikeQb => {
-  const qb = {
-    select: vi.fn(),
-    addSelect: vi.fn(),
-    where: vi.fn(),
-    andWhere: vi.fn(),
-    groupBy: vi.fn(),
-    getRawMany: vi.fn(),
-  };
-  qb.select.mockReturnValue(qb);
-  qb.addSelect.mockReturnValue(qb);
-  qb.where.mockReturnValue(qb);
-  qb.andWhere.mockReturnValue(qb);
-  qb.groupBy.mockReturnValue(qb);
+  const qb = chainable(
+    {
+      select: vi.fn(),
+      addSelect: vi.fn(),
+      where: vi.fn(),
+      andWhere: vi.fn(),
+      groupBy: vi.fn(),
+      getRawMany: vi.fn(),
+    },
+    ['select', 'addSelect', 'where', 'andWhere', 'groupBy'],
+  );
   qb.getRawMany.mockResolvedValue([]);
   return qb;
 };
@@ -213,22 +196,19 @@ type KbQb = {
 
 /** 可链式 QueryBuilder mock：记录 where/andWhere 等调用参数，供知识库 list 用（kbRepo） */
 export const makeKbQb = (): KbQb => {
-  const qb = {
-    expressionMap: { mainAlias: aliasStub('kb') },
-    where: vi.fn(),
-    orWhere: vi.fn(),
-    andWhere: vi.fn(),
-    orderBy: vi.fn(),
-    addOrderBy: vi.fn(),
-    take: vi.fn(),
-    getMany: vi.fn(),
-  };
-  qb.where.mockReturnValue(qb);
-  qb.orWhere.mockReturnValue(qb);
-  qb.andWhere.mockReturnValue(qb);
-  qb.orderBy.mockReturnValue(qb);
-  qb.addOrderBy.mockReturnValue(qb);
-  qb.take.mockReturnValue(qb);
+  const qb = chainable(
+    {
+      expressionMap: { mainAlias: aliasStub('kb') },
+      where: vi.fn(),
+      orWhere: vi.fn(),
+      andWhere: vi.fn(),
+      orderBy: vi.fn(),
+      addOrderBy: vi.fn(),
+      take: vi.fn(),
+      getMany: vi.fn(),
+    },
+    ['where', 'orWhere', 'andWhere', 'orderBy', 'addOrderBy', 'take'],
+  );
   qb.getMany.mockResolvedValue([makeKb()]);
   return qb;
 };
@@ -273,17 +253,16 @@ type UpdateQb = {
 export const makeUpdateQb = (
   rows: Record<string, unknown>[] = [makeKbRow()],
 ): UpdateQb => {
-  const qb = {
-    update: vi.fn(),
-    set: vi.fn(),
-    where: vi.fn(),
-    returning: vi.fn(),
-    execute: vi.fn(),
-  };
-  qb.update.mockReturnValue(qb);
-  qb.set.mockReturnValue(qb);
-  qb.where.mockReturnValue(qb);
-  qb.returning.mockReturnValue(qb);
+  const qb = chainable(
+    {
+      update: vi.fn(),
+      set: vi.fn(),
+      where: vi.fn(),
+      returning: vi.fn(),
+      execute: vi.fn(),
+    },
+    ['update', 'set', 'where', 'returning'],
+  );
   qb.execute.mockResolvedValue({ raw: rows });
   return qb;
 };
@@ -304,27 +283,31 @@ type DocQb = {
 
 /** 可链式 QueryBuilder mock：供文档 list 用（docRepo） */
 export const makeDocQb = (): DocQb => {
-  const qb = {
-    select: vi.fn(),
-    addSelect: vi.fn(),
-    innerJoin: vi.fn(),
-    where: vi.fn(),
-    andWhere: vi.fn(),
-    orderBy: vi.fn(),
-    addOrderBy: vi.fn(),
-    skip: vi.fn(),
-    take: vi.fn(),
-    getManyAndCount: vi.fn(),
-  };
-  qb.select.mockReturnValue(qb);
-  qb.addSelect.mockReturnValue(qb);
-  qb.innerJoin.mockReturnValue(qb);
-  qb.where.mockReturnValue(qb);
-  qb.andWhere.mockReturnValue(qb);
-  qb.orderBy.mockReturnValue(qb);
-  qb.addOrderBy.mockReturnValue(qb);
-  qb.skip.mockReturnValue(qb);
-  qb.take.mockReturnValue(qb);
+  const qb = chainable(
+    {
+      select: vi.fn(),
+      addSelect: vi.fn(),
+      innerJoin: vi.fn(),
+      where: vi.fn(),
+      andWhere: vi.fn(),
+      orderBy: vi.fn(),
+      addOrderBy: vi.fn(),
+      skip: vi.fn(),
+      take: vi.fn(),
+      getManyAndCount: vi.fn(),
+    },
+    [
+      'select',
+      'addSelect',
+      'innerJoin',
+      'where',
+      'andWhere',
+      'orderBy',
+      'addOrderBy',
+      'skip',
+      'take',
+    ],
+  );
   qb.getManyAndCount.mockResolvedValue([[makeDoc()], 1]);
   return qb;
 };

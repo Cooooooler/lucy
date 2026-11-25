@@ -1,7 +1,9 @@
 import type { ModelProvider } from '@/api/types';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  createTestQueryClient,
+  createQueryWrapper as createWrapperWithClient,
+} from '@/test/query';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MODEL_PROVIDER_PAGE_SIZE,
@@ -51,18 +53,6 @@ function makeModel(overrides: Partial<ModelProvider> = {}): ModelProvider {
 
 function cursorPage<T>(list: T[], nextCursor: string | null = null) {
   return { list, nextCursor };
-}
-
-function createWrapperWithClient(client: QueryClient) {
-  return ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
-  );
-}
-
-function createTestQueryClient() {
-  return new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
 }
 
 describe('use-model-provider', () => {

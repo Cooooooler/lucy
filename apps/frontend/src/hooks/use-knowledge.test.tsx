@@ -6,12 +6,12 @@ import {
   makeDocumentListItem as makeDocListItem,
 } from '@/test/fixtures';
 import {
-  QueryClient,
-  QueryClientProvider,
-  type QueryKey,
-} from '@tanstack/react-query';
+  createTestQueryClient,
+  createQueryWrapper as createWrapper,
+  createQueryWrapper as createWrapperWithClient,
+} from '@/test/query';
+import { QueryClient, type QueryKey } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   KNOWLEDGE_PAGE_SIZE,
@@ -83,22 +83,6 @@ function infiniteCache<T>(
     pages,
     pageParams: pages.map((_, i) => (i === 0 ? null : `cursor-${i}`)),
   };
-}
-
-function createTestQueryClient() {
-  return new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-}
-
-function createWrapperWithClient(client: QueryClient) {
-  return ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
-  );
-}
-
-function createWrapper() {
-  return createWrapperWithClient(createTestQueryClient());
 }
 
 /** 手动控制完成时机的 Promise：用来断言「请求还没回来时缓存已被乐观改写」 */

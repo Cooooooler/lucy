@@ -1,8 +1,11 @@
 import type { User } from '@/api/types';
 import { makeUser } from '@/test/fixtures';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  createTestQueryClient,
+  createQueryWrapper as createWrapper,
+  createQueryWrapper as createWrapperWithClient,
+} from '@/test/query';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   useDeleteUser,
@@ -22,25 +25,6 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock('@/api/users', () => api);
-
-function createTestQueryClient() {
-  return new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-}
-
-function createWrapper() {
-  const queryClient = createTestQueryClient();
-  return ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
-}
-
-function createWrapperWithClient(client: QueryClient) {
-  return ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
-  );
-}
 
 describe('use-users', () => {
   beforeEach(() => {

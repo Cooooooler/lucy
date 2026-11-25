@@ -5,6 +5,7 @@ import {
   ModelProviderType,
   ModelProviderVendor,
 } from '../model-provider/entities/model-provider.entity.js';
+import { aliasStub, chainable } from './support/query-builder.js';
 
 /**
  * model-provider 模块测试的共享夹具（本目录 `src/test/**` 不计入覆盖率门禁）。
@@ -81,17 +82,8 @@ export const makeModelItem = (over: Partial<ModelItem> = {}): ModelItem => ({
   ...over,
 });
 
-/** 主别名 + 实体元数据 stub：KeysetPaginator 从 QueryBuilder 自身解析别名与排序列名 */
-export const modelAliasStub = (name: string) => ({
-  name,
-  hasMetadata: true,
-  metadata: {
-    name: `${name}Entity`,
-    findColumnWithPropertyName: (property: string) => ({
-      databaseName: property === 'createdAt' ? 'created_at' : 'id',
-    }),
-  },
-});
+/** 与 knowledge 夹具共用同一份主别名 stub（见 support/query-builder.ts） */
+export const modelAliasStub = aliasStub;
 
 type ModelQb = {
   expressionMap: { mainAlias: ReturnType<typeof modelAliasStub> };
@@ -108,22 +100,19 @@ type ModelQb = {
 export const makeModelQb = (
   rows: ModelProvider[] = [makeModelProvider()],
 ): ModelQb => {
-  const qb = {
-    expressionMap: { mainAlias: modelAliasStub('m') },
-    select: vi.fn(),
-    where: vi.fn(),
-    andWhere: vi.fn(),
-    orderBy: vi.fn(),
-    addOrderBy: vi.fn(),
-    take: vi.fn(),
-    getMany: vi.fn(),
-  };
-  qb.select.mockReturnValue(qb);
-  qb.where.mockReturnValue(qb);
-  qb.andWhere.mockReturnValue(qb);
-  qb.orderBy.mockReturnValue(qb);
-  qb.addOrderBy.mockReturnValue(qb);
-  qb.take.mockReturnValue(qb);
+  const qb = chainable(
+    {
+      expressionMap: { mainAlias: modelAliasStub('m') },
+      select: vi.fn(),
+      where: vi.fn(),
+      andWhere: vi.fn(),
+      orderBy: vi.fn(),
+      addOrderBy: vi.fn(),
+      take: vi.fn(),
+      getMany: vi.fn(),
+    },
+    ['select', 'where', 'andWhere', 'orderBy', 'addOrderBy', 'take'],
+  );
   qb.getMany.mockResolvedValue(rows);
   return qb;
 };

@@ -33,6 +33,10 @@ jobs:
         run: pnpm lint:ci
       - name: Typecheck
         run: pnpm typecheck
+      # 巡检：挡住「零断言」和「controller 纯委托」两类空壳用例，防止测试规模膨胀却无回归价值。
+      # 启发式规则，误报需人工复核；当前基线为 0 条。
+      - name: Audit tests
+        run: node scripts/audit-tests.mjs --fail
 
   # 应用打包校验：lint/typecheck/单测都不覆盖打包期失败
   # （React Compiler 的回调提升、ESM 相对导入漏 .js、tailwind/vite 插件配置、

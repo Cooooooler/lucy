@@ -48,11 +48,30 @@ export default defineConfig({
         'src/**/*.{test,spec}.{ts,tsx}',
         '**/*.d.ts',
       ],
+      // 全局 60 只是地板；api / hooks / stores 是业务核心，退化到地板以下必须红。
       thresholds: {
         lines: 60,
         functions: 60,
         branches: 60,
         statements: 60,
+        'src/api/**': {
+          lines: 90,
+          functions: 90,
+          branches: 80,
+          statements: 90,
+        },
+        'src/hooks/**': {
+          lines: 95,
+          functions: 90,
+          branches: 80,
+          statements: 95,
+        },
+        'src/stores/**': {
+          lines: 95,
+          functions: 85,
+          branches: 95,
+          statements: 95,
+        },
       },
     },
   },

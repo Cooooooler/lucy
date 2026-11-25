@@ -1,124 +1,24 @@
 import { BadRequestException } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator.js';
-import { KnowledgeBaseVisibility } from './entities/knowledge-base.entity.js';
-import { KnowledgeDocumentService } from './knowledge-document.service.js';
 import { KnowledgeController } from './knowledge.controller.js';
-import { KnowledgeService } from './knowledge.service.js';
 
-describe('KnowledgeController', () => {
-  let controller: KnowledgeController;
-  const service = {
-    create: vi.fn(),
-    list: vi.fn(),
-    get: vi.fn(),
-    update: vi.fn(),
-    remove: vi.fn(),
-    like: vi.fn(),
-    unlike: vi.fn(),
-  };
-  const documentService = {
-    addDocument: vi.fn(),
-    listDocuments: vi.fn(),
-    getDocument: vi.fn(),
-    removeDocument: vi.fn(),
-  };
-
+/**
+ * 控制器其余端点都是把参数直接转交给 service（转发逻辑由 e2e 覆盖），
+ * 这里只保留控制器自己承担的校验分支，避免每个方法各写一条
+ * `toHaveBeenCalledWith` 的纯委托断言。
+ */
+describe('KnowledgeController.addDocument', () => {
   const user: CurrentUserPayload = { userId: 'u1', jti: 'j', role: 'user' };
+  const documentService = { addDocument: vi.fn() };
+  const controller = new KnowledgeController(
+    {} as never,
+    documentService as never,
+  );
 
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    const moduleRef = await Test.createTestingModule({
-      controllers: [KnowledgeController],
-      providers: [
-        { provide: KnowledgeService, useValue: service },
-        { provide: KnowledgeDocumentService, useValue: documentService },
-      ],
-    }).compile();
-    controller = moduleRef.get(KnowledgeController);
-  });
-
-  it('create 转发到 service', async () => {
-    const dto = { name: 'x', description: 'd' };
-    await controller.create(user, dto);
-    expect(service.create).toHaveBeenCalledWith('u1', dto);
-  });
-
-  it('list 转发 userId 与 query', async () => {
-    const query = { cursor: 'abc', limit: 10, name: 'x' };
-    await controller.list(user, query);
-    expect(service.list).toHaveBeenCalledWith('u1', query);
-  });
-
-  it('get 转发 userId 与 id', async () => {
-    await controller.get(user, 'kb1');
-    expect(service.get).toHaveBeenCalledWith('u1', 'kb1');
-  });
-
-  it('update 转发 userId、id、dto', async () => {
-    const dto = { name: 'y' };
-    await controller.update(user, 'kb1', dto);
-    expect(service.update).toHaveBeenCalledWith('u1', 'kb1', dto);
-  });
-
-  it('updateVisibility 只把 visibility 转成补丁交给 service', async () => {
-    await controller.updateVisibility(user, 'kb1', {
-      visibility: KnowledgeBaseVisibility.Public,
-    });
-    expect(service.update).toHaveBeenCalledWith('u1', 'kb1', {
-      visibility: KnowledgeBaseVisibility.Public,
-    });
-  });
-
-  it('remove 转发 userId 与 id', async () => {
-    await controller.remove(user, 'kb1');
-    expect(service.remove).toHaveBeenCalledWith('u1', 'kb1');
-  });
-
-  it('addDocument 转发到 documentService', async () => {
-    const file = { originalname: 'a.pdf' } as Express.Multer.File;
-    await controller.addDocument(user, 'kb1', file);
-    expect(documentService.addDocument).toHaveBeenCalledWith('u1', 'kb1', file);
-  });
-
-  it('addDocument 缺 file 抛 BadRequestException', () => {
+  it('缺少 file 时抛 BadRequestException，且不调用 service', () => {
     expect(() =>
       controller.addDocument(user, 'kb1', undefined as never),
     ).toThrow(BadRequestException);
     expect(documentService.addDocument).not.toHaveBeenCalled();
-  });
-
-  it('listDocuments 转发 userId、kbId、query', async () => {
-    const query = { keyword: 'x', page: 1, pageSize: 20 };
-    await controller.listDocuments(user, 'kb1', query);
-    expect(documentService.listDocuments).toHaveBeenCalledWith(
-      'u1',
-      'kb1',
-      query,
-    );
-  });
-
-  it('getDocument 转发 userId、kbId、id', async () => {
-    await controller.getDocument(user, 'kb1', 'd1');
-    expect(documentService.getDocument).toHaveBeenCalledWith('u1', 'kb1', 'd1');
-  });
-
-  it('removeDocument 转发 userId、kbId、id', async () => {
-    await controller.removeDocument(user, 'kb1', 'd1');
-    expect(documentService.removeDocument).toHaveBeenCalledWith(
-      'u1',
-      'kb1',
-      'd1',
-    );
-  });
-
-  it('like 转发 userId 与 id', async () => {
-    await controller.like(user, 'kb1');
-    expect(service.like).toHaveBeenCalledWith('u1', 'kb1');
-  });
-
-  it('unlike 转发 userId 与 id', async () => {
-    await controller.unlike(user, 'kb1');
-    expect(service.unlike).toHaveBeenCalledWith('u1', 'kb1');
   });
 });

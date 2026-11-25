@@ -1,9 +1,9 @@
-import { QueryClient } from '@tanstack/react-query';
+import { createTestQueryClient } from '@/test/query';
 import { describe, expect, it, vi } from 'vitest';
 import { applyOptimistic } from './optimistic';
 
 function createClient() {
-  return new QueryClient();
+  return createTestQueryClient();
 }
 
 describe('hooks/lib/applyOptimistic', () => {

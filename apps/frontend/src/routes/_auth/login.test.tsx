@@ -1,6 +1,7 @@
 import { loginApi } from '@/api/auth';
 import { logout } from '@/stores/auth';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createTestQueryClient } from '@/test/query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import {
   createMemoryHistory,
   createRootRoute,
@@ -36,9 +37,7 @@ const testRouter = createRouter({
 });
 
 function renderLogin() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+  const queryClient = createTestQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
       <AntdApp>
