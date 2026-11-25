@@ -23,19 +23,19 @@ export function patchCursorPageItem<T extends { id: string }>(
 
     let changed = false;
     const pages = data.pages.map((page) => {
-      if (!page.list.some((item) => item.id === id)) return page;
+      // 单趟遍历：命中即改写，未命中直接复用该页引用（不再先 some 再 map 走两遍）
+      let pageChanged = false;
+      const list = page.list.map((item) => {
+        if (item.id !== id) return item;
+        pageChanged = true;
+        return {
+          ...item,
+          ...(typeof patch === 'function' ? patch(item) : patch),
+        };
+      });
+      if (!pageChanged) return page;
       changed = true;
-      return {
-        ...page,
-        list: page.list.map((item) =>
-          item.id === id
-            ? {
-                ...item,
-                ...(typeof patch === 'function' ? patch(item) : patch),
-              }
-            : item,
-        ),
-      };
+      return { ...page, list };
     });
 
     return changed ? { ...data, pages } : old;
