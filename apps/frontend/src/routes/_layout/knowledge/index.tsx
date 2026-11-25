@@ -22,6 +22,7 @@ import {
   useUpdateKnowledgeVisibility,
   type KnowledgeListFilter,
 } from '@/hooks/use-knowledge.ts';
+import { useScrollMemory } from '@/hooks/use-scroll-memory';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { App } from 'antd';
 import { useCallback, useMemo, useState } from 'react';
@@ -41,14 +42,18 @@ const EMPTY_LABEL: CardGridEmptyLabel = {
 const KnowledgeComponent = () => {
   const { message, modal } = App.useApp();
 
-  // 滚动位置仍不恢复（虚拟网格的锚点恢复已随旧缓存层移除）；
-  // 筛选条件属于「再次进入要恢复」的页面状态，由 <PageStateCache> 承载。
+  // 筛选条件与滚动位置都按「再次进入要恢复」的页面状态处理：
+  // 筛选由 <PageStateCache> 承载，滚动偏移由 useScrollMemory 记住；
+  // 虚拟网格还要对齐自身内部 offset，因此恢复交给它（restoreMode: 'delegate'）。
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
     null,
   );
-  const resetToTop = useCallback(() => {
-    scrollElement?.scrollTo({ top: 0 });
-  }, [scrollElement]);
+  const scrollMemory = useScrollMemory({
+    cacheKey: 'knowledge-list',
+    scrollElement,
+    restoreMode: 'delegate',
+  });
+  const resetToTop = scrollMemory.resetToTop;
 
   const [committedName, setCommittedName] = usePageState('name', '');
   const [visibility, setVisibility] = usePageState<VisibilityFilter>(
@@ -255,6 +260,7 @@ const KnowledgeComponent = () => {
           hasFilter={Boolean(filter.name || filter.visibility)}
           emptyLabel={EMPTY_LABEL}
           renderItem={renderItem}
+          scrollMemory={scrollMemory}
         />
         <KnowledgeFormDrawer
           open={!!formTarget}

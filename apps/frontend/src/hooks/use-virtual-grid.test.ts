@@ -24,6 +24,7 @@ type VirtualItemStub = {
 const virtualizerStub = {
   getVirtualItems: vi.fn<() => VirtualItemStub[]>(),
   getTotalSize: vi.fn(() => 0),
+  scrollOffset: null as number | null,
 };
 
 function makeVirtualItem(index: number): VirtualItemStub {
@@ -42,6 +43,20 @@ function makeSizedScrollElement(initialWidth: number): {
     configurable: true,
   });
   return { element, setWidth: (width) => (clientWidth = width) };
+}
+
+/** scrollTop 可读写的滚动元素（jsdom 的 setter 不保存值） */
+function makeScrollableElement(initialTop = 0): HTMLDivElement {
+  const element = document.createElement('div');
+  let scrollTop = initialTop;
+  Object.defineProperty(element, 'scrollTop', {
+    get: () => scrollTop,
+    set: (value: number) => {
+      scrollTop = value;
+    },
+    configurable: true,
+  });
+  return element;
 }
 
 /**
@@ -90,6 +105,7 @@ describe('useVirtualGrid', () => {
     useVirtualizerMock.mockReturnValue(virtualizerStub);
     virtualizerStub.getVirtualItems.mockReturnValue([]);
     virtualizerStub.getTotalSize.mockReturnValue(0);
+    virtualizerStub.scrollOffset = null;
   });
 
   it('把 count 与按宽度算出的 lanes 传给虚拟化器', () => {
@@ -342,5 +358,100 @@ describe('useVirtualGrid', () => {
     // 用户重试成功后恢复自动预取
     rerender({ isFetchNextPageError: false });
     expect(fetchNextPage).toHaveBeenCalledTimes(2);
+  });
+
+  it('把 initialOffset 交给虚拟化器：首帧就按恢复位置算可视窗口', () => {
+    renderHook(() =>
+      useVirtualGrid({
+        scrollElement: null,
+        count: 3,
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        fetchNextPage: vi.fn(),
+        initialOffset: 480,
+      }),
+    );
+    expect(useVirtualizerMock).toHaveBeenCalledWith(
+      expect.objectContaining({ initialOffset: 480 }),
+    );
+  });
+
+  it('挂载后对齐 DOM 与虚拟化器内部 offset，并回调一次 onOffsetRestored', () => {
+    const element = makeScrollableElement();
+    const onOffsetRestored = vi.fn();
+    const { rerender } = renderHook(
+      ({ initialOffset }: { initialOffset: number | null }) =>
+        useVirtualGrid({
+          scrollElement: element,
+          count: 10,
+          hasNextPage: false,
+          isFetchingNextPage: false,
+          fetchNextPage: vi.fn(),
+          initialOffset,
+          onOffsetRestored,
+        }),
+      { initialProps: { initialOffset: 480 as number | null } },
+    );
+
+    expect(element.scrollTop).toBe(480);
+    // 库只在 scroll 事件里更新内部 offset：不手动对齐，本次提交仍按旧位置算范围
+    expect(virtualizerStub.scrollOffset).toBe(480);
+    expect(onOffsetRestored).toHaveBeenCalledTimes(1);
+
+    // 锚点被消费后（initialOffset 置空）不再滚动、不再回调
+    element.scrollTop = 0;
+    rerender({ initialOffset: null });
+    expect(element.scrollTop).toBe(0);
+    expect(onOffsetRestored).toHaveBeenCalledTimes(1);
+  });
+
+  it('没有恢复目标时不写 scrollTop、不回调', () => {
+    const element = makeScrollableElement();
+    const onOffsetRestored = vi.fn();
+    renderHook(() =>
+      useVirtualGrid({
+        scrollElement: element,
+        count: 1,
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        fetchNextPage: vi.fn(),
+        initialOffset: 0,
+        onOffsetRestored,
+      }),
+    );
+
+    expect(element.scrollTop).toBe(0);
+    expect(onOffsetRestored).not.toHaveBeenCalled();
+  });
+
+  it('记忆位置超出内容高度时按回读值 clamp（否则可视区间落在未加载分页外，整屏空白）', () => {
+    // 模拟真实浏览器：scrollTop 会被 clamp 到 [0, max]
+    const maxScrollTop = 400;
+    const element = document.createElement('div');
+    let scrollTop = 0;
+    Object.defineProperty(element, 'scrollTop', {
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = Math.max(0, Math.min(value, maxScrollTop));
+      },
+      configurable: true,
+    });
+    const onOffsetRestored = vi.fn();
+
+    renderHook(() =>
+      useVirtualGrid({
+        scrollElement: element,
+        count: 4,
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        fetchNextPage: vi.fn(),
+        initialOffset: 3000,
+        onOffsetRestored,
+      }),
+    );
+
+    expect(element.scrollTop).toBe(maxScrollTop);
+    expect(virtualizerStub.scrollOffset).toBe(maxScrollTop);
+    expect(onOffsetRestored).toHaveBeenCalledTimes(1);
   });
 });

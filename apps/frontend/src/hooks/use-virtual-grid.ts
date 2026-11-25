@@ -5,7 +5,13 @@ import {
   GRID_TOP_GAP,
 } from '@/components/grid-layout';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useSyncExternalStore,
+} from 'react';
 
 type UseVirtualGridOptions = {
   /** 滚动容器（也是虚拟化的 scrollElement） */
@@ -26,6 +32,13 @@ type UseVirtualGridOptions = {
    * 而失败重试的入口交给页脚按钮，由此处只负责不再自动触发。
    */
   isFetchNextPageError?: boolean;
+  /**
+   * 本次挂载要恢复到的滚动偏移（px，来自 `use-scroll-memory`）。
+   * 交给虚拟化器的 `initialOffset`：首帧的可视窗口就按该位置计算，不会先白挂一窗卡片。
+   */
+  initialOffset?: number | null;
+  /** 恢复动作结束（一次性），调用方据此消费锚点 */
+  onOffsetRestored?: () => void;
 };
 
 /** 随宽度「分档」变化的几何量：列数与列间距。卡片宽度由 CSS 计算（见 VirtualCardGrid） */
@@ -132,12 +145,16 @@ export function useVirtualGrid({
   fetchNextPage,
   isPlaceholderData = false,
   isFetchNextPageError = false,
+  initialOffset = null,
+  onOffsetRestored,
 }: UseVirtualGridOptions) {
   const layout = useGridBreakpoints(scrollElement);
 
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollElement,
+    // 首帧就按恢复目标计算可视窗口：库只在该实例内部 scrollOffset 为 null 时用一次
+    initialOffset: initialOffset ?? undefined,
     // 关闭库内部的 flushSync：本 hook 会在 layout effect 里同步对齐滚动位置（恢复），
     // 而库默认在「同步通知」路径上 flushSync 重渲染，等于在 React 提交阶段嵌套一次同步渲染
     // ——控制台报 "flushSync was called from inside a lifecycle method"，
@@ -165,6 +182,23 @@ export function useVirtualGrid({
     (max, item) => Math.max(max, item.index),
     -1,
   );
+
+  // 恢复滚动位置：一次挂载只做一次。
+  // initialOffset 已交给 useVirtualizer（首帧窗口即按目标位置计算），这里再把 DOM 与实例
+  // 内部 offset 一起对齐：库只在 scroll 事件里异步更新内部 scrollOffset，若只写 DOM，
+  // 本次提交仍会按旧位置算范围 → 先白挂一整窗卡片。
+  // 内部 offset 取回读值：内容比记忆位置短时（分页缓存已过期、只加载了第一页）浏览器会把
+  // scrollTop clamp 到可滚动最远处，照抄原始 offset 会让可视区间落在尚未加载的分页之外
+  // ——整屏空白且触底加载也不会被触发。
+  const restoredRef = useRef(false);
+  useLayoutEffect(() => {
+    if (restoredRef.current) return;
+    if (!scrollElement || initialOffset == null || initialOffset <= 0) return;
+    restoredRef.current = true;
+    scrollElement.scrollTop = initialOffset;
+    virtualizer.scrollOffset = scrollElement.scrollTop;
+    onOffsetRestored?.();
+  }, [initialOffset, onOffsetRestored, scrollElement, virtualizer]);
 
   useEffect(() => {
     // 占位数据属于上一组筛选条件，它的 nextCursor 与新条件不匹配：

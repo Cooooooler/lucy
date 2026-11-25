@@ -4,6 +4,7 @@ import {
   columnWidthOperand,
   GRID_TOP_GAP,
 } from '@/components/grid-layout';
+import type { ScrollMemory } from '@/hooks/use-scroll-memory';
 import { useGridBreakpoints, useVirtualGrid } from '@/hooks/use-virtual-grid';
 import { Button, Empty, Result, Spin } from 'antd';
 import type { FC, ReactNode } from 'react';
@@ -42,6 +43,11 @@ export type VirtualCardGridProps<T extends { id: string }> = {
   emptyLabel: CardGridEmptyLabel;
   /** 单张卡片：只渲染卡片本身，定位/列宽/行间距由网格统一承担 */
   renderItem: (item: T) => ReactNode;
+  /**
+   * 滚动位置记忆（见 `use-scroll-memory`）。
+   * 加载/错误/空态不消费锚点；数据到位、虚拟列表挂载后由它内部对齐恢复。
+   */
+  scrollMemory?: ScrollMemory;
 };
 
 const SKELETON_KEYS = ['sk-1', 'sk-2', 'sk-3', 'sk-4', 'sk-5', 'sk-6'];
@@ -157,6 +163,7 @@ const CardGridVirtual = <T extends { id: string }>({
   isPlaceholderData,
   fetchNextPage,
   renderItem,
+  scrollMemory,
 }: VirtualCardGridProps<T>) => {
   const { layout, virtualItems, totalSize } = useVirtualGrid({
     scrollElement,
@@ -166,6 +173,8 @@ const CardGridVirtual = <T extends { id: string }>({
     isFetchNextPageError,
     fetchNextPage,
     isPlaceholderData,
+    initialOffset: scrollMemory?.restoreOffset ?? null,
+    onOffsetRestored: scrollMemory?.consumeRestore,
   });
 
   // 列宽与卡片位置全部交给 CSS calc：内容宽度 = 容器宽度，按列数均分。

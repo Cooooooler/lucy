@@ -2,6 +2,10 @@ import type { KnowledgeBase } from '@/api/types.ts';
 import { VirtualCardGrid } from '@/components/card-list/VirtualCardGrid.tsx';
 import { makeKb } from '@/components/knowledge/knowledge-test-fixture.ts';
 import { clearPageStateCaches } from '@/components/page-state-cache';
+import {
+  clearAllScrollOffsets,
+  writeScrollOffset,
+} from '@/hooks/lib/scroll-memory';
 import { useInfiniteKnowledgeBaseList } from '@/hooks/use-knowledge';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
@@ -165,8 +169,10 @@ async function submitSearch(value: string) {
 describe('routes/_layout/knowledge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // 筛选条件现在由 <PageStateCache> 会话内缓存，用例之间必须复位
+    // 筛选条件现在由 <PageStateCache> 会话内缓存，滚动位置由 useScrollMemory 模块级缓存：
+    // 两者都会跨用例残留，必须复位
     clearPageStateCaches();
+    clearAllScrollOffsets();
     mockedList.mockReturnValue(noopQuery());
     for (const mutation of Object.values(mutationMocks)) {
       mutation.isPending = false;
@@ -197,6 +203,14 @@ describe('routes/_layout/knowledge', () => {
     renderRoute();
 
     expect(lastGridProps().isPlaceholderData).toBe(true);
+  });
+
+  it('把会话内记住的滚动位置交给网格恢复', () => {
+    writeScrollOffset('knowledge-list', 480);
+
+    renderRoute();
+
+    expect(lastGridProps().scrollMemory).toMatchObject({ restoreOffset: 480 });
   });
 
   it('点击「新增知识库」打开单例表单抽屉', async () => {

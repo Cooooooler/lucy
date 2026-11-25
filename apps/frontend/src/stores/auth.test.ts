@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  readScrollOffset,
+  writeScrollOffset,
+} from '../hooks/lib/scroll-memory';
 import { makeUser } from '../test/fixtures';
 import {
   applyTokens,
@@ -41,6 +45,12 @@ describe('authStore', () => {
     logout();
     expect(authStore.get()).toEqual({ user: null, accessToken: null });
     expect(isLoggedInStore.get()).toBe(false);
+  });
+
+  it('logout 一并清空滚动位置记忆（避免下一个账号读到上一个账号的位置）', () => {
+    writeScrollOffset('knowledge-list', 480);
+    logout();
+    expect(readScrollOffset('knowledge-list')).toBe(0);
   });
 
   it('默认会话过期回调为空操作', () => {

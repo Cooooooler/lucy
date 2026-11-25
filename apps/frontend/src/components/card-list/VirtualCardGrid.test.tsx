@@ -42,6 +42,20 @@ function makeSizedElement(clientWidth: number): HTMLDivElement {
   return element;
 }
 
+/** scrollTop 可读写的滚动容器（jsdom 的 setter 不保存值） */
+function makeScrollableElement(): HTMLDivElement {
+  const element = document.createElement('div');
+  let scrollTop = 0;
+  Object.defineProperty(element, 'scrollTop', {
+    get: () => scrollTop,
+    set: (value: number) => {
+      scrollTop = value;
+    },
+    configurable: true,
+  });
+  return element;
+}
+
 function renderGrid(overrides: Partial<GridProps> = {}) {
   const props: GridProps = {
     scrollElement: null,
@@ -234,5 +248,28 @@ describe('VirtualCardGrid', () => {
     // 仅翻转占位标记（数据不变）：此时才允许预取
     rerender(<VirtualCardGrid {...props} isPlaceholderData={false} />);
     await waitFor(() => expect(props.fetchNextPage).toHaveBeenCalled());
+  });
+
+  it('传入滚动记忆时把锚点交给虚拟化并恢复，随后消费掉', () => {
+    const items = [probeItem('a', '条目 A')];
+    makeFirstItemVisible();
+    const scrollElement = makeScrollableElement();
+    const consumeRestore = vi.fn();
+    renderGrid({
+      items,
+      scrollElement,
+      scrollMemory: {
+        restoreOffset: 480,
+        consumeRestore,
+        resetToTop: vi.fn(),
+      },
+    });
+
+    expect(
+      (useVirtualizerMock.mock.calls.at(-1)?.[0] as { initialOffset?: number })
+        .initialOffset,
+    ).toBe(480);
+    expect(scrollElement.scrollTop).toBe(480);
+    expect(consumeRestore).toHaveBeenCalledTimes(1);
   });
 });
