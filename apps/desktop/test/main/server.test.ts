@@ -1,5 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer, request as httpRequest } from 'node:http';
+import {
+  createServer,
+  request as httpRequest,
+  type IncomingMessage,
+  type ServerResponse,
+} from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,6 +36,7 @@ interface RecordedRequest {
   method: string;
   url: string;
   body: string;
+  headers: IncomingMessage['headers'];
 }
 
 let tmpRoot: string;
@@ -125,6 +131,7 @@ async function withRendererServer<T>(
 /** 起一个桩后端，记录收到的请求，并保证在 finally 里关闭 */
 async function withStubBackend<T>(
   fn: (ctx: { url: string; requests: RecordedRequest[] }) => Promise<T>,
+  respond?: (req: IncomingMessage, res: ServerResponse) => void,
 ): Promise<T> {
   const requests: RecordedRequest[] = [];
   const stub = createServer((req, res) => {
@@ -135,7 +142,12 @@ async function withStubBackend<T>(
         method: req.method ?? '',
         url: req.url ?? '',
         body: Buffer.concat(chunks).toString('utf8'),
+        headers: req.headers,
       });
+      if (respond) {
+        respond(req, res);
+        return;
+      }
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ ok: true, path: req.url }));
     });
@@ -343,6 +355,66 @@ describe('startRendererServer - API 反代', () => {
         await expect(res.text()).resolves.toBe(
           '后端服务不可用：请确认 NestJS 已启动',
         );
+      },
+    );
+  });
+
+  it('绝对 URL / 协议相对路径不可把请求带到其他主机（SSRF 防护）', async () => {
+    await withStubBackend(async ({ url: backendUrl, requests }) => {
+      await withRendererServer(backendUrl, async (baseUrl) => {
+        // fetch/undici 会归一化绝对 URL，必须用原始 path 直接发
+        const absolute = await rawRequest(baseUrl, 'http://evil.example/v1/x');
+        expect(absolute.status).toBe(400);
+        expect(absolute.body).toBe('Bad request');
+
+        const protocolRelative = await rawRequest(
+          baseUrl,
+          '//evil.example/v1/x',
+        );
+        expect(protocolRelative.status).toBe(400);
+
+        // 两次都没有真正连到上游
+        expect(requests).toHaveLength(0);
+      });
+    });
+  });
+
+  it('只转发白名单请求头，未知头不会落到上游', async () => {
+    await withStubBackend(async ({ url: backendUrl, requests }) => {
+      await withRendererServer(backendUrl, async (baseUrl) => {
+        await fetch(`${baseUrl}/api/health`, {
+          headers: {
+            authorization: 'Bearer token',
+            'x-evil': 'should-not-forward',
+          },
+        });
+        expect(requests[0].headers.authorization).toBe('Bearer token');
+        expect(requests[0].headers['x-evil']).toBeUndefined();
+        expect(requests[0].headers.host).toBe(new URL(backendUrl).host);
+      });
+    });
+  });
+
+  it('不把上游 Location 交给渲染进程（开放重定向防护），但保留 set-cookie', async () => {
+    await withStubBackend(
+      async ({ url: backendUrl }) => {
+        await withRendererServer(backendUrl, async (baseUrl) => {
+          const res = await fetch(`${baseUrl}/api/redirect`, {
+            redirect: 'manual',
+          });
+          expect(res.status).toBe(302);
+          expect(res.headers.get('location')).toBeNull();
+          expect(res.headers.get('set-cookie')).toContain('refresh=abc');
+          await expect(res.text()).resolves.toBe('redirect');
+        });
+      },
+      (_req, res) => {
+        res.writeHead(302, {
+          location: 'https://evil.example/',
+          'content-type': 'text/plain; charset=utf-8',
+          'set-cookie': 'refresh=abc; HttpOnly',
+        });
+        res.end('redirect');
       },
     );
   });

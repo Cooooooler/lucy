@@ -40,6 +40,45 @@ const MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
+/**
+ * 只转发渲染进程真正需要的请求头。白名单而不是 `...req.headers`：
+ * - 拒绝 `__proto__` / `constructor` / `prototype` 这类会被原型污染利用的键；
+ * - 不把渲染进程的 `host`、`connection`、`content-length` 等逐跳/连接级头带进上游。
+ */
+const FORWARDED_REQUEST_HEADERS = new Set([
+  'accept',
+  'accept-language',
+  'authorization',
+  'cache-control',
+  'content-type',
+  'cookie',
+  'if-modified-since',
+  'if-none-match',
+  'origin',
+  'pragma',
+  'range',
+  'referer',
+  'user-agent',
+  'x-requested-with',
+]);
+
+/**
+ * 只回传业务响应需要的头。刻意不含 `location`：本服务是 API 反向代理，
+ * 若把上游的任意 `Location` 原样交给渲染进程，就形成开放重定向面。
+ */
+const FORWARDED_RESPONSE_HEADERS = new Set([
+  'cache-control',
+  'content-disposition',
+  'content-encoding',
+  'content-length',
+  'content-type',
+  'etag',
+  'last-modified',
+  'set-cookie',
+  'vary',
+  'x-request-id',
+]);
+
 function isApiRequest(pathname: string): boolean {
   // prod 渲染进程走 `/${API_VERSION}/`，dev/Web 走 `/api`（详见 api/client.ts）
   return (
@@ -65,17 +104,53 @@ function proxyToBackend(req: IncomingMessage, res: ServerResponse): void {
     ? rawUrl.replace(/^\/api/, '') || '/'
     : rawUrl;
 
+  // 目标 origin 必须与配置的后端完全一致：`//evil.example/...`、绝对 URL 等
+  // 都能让 `req.url` 把请求带到别的主机，必须在建连前拒绝（SSRF 面）。
+  let target: URL;
+  try {
+    target = new URL(path, backend);
+  } catch {
+    sendBadRequest(res);
+    return;
+  }
+  // 逐项比对而不是只看 origin：Sonar/静态分析能识别这里的 scheme + host + port
+  // 白名单校验，避免把 `target` 当作仍可被用户改写的 URL 使用。
+  if (
+    !['http:', 'https:'].includes(target.protocol) ||
+    target.hostname !== backend.hostname ||
+    target.port !== backend.port
+  ) {
+    sendBadRequest(res);
+    return;
+  }
+
+  const headers: Record<string, string | string[] | undefined> =
+    Object.create(null);
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (value === undefined || !FORWARDED_REQUEST_HEADERS.has(name)) continue;
+    headers[name] = value;
+  }
+  headers.host = backend.host;
+
   const upstream = httpRequest(
     {
-      protocol: backend.protocol,
-      hostname: backend.hostname,
-      port: backend.port || 80,
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || 80,
       method: req.method,
-      path,
-      headers: { ...req.headers, host: backend.host },
+      path: `${target.pathname}${target.search}`,
+      headers,
     },
     (upstreamRes) => {
-      res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+      const responseHeaders: Record<string, string | string[] | undefined> =
+        Object.create(null);
+      for (const [name, value] of Object.entries(upstreamRes.headers)) {
+        if (value === undefined || !FORWARDED_RESPONSE_HEADERS.has(name)) {
+          continue;
+        }
+        responseHeaders[name] = value;
+      }
+      res.writeHead(upstreamRes.statusCode ?? 502, responseHeaders);
       upstreamRes.pipe(res);
       upstreamRes.on('error', () => res.destroy());
     },
@@ -89,6 +164,11 @@ function proxyToBackend(req: IncomingMessage, res: ServerResponse): void {
   });
   req.on('aborted', () => upstream.destroy());
   req.pipe(upstream);
+}
+
+function sendBadRequest(res: ServerResponse): void {
+  res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+  res.end('Bad request');
 }
 
 function sendNotFound(res: ServerResponse): void {
