@@ -13,6 +13,7 @@ import {
  */
 export type ScrollMemoryRestoreMode = 'dom' | 'delegate';
 
+/** 滚动位置记忆的配置项 */
 export type ScrollMemoryOptions = {
   /** 记忆标识；同一 key 的滚动容器共享位置（与 PageStateCache 的 cacheKey 同值） */
   cacheKey: string;
@@ -24,6 +25,7 @@ export type ScrollMemoryOptions = {
   ready?: boolean;
 };
 
+/** `useScrollMemory` 的返回值：待恢复偏移、消费回调与回顶方法 */
 export type ScrollMemory = {
   /** 本次挂载待恢复的偏移；null = 无需恢复或已消费 */
   restoreOffset: number | null;
@@ -40,6 +42,9 @@ export type ScrollMemory = {
  * 否则 `resetToTop` 的 `scrollTo({ top: 0 })` 会被旧锚点覆盖。
  *
  * `cacheKey` 在组件生命周期内应保持稳定（与 `useState` 首值同理，初值只读一次）。
+ *
+ * @param options 记忆 key、滚动容器、恢复方式与就绪标记，见 {@link ScrollMemoryOptions}
+ * @returns 待恢复偏移、消费回调与回顶方法，见 {@link ScrollMemory}
  */
 export function useScrollMemory({
   cacheKey,

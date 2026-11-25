@@ -46,6 +46,7 @@ function storeOf(cacheKey: string): Store<PageState> {
 
 const PageStateContext = createContext<Store<PageState> | null>(null);
 
+/** `<PageStateCache>` 的属性 */
 export type PageStateCacheProps = {
   /** 页面标识；页面内所有 `usePageState` 的字段都挂在这份容器下 */
   cacheKey: string;
@@ -67,6 +68,10 @@ export const PageStateCache = ({ cacheKey, children }: PageStateCacheProps) => (
  *
  * `field` 在同一 `cacheKey` 内应当唯一；`initial` 只在 store 里还没有该字段时生效
  * （挂载时冻结，之后不会再被初始值覆盖）。返回的函数式更新与 `useState` 相同。
+ *
+ * @param field 字段名（同一 `cacheKey` 内唯一）
+ * @param initial 首次进入时的初值；已有缓存时不生效
+ * @returns `[值, setter]`，与 `useState` 的返回值同形
  */
 export function usePageState<T>(
   field: string,
@@ -110,7 +115,11 @@ export function clearPageStateCaches(): void {
   }
 }
 
-/** 清空单个页面的缓存（例如删除某个实体的详情页缓存） */
+/**
+ * 清空单个页面的缓存（例如删除某个实体的详情页缓存）。
+ *
+ * @param cacheKey 页面标识；该页面所有字段都会回到各自的初始值
+ */
 export function resetPageStateCache(cacheKey: string): void {
   stores.get(cacheKey)?.setState(() => ({}));
 }

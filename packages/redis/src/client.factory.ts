@@ -11,6 +11,9 @@ import {
  * - standalone / sentinel → `Redis`
  * - cluster → `Cluster`
  * 连接参数经 normalizeOptions 合入生产默认值。
+ *
+ * @param options 连接选项（判别联合）
+ * @returns ioredis 的 `Redis` 或 `Cluster` 实例
  */
 export function createClient(options: RedisModuleOptions): RedisClient {
   const normalized = normalizeOptions(options);

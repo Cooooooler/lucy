@@ -11,6 +11,7 @@ React 视图状态工具：**页面级状态缓存**与**滚动位置记忆**。
 完整指南见 [`docs/`](./docs)（VitePress）：
 
 ```bash
+pnpm --filter @coool/react-view-state docs:api    # 生成 API 参考（TypeDoc → docs/api）
 pnpm --filter @coool/react-view-state docs:dev    # 本地预览
 pnpm --filter @coool/react-view-state docs:build  # 构建静态站点
 ```

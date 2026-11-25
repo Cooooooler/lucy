@@ -7,6 +7,7 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: '指南', link: '/guide/getting-started' },
+      { text: 'API', link: '/api/' },
       { text: '路线图', link: '/guide/roadmap' },
     ],
     sidebar: [
@@ -17,6 +18,10 @@ export default defineConfig({
           { text: '页面状态缓存', link: '/guide/page-state' },
           { text: '滚动位置记忆', link: '/guide/scroll-memory' },
         ],
+      },
+      {
+        text: 'API 参考',
+        items: [{ text: 'API 索引', link: '/api/' }],
       },
       {
         text: '项目',

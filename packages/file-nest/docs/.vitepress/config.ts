@@ -3,11 +3,11 @@ import { defineConfig } from 'vitepress';
 export default defineConfig({
   lang: 'zh-CN',
   title: '@coool/file-nest',
-  description:
-    'NestJS 文件存储集成模块：存储驱动抽象、元数据、DI',
+  description: 'NestJS 文件存储集成模块：存储驱动抽象、元数据、DI',
   themeConfig: {
     nav: [
       { text: '指南', link: '/guide/getting-started' },
+      { text: 'API', link: '/api/' },
       { text: '路线图', link: '/guide/roadmap' },
     ],
     sidebar: [
@@ -19,6 +19,10 @@ export default defineConfig({
           { text: 'FileService', link: '/guide/file-service' },
           { text: '存储驱动', link: '/guide/storage-driver' },
         ],
+      },
+      {
+        text: 'API 参考',
+        items: [{ text: 'API 索引', link: '/api/' }],
       },
       {
         text: '项目',

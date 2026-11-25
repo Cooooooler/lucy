@@ -6,6 +6,10 @@ export class RedisException extends Error {
   /** 稳定的错误分类码 */
   readonly code: string;
 
+  /**
+   * @param message 错误信息（通常取底层错误 message）
+   * @param options 可选的 cause 与分类码
+   */
   constructor(message: string, options?: { cause?: unknown; code?: string }) {
     super(message, { cause: options?.cause });
     this.name = 'RedisException';
@@ -13,7 +17,12 @@ export class RedisException extends Error {
   }
 }
 
-/** 将任意错误规范化为 RedisException；已是该类型则原样返回 */
+/**
+ * 将任意错误规范化为 RedisException；已是该类型则原样返回。
+ *
+ * @param error 任意被抛出的错误
+ * @returns 可直接向上抛出的 RedisException
+ */
 export function toRedisException(error: unknown): RedisException {
   if (error instanceof RedisException) return error;
   const message =
