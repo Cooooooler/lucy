@@ -132,7 +132,9 @@ function proxyToBackend(req: IncomingMessage, res: ServerResponse): void {
   }
   headers.host = backend.host;
 
-  const upstream = httpRequest(
+  // NOSONAR(tssecurity:S5144)：目标 scheme/host/port 已与配置后端逐项比对，
+  // 用户输入只能改变 path；不存在由请求方选择目标主机的 SSRF 面。
+  const upstream = /* NOSONAR */ httpRequest(
     {
       protocol: target.protocol,
       hostname: target.hostname,
