@@ -179,11 +179,8 @@ describe('KnowledgeFormDrawer', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /创\s*建/ }));
 
-    await waitFor(() => {
-      expect(
-        document.querySelector('.ant-form-item-explain-error'),
-      ).toBeInTheDocument();
-    });
+    // 断言用户可见的校验文案（不依赖 antd 的错误容器类名）
+    expect(await screen.findByText('请输入知识库名称')).toBeInTheDocument();
     expect(createMock.mutateAsync).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
   });
@@ -195,11 +192,7 @@ describe('KnowledgeFormDrawer', () => {
     await userEvent.type(screen.getByLabelText('名称'), '   ');
     await userEvent.click(screen.getByRole('button', { name: /创\s*建/ }));
 
-    await waitFor(() => {
-      expect(
-        document.querySelector('.ant-form-item-explain-error'),
-      ).toBeInTheDocument();
-    });
+    expect(await screen.findByText('请输入知识库名称')).toBeInTheDocument();
     expect(createMock.mutateAsync).not.toHaveBeenCalled();
   });
 
@@ -493,12 +486,14 @@ describe('KnowledgeFormDrawer', () => {
 
     expect(screen.getByText('检索设置')).toBeInTheDocument();
 
-    // 检索模式回显且禁用（antd Segmented 的禁用态挂在容器上）
+    // 检索模式回显且只读：单选框本身 disabled，点击别的选项也不会改变选中项
+    // （用 fireEvent：disabled 控件带 pointer-events:none，userEvent 会直接拒绝点击）
     const hybrid = screen.getByRole('radio', { name: '混合检索' });
     expect(hybrid).toBeChecked();
-    expect(hybrid.closest('.ant-segmented')).toHaveClass(
-      'ant-segmented-disabled',
-    );
+    expect(hybrid).toBeDisabled();
+    fireEvent.click(screen.getByRole('radio', { name: '全文检索' }));
+    expect(screen.getByRole('radio', { name: '混合检索' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: '全文检索' })).not.toBeChecked();
 
     // 重排：开关开、模型名回显，开关与下拉都禁用
     expect(screen.getByRole('switch', { name: '启用重排模型' })).toBeChecked();

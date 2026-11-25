@@ -20,6 +20,8 @@ export default defineConfig({
         url: 'http://localhost/',
       },
     },
+    // 禁用 it.only：否则一次误提交会让 CI 只跑被聚焦的用例仍然全绿
+    allowOnly: false,
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
@@ -48,12 +50,12 @@ export default defineConfig({
         'src/**/*.{test,spec}.{ts,tsx}',
         '**/*.d.ts',
       ],
-      // 全局 60 只是地板；api / hooks / stores 是业务核心，退化到地板以下必须红。
+      // 全局 80 是合并门禁下限（与 Sonar new_coverage 对齐）；核心域再单独抬高。
       thresholds: {
-        lines: 60,
-        functions: 60,
-        branches: 60,
-        statements: 60,
+        lines: 80,
+        functions: 80,
+        branches: 80,
+        statements: 80,
         'src/api/**': {
           lines: 90,
           functions: 90,
@@ -71,6 +73,20 @@ export default defineConfig({
           functions: 85,
           branches: 95,
           statements: 95,
+        },
+        // 组件层此前只受 60% 全局地板约束，删掉整组组件测试仍可能全绿；补独立域门槛
+        'src/components/**': {
+          lines: 90,
+          functions: 85,
+          branches: 85,
+          statements: 90,
+        },
+        // 路由壳（纯布局/重导出）已在 exclude 里；这里要求真实路由逻辑同样有底线
+        'src/routes/**': {
+          lines: 80,
+          functions: 70,
+          branches: 65,
+          statements: 80,
         },
       },
     },

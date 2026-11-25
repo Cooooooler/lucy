@@ -7,6 +7,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    // 提交 it.only 会让 CI 只跑一个用例却仍然全绿；这里直接禁用（Vitest 默认允许）
+    allowOnly: false,
     include: ['src/**/*.spec.ts'],
     setupFiles: ['./src/test/setup.ts'],
     coverage: {
@@ -81,6 +83,13 @@ export default defineConfig({
           functions: 80,
           branches: 85,
           statements: 88,
+        },
+        // 探活是停机/降级路径的对外契约：全局 80 之外单独兜底，避免整块被删后仍靠胶水层撑住
+        'src/health/**': {
+          lines: 80,
+          functions: 70,
+          branches: 65,
+          statements: 80,
         },
       },
     },

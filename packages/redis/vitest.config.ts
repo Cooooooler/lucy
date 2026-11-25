@@ -7,6 +7,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: false,
+    allowOnly: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'lcov'],
@@ -18,6 +19,13 @@ export default defineConfig({
         'src/**/*.module.ts',
         '**/*.d.ts',
       ],
+      // 全局 80 是合并门禁下限；集成测试（真实 Redis）在 CI 起服务后计入
+      thresholds: {
+        lines: 90,
+        functions: 90,
+        branches: 85,
+        statements: 90,
+      },
     },
   },
 });

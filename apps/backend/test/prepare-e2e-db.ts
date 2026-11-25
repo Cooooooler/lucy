@@ -1,8 +1,16 @@
-// 与 data-source 同源：连接参数（HOST/PORT/USER/PASSWORD）都从 .env + process.env 取，
-// 否则脚本可能按默认值 127.0.0.1:5432 去 DROP/CREATE，而用例连的是另一台库。
-import 'dotenv/config';
+// 连接参数一律来自 test/e2e-db-config.ts（默认 127.0.0.1:5432，可用 E2E_DB_* 覆盖），
+// 刻意**不加载 `dotenv/config`**：apps/backend/.env 里的 DB_HOST/DB_PORT 指向开发库，
+// 一旦被脚本读走，DROP/CREATE 就会落到开发库上。下面的 process.env.DB_* 也由本文件
+// 用同一组常量显式钉住，再由 data-source.ts 自己的 `dotenv/config` 兜底——
+// dotenv 不覆盖已存在的 process.env，所以 .env 无法把它们改回开发库。
 import { Client } from 'pg';
-import { E2E_DB_NAME } from './e2e-db-config.js';
+import {
+  E2E_DB_HOST,
+  E2E_DB_NAME,
+  E2E_DB_PASSWORD,
+  E2E_DB_PORT,
+  E2E_DB_USER,
+} from './e2e-db-config.js';
 
 /**
  * e2e 前置：重建测试库 → 跑迁移 → **验一次真实往返**（撤销到最后 → 重跑）。
@@ -23,16 +31,11 @@ import { E2E_DB_NAME } from './e2e-db-config.js';
  * 加载，`*.ts` 里的类型语法会以 `SyntaxError: Invalid or unexpected token` 收场。
  */
 
-const HOST = process.env.DB_HOST ?? '127.0.0.1';
-const PORT = Number(process.env.DB_PORT ?? 5432);
-const USER = process.env.DB_USER ?? 'postgres';
-const PASSWORD = process.env.DB_PASSWORD ?? 'postgres';
-
 const admin = new Client({
-  host: HOST,
-  port: PORT,
-  user: USER,
-  password: PASSWORD,
+  host: E2E_DB_HOST,
+  port: E2E_DB_PORT,
+  user: E2E_DB_USER,
+  password: E2E_DB_PASSWORD,
   database: 'postgres',
 });
 await admin.connect();
@@ -40,8 +43,13 @@ await admin.query(`DROP DATABASE IF EXISTS "${E2E_DB_NAME}" WITH (FORCE)`);
 await admin.query(`CREATE DATABASE "${E2E_DB_NAME}"`);
 await admin.end();
 
-// 必须在 import data-source 之前钉住库名：它在模块求值时读取 process.env.DB_NAME，
-// 而顶部的 `dotenv/config` 会把 .env 里的开发库名灌进来
+// 必须在 import data-source 之前钉住库名（连同 host/port/user/password）：它在模块求值时
+// 读取 process.env.DB_*。这里显式赋值后，data-source 顶部的 `dotenv/config` 不会覆盖
+// 已存在的变量（dotenv 的既定行为），因此 .env 里的开发库配置无法再把这四个值改回去。
+process.env.DB_HOST = E2E_DB_HOST;
+process.env.DB_PORT = String(E2E_DB_PORT);
+process.env.DB_USER = E2E_DB_USER;
+process.env.DB_PASSWORD = E2E_DB_PASSWORD;
 process.env.DB_NAME = E2E_DB_NAME;
 const { default: dataSource } = await import('../src/db/data-source.js');
 await dataSource.initialize();
@@ -55,12 +63,12 @@ try {
   };
   if (
     options.database !== E2E_DB_NAME ||
-    options.host !== HOST ||
-    options.port !== PORT ||
-    options.username !== USER
+    options.host !== E2E_DB_HOST ||
+    options.port !== E2E_DB_PORT ||
+    options.username !== E2E_DB_USER
   ) {
     throw new Error(
-      `e2e 连接参数不一致：脚本 ${HOST}:${PORT} user=${USER} db=${E2E_DB_NAME}，` +
+      `e2e 连接参数不一致：脚本 ${E2E_DB_HOST}:${E2E_DB_PORT} user=${E2E_DB_USER} db=${E2E_DB_NAME}，` +
         `DataSource ${options.host}:${options.port} user=${options.username} db=${options.database}`,
     );
   }

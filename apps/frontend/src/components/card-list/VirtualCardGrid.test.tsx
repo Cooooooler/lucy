@@ -100,6 +100,8 @@ describe('VirtualCardGrid', () => {
     // 给容器一个真实宽度：1000px → computeGridLayout: 3 列、gap 16
     const { container } = renderGrid({
       isLoading: true,
+      // 有数据也不渲染：加载态只出骨架（不是 antd Skeleton/Card 的重结构）
+      items: [probeItem('a', '条目 A')],
       scrollElement: makeSizedElement(1000),
     });
 
@@ -107,11 +109,12 @@ describe('VirtualCardGrid', () => {
       ...container.querySelectorAll('div.animate-pulse'),
     ] as HTMLElement[];
     expect(skeletons).toHaveLength(6);
-    // 不再挂 antd Card/Skeleton（轻量卡片的出发点就是 antd Card 太重）
-    expect(container.querySelectorAll('.ant-skeleton')).toHaveLength(0);
-    expect(container.querySelectorAll('.ant-card')).toHaveLength(0);
+    // 加载态下条目内容不出现（骨架负责占位）
+    expect(screen.queryByTestId('probe-a')).not.toBeInTheDocument();
     // 与卡片同一等高约束：否则冷加载完成瞬间会跳高
     for (const skeleton of skeletons) {
+      // 骨架是单个空 div：不再挂 antd Card/Skeleton 的嵌套子结构
+      expect(skeleton.childElementCount).toBe(0);
       expect(skeleton.style.height).toBe('210px');
       // 列宽只减列间距（gap 16 × 2 = 32px）：容器的 padding 由 PageShell 承担，
       // 卡片的 100% 已是内容盒宽度。若再扣一次 2·padding（旧实现的 bug），这里会出现 96px。

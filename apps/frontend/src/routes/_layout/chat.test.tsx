@@ -110,8 +110,8 @@ describe('routes/_layout/chat', () => {
   it('loading 时渲染 Spin', () => {
     mockChat({ isLoading: true });
     renderChat({ id: 'c1' });
-    // Spin 在 ChatMessagesArea 里以 <Spin /> 出现（通过 role/status 断言）
-    expect(document.querySelector('.ant-spin')).not.toBeNull();
+    // 断言加载态的可访问信号（aria-busy），而不是 antd 的 .ant-spin 类名
+    expect(document.querySelector('[aria-busy="true"]')).not.toBeNull();
   });
 
   it('404 错误渲染“会话不存在”', () => {
@@ -179,7 +179,16 @@ describe('routes/_layout/chat', () => {
     expect(await screen.findByText('typescript')).toBeInTheDocument();
     // 未收录的 `foo bar` 不触发高亮（也就不会有失败的动态导入），按纯文本渲染
     expect(screen.getByText('plain')).toBeInTheDocument();
-    expect(container.querySelectorAll('.ant-codeHighlighter')).toHaveLength(1);
+    // 只有被识别的语言才带语言标签：未知语言不会多出一个标签
+    expect(screen.getAllByText('typescript')).toHaveLength(1);
+    expect(screen.queryByText(/foo/)).not.toBeInTheDocument();
+    // 高亮块内的代码文本仍是原文（高亮只切 token，不改编排内容）
+    expect(container.textContent).toContain('const x = 1;');
+    // 未知语言回落纯文本：单个 <code> 里原样文本，没有 token 切分
+    const plain = screen.getByText('plain');
+    expect(plain.tagName).toBe('CODE');
+    expect(plain.textContent?.trim()).toBe('plain');
+    expect(plain.childElementCount).toBe(0);
   });
 
   it('无可用模型：显示配置提示且发送框禁用', () => {

@@ -65,17 +65,24 @@ describe('ThemeSwitcher', () => {
   });
 
   it('resolvedTheme 为 dark 时触发器显示月亮图标', async () => {
-    // 覆盖共享状态：resolvedTheme='dark'，覆盖行 19 三元的另一分支
+    // 图标只表达主题态：断言「亮/暗两态的触发器图标不同」，不绑 antd 的 anticon-* 类名
+    const triggerIcon = () =>
+      screen.getByRole('button', { name: '切换主题' }).querySelector('svg')
+        ?.outerHTML ?? '';
+
+    useThemeState.mode = 'light';
+    useThemeState.resolvedTheme = 'light';
+    const light = render(<ThemeSwitcher />);
+    const lightIcon = triggerIcon();
+    light.unmount();
+
     useThemeState.mode = 'dark';
     useThemeState.resolvedTheme = 'dark';
     render(<ThemeSwitcher />);
     const trigger = screen.getByRole('button', { name: '切换主题' });
     expect(trigger).toBeInTheDocument();
-    // dark 分支用 MoonOutlined（aria-hidden svg），light 用 SunOutlined。
-    // 通过 svg 数量区分：light 也只有 1 个 svg，所以额外断言存在
-    // antd icon-moon 字体类，证明确实进入了 dark 分支。
-    const moonIcon = trigger.querySelector('.anticon-moon');
-    expect(moonIcon).not.toBeNull();
+    expect(triggerIcon()).not.toBe('');
+    expect(triggerIcon()).not.toBe(lightIcon);
     useThemeState.mode = 'light';
     useThemeState.resolvedTheme = 'light';
   });

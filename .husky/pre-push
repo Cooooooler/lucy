@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+set -e
+# 本地门禁与 CI 对齐：pre-commit 只跑不带覆盖率的测试，覆盖阈值只会在 CI 的
+# test:cov 里生效，容易出现「本地全绿、推上去红」。推送前跑一遍同样的覆盖率门禁。
+# 依赖的真实服务（Redis/Postgres）见 AGENTS.md 的 docker compose 说明。
+pnpm typecheck
+pnpm test:cov
+node scripts/audit-tests.mjs --fail

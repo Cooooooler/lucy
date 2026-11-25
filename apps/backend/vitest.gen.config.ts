@@ -7,6 +7,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    allowOnly: false,
     include: ['scripts/**/*.spec.ts'],
     // 生成脚本会 compile AppModule，同样受 env schema 的两个 required 项约束。
     // 不挂这份 setup 时，`pnpm typegen` 在没有 apps/backend/.env 的机器上（CI、干净检出）必然失败。

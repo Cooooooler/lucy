@@ -47,7 +47,7 @@ describe('KnowledgeCard', () => {
   });
 
   it('描述区为纯 CSS 两行截断（h-11 + line-clamp-2 + 原生 title），不再挂 Typography.Paragraph', () => {
-    const { container } = renderCard();
+    renderCard();
 
     const desc = screen.getByText('这是一段描述');
     expect(desc.tagName).toBe('DIV');
@@ -55,8 +55,10 @@ describe('KnowledgeCard', () => {
     expect(desc).toHaveClass('h-11');
     expect(desc).toHaveClass('line-clamp-2');
     expect(desc).toHaveAttribute('title', '这是一段描述');
-    // 不再渲染 antd Typography（rc-text 测量）结构
-    expect(container.querySelector('.ant-typography')).toBeNull();
+    // 描述只有一个文本节点：没有 Typography 的包装/测量子节点
+    expect(desc.childElementCount).toBe(0);
+    expect(desc.childNodes).toHaveLength(1);
+    expect(desc.firstChild?.nodeType).toBe(Node.TEXT_NODE);
   });
 
   it('描述为空时不渲染空 tooltip（无 title 属性）', () => {

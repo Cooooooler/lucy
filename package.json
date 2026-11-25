@@ -22,6 +22,7 @@
     "release": "standard-version",
     "test": "turbo run test",
     "test:audit": "node scripts/audit-tests.mjs",
+    "test:cov": "turbo run test:cov",
     "typecheck": "turbo run typecheck",
     "typegen": "turbo run typegen"
   },

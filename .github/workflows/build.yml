@@ -56,11 +56,8 @@ jobs:
   backend-tests:
     name: Backend tests with coverage
     runs-on: ubuntu-24.04
-    services:
-      redis:
-        image: redis/redis-stack-server:7.2.0-v16
-        ports:
-          - 6379:6379
+    # 单测不再依赖真实 Redis：DenylistService 用内存假客户端，避免 CI 为了一个用例
+    # 起服务，也避免本地跑测试时清掉开发实例里的令牌撤销状态。
     steps:
       - uses: actions/checkout@v7
         with:
@@ -233,6 +230,27 @@ jobs:
         with:
           name: react-view-state-coverage
           path: packages/react-view-state/coverage
+          if-no-files-found: error
+          retention-days: 1
+
+  desktop-tests:
+    name: Desktop package tests with coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          # 主进程测试不依赖内部包（server/security 只用 Node/Electron API）
+          build-internal-packages: 'false'
+      - name: Desktop package tests with coverage
+        run: pnpm --filter @lucy/desktop test:cov
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-coverage
+          path: apps/desktop/coverage
           if-no-files-found: error
           retention-days: 1
 

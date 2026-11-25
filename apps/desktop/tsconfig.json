@@ -11,5 +11,5 @@
     "verbatimModuleSyntax": true,
     "moduleDetection": "force"
   },
-  "include": ["electron.vite.config.ts", "src/**/*.ts"]
+  "include": ["electron.vite.config.ts", "vitest.config.ts", "src/**/*.ts"]
 }
