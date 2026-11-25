@@ -1,12 +1,12 @@
 import type { KnowledgeBase } from '@/api/types.ts';
 import { VirtualCardGrid } from '@/components/card-list/VirtualCardGrid.tsx';
 import { makeKb } from '@/components/knowledge/knowledge-test-fixture.ts';
-import { clearPageStateCaches } from '@/components/page-state-cache';
+import { useInfiniteKnowledgeBaseList } from '@/hooks/use-knowledge';
 import {
   clearAllScrollOffsets,
+  clearPageStateCaches,
   writeScrollOffset,
-} from '@/hooks/lib/scroll-memory';
-import { useInfiniteKnowledgeBaseList } from '@/hooks/use-knowledge';
+} from '@coool/react-view-state';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';

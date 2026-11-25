@@ -1,8 +1,5 @@
+import { readScrollOffset, writeScrollOffset } from '@coool/react-view-state';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  readScrollOffset,
-  writeScrollOffset,
-} from '../hooks/lib/scroll-memory';
 import { makeUser } from '../test/fixtures';
 import {
   applyTokens,

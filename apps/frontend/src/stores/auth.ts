@@ -1,5 +1,4 @@
-import { clearPageStateCaches } from '@/components/page-state-cache';
-import { clearAllScrollOffsets } from '@/hooks/lib/scroll-memory';
+import { clearViewCaches } from '@coool/react-view-state';
 import { createStore } from '@tanstack/store';
 import type { User } from '../api/types';
 
@@ -35,9 +34,8 @@ export function applyTokens(accessToken: string) {
 
 export function logout() {
   authStore.setState(() => ({ user: null, accessToken: null }));
-  // 页面缓存里是上一个账号的筛选、视图状态与滚动位置，登出（含会话过期）时一并清空
-  clearPageStateCaches();
-  clearAllScrollOffsets();
+  // 视图缓存里是上一个账号的筛选、视图状态与滚动位置，登出（含会话过期）时一并清空
+  clearViewCaches();
 }
 
 // 刷新失败 → 清空本地会话并通知跳转

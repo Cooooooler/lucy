@@ -4,8 +4,8 @@ import {
   columnWidthOperand,
   GRID_TOP_GAP,
 } from '@/components/grid-layout';
-import type { ScrollMemory } from '@/hooks/use-scroll-memory';
 import { useGridBreakpoints, useVirtualGrid } from '@/hooks/use-virtual-grid';
+import type { ScrollMemory } from '@coool/react-view-state';
 import { Button, Empty, Result, Spin } from 'antd';
 import type { FC, ReactNode } from 'react';
 

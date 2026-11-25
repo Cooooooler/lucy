@@ -12,6 +12,7 @@ pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/
 - `packages/shared` — `@lucy/shared` 共享类型与常量，tsup 构建为纯 ESM（`dist/index.js` + `dist/index.d.ts`）
 - `packages/redis` — `@coool/redis-nest` 自研 NestJS Redis 集成模块（ioredis：连接管理/序列化/DI/多数据源/统一异常/`RedisService.raw` 逃生舱），后端 `RedisModule` 消费它；`packages/redis/README.md` + VitePress 文档见 `packages/redis/docs/`
 - `packages/file-nest` — `@coool/file-nest` 文件存储集成模块（`StorageDriver` 抽象 + `LocalStorageDriver`，`FileService` 只处理字节并返回 `StoredFile`，不落库任何元数据；`FileModule.forRoot/forRootAsync` 全局注册），后端 `FileModule` 消费它；tsup 构建双格式（esm + cjs），VitePress 文档见 `packages/file-nest/docs/`
+- `packages/react-view-state` — `@coool/react-view-state` React 视图状态库：`PageStateCache`/`usePageState`（页面级 UI 状态缓存）+ `useScrollMemory`（滚动位置记忆，dom/delegate 两种恢复方式）+ `clearViewCaches`（登出统一清理）；tsup 构建双格式（esm + cjs），前端以 workspace 依赖消费（类型读 `src`，运行时走 `dist`，测试/构建前需先 build）；`packages/react-view-state/README.md` + VitePress 文档见 `packages/react-view-state/docs/`
 
 ## 常用命令（根目录）
 

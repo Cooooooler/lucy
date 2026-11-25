@@ -4,7 +4,7 @@ import {
   clearAllScrollOffsets,
   readScrollOffset,
   writeScrollOffset,
-} from './lib/scroll-memory';
+} from './scroll-memory';
 import { useScrollMemory } from './use-scroll-memory';
 
 /**

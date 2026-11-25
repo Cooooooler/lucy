@@ -11,7 +11,6 @@ import {
   type VisibilityFilter,
 } from '@/components/knowledge/KnowledgeToolbar.tsx';
 import { PageShell } from '@/components/page-shell';
-import { PageStateCache, usePageState } from '@/components/page-state-cache';
 import { pendingIdOf } from '@/hooks/pending-id.ts';
 import {
   useDeleteKnowledgeBase,
@@ -22,7 +21,11 @@ import {
   useUpdateKnowledgeVisibility,
   type KnowledgeListFilter,
 } from '@/hooks/use-knowledge.ts';
-import { useScrollMemory } from '@/hooks/use-scroll-memory';
+import {
+  PageStateCache,
+  usePageState,
+  useScrollMemory,
+} from '@coool/react-view-state';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { App } from 'antd';
 import { useCallback, useMemo, useState } from 'react';

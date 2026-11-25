@@ -37,7 +37,7 @@ function valueText() {
   return screen.getByTestId('value').textContent;
 }
 
-describe('components/PageStateCache', () => {
+describe('PageStateCache', () => {
   beforeEach(() => {
     clearPageStateCaches();
   });

@@ -3,13 +3,13 @@ import {
   clearScrollOffset,
   readScrollOffset,
   writeScrollOffset,
-} from './lib/scroll-memory';
+} from './scroll-memory';
 
 /**
  * 恢复方式：
  * - `'dom'`（默认）：hook 自己写 `scrollTop`，适用于普通滚动容器；
  * - `'delegate'`：hook 只回传待恢复偏移，由虚拟化列表内部对齐（它还要同步虚拟化器
- *   的内部 offset，只写 DOM 会先按旧位置挂一整窗卡片）。见 `use-virtual-grid`。
+ *   的内部 offset，只写 DOM 会先按旧位置挂一整窗卡片）。
  */
 export type ScrollMemoryRestoreMode = 'dom' | 'delegate';
 

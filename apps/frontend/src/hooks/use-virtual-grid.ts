@@ -33,7 +33,7 @@ type UseVirtualGridOptions = {
    */
   isFetchNextPageError?: boolean;
   /**
-   * 本次挂载要恢复到的滚动偏移（px，来自 `use-scroll-memory`）。
+   * 本次挂载要恢复到的滚动偏移（px，来自 `@coool/react-view-state` 的 `useScrollMemory`）。
    * 交给虚拟化器的 `initialOffset`：首帧的可视窗口就按该位置计算，不会先白挂一窗卡片。
    */
   initialOffset?: number | null;

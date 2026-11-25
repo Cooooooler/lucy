@@ -1,5 +1,5 @@
 name: Setup workspace
-description: 安装 pnpm / Node 与 workspace 依赖，并按需构建内部包（shared / redis / file-nest）
+description: 安装 pnpm / Node 与 workspace 依赖，并按需构建内部包（shared / redis / file-nest / react-view-state）
 
 # 所有 job 的公共前奏。抽成 composite action 的理由：
 # - 这 4 步（pnpm、node、install、内部包 build）逐字重复在每个 job 里，改一次要改六处；
@@ -10,7 +10,7 @@ description: 安装 pnpm / Node 与 workspace 依赖，并按需构建内部包�
 
 inputs:
   build-internal-packages:
-    description: 是否构建 shared / redis / file-nest（要跑 test / typecheck 的 job 需要；纯构建 job 由 turbo 代劳）
+    description: 是否构建 shared / redis / file-nest / react-view-state（要跑 test / typecheck 的 job 需要；纯构建 job 由 turbo 代劳）
     required: false
     default: 'true'
 
@@ -42,3 +42,4 @@ runs:
         pnpm --filter @lucy/shared build
         pnpm --filter @coool/redis-nest build
         pnpm --filter @coool/file-nest build
+        pnpm --filter @coool/react-view-state build
