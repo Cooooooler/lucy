@@ -6,8 +6,10 @@ import { KnowledgeController } from './knowledge.controller.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 /**
- * 控制器其余端点都是把参数直接转交给 service（转发行为由 e2e 覆盖），
- * 这里只保留控制器自己承担的校验分支：缺少上传文件字段时直接 400，不进入 service。
+ * 控制器其余端点目前只在服务层有测试；HTTP 层的路由注册与参数校验依赖全局
+ * `UUIDParam`（有单测）与 knowledge e2e。注意 like / unlike / removeDocument
+ * 尚未进 e2e，是已知缺口。这里只保留控制器自己承担的校验分支：
+ * 缺少上传文件字段时直接 400，不进入 service。
  */
 describe('KnowledgeController.addDocument', () => {
   const user: CurrentUserPayload = { userId: 'u1', jti: 'j', role: 'user' };

@@ -23,10 +23,14 @@ export default defineConfig({
         'src/main.ts',
         'src/test/**',
         'src/**/dto/**',
-        // 控制器是 HTTP 适配层：参数提取与转发行为由 e2e 覆盖，不参与覆盖率门禁。
+        // 只把真正只做转发的控制器排除在覆盖率门禁外（其行为由 e2e 覆盖），
         // 否则每加一个端点就得补一条纯委托断言，正是测试规模膨胀的来源。
-        // Sonar 侧同步在 sonar.coverage.exclusions 排除，避免被判成 0 覆盖。
-        'src/**/*.controller.ts',
+        // ai / health / auth 控制器承载 SSE 状态机、停机探活与 cookie 语义，仍计入覆盖率。
+        // Sonar 侧在 sonar.coverage.exclusions 排除同样这四个文件。
+        'src/app.controller.ts',
+        'src/knowledge/knowledge.controller.ts',
+        'src/model-provider/model-provider.controller.ts',
+        'src/users/users.controller.ts',
         '**/*.d.ts',
       ],
       // 运行时真实覆盖率门禁（v8 记录实际执行行，不含 SonarCloud 误计的装饰器/注解行）
@@ -52,6 +56,19 @@ export default defineConfig({
           functions: 80,
           branches: 85,
           statements: 88,
+        },
+        // 凭据哈希与令牌撤销同为安全关键，不能只靠全局地板
+        'src/password/**': {
+          lines: 95,
+          functions: 95,
+          branches: 95,
+          statements: 95,
+        },
+        'src/redis/**': {
+          lines: 90,
+          functions: 90,
+          branches: 70,
+          statements: 90,
         },
         'src/model-provider/**': {
           lines: 88,

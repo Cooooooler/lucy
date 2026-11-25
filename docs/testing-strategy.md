@@ -36,7 +36,8 @@
 
 ## 覆盖率
 
-- 后端 `apps/backend/vitest.config.ts`：全局 80%（lines/functions/branches/statements），作为地板； `src/auth` `src/ai` `src/common` `src/knowledge` `src/model-provider` `src/users` 另有更高的分域阈值。
+- 后端 `apps/backend/vitest.config.ts`：全局 80%（lines/functions/branches/statements），作为地板； `src/auth` `src/ai` `src/common` `src/knowledge` `src/model-provider` `src/users` `src/password` `src/redis` 另有更高的分域阈值。
+- 仅纯转发的控制器（`app` / `knowledge` / `model-provider` / `users`）从覆盖率剔除；`ai` / `health` / `auth` 控制器承载真实逻辑，仍计入。
 - 前端 `apps/frontend/vitest.config.ts`：全局 60%；`src/api` `src/hooks` `src/stores` 另有分域阈值。
 - SonarCloud 新增代码覆盖率 ≥ 80%（走 lcov，不受 vitest 分域阈值影响）。
 

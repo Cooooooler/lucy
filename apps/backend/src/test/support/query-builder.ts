@@ -14,6 +14,11 @@ import type { Mock } from 'vitest';
  * 本目录（`src/test/**`）在 vitest 覆盖率配置里被排除，不计入门禁。
  */
 
+/** 属性名转数据库列名（驼峰 → 下划线），与实体上的 `name:` 约定一致 */
+function toColumnName(property: string): string {
+  return property.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`);
+}
+
 /** 主别名 + 实体元数据 stub：列名映射与实体上的 `name:` 一致 */
 export function aliasStub(name: string) {
   return {
@@ -22,7 +27,7 @@ export function aliasStub(name: string) {
     metadata: {
       name: `${name}Entity`,
       findColumnWithPropertyName: (property: string) => ({
-        databaseName: property === 'createdAt' ? 'created_at' : 'id',
+        databaseName: toColumnName(property),
       }),
     },
   };
