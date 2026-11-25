@@ -3,7 +3,6 @@ import { makeUser } from '@/test/fixtures';
 import {
   createTestQueryClient,
   createQueryWrapper as createWrapper,
-  createQueryWrapper as createWrapperWithClient,
 } from '@/test/query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -64,7 +63,7 @@ describe('use-users', () => {
     });
     api.updateUserStatusApi.mockResolvedValueOnce(makeUser({ status: 0 }));
     const { result } = renderHook(() => useUpdateUserStatus(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     await act(async () => {
       await result.current.mutateAsync({ id: 'u1', input: { status: 0 } });
@@ -88,7 +87,7 @@ describe('use-users', () => {
     });
     api.updateUserRoleApi.mockResolvedValueOnce(makeUser({ role: 'admin' }));
     const { result } = renderHook(() => useUpdateUserRole(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     await act(async () => {
       await result.current.mutateAsync({ id: 'u1', input: { role: 'admin' } });
@@ -106,7 +105,7 @@ describe('use-users', () => {
     client.setQueryData(userKeys.detail('u1'), user);
     api.deleteUserApi.mockResolvedValueOnce(null);
     const { result } = renderHook(() => useDeleteUser(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     await act(async () => {
       await result.current.mutateAsync('u1');

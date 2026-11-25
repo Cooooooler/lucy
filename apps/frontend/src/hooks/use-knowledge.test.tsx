@@ -8,7 +8,6 @@ import {
 import {
   createTestQueryClient,
   createQueryWrapper as createWrapper,
-  createQueryWrapper as createWrapperWithClient,
 } from '@/test/query';
 import { QueryClient, type QueryKey } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
@@ -157,11 +156,10 @@ describe('useInfiniteKnowledgeBaseList', () => {
 
   it('过滤条件进入 queryKey', async () => {
     api.listKnowledgeBasesApi.mockResolvedValue(cursorPage([], null));
-    const client = createTestQueryClient();
     renderHook(
       () =>
         useInfiniteKnowledgeBaseList({ name: '产品', visibility: 'public' }),
-      { wrapper: createWrapperWithClient(client) },
+      { wrapper: createWrapper() },
     );
     await waitFor(() =>
       expect(api.listKnowledgeBasesApi).toHaveBeenCalledWith({
@@ -190,7 +188,7 @@ describe('useInfiniteKnowledgeBaseList', () => {
     const { result, rerender } = renderHook(
       (props: { visibility?: 'private' | 'public' }) =>
         useInfiniteKnowledgeBaseList(props),
-      { wrapper: createWrapperWithClient(client), initialProps: {} },
+      { wrapper: createWrapper(client), initialProps: {} },
     );
 
     // 全部：先加载两页
@@ -231,7 +229,7 @@ describe('useInfiniteKnowledgeBaseList', () => {
     const client = createTestQueryClient();
     const { result, unmount } = renderHook(
       () => useInfiniteKnowledgeBaseList(),
-      { wrapper: createWrapperWithClient(client) },
+      { wrapper: createWrapper(client) },
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     await waitFor(() => expect(result.current.hasNextPage).toBe(true));
@@ -246,7 +244,7 @@ describe('useInfiniteKnowledgeBaseList', () => {
     // gcTime 继承基础配置（5 分钟）且 3 分钟内仍新鲜：重新进入直接复用，不发请求
     const { result: remounted } = renderHook(
       () => useInfiniteKnowledgeBaseList(),
-      { wrapper: createWrapperWithClient(client) },
+      { wrapper: createWrapper(client) },
     );
     await waitFor(() => expect(remounted.current.isSuccess).toBe(true));
 
@@ -278,7 +276,7 @@ describe('useRefreshKnowledgeBaseList', () => {
         list: useInfiniteKnowledgeBaseList(),
         refresh: useRefreshKnowledgeBaseList(),
       }),
-      { wrapper: createWrapperWithClient(client) },
+      { wrapper: createWrapper(client) },
     );
     await waitFor(() => expect(result.current.list.isSuccess).toBe(true));
     expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(1);
@@ -342,7 +340,7 @@ describe('useCreateKnowledgeBase', () => {
         list: useInfiniteKnowledgeBaseList(),
         create: useCreateKnowledgeBase(),
       }),
-      { wrapper: createWrapperWithClient(client) },
+      { wrapper: createWrapper(client) },
     );
     await waitFor(() => expect(result.current.list.isSuccess).toBe(true));
     expect(api.listKnowledgeBasesApi).toHaveBeenCalledTimes(1);
@@ -395,7 +393,7 @@ describe('useUpdateKnowledgeBase', () => {
     const client = createTestQueryClient();
     seed(client);
     const mutation = renderHook(() => useUpdateKnowledgeBase(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
 
     act(() => {
@@ -433,7 +431,7 @@ describe('useUpdateKnowledgeBase', () => {
     seed(client);
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     const mutation = renderHook(() => useUpdateKnowledgeBase(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
 
     await act(async () => {
@@ -460,7 +458,7 @@ describe('useUpdateKnowledgeBase', () => {
     const client = createTestQueryClient();
     seed(client);
     const mutation = renderHook(() => useUpdateKnowledgeBase(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
 
     await act(async () => {
@@ -507,7 +505,7 @@ describe('useUpdateKnowledgeVisibility', () => {
     seed(client);
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     const mutation = renderHook(() => useUpdateKnowledgeVisibility(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
 
     await act(async () => {
@@ -538,7 +536,7 @@ describe('useUpdateKnowledgeVisibility', () => {
     const client = createTestQueryClient();
     seed(client);
     const mutation = renderHook(() => useUpdateKnowledgeVisibility(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
 
     await act(async () => {
@@ -577,7 +575,7 @@ describe('useDeleteKnowledgeBase', () => {
     seed(client);
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     const mutation = renderHook(() => useDeleteKnowledgeBase(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
 
     await act(async () => {
@@ -594,7 +592,7 @@ describe('useDeleteKnowledgeBase', () => {
     const client = createTestQueryClient();
     seed(client);
     const mutation = renderHook(() => useDeleteKnowledgeBase(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
 
     await act(async () => {
@@ -640,7 +638,7 @@ function describeLikeMutationTests(opts: {
       seed(client);
       const invalidate = vi.spyOn(client, 'invalidateQueries');
       const mutation = renderHook(() => opts.useHook(), {
-        wrapper: createWrapperWithClient(client),
+        wrapper: createWrapper(client),
       });
 
       act(() => {
@@ -675,7 +673,7 @@ function describeLikeMutationTests(opts: {
       const client = createTestQueryClient();
       seed(client);
       const mutation = renderHook(() => opts.useHook(), {
-        wrapper: createWrapperWithClient(client),
+        wrapper: createWrapper(client),
       });
 
       await act(async () => {
@@ -729,7 +727,7 @@ describe('useDocumentList', () => {
     const client = createTestQueryClient();
     const { result } = renderHook(
       () => useDocumentList('kb1', { page: 2, pageSize: 20, keyword: 'x' }),
-      { wrapper: createWrapperWithClient(client) },
+      { wrapper: createWrapper(client) },
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(api.listDocumentsApi).toHaveBeenCalledWith('kb1', {
@@ -773,7 +771,7 @@ describe('useAddDocument', () => {
     const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
     const file = new File(['hello'], 'intro.md', { type: 'text/markdown' });
     const mutation = renderHook(() => useAddDocument(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     await act(async () => {
       await mutation.result.current.mutateAsync({ kbId: 'kb1', file });
@@ -791,7 +789,7 @@ describe('useDeleteDocument', () => {
     const client = createTestQueryClient();
     client.setQueryData(knowledgeKeys.document('kb1', 'd1'), makeDoc());
     const mutation = renderHook(() => useDeleteDocument(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     await act(async () => {
       await mutation.result.current.mutateAsync({ kbId: 'kb1', id: 'd1' });

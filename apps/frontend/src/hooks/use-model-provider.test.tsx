@@ -1,7 +1,7 @@
 import type { ModelProvider } from '@/api/types';
 import {
   createTestQueryClient,
-  createQueryWrapper as createWrapperWithClient,
+  createQueryWrapper as createWrapper,
 } from '@/test/query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -67,7 +67,7 @@ describe('use-model-provider', () => {
     const client = createTestQueryClient();
     const { result } = renderHook(
       () => useInfiniteModelProviderList({ name: 'gpt', type: 'llm' }),
-      { wrapper: createWrapperWithClient(client) },
+      { wrapper: createWrapper(client) },
     );
 
     await waitFor(() =>
@@ -99,7 +99,7 @@ describe('use-model-provider', () => {
     const { result, rerender } = renderHook(
       (props: { type?: ModelProvider['type'] }) =>
         useInfiniteModelProviderList(props),
-      { wrapper: createWrapperWithClient(client), initialProps: {} },
+      { wrapper: createWrapper(client), initialProps: {} },
     );
 
     // 全部：先加载两页
@@ -132,7 +132,7 @@ describe('use-model-provider', () => {
       cursorPage([makeModel()], null),
     );
     const client = createTestQueryClient();
-    const wrapper = createWrapperWithClient(client);
+    const wrapper = createWrapper(client);
     const { result } = renderHook(() => useInfiniteModelProviderList({}), {
       wrapper,
     });
@@ -156,7 +156,7 @@ describe('use-model-provider', () => {
     const reset = vi.spyOn(client, 'resetQueries');
 
     const { result } = renderHook(() => useCreateModelProvider(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     await act(async () => {
       await result.current.mutateAsync({
@@ -193,7 +193,7 @@ describe('use-model-provider', () => {
     });
 
     const { result } = renderHook(() => useUpdateModelProvider(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     await act(async () => {
       await result.current.mutateAsync({
@@ -232,7 +232,7 @@ describe('use-model-provider', () => {
     client.setQueryData(modelProviderKeys.item('m1'), existing);
 
     const { result } = renderHook(() => useUpdateModelProvider(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     let pending: Promise<ModelProvider>;
     act(() => {
@@ -267,7 +267,7 @@ describe('use-model-provider', () => {
     });
 
     const { result } = renderHook(() => useUpdateModelProvider(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     await act(async () => {
       await result.current.mutateAsync({
@@ -298,7 +298,7 @@ describe('use-model-provider', () => {
     const invalidate = vi.spyOn(client, 'invalidateQueries');
 
     const { result } = renderHook(() => useUpdateModelProvider(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     await act(async () => {
       await expect(
@@ -328,7 +328,7 @@ describe('use-model-provider', () => {
     });
 
     const { result } = renderHook(() => useDeleteModelProvider(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     await act(async () => {
       await result.current.mutateAsync('m1');
@@ -357,7 +357,7 @@ describe('use-model-provider', () => {
     const invalidate = vi.spyOn(client, 'invalidateQueries');
 
     const { result } = renderHook(() => useDeleteModelProvider(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     await act(async () => {
       await expect(result.current.mutateAsync('m1')).rejects.toThrow('boom');
@@ -381,7 +381,7 @@ describe('use-model-provider', () => {
     });
     const client = createTestQueryClient();
     const { result } = renderHook(() => useTestModelProviderConnection(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     await act(async () => {
       await result.current.mutateAsync('m1');
@@ -395,7 +395,7 @@ describe('use-model-provider', () => {
     );
     const client = createTestQueryClient();
     const { result } = renderHook(() => useModelProvidersByType('llm'), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
 
     await waitFor(() => expect(result.current.models).toHaveLength(1));
@@ -410,7 +410,7 @@ describe('use-model-provider', () => {
     const model = makeModel();
     api.getModelProviderApi.mockResolvedValue(model);
     const client = createTestQueryClient();
-    const wrapper = createWrapperWithClient(client);
+    const wrapper = createWrapper(client);
 
     const { result } = renderHook(() => useModelProvider('m1'), { wrapper });
     await waitFor(() => expect(result.current.data).toEqual(model));
@@ -429,7 +429,7 @@ describe('use-model-provider', () => {
     );
     const client = createTestQueryClient();
     const { result, rerender } = renderHook(() => useLlmModelProviders(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
 
     await waitFor(() => expect(result.current.models).toHaveLength(1));
@@ -448,7 +448,7 @@ describe('use-model-provider', () => {
   it('useModelProviderDefaults 在 enabled=false 时不请求', () => {
     const client = createTestQueryClient();
     renderHook(() => useModelProviderDefaults(false), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
     expect(api.getModelProviderDefaultsApi).not.toHaveBeenCalled();
   });
@@ -460,7 +460,7 @@ describe('use-model-provider', () => {
     api.updateModelProviderDefaultsApi.mockResolvedValue(data);
     const client = createTestQueryClient();
     const { result } = renderHook(() => useUpdateModelProviderDefaults(), {
-      wrapper: createWrapperWithClient(client),
+      wrapper: createWrapper(client),
     });
 
     await act(async () => {
