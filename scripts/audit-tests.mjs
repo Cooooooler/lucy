@@ -30,6 +30,9 @@ const SKIP_DIRS = new Set([
 const TEST_FILE = /\.(spec|test)\.[cm]?[jt]sx?$/;
 const EXPECT = /\bexpect\s*\(/g;
 const MOCK_ASSERT = /\btoHaveBeenCalled[A-Za-z]*/g;
+// 显式豁免：controller spec 断言的是参数映射/转换（不是原样透传）时，在文件里写
+// `audit-allow: delegation-only` 说明理由，跳过「纯委托」判定。
+const ALLOW_DELEGATION = /audit-allow:\s*delegation-only/;
 
 async function* walk(dir) {
   let entries;
@@ -64,14 +67,19 @@ let total = 0;
 for (const target of TARGETS) {
   for await (const file of walk(path.join(ROOT, target))) {
     total += 1;
-    const text = stripComments(await readFile(file, 'utf8'));
+    const raw = await readFile(file, 'utf8');
+    const text = stripComments(raw);
     const expects = countMatches(text, EXPECT);
     const mockAsserts = countMatches(text, MOCK_ASSERT);
     const rel = path.relative(ROOT, file).replaceAll('\\', '/');
 
     if (expects === 0) {
       zeroAssertion.push(rel);
-    } else if (file.endsWith('.controller.spec.ts') && mockAsserts >= expects) {
+    } else if (
+      file.endsWith('.controller.spec.ts') &&
+      mockAsserts >= expects &&
+      !ALLOW_DELEGATION.test(raw)
+    ) {
       delegationOnly.push(rel);
     }
   }

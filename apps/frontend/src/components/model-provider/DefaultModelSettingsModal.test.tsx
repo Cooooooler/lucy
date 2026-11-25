@@ -15,9 +15,17 @@ const api = vi.hoisted(() => ({
 
 vi.mock('@/api/model-provider', () => api);
 
-function wrapper({ children }: { children: ReactNode }) {
+/**
+ * 每个用例创建一个稳定的 client，并让 wrapper 闭包持有它。
+ *
+ * 不能在 wrapper 组件体内 `createTestQueryClient()`：wrapper 每次渲染都会重新执行，
+ * provider 的 value 随之换新、整棵查询缓存被丢弃；rerender 场景下「缓存复用」就成了
+ * 假象（实际是重新请求）。也不能在 wrapper 里用 useMemo——小写函数名会被 react-hooks
+ * 规则判为非法调用点。
+ */
+function makeWrapper() {
   const client = createTestQueryClient();
-  return (
+  return ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>
       <AntdApp>{children}</AntdApp>
     </QueryClientProvider>
@@ -55,7 +63,9 @@ describe('DefaultModelSettingsModal', () => {
       nextCursor: null,
     });
 
-    render(<DefaultModelSettingsModal open onClose={vi.fn()} />, { wrapper });
+    render(<DefaultModelSettingsModal open onClose={vi.fn()} />, {
+      wrapper: makeWrapper(),
+    });
 
     expect(await screen.findByText('gpt-4o-mini')).toBeInTheDocument();
   });
@@ -67,7 +77,9 @@ describe('DefaultModelSettingsModal', () => {
       nextCursor: null,
     });
 
-    render(<DefaultModelSettingsModal open onClose={vi.fn()} />, { wrapper });
+    render(<DefaultModelSettingsModal open onClose={vi.fn()} />, {
+      wrapper: makeWrapper(),
+    });
 
     expect(screen.getByRole('button', { name: /保\s*存/ })).toBeDisabled();
   });
@@ -79,7 +91,9 @@ describe('DefaultModelSettingsModal', () => {
       nextCursor: null,
     });
 
-    render(<DefaultModelSettingsModal open onClose={vi.fn()} />, { wrapper });
+    render(<DefaultModelSettingsModal open onClose={vi.fn()} />, {
+      wrapper: makeWrapper(),
+    });
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /保\s*存/ })).toBeDisabled(),
@@ -114,7 +128,7 @@ describe('DefaultModelSettingsModal', () => {
 
     const { rerender } = render(
       <DefaultModelSettingsModal open onClose={vi.fn()} />,
-      { wrapper },
+      { wrapper: makeWrapper() },
     );
     expect(await screen.findByText('gpt-4o-mini')).toBeInTheDocument();
 

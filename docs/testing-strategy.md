@@ -44,4 +44,4 @@
 
 ## 巡检
 
-`pnpm test:audit` 扫描全部测试文件，报告「零断言」与「纯委托 controller 断言」两类用例；加 `--fail` 可在 CI 中作为硬性检查。它只做启发式判断，结论需要人工复核，但能挡住明显的空壳测试。
+`pnpm test:audit` 扫描全部测试文件，报告「零断言」与「纯委托 controller 断言」两类用例；加 `--fail` 可在 CI 中作为硬性检查。它只做启发式判断，结论需要人工复核，但能挡住明显的空壳测试。若 controller spec 断言的是参数映射/转换（而非原样透传），在文件注释里写 `audit-allow: delegation-only` 并说明理由即可豁免。

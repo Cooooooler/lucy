@@ -35,7 +35,7 @@ pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/
 
 ```bash
 pnpm --filter @lucy/backend test                              # 后端全部单测
-pnpm --filter @lucy/backend test src/app.controller.spec.ts   # 单个测试文件
+pnpm --filter @lucy/backend test src/auth/auth.service.spec.ts   # 单个测试文件
 pnpm --filter @lucy/backend test:cov                          # 覆盖率（CI 用）
 pnpm --filter @lucy/backend test:e2e                          # 后端 e2e（test/ 目录）
 pnpm --filter @lucy/frontend test                             # 前端全部单测
