@@ -11,8 +11,9 @@ export default defineConfig({
     },
     environment: 'jsdom',
     globals: false,
-    setupFiles: ['./src/test-setup.ts'],
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    allowOnly: false,
+    setupFiles: ['./test/setup.ts'],
+    include: ['test/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'lcov'],
@@ -21,7 +22,7 @@ export default defineConfig({
       // index.ts 是纯 re-export；测试与测试环境桩不计覆盖率
       exclude: [
         'src/index.ts',
-        'src/test-setup.ts',
+        'test/setup.ts',
         'src/**/*.{test,spec}.{ts,tsx}',
         '**/*.d.ts',
       ],

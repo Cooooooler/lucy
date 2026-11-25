@@ -21,7 +21,50 @@
     "lint": {},
     "lint:ci": {},
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "outputs": [],
+      "env": [
+        "CI",
+        "NODE_ENV",
+        "VITEST*",
+        "DB_*",
+        "REDIS_*",
+        "JWT_*",
+        "MODEL_PROVIDER_*",
+        "MODEL_TEST_*",
+        "FILE_*",
+        "UPLOAD_DIR",
+        "OUTBOUND_*",
+        "AI_*",
+        "OLLAMA_*",
+        "LOG_*",
+        "PORT",
+        "E2E_*",
+        "LUCY_BACKEND_URL"
+      ]
+    },
+    "test:cov": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"],
+      "env": [
+        "CI",
+        "NODE_ENV",
+        "VITEST*",
+        "DB_*",
+        "REDIS_*",
+        "JWT_*",
+        "MODEL_PROVIDER_*",
+        "MODEL_TEST_*",
+        "FILE_*",
+        "UPLOAD_DIR",
+        "OUTBOUND_*",
+        "AI_*",
+        "OLLAMA_*",
+        "LOG_*",
+        "PORT",
+        "E2E_*",
+        "LUCY_BACKEND_URL"
+      ]
     },
     "typecheck": {
       "dependsOn": ["^build"]

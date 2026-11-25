@@ -33,6 +33,10 @@ jobs:
         run: pnpm lint:ci
       - name: Typecheck
         run: pnpm typecheck
+      # 巡检：挡住「零断言」和「controller 纯委托」两类空壳用例，防止测试规模膨胀却无回归价值。
+      # 启发式规则，误报需人工复核；当前基线为 0 条。
+      - name: Audit tests
+        run: node scripts/audit-tests.mjs --fail
 
   # 应用打包校验：lint/typecheck/单测都不覆盖打包期失败
   # （React Compiler 的回调提升、ESM 相对导入漏 .js、tailwind/vite 插件配置、
@@ -52,11 +56,8 @@ jobs:
   backend-tests:
     name: Backend tests with coverage
     runs-on: ubuntu-24.04
-    services:
-      redis:
-        image: redis/redis-stack-server:7.2.0-v16
-        ports:
-          - 6379:6379
+    # 单测不再依赖真实 Redis：DenylistService 用内存假客户端，避免 CI 为了一个用例
+    # 起服务，也避免本地跑测试时清掉开发实例里的令牌撤销状态。
     steps:
       - uses: actions/checkout@v7
         with:
@@ -99,8 +100,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
-      # test:e2e 会先跑 test/prepare-e2e-db.ts（重建 lucy_test → 迁移 → 往返校验）
-      # 再跑 vitest；两个 required secret 由 src/test/setup.ts 注入测试值。
+      # test:e2e 会先跑 test/support/prepare-e2e-db.ts（重建 lucy_test → 迁移 → 往返校验）
+      # 再跑 vitest；两个 required secret 由 test/support/setup.ts 注入测试值。
       - name: Backend e2e
         run: pnpm --filter @lucy/backend test:e2e
         env:
@@ -232,6 +233,27 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  desktop-tests:
+    name: Desktop package tests with coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          # 主进程测试不依赖内部包（server/security 只用 Node/Electron API）
+          build-internal-packages: 'false'
+      - name: Desktop package tests with coverage
+        run: pnpm --filter @lucy/desktop test:cov
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-coverage
+          path: apps/desktop/coverage
+          if-no-files-found: error
+          retention-days: 1
+
   # 契约生成物漂移校验：packages/shared/src/generated/openapi.ts 是提交进仓库的生成产物，
   # 改后端 DTO/实体后必须重新生成。pre-commit 会跑 typegen，但 --no-verify 或忘记提交
   # 都会让契约静默落后；这里以「重新生成后是否有 diff」为准。
@@ -245,7 +267,7 @@ jobs:
           # typegen 经 turbo 运行，其 dependsOn（gen:openapi → ^build）会构建内部包
           build-internal-packages: 'false'
       - name: Regenerate contract types
-        # 生成脚本会编译 AppModule；两个 required secret 由 src/test/setup.ts 注入测试值
+        # 生成脚本会编译 AppModule；两个 required secret 由 test/support/setup.ts 注入测试值
         # （vitest.gen.config.ts 已挂 setupFiles），无需在这里重复声明。
         run: pnpm typegen
       - name: Fail if generated types are stale

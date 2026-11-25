@@ -1,0 +1,121 @@
+import { AppModule } from '@/app.module.js';
+import { DocsModule } from '@/docs/docs.module.js';
+import { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import type { Server } from 'node:http';
+import request from 'supertest';
+
+interface DocBody {
+  info: { title: string };
+  components?: {
+    securitySchemes?: Record<string, unknown>;
+    schemas?: Record<string, { properties?: Record<string, unknown> }>;
+  };
+  paths?: Record<string, { get?: { security?: unknown[] } }>;
+}
+
+/**
+ * 还原 NODE_ENV：直接 `process.env.NODE_ENV = saved` 在 saved 为 undefined 时会写入字符串
+ * `'undefined'`（Node 对 process.env 赋值做字符串化），并不是恢复原状——同一 worker 里后续读
+ * NODE_ENV 的代码会看到一个非空值（`?? 'development'` 这类兜底会被跳过）。
+ */
+function restoreNodeEnv(saved: string | undefined): void {
+  if (saved === undefined) {
+    delete process.env.NODE_ENV;
+  } else {
+    process.env.NODE_ENV = saved;
+  }
+}
+
+describe('Scalar docs (dev)', () => {
+  let app: INestApplication<Server>;
+  const savedEnv = process.env.NODE_ENV;
+
+  beforeAll(async () => {
+    // 显式钉成 test，而不是 `?? 'test'`：外部 shell 带着 NODE_ENV=production 时
+    // DocsModule.setup 会直接 return，本用例会以「/docs 404」的形态失败（看似与改动无关）。
+    process.env.NODE_ENV = 'test';
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    app = moduleRef.createNestApplication();
+    DocsModule.setup(app, 'test');
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+    restoreNodeEnv(savedEnv);
+  });
+
+  it('/docs 返回 Scalar HTML', async () => {
+    const res = await request(app.getHttpServer()).get('/docs');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.text).toContain('Scalar API Reference');
+  });
+
+  it('/docs-json 暴露完整 OpenAPI 文档', async () => {
+    const res = await request(app.getHttpServer()).get('/docs-json');
+    expect(res.status).toBe(200);
+    const doc = res.body as DocBody;
+    expect(doc.info.title).toBe('Lucy API');
+    expect(doc.components?.securitySchemes?.bearer).toBeDefined();
+    for (const path of [
+      '/auth/register',
+      '/auth/login',
+      '/auth/refresh',
+      '/auth/logout',
+      '/auth/me',
+    ]) {
+      expect(doc.paths?.[path]).toBeDefined();
+    }
+    expect(
+      JSON.stringify(doc.paths?.['/auth/me'].get?.security ?? []),
+    ).toContain('bearer');
+    expect(
+      doc.components?.schemas?.RegisterDto?.properties?.username,
+    ).toBeDefined();
+    expect(
+      Object.keys(
+        doc.components?.schemas?.LoginResultDto?.properties ?? {},
+      ).sort(),
+    ).toEqual(['accessToken', 'user']);
+    // 用户契约现由允许式 DTO `UserListItemDto` 承载（auth 注册/登录/me 与 users 各端点共用），
+    // 不再拿持久化实体 `User` 当响应类型：资料字段可见，passwordHash 不进契约。
+    expect(
+      doc.components?.schemas?.UserListItemDto?.properties?.username,
+    ).toBeDefined();
+    expect(
+      doc.components?.schemas?.UserListItemDto?.properties?.passwordHash,
+    ).toBeUndefined();
+    // 反向断言：User 实体已不再作为响应契约出现（若被重新挂回 @ApiResponse({ type: User })，
+    // 这里会红，避免「实体重新出网」的回归静默通过）
+    expect(doc.components?.schemas?.User).toBeUndefined();
+  });
+});
+
+describe('Scalar docs (production no-op)', () => {
+  let app: INestApplication<Server>;
+  const savedEnv = process.env.NODE_ENV;
+
+  beforeAll(async () => {
+    process.env.NODE_ENV = 'production';
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    app = moduleRef.createNestApplication();
+    DocsModule.setup(app, 'production');
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+    restoreNodeEnv(savedEnv);
+  });
+
+  it('/docs 与 /docs-json 均 404', async () => {
+    await request(app.getHttpServer()).get('/docs').expect(404);
+    await request(app.getHttpServer()).get('/docs-json').expect(404);
+  });
+});

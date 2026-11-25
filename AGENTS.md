@@ -24,7 +24,9 @@ pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/
 | `pnpm dev:web` / `pnpm dev:all` | 只跑浏览器端 / 后端就绪后同时启动浏览器端与 Electron（Web 5173、Electron renderer 5174），退出时全部停止 |
 | `pnpm build` | Turbo 构建 |
 | `pnpm lint` | Turbo 跑 lint |
-| `pnpm test` | Turbo 跑测试（**turbo.json 中 test 依赖 build，会先构建**） |
+| `pnpm test` | Turbo 跑测试（**turbo.json 中 test 依赖 build，会先构建**；不带覆盖率） |
+| `pnpm test:cov` | Turbo 跑各包覆盖率门禁（全局 ≥80%，CI 与 pre-push 使用） |
+| `pnpm test:audit` | 测试巡检：零断言 / 纯委托 / `.only` / `.skip` |
 | `pnpm typecheck` | Turbo 跑 typecheck（依赖 `^build`，先构建依赖包） |
 | `pnpm typegen` | 从后端 Swagger spec 重新生成共享契约类型（先 `gen:openapi` 出 spec，再 openapi-typescript） |
 | `pnpm format` | 根目录 prettier 全量格式化 |
@@ -34,13 +36,14 @@ pnpm + Turborepo monorepo（`pnpm-workspace.yaml` 声明 `apps/*` 和 `packages/
 按包执行：
 
 ```bash
-pnpm --filter @lucy/backend test                              # 后端全部单测
-pnpm --filter @lucy/backend test src/app.controller.spec.ts   # 单个测试文件
+pnpm --filter @lucy/backend test                              # 后端全部单测（test/unit）
+pnpm --filter @lucy/backend test test/unit/auth/auth.service.spec.ts   # 单个测试文件
 pnpm --filter @lucy/backend test:cov                          # 覆盖率（CI 用）
-pnpm --filter @lucy/backend test:e2e                          # 后端 e2e（test/ 目录）
-pnpm --filter @lucy/frontend test                             # 前端全部单测
-pnpm --filter @lucy/frontend test src/stores/auth.test.ts     # 单个测试文件
-pnpm --filter @lucy/frontend test:e2e                         # 前端 e2e 冒烟（Playwright；首次需先装浏览器）
+pnpm --filter @lucy/backend test:e2e                          # 后端 e2e（test/e2e）
+pnpm --filter @lucy/frontend test                             # 前端全部单测（test/unit）
+pnpm --filter @lucy/frontend test test/unit/stores/auth.test.ts     # 单个测试文件
+pnpm --filter @lucy/frontend test:e2e                         # 前端 e2e 冒烟（test/e2e；首次需先装浏览器）
+pnpm --filter @lucy/desktop test:cov                          # 桌面端主进程测试
 pnpm --filter @lucy/desktop dev                               # Electron 开发（main/preload 热重启 + renderer HMR）
 pnpm --filter @lucy/desktop build                             # 构建 out/{main,preload,renderer}
 pnpm --filter @lucy/desktop preview                           # 用构建产物启动（需后端已在 3000，或设 LUCY_BACKEND_URL）
@@ -54,7 +57,7 @@ pnpm --filter @lucy/backend db:migrate / db:revert / db:show  # 数据库迁移
 
 ## 关键约定与注意事项
 
-- **提交规范**：Conventional Commits。husky `pre-commit` 先跑 `pnpm typegen` 重新生成共享契约类型，再 `git add packages/shared/src/generated/openapi.ts`，随后 `lint-staged` + `pnpm typecheck` + `pnpm test`；`commit-msg` 跑 commitlint（header ≤120、subject ≤100、type 小写）。提交前务必保证测试通过，否则 commit 会失败。
+- **提交规范**：Conventional Commits。husky `pre-commit` 先跑 `pnpm typegen` 重新生成共享契约类型，再 `git add packages/shared/src/generated/openapi.ts`，随后 `lint-staged` + `pnpm typecheck` + `pnpm test`；`commit-msg` 跑 commitlint（header ≤120、subject ≤100、type 小写）。推送前的 `pre-push` 会跑 `pnpm typecheck && pnpm test:cov && node scripts/audit-tests.mjs --fail`，本地门禁与 CI 对齐（需要 Redis/Postgres，见 `docker compose up -d`）。
 - **ESM**：所有工作区包 `"type": "module"`（根 `package.json` 未声明，`commitlint.config.js` 是 CJS）。后端 tsconfig 用 `module/moduleResolution: nodenext`，相对导入必须带 `.js` 后缀，`__dirname`/`__filename` 不存在，用 `import.meta.url` 派生（如 `src/db/data-source.ts`）。
 - **不要改动生成文件**：`dist/`、`.turbo/`、前端 `src/routeTree.gen.ts`（TanStack Router 插件生成，已提交但勿手改）、`.tanstack/`、`packages/shared/src/generated/openapi.ts`（openapi-typescript 从后端 Swagger 生成，已提交但勿手改；改后端 DTO/实体后跑 `pnpm typegen` 重新生成）。
 - **shared 是纯 ESM 包**：`exports.types` 指向 `src/index.ts`（类型直接读源码）、`exports.import` 指向 `dist/index.js`。backend（nodenext）与 frontend（bundler）**类型校验直接读源码，改动源码后 typecheck 无需先构建**；但消费方**构建/运行**（backend build、frontend build/test）仍须先 `pnpm --filter @lucy/shared build`（`import` 走 `dist`）。
@@ -165,13 +168,13 @@ gh api repos/<owner>/<repo>/commits/<head>/status                  # skill-revie
 
 ### apps/backend（NestJS）
 
-标准模块化结构，入口 `src/main.ts`，端口 `process.env.PORT ?? 3000`。单测与源码同目录（`*.spec.ts`），e2e 在 `test/`（`vitest.e2e.config.ts`）。`AppModule` 装配：`ConfigModule`（全局）、`LoggerModule`（nestjs-pino）、`CommonModule`、TypeORM（`forRootAsync` 读 `DB_*`）、`UsersModule`（内含并 re-export `PasswordModule`）、`RedisModule.forRootAsync`（来自 `@coool/redis-nest`，`useFactory: redisModuleOptions` 读 `REDIS_*`）、`AuthModule`、`AiModule`（依赖 `ModelProviderModule`，按用户配置的模型解析对话客户端；Ollama 仅 tokenizer 计数用）、`FileModule.forRootAsync`（来自 `@coool/file-nest`，读 `FILE_STORAGE`/`UPLOAD_DIR`）、`KnowledgeModule`、`ModelProviderModule`、`HealthModule`。`DocsModule` 由 `main.ts` 挂载（仅非生产环境）。
+标准模块化结构，入口 `src/main.ts`，端口 `process.env.PORT ?? 3000`。测试集中管理：单测在 `test/unit/`（镜像 `src/`），e2e 在 `test/e2e/`，共享夹具/脚手架在 `test/support/`（配置见 `vitest.config.ts` / `vitest.e2e.config.ts`）。`AppModule` 装配：`ConfigModule`（全局）、`LoggerModule`（nestjs-pino）、`CommonModule`、TypeORM（`forRootAsync` 读 `DB_*`）、`UsersModule`（内含并 re-export `PasswordModule`）、`RedisModule.forRootAsync`（来自 `@coool/redis-nest`，`useFactory: redisModuleOptions` 读 `REDIS_*`）、`AuthModule`、`AiModule`（依赖 `ModelProviderModule`，按用户配置的模型解析对话客户端；Ollama 仅 tokenizer 计数用）、`FileModule.forRootAsync`（来自 `@coool/file-nest`，读 `FILE_STORAGE`/`UPLOAD_DIR`）、`KnowledgeModule`、`ModelProviderModule`、`HealthModule`。`DocsModule` 由 `main.ts` 挂载（仅非生产环境）。
 
 - **ESM 约定**：见上文「ESM」。
 - **tsx 仅用于 CLI 脚本**（typeorm 迁移、e2e prepare）；`nest build`/`nest start` 走 tsc，会输出 `design:paramtypes`。esbuild 不输出该元数据，因此**后端单测与 e2e** 经 SWC（`unplugin-swc`）转换；Nest 应用本身不经过 SWC。
 - **Auth**：JWT access（`JWT_EXPIRES_IN`，默认 15m）+ refresh（`REFRESH_TTL_SECONDS`）；`DenylistService` 用 RedisBloom（`BF.ADD`/`BF.EXISTS`）做登出/换发后的令牌撤销，含双布隆过滤器轮换。
 - 公共装饰器：`@Public()`（跳过 JWT 守卫）、`@CurrentUser()`；`AllExceptionsFilter` 统一异常为 `{code,message,data}` 信封；`ApiResponseInterceptor` 包裹成功响应。
-- **Swagger 文档不解析 class-validator**：`@nestjs/swagger` 不读取 `@Min`/`@Max`/`@MinLength`/`@MaxLength`/`@Matches` 等装饰器（CLI 插件未启用），校验边界只在**同时**手写进 `@ApiProperty`/`@ApiPropertyOptional` 的 `minimum`/`maximum`/`minLength`/`maxLength`/`pattern`/`default` 选项时才进 `openapi.json` 与前端契约。分页参数的这组声明收敛在 `common/pagination/dto/` 的基类（`CursorQueryDto`/`PageQueryDto`），各列表 DTO 继承；其余请求 DTO 新增/修改校验时两处必须同步写，否则文档与实现静默漂移。`scripts/gen-openapi.spec.ts` 的「校验边界同步写进 Swagger」用例钉住了分页参数与主要请求体的文档边界，删注解会挂 CI。
+- **Swagger 文档不解析 class-validator**：`@nestjs/swagger` 不读取 `@Min`/`@Max`/`@MinLength`/`@MaxLength`/`@Matches` 等装饰器（CLI 插件未启用），校验边界只在**同时**手写进 `@ApiProperty`/`@ApiPropertyOptional` 的 `minimum`/`maximum`/`minLength`/`maxLength`/`pattern`/`default` 选项时才进 `openapi.json` 与前端契约。分页参数的这组声明收敛在 `common/pagination/dto/` 的基类（`CursorQueryDto`/`PageQueryDto`），各列表 DTO 继承；其余请求 DTO 新增/修改校验时两处必须同步写，否则文档与实现静默漂移。`test/tooling/gen-openapi.spec.ts` 的「校验边界同步写进 Swagger」用例钉住了分页参数与主要请求体的文档边界，删注解会挂 CI。
 
 #### 数据库（PostgreSQL + TypeORM）
 
@@ -200,7 +203,7 @@ gh api repos/<owner>/<repo>/commits/<head>/status                  # skill-revie
   - 基于实体 diff 生成（对**已迁移**的库跑，产出增量）：`pnpm --filter @lucy/backend exec tsx ./node_modules/typeorm/cli.js migration:generate src/db/migrations/Name -d src/db/data-source.ts`
   - 想要「一份描述当前完整结构的初始化迁移」时：删库重建一个空库，把 `DB_NAME` 指向它再按上面的命令生成（`DB_NAME=xxx` 会覆盖 `.env`，因为 dotenv 不覆盖已存在的环境变量）。
   - `migration:generate` 只比对**实体声明得到的信息**：索引方向只能是 ASC（keyset 的降序排序由 Postgres 反向索引扫描满足，不需要 DESC 索引）、列默认值取自实体上的 `default`（如时间列的 `date_trunc('milliseconds', now())` 必须写在实体里）。
-- **e2e 跑在独立测试库上**：库名唯一定义在 `test/e2e-db-config.ts`（`E2E_DB_NAME`，缺省 `lucy_test`；非 `*_test` 后缀直接抛错，因此绕过 `pnpm test:e2e` 直接跑 vitest 也拦得住）。`test:e2e` 会先执行 `test/prepare-e2e-db.ts`：重建测试库 → `runMigrations()` → **验一次 `migrate → revert → migrate` 往返**。库名不能写在各 spec 顶部——ESM 提升会让赋值晚于 `ConfigModule` 读取 `.env` 并快照的时刻（实测会打到开发库）。
+- **e2e 跑在独立测试库上**：连接参数唯一定义在 `test/support/e2e-db-config.ts`（`E2E_DB_*`，缺省 `127.0.0.1:5432` / `lucy_test`；非 `*_test` 后缀、非本机 host 直接抛错，因此绕过 `pnpm test:e2e` 直接跑 vitest 也拦得住）。`test:e2e` 会先执行 `test/support/prepare-e2e-db.ts`：重建测试库 → `runMigrations()` → **验一次 `migrate → revert → migrate` 往返**；`test/support/require-e2e-db.ts` 作为 `setupFiles` 再做一次只读体检，直接跑 vitest 时会明确提示先跑 prepare。库名不能写在各 spec 顶部——ESM 提升会让赋值晚于 `ConfigModule` 读取 `.env` 并快照的时刻（实测会打到开发库）。
 
 #### Redis（Docker + RedisBloom）
 
@@ -220,10 +223,10 @@ Vite + React 19 + TS（strict），Tailwind 4。构建脚本 `tsc -b && vite bui
 
 - **路由**：TanStack Router 文件式路由（`src/routes/`）：`_auth/login|register`；`_layout/{index,chat,integration,knowledge,users}`；`_layout/integration/model-provider`；`_layout/knowledge/$kbId`。`src/routeTree.gen.ts` 由 `@tanstack/router-plugin` 自动生成，勿手改。
 - **状态/请求**：TanStack Store（`src/stores/auth.ts`）+ TanStack Query（`src/queryClient.ts`）；antd 6 + `@ant-design/pro-components` + ahooks。
-- **别名**：只在 `tsconfig.app.json` 定义 `@/*` → `./src/*`，由 Vite 8 内置的 `resolve.tsconfigPaths: true` 解析（没有 `vite-tsconfig-paths` 插件）；`@api`/`@bg`/`@components` 等短别名并不存在，统一用 `@/api/...` 这类路径。
-- **目录**：`src/api`（hook-fetch HTTP 客户端）、`src/auth`（AuthProvider）、`src/backgrounds`（视觉特效）、`src/components`、`src/hooks`、`src/routes`、`src/stores`、`src/test`（fixtures + setup）、`src/theme`、`src/assets`。
-- **测试**：Vitest + jsdom + Testing Library。前端覆盖率门槛 **60%**（`apps/frontend/vitest.config.ts`，排除视觉特效、路由、生成代码等非业务模块）；后端门槛 **80%**（`apps/backend/vitest.config.ts`）。
-- **e2e 冒烟**（`e2e/smoke.spec.ts` + `playwright.config.ts`，CI 里是独立 job `frontend-e2e`）：逐个打开全部路由，断言文档标题 / 页面锚点 / 落地路径，并要求**控制台无 error、无未捕获异常**。全程在浏览器网络层拦掉 `/api/**`（连同 `/v1/**` 一起拦，以免隐式依赖上面那处 NODE_ENV 修正），不依赖后端进程。存在的理由：React Compiler 会把 `useCallback(fn, [])` 这类「不依赖响应式值」的回调提升到模块作用域，一旦它捕获了不该捕获的局部变量就只在运行时炸（`ReferenceError` + 整页白屏），而 tsc / lint / vitest 全都发现不了（前端 vitest 用 `@vitejs/plugin-react`，没有加载 React Compiler preset）。本地首次跑需 `pnpm --filter @lucy/frontend exec playwright install chromium`；webServer 显式绑 `127.0.0.1`——vite 默认绑 IPv6，用 `localhost` 探测会看不到已在跑的 dev server，转而自己再启一个并撞端口。
+- **别名**：`tsconfig.app.json` 定义 `@/*` → `./src/*` 与 `@test/*` → `./test/*`，由 Vite 8 内置的 `resolve.tsconfigPaths: true` 解析（没有 `vite-tsconfig-paths` 插件）；`@api`/`@bg`/`@components` 等短别名并不存在，统一用 `@/api/...` 这类路径。
+- **目录**：`src/api`（hook-fetch HTTP 客户端）、`src/auth`（AuthProvider）、`src/backgrounds`（视觉特效）、`src/components`、`src/hooks`、`src/routes`、`src/stores`、`src/theme`、`src/assets`；测试集中到 `test/unit/`（镜像 `src/`）、`test/e2e/`、`test/support/`（fixtures + setup）。
+- **测试**：Vitest + jsdom + Testing Library。覆盖率门禁 **全局 80%**（与 Sonar new_coverage 对齐），`src/api` / `src/hooks` / `src/stores` / `src/components` / `src/routes` 另有更高分域阈值（`apps/frontend/vitest.config.ts`）；后端全局 80% + 分域阈值（`apps/backend/vitest.config.ts`）。CI 用 `test:cov`，本地推送前由 `.husky/pre-push` 跑同一套门禁。
+- **e2e 冒烟**（`test/e2e/smoke.spec.ts` + `playwright.config.ts`，CI 里是独立 job `frontend-e2e`）：逐个打开全部路由，断言文档标题 / 页面锚点 / 落地路径，并要求**控制台无 error、无未捕获异常**。全程在浏览器网络层拦掉 `/api/**`（连同 `/v1/**` 一起拦，以免隐式依赖上面那处 NODE_ENV 修正），不依赖后端进程。存在的理由：React Compiler 会把 `useCallback(fn, [])` 这类「不依赖响应式值」的回调提升到模块作用域，一旦它捕获了不该捕获的局部变量就只在运行时炸（`ReferenceError` + 整页白屏），而 tsc / lint / vitest 全都发现不了（前端 vitest 用 `@vitejs/plugin-react`，没有加载 React Compiler preset）。本地首次跑需 `pnpm --filter @lucy/frontend exec playwright install chromium`；webServer 显式绑 `127.0.0.1`——vite 默认绑 IPv6，用 `localhost` 探测会看不到已在跑的 dev server，转而自己再启一个并撞端口。
 
 ### apps/desktop（Electron）
 
@@ -234,6 +237,7 @@ electron-vite v6 三段构建：`main`/`preload` 在 `apps/desktop/src`，`rende
 - **dev 端口**：Electron renderer 固定 5174（严格端口），与浏览器端 5173 错开，`pnpm dev:all` 可同时跑。
 - **dev 生命周期**：`pnpm dev` / `dev:desktop` / `dev:all` 由 `scripts/dev.mjs` 编排——后端探测 `/health/ready` 通过后才启动 Electron（`--all` 时同时启动浏览器端）；Electron 窗口关闭（electron-vite 随 Electron 退出）或任一服务异常退出时，按进程树停止全部服务，避免后端与 `nest start --watch` 孙进程残留。就绪等待默认 120s，可用 `DEV_READY_TIMEOUT_MS` 调整；DB/Redis 未就绪时后端返回 degraded，脚本只告警不阻塞。
 - **安全基线**（`src/main/security.ts` + `webPreferences`）：`sandbox`/`contextIsolation` 开，`nodeIntegration`（含 worker/subframe）关，`webSecurity` 开，`allowRunningInsecureContent`/`experimentalFeatures`/`webviewTag` 关；同时下发 CSP（prod 严格，dev 放行 Vite HMR 与内联脚本；`img-src` 额外放行 Unsplash 背景图）、默认拒绝所有权限请求（仅放行 `clipboard-sanitized-write`，供表格 copyable）、`will-navigate` 只允许同 origin、新窗口一律 deny 且仅把 http(s) 外链交给系统浏览器、禁止 `<webview>`。新增远程资源/外部能力时同步更新 `security.ts` 的 CSP 与权限白名单。
+- **测试**（`apps/desktop/test/`）：Vitest + node 环境，覆盖 `src/main/server.ts`（静态服务、SPA fallback、路径越界、`/api` 反代与 502）与 `src/main/security.ts`（CSP、权限白名单、外链/导航加固）；覆盖率门槛 80%。`src/main/index.ts` / `src/preload/index.ts` 是 Electron 启动壳，测试中显式排除。
 - **打包分发**（electron-builder 26，配置 `electron-builder.yml`）：`run pack` 产出未压缩目录 `release/win-unpacked`，`run dist:win` 产出 NSIS 安装包 `release/Lucy-<version>-x64-setup.exe`（非一键安装、允许改安装目录）。只打包 `out/**` + `package.json`：renderer 已全量打包并压缩（`minify: true`）、main/preload 已打成 CJS，生产依赖为空，因此不收集 `node_modules`（`npmRebuild: false`）。`publish: null` 防止误上传；`compression: maximum`。应用图标为 `apps/desktop/build-resources/icon.png`（由 `apps/frontend/public/favicon.svg` 经 Playwright 渲染为 512x512）。注意 `pnpm ... pack` 会命中 pnpm 内置命令，必须写成 `pnpm ... run pack`。代码签名未配置，Windows 会提示未知发布者；需要签名时设置 `CSC_LINK`/`CSC_KEY_PASSWORD`（macOS）或 `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD`（Windows）后重跑即可。
 - **安装包不含后端**：NestJS/Postgres/Redis 仍需独立运行，桌面端启动后访问 `http://localhost:3000`（或设置 `LUCY_BACKEND_URL`），否则 API 请求返回 502。
 

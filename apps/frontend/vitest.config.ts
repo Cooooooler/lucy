@@ -1,10 +1,14 @@
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+
+const testDir = fileURLToPath(new URL('./test', import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     tsconfigPaths: true,
+    alias: { '@test': testDir },
   },
   test: {
     // React 19 的 act() 仅在 development 构建导出；外部 NODE_ENV=production 时 react
@@ -20,8 +24,10 @@ export default defineConfig({
         url: 'http://localhost/',
       },
     },
-    setupFiles: ['./src/test/setup.ts'],
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    // 禁用 it.only：否则一次误提交会让 CI 只跑被聚焦的用例仍然全绿
+    allowOnly: false,
+    setupFiles: ['./test/support/setup.ts'],
+    include: ['test/unit/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'lcov'],
@@ -42,17 +48,49 @@ export default defineConfig({
         'src/components/ui/**',
         'src/components/bits/**',
         'src/backgrounds/**',
-        'src/test/**',
         // 纯类型文件（仅类型声明，无运行时逻辑）
         'src/api/types.ts',
         'src/**/*.{test,spec}.{ts,tsx}',
         '**/*.d.ts',
       ],
+      // 全局 80 是合并门禁下限（与 Sonar new_coverage 对齐）；核心域再单独抬高。
       thresholds: {
-        lines: 60,
-        functions: 60,
-        branches: 60,
-        statements: 60,
+        lines: 80,
+        functions: 80,
+        branches: 80,
+        statements: 80,
+        'src/api/**': {
+          lines: 90,
+          functions: 90,
+          branches: 80,
+          statements: 90,
+        },
+        'src/hooks/**': {
+          lines: 95,
+          functions: 90,
+          branches: 80,
+          statements: 95,
+        },
+        'src/stores/**': {
+          lines: 95,
+          functions: 85,
+          branches: 95,
+          statements: 95,
+        },
+        // 组件层此前只受 60% 全局地板约束，删掉整组组件测试仍可能全绿；补独立域门槛
+        'src/components/**': {
+          lines: 90,
+          functions: 85,
+          branches: 85,
+          statements: 90,
+        },
+        // 路由壳（纯布局/重导出）已在 exclude 里；这里要求真实路由逻辑同样有底线
+        'src/routes/**': {
+          lines: 80,
+          functions: 70,
+          branches: 65,
+          statements: 80,
+        },
       },
     },
   },

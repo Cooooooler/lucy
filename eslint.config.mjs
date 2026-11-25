@@ -28,6 +28,10 @@ export default defineConfig([
     files: ['scripts/**/*.{js,mjs,cjs}', '*.{js,mjs,cjs}'],
     languageOptions: {
       globals: { ...globals.node },
+      // lint-staged 会把多个包的 TS 文件与根脚本放进同一次 eslint 调用；ESLint 10 的
+      // 配置查找会把包级 parserOptions.projectService 带进上下文，缺少 root 时会以
+      // 「multiple candidate TSConfigRootDirs」直接报解析错误。显式钉到仓库根即可。
+      parserOptions: { tsconfigRootDir: import.meta.dirname },
     },
     rules: {
       // clean.mjs 等脚本用空 catch 块表达"忽略错误"，属有意为之

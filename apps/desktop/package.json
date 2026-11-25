@@ -14,15 +14,20 @@
     "lint:ci": "eslint . --max-warnings 0",
     "pack": "electron-vite build && electron-builder --dir",
     "preview": "electron-vite preview",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
     "@lucy/shared": "workspace:*",
     "@rolldown/plugin-babel": "^0.2.4",
+    "@vitest/coverage-v8": "4.1.10",
     "babel-plugin-react-compiler": "^1.0.0",
     "electron": "^45.4.1",
     "electron-builder": "^26.18.0",
     "electron-vite": "^6.0.0",
-    "vite": "8.2.0"
+    "vite": "8.2.0",
+    "vitest": "4.1.10"
   }
 }
