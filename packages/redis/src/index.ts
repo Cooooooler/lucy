@@ -1,8 +1,10 @@
 /**
- * @coool/redis-nest 公共入口。
+ * `@coool/redis-nest` 公共入口。
  * 连接管理：`RedisModule.forRoot/forRootAsync` 注册全局连接，`RedisService` 提供 CRUD 门面，
  * `RedisException` 统一异常，`REDIS_CLIENT` 为底层 client 的 DI token。
  * 详情见 README。
+ *
+ * @packageDocumentation
  */
 export { createClient } from './client.factory.js';
 export { hashTag } from './hash-tag.js';
@@ -12,6 +14,7 @@ export {
   normalizeOptions,
 } from './options.js';
 export type {
+  NormalizedRedisOptions,
   RedisClient,
   RedisClusterOptions,
   RedisConnectionOptions,
@@ -34,4 +37,5 @@ export { RedisService } from './redis.service.js';
 export { defaultJsonSerializer, isIsoDateString } from './serializer.js';
 export type { RedisSerializer } from './serializer.js';
 
+/** 包版本号 */
 export const REDIS_NEST_VERSION = '0.1.0';

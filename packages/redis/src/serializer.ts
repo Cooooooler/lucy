@@ -1,13 +1,20 @@
 /** 可替换的序列化器：setJson/getJson 走 serialize/deserialize */
 export interface RedisSerializer {
+  /** 序列化为字符串；不可序列化的值应抛错 */
   serialize(value: unknown): string;
+  /** 从字符串还原 */
   deserialize(text: string): unknown;
 }
 
 const ISO_DATE_RE =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
 
-/** 判断字符串是否为严格 ISO-8601 日期格式（反序列化时据此还原 Date） */
+/**
+ * 判断字符串是否为严格 ISO-8601 日期格式（反序列化时据此还原 Date）。
+ *
+ * @param value 待判断的字符串
+ * @returns 形如 `2026-01-01T00:00:00.000Z` 时为 true
+ */
 export function isIsoDateString(value: string): boolean {
   return ISO_DATE_RE.test(value);
 }

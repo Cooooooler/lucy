@@ -52,8 +52,11 @@ export class SomeService {
 ## 本地文档预览
 
 ```bash
-pnpm --filter @coool/redis-nest docs:dev   # http://localhost:5173
+pnpm --filter @coool/redis-nest docs:api   # TypeDoc 生成 API 参考（docs/api）
+pnpm --filter @coool/redis-nest docs:dev   # http://localhost:5173（会自动先跑 docs:api）
 ```
+
+API 参考由 TypeDoc 从 `src/index.ts` 的公开导出生成，改注释/签名后重新生成即可。
 
 ## License
 

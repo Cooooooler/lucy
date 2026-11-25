@@ -24,22 +24,32 @@ export class RedisService {
     return this.client;
   }
 
-  /** 获取底层 ioredis pipeline：可链式追加命令，最后 exec() 批量执行（key 不自动加前缀） */
+  /**
+   * 创建底层 ioredis pipeline：可链式追加命令，最后 `exec()` 批量执行。
+   *
+   * @returns ioredis pipeline 实例；其中的 key **不会**自动加命名空间前缀
+   */
   pipeline(): ReturnType<Redis['pipeline']> {
     return this.client.pipeline();
   }
 
-  /** 有 namespace 时给 key 加固定前缀 */
-  private prefixed(key: string): string {
-    return this.namespace ? `${this.namespace}:${key}` : key;
-  }
-
-  /** 取原始字符串值；key 不存在返回 null */
+  /**
+   * 取原始字符串值。
+   *
+   * @param key 缓存键（有 namespace 时自动加前缀）
+   * @returns 字符串值；key 不存在时为 `null`
+   */
   async get(key: string): Promise<string | null> {
     return this.wrap(() => this.client.get(this.prefixed(key)));
   }
 
-  /** 写入字符串；传 ttlSeconds 时附加 EX 过期时间 */
+  /**
+   * 写入字符串。
+   *
+   * @param key 缓存键（自动加前缀）
+   * @param value 字符串值
+   * @param ttlSeconds 过期时间（秒）；省略表示不过期
+   */
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
     const k = this.prefixed(key);
     await this.wrap(async () => {
@@ -51,36 +61,69 @@ export class RedisService {
     });
   }
 
-  /** 删除若干 key，返回实际删除的数量 */
+  /**
+   * 删除若干 key。
+   *
+   * @param keys 要删除的 key（逐个自动加前缀）
+   * @returns 实际删除的数量
+   */
   async del(...keys: string[]): Promise<number> {
     return this.wrap(() =>
       this.client.del(...keys.map((k) => this.prefixed(k))),
     );
   }
 
-  /** 判断 key 是否存在 */
+  /**
+   * 判断 key 是否存在。
+   *
+   * @param key 缓存键（自动加前缀）
+   * @returns 存在为 `true`
+   */
   async exists(key: string): Promise<boolean> {
     return this.wrap(
       async () => (await this.client.exists(this.prefixed(key))) === 1,
     );
   }
 
-  /** 向集合添加若干成员，返回实际新增的数量 */
+  /**
+   * 向集合添加若干成员。
+   *
+   * @param key 集合键（自动加前缀）
+   * @param members 要添加的成员
+   * @returns 实际新增的数量（已存在的成员不计入）
+   */
   async sadd(key: string, ...members: string[]): Promise<number> {
     return this.wrap(() => this.client.sadd(this.prefixed(key), ...members));
   }
 
-  /** 从集合移除若干成员，返回实际移除的数量 */
+  /**
+   * 从集合移除若干成员。
+   *
+   * @param key 集合键（自动加前缀）
+   * @param members 要移除的成员
+   * @returns 实际移除的数量
+   */
   async srem(key: string, ...members: string[]): Promise<number> {
     return this.wrap(() => this.client.srem(this.prefixed(key), ...members));
   }
 
-  /** 返回集合的全部成员 */
+  /**
+   * 返回集合的全部成员。
+   *
+   * @param key 集合键（自动加前缀）
+   * @returns 成员列表（空集合返回空数组）
+   */
   async smembers(key: string): Promise<string[]> {
     return this.wrap(() => this.client.smembers(this.prefixed(key)));
   }
 
-  /** 判断成员是否属于集合 */
+  /**
+   * 判断成员是否属于集合。
+   *
+   * @param key 集合键（自动加前缀）
+   * @param member 成员
+   * @returns 属于集合为 `true`
+   */
   async sismember(key: string, member: string): Promise<boolean> {
     return this.wrap(
       async () =>
@@ -88,7 +131,13 @@ export class RedisService {
     );
   }
 
-  /** 设置 key 的过期时间（秒）；key 不存在时返回 false */
+  /**
+   * 设置 key 的过期时间。
+   *
+   * @param key 缓存键（自动加前缀）
+   * @param ttlSeconds 过期时间（秒）
+   * @returns key 不存在时返回 `false`
+   */
   async expire(key: string, ttlSeconds: number): Promise<boolean> {
     return this.wrap(
       async () =>
@@ -96,7 +145,13 @@ export class RedisService {
     );
   }
 
-  /** 序列化写入：value 经 serializer 转字符串（Date 自动处理）；传 ttlSeconds 时附加 EX 过期 */
+  /**
+   * 序列化写入：value 经 serializer 转为字符串（Date 自动处理）。
+   *
+   * @param key 缓存键（自动加前缀）
+   * @param value 任意可序列化的值
+   * @param ttlSeconds 过期时间（秒）；省略表示不过期
+   */
   async setJson(
     key: string,
     value: unknown,
@@ -113,11 +168,22 @@ export class RedisService {
     });
   }
 
-  /** 序列化读取：文本经 serializer 还原；key 不存在返回 null；反序列化错误包装为 RedisException */
+  /**
+   * 序列化读取：文本经 serializer 还原。
+   *
+   * @typeParam T 期望的反序列化类型
+   * @param key 缓存键（自动加前缀）
+   * @returns 反序列化后的值；key 不存在时为 `null`；反序列化失败包装为 {@link RedisException}
+   */
   async getJson<T = unknown>(key: string): Promise<T | null> {
     const text = await this.get(key);
     if (text === null) return null;
     return this.wrap(async () => this.serializer.deserialize(text) as T);
+  }
+
+  /** 有 namespace 时给 key 加固定前缀 */
+  private prefixed(key: string): string {
+    return this.namespace ? `${this.namespace}:${key}` : key;
   }
 
   /** 执行命令并把 ioredis 错误统一包装为 RedisException */

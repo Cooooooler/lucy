@@ -2,8 +2,12 @@ import type { KnowledgeBase } from '@/api/types.ts';
 import { VirtualCardGrid } from '@/components/card-list/VirtualCardGrid.tsx';
 import { makeKb } from '@/components/knowledge/knowledge-test-fixture.ts';
 import { useInfiniteKnowledgeBaseList } from '@/hooks/use-knowledge';
-import { useKnowledgeViewState } from '@/hooks/use-knowledge-view-state';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import {
+  clearAllScrollOffsets,
+  clearPageStateCaches,
+  writeScrollOffset,
+} from '@coool/react-view-state';
+import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
 import type { FC, ReactNode } from 'react';
@@ -110,13 +114,8 @@ vi.mock('@/components/card-list/VirtualCardGrid.tsx', async () => {
   };
 });
 
-vi.mock('@/hooks/use-knowledge-view-state', () => ({
-  useKnowledgeViewState: vi.fn(),
-}));
-
 const mockedList = vi.mocked(useInfiniteKnowledgeBaseList);
 const mockedGrid = vi.mocked(VirtualCardGrid);
-const mockedViewState = vi.mocked(useKnowledgeViewState);
 
 function noopQuery() {
   return {
@@ -138,22 +137,6 @@ function mockItems(items: KnowledgeBase[]) {
     ...noopQuery(),
     data: { pages: [{ list: items, nextCursor: null }], pageParams: [null] },
   } as unknown as ReturnType<typeof useInfiniteKnowledgeBaseList>);
-}
-
-/** 控制 store 的冻结值，返回写回 spy 以便断言 */
-function mockViewState(
-  initialFilter: { name?: string; visibility?: 'private' | 'public' } = {},
-  initialRestoreIndex = 0,
-) {
-  const saveFilter = vi.fn();
-  const saveFirstVisibleIndex = vi.fn();
-  mockedViewState.mockReturnValue({
-    initialFilter,
-    initialRestoreIndex,
-    saveFilter,
-    saveFirstVisibleIndex,
-  });
-  return { saveFilter, saveFirstVisibleIndex };
 }
 
 function renderRoute() {
@@ -186,32 +169,27 @@ async function submitSearch(value: string) {
 describe('routes/_layout/knowledge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 筛选条件现在由 <PageStateCache> 会话内缓存，滚动位置由 useScrollMemory 模块级缓存：
+    // 两者都会跨用例残留，必须复位
+    clearPageStateCaches();
+    clearAllScrollOffsets();
     mockedList.mockReturnValue(noopQuery());
     for (const mutation of Object.values(mutationMocks)) {
       mutation.isPending = false;
       mutation.variables = undefined;
     }
-    // vi.clearAllMocks 只清调用历史，不清实现；补默认值避免上个用例的 mockReturnValue 残留
-    mockViewState();
   });
 
-  it('用 store 中冻结的筛选与恢复索引初始化（返回恢复的入口）', () => {
-    const { saveFirstVisibleIndex } = mockViewState(
-      { name: '产品', visibility: 'private' },
-      7,
-    );
-
+  it('默认以空筛选初始化', () => {
     renderRoute();
 
     expect(mockedList).toHaveBeenLastCalledWith({
-      name: '产品',
-      visibility: 'private',
+      name: undefined,
+      visibility: undefined,
     });
-    expect(screen.getByPlaceholderText('按名称搜索知识库')).toHaveValue('产品');
+    expect(screen.getByPlaceholderText('按名称搜索知识库')).toHaveValue('');
     expect(lastGridProps()).toMatchObject({
-      initialRestoreIndex: 7,
-      onFirstVisibleItemChange: saveFirstVisibleIndex,
-      hasFilter: true,
+      hasFilter: false,
       emptyLabel: { filtered: '没有匹配的知识库', initial: '暂无知识库' },
     });
   });
@@ -225,6 +203,14 @@ describe('routes/_layout/knowledge', () => {
     renderRoute();
 
     expect(lastGridProps().isPlaceholderData).toBe(true);
+  });
+
+  it('把会话内记住的滚动位置交给网格恢复', () => {
+    writeScrollOffset('knowledge-list', 480);
+
+    renderRoute();
+
+    expect(lastGridProps().scrollMemory).toMatchObject({ restoreOffset: 480 });
   });
 
   it('点击「新增知识库」打开单例表单抽屉', async () => {
@@ -376,42 +362,78 @@ describe('routes/_layout/knowledge', () => {
     expect(screen.getByRole('button', { name: '点赞' })).toBeEnabled();
   });
 
-  it('改变筛选时把新筛选写回 store', async () => {
-    const { saveFilter } = mockViewState();
+  it('改变筛选时按新条件查询', async () => {
     renderRoute();
 
     await submitSearch('产品');
-    expect(saveFilter).toHaveBeenCalledWith({ name: '产品' });
+    await waitFor(() =>
+      expect(mockedList.mock.calls.at(-1)?.[0]).toEqual({
+        name: '产品',
+        visibility: undefined,
+      }),
+    );
 
     await userEvent.click(screen.getByText('公开'));
-    expect(saveFilter).toHaveBeenCalledWith({ visibility: 'public' });
+    await waitFor(() =>
+      expect(mockedList.mock.calls.at(-1)?.[0]).toEqual({
+        name: '产品',
+        visibility: 'public',
+      }),
+    );
   });
 
-  it('清空筛选时写回 undefined（空关键词 / 全部）', async () => {
-    const { saveFilter } = mockViewState({ name: '产品' });
+  it('重新进入页面时恢复上次的筛选（关键词 + 可见性）', async () => {
+    const first = renderRoute();
+
+    await submitSearch('产品');
+    await userEvent.click(screen.getByText('公开'));
+    await waitFor(() =>
+      expect(mockedList.mock.calls.at(-1)?.[0]).toEqual({
+        name: '产品',
+        visibility: 'public',
+      }),
+    );
+    first.unmount();
+
     renderRoute();
+
+    expect(mockedList).toHaveBeenLastCalledWith({
+      name: '产品',
+      visibility: 'public',
+    });
+    expect(screen.getByPlaceholderText('按名称搜索知识库')).toHaveValue('产品');
+  });
+
+  it('清空关键词时按空条件重新查询', async () => {
+    renderRoute();
+
+    await submitSearch('产品');
+    await waitFor(() =>
+      expect(mockedList.mock.calls.at(-1)?.[0]).toEqual({
+        name: '产品',
+        visibility: undefined,
+      }),
+    );
 
     const input = screen.getByPlaceholderText('按名称搜索知识库');
     await userEvent.clear(input);
     await userEvent.keyboard('{Enter}');
-    expect(saveFilter).toHaveBeenCalledWith({ name: undefined });
-
-    await userEvent.click(screen.getByText('公开'));
-    await userEvent.click(screen.getByText('全部'));
-    expect(saveFilter).toHaveBeenLastCalledWith({ visibility: undefined });
+    await waitFor(() =>
+      expect(mockedList.mock.calls.at(-1)?.[0]).toEqual({
+        name: undefined,
+        visibility: undefined,
+      }),
+    );
   });
 
-  it('点击刷新：走刷新 hook 重新加载，并回到顶部、作废恢复锚点', async () => {
-    mockViewState({}, 7);
+  it('点击刷新：走刷新 hook 重新加载并回到顶部', async () => {
     const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
     try {
       renderRoute();
-      expect(lastGridProps().initialRestoreIndex).toBe(7);
 
       await userEvent.click(screen.getByRole('button', { name: '刷新' }));
 
       await waitFor(() => expect(refreshList).toHaveBeenCalledTimes(1));
-      expect(lastGridProps().initialRestoreIndex).toBe(0);
       expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
     } finally {
       scrollTo.mockRestore();
@@ -419,7 +441,6 @@ describe('routes/_layout/knowledge', () => {
   });
 
   it('挂载不归零，改筛选才回到列表顶部', async () => {
-    mockViewState();
     const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
     try {
       renderRoute();
@@ -433,46 +454,8 @@ describe('routes/_layout/knowledge', () => {
     }
   });
 
-  it('恢复完成后消费掉锚点：网格卸载重挂不再回放旧位置', async () => {
-    mockViewState({}, 7);
-    renderRoute();
-    expect(lastGridProps().initialRestoreIndex).toBe(7);
-
-    const onRestoreDone = lastGridProps().onRestoreDone as () => void;
-    act(() => onRestoreDone());
-    await waitFor(() => expect(lastGridProps().initialRestoreIndex).toBe(0));
-
-    // 改筛选 → 锚点已是 0，不会覆盖回顶
-    await userEvent.click(screen.getByText('公开'));
-    expect(lastGridProps().initialRestoreIndex).toBe(0);
-  });
-
-  it('改筛选即作废锚点：网格从未挂载（骨架/空态）时旧锚点不会被回放到新列表', async () => {
-    mockViewState({}, 7);
-    renderRoute();
-    expect(lastGridProps().initialRestoreIndex).toBe(7);
-
-    // 网格一直没挂载 → onRestoreDone 从未回调 → 锚点仍是 7；
-    // 此时改筛选必须直接作废它，否则新条件的数据回来后会被恢复到旧位置
-    await userEvent.click(screen.getByText('公开'));
-
-    expect(lastGridProps().initialRestoreIndex).toBe(0);
-  });
-
-  it('清空搜索同样作废锚点', async () => {
-    mockViewState({ name: '产品' }, 5);
-    renderRoute();
-
-    const input = screen.getByPlaceholderText('按名称搜索知识库');
-    await userEvent.clear(input);
-    await userEvent.keyboard('{Enter}');
-
-    expect(lastGridProps().initialRestoreIndex).toBe(0);
-  });
-
   it('renderItem 在筛选条件变化（重渲染）后仍能用最新回调打开抽屉', async () => {
     mockItems([makeKb('kb1', '产品文档')]);
-    mockViewState();
     renderRoute();
 
     // 触发一次重渲染（切换可见性筛选），确认 renderItem 换新引用后卡片依然可用

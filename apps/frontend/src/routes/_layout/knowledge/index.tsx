@@ -11,7 +11,7 @@ import {
   type VisibilityFilter,
 } from '@/components/knowledge/KnowledgeToolbar.tsx';
 import { PageShell } from '@/components/page-shell';
-import { useKnowledgeViewState } from '@/hooks/use-knowledge-view-state.ts';
+import { pendingIdOf } from '@/hooks/pending-id.ts';
 import {
   useDeleteKnowledgeBase,
   useInfiniteKnowledgeBaseList,
@@ -22,9 +22,10 @@ import {
   type KnowledgeListFilter,
 } from '@/hooks/use-knowledge.ts';
 import {
-  pendingIdOf,
-  useListPageChrome,
-} from '@/hooks/use-list-page-chrome.ts';
+  PageStateCache,
+  usePageState,
+  useScrollMemory,
+} from '@coool/react-view-state';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { App } from 'antd';
 import { useCallback, useMemo, useState } from 'react';
@@ -43,30 +44,24 @@ const EMPTY_LABEL: CardGridEmptyLabel = {
 
 const KnowledgeComponent = () => {
   const { message, modal } = App.useApp();
-  const {
-    initialFilter,
-    initialRestoreIndex,
-    saveFilter,
-    saveFirstVisibleIndex,
-  } = useKnowledgeViewState();
 
-  // 恢复锚点、滚动容器、以及「回顶 + 作废锚点 + 写回 store」三件套都由公共件持有
-  const {
-    restoreIndex,
-    consumeRestore,
+  // 筛选条件与滚动位置都按「再次进入要恢复」的页面状态处理：
+  // 筛选由 <PageStateCache> 承载，滚动偏移由 useScrollMemory 记住；
+  // 虚拟网格还要对齐自身内部 offset，因此恢复交给它（restoreMode: 'delegate'）。
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const scrollMemory = useScrollMemory({
+    cacheKey: 'knowledge-list',
     scrollElement,
-    setScrollElement,
-    resetToTop,
-    onFilterChange,
-  } = useListPageChrome<KnowledgeListFilter>({
-    initialRestoreIndex,
-    saveFilter,
+    restoreMode: 'delegate',
   });
+  const resetToTop = scrollMemory.resetToTop;
 
-  // 初值来自会话 store：SPA 返回时自动还原上次筛选
-  const [committedName, setCommittedName] = useState(initialFilter.name ?? '');
-  const [visibility, setVisibility] = useState<VisibilityFilter>(
-    initialFilter.visibility ?? 'all',
+  const [committedName, setCommittedName] = usePageState('name', '');
+  const [visibility, setVisibility] = usePageState<VisibilityFilter>(
+    'visibility',
+    'all',
   );
   /** 单例表单抽屉的目标：create / edit(kb) / 关闭(null) */
   const [formTarget, setFormTarget] = useState<
@@ -187,20 +182,20 @@ const KnowledgeComponent = () => {
   const handleSearch = useCallback(
     (value: string) => {
       setCommittedName(value);
-      onFilterChange({ name: value || undefined });
+      resetToTop();
     },
-    [onFilterChange],
+    [resetToTop, setCommittedName],
   );
 
   const handleVisibilityChange = useCallback(
     (value: VisibilityFilter) => {
       setVisibility(value);
-      onFilterChange({ visibility: value === 'all' ? undefined : value });
+      resetToTop();
     },
-    [onFilterChange],
+    [resetToTop, setVisibility],
   );
 
-  /** 刷新：丢弃所有筛选的列表缓存并让当前筛选从第一页重新加载 */
+  /** 刷新：重新加载当前筛选，并回到列表顶部 */
   const handleRefresh = useCallback(() => {
     resetToTop();
     void refreshList();
@@ -248,7 +243,7 @@ const KnowledgeComponent = () => {
         onVisibilityChange={handleVisibilityChange}
         onSearch={handleSearch}
         onRefresh={handleRefresh}
-        defaultKeyword={initialFilter.name ?? ''}
+        defaultKeyword={committedName}
         onCreate={handleCreate}
       />
       {/* 滚动交给 PageShell 自身：滚动条贴限宽容器右缘，而不是被内边距推离 */}
@@ -268,9 +263,7 @@ const KnowledgeComponent = () => {
           hasFilter={Boolean(filter.name || filter.visibility)}
           emptyLabel={EMPTY_LABEL}
           renderItem={renderItem}
-          initialRestoreIndex={restoreIndex}
-          onRestoreDone={consumeRestore}
-          onFirstVisibleItemChange={saveFirstVisibleIndex}
+          scrollMemory={scrollMemory}
         />
         <KnowledgeFormDrawer
           open={!!formTarget}
@@ -283,6 +276,13 @@ const KnowledgeComponent = () => {
   );
 };
 
+/** 缓存作用域只包页面本体：表单抽屉等临时状态不经过 usePageState，因此不会被恢复 */
+const KnowledgeRoute = () => (
+  <PageStateCache cacheKey="knowledge-list">
+    <KnowledgeComponent />
+  </PageStateCache>
+);
+
 export const Route = createFileRoute('/_layout/knowledge/')({
-  component: KnowledgeComponent,
+  component: KnowledgeRoute,
 });

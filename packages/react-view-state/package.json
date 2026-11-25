@@ -1,0 +1,59 @@
+{
+  "name": "@coool/react-view-state",
+  "version": "0.1.0",
+  "description": "React view state helpers: page-scoped state cache and scroll position memory",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./src/index.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./src/index.ts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --clean --dts --tsconfig tsconfig.build.json",
+    "dev": "tsup src/index.ts --format esm,cjs --clean --dts --watch --tsconfig tsconfig.build.json",
+    "docs:api": "typedoc",
+    "docs:build": "pnpm run docs:api && vitepress build docs",
+    "docs:dev": "pnpm run docs:api && vitepress dev docs",
+    "lint": "eslint \"src/**/*.{ts,tsx}\" --fix",
+    "lint:ci": "eslint \"src/**/*.{ts,tsx}\" --max-warnings 0",
+    "prepublishOnly": "pnpm run build && pnpm run test",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-store": "^0.11.0",
+    "@tanstack/store": "^0.11.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "jsdom": "^30.0.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.14.1",
+    "vitepress": "^1.6.4",
+    "vitest": "4.1.10"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  }
+}

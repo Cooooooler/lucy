@@ -8,10 +8,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   useCallback,
   useEffect,
-  useEffectEvent,
   useLayoutEffect,
   useRef,
-  useState,
   useSyncExternalStore,
 } from 'react';
 
@@ -34,16 +32,13 @@ type UseVirtualGridOptions = {
    * 而失败重试的入口交给页脚按钮，由此处只负责不再自动触发。
    */
   isFetchNextPageError?: boolean;
-  /** 挂载时一次性恢复到的首可见项索引；仅当 0 < index < count 时生效 */
-  initialRestoreIndex?: number;
-  /** 首可见项索引变化回调（滚动中持续上报，不触发渲染） */
-  onFirstVisibleItemChange?: (index: number) => void;
   /**
-   * 本次挂载的恢复动作已结束（无论是否需要滚动）时回调一次。
-   * 调用方据此清掉恢复锚点：网格会随筛选切换卸载重挂（加载态 → 有数据），
-   * 锚点若留在调用方，重挂时会再次回放恢复，把改筛选后的「回到顶部」覆盖掉。
+   * 本次挂载要恢复到的滚动偏移（px，来自 `@coool/react-view-state` 的 `useScrollMemory`）。
+   * 交给虚拟化器的 `initialOffset`：首帧的可视窗口就按该位置计算，不会先白挂一窗卡片。
    */
-  onRestoreDone?: () => void;
+  initialOffset?: number | null;
+  /** 恢复动作结束（一次性），调用方据此消费锚点 */
+  onOffsetRestored?: () => void;
 };
 
 /** 随宽度「分档」变化的几何量：列数与列间距。卡片宽度由 CSS 计算（见 VirtualCardGrid） */
@@ -150,22 +145,16 @@ export function useVirtualGrid({
   fetchNextPage,
   isPlaceholderData = false,
   isFetchNextPageError = false,
-  initialRestoreIndex = 0,
-  onFirstVisibleItemChange,
-  onRestoreDone,
+  initialOffset = null,
+  onOffsetRestored,
 }: UseVirtualGridOptions) {
-  // 恢复完成的回调只在下面的 layout effect 里用一次：Effect Event 让它在 effect 内
-  // 始终是最新实现，同时身份稳定、不必进 effect 依赖数组——这正是「ref + 被动 effect
-  // 手工补写最新回调」那套写法要解决的问题（且那套写法在同一 commit 内仍有陈旧窗口）。
-  const notifyRestoreDone = useEffectEvent(() => {
-    onRestoreDone?.();
-  });
-
   const layout = useGridBreakpoints(scrollElement);
 
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollElement,
+    // 首帧就按恢复目标计算可视窗口：库只在该实例内部 scrollOffset 为 null 时用一次
+    initialOffset: initialOffset ?? undefined,
     // 关闭库内部的 flushSync：本 hook 会在 layout effect 里同步对齐滚动位置（恢复），
     // 而库默认在「同步通知」路径上 flushSync 重渲染，等于在 React 提交阶段嵌套一次同步渲染
     // ——控制台报 "flushSync was called from inside a lifecycle method"，
@@ -186,28 +175,6 @@ export function useVirtualGrid({
     // overscan 的单位是「条目」而非行：从 3 降到 1 只少挂 4 张卡片（实测），并非少挂 3 行。
     // 取 1（库默认值）保留一行左右的缓冲，兼顾滚动流畅与首屏渲染量。
     overscan: 1,
-    // 首可见项索引是「返回恢复」的锚点：索引与 DOM 高度解耦，落点不受重新测量影响。
-    // 不能用 getVirtualItems()[0]——默认 rangeExtractor 会把 overscan 项也算进来，
-    // 上报值会比真实首可见项小 overscan，往返会累积向上漂移。
-    // 取「起点不晚于视口顶部的最后一项」：视口顶部落在某行内部时，该行仍部分可见，
-    // 才是真正的首可见项；取首个 start >= offset 会跳过它，恢复时整卡下移一行。
-    //
-    // 这里直接用 props 里的回调（不做 ref/Effect Event 包装）：库每次渲染都会
-    // setOptions，本就持有最新实现；而 Effect Event 只在 effect 内可调用，
-    // 本回调却会被滚动/尺寸监听与命令式滚动触发（都在 effect 之外）。
-    onChange: (instance) => {
-      const offset = instance.scrollOffset ?? 0;
-      const items = instance.getVirtualItems();
-      let first: { index: number; start: number } | undefined;
-      for (const item of items) {
-        if (item.start > offset) continue;
-        if (!first || item.start > first.start) first = item;
-      }
-      // 兜底：渲染区间尚未覆盖视口顶部时（如测量前的首帧）沿用最早渲染的一项，
-      // 否则会漏掉这次上报，锚点停在上一个位置
-      const anchor = first ?? items[0];
-      if (anchor) onFirstVisibleItemChange?.(anchor.index);
-    },
   });
 
   const virtualItems = virtualizer.getVirtualItems();
@@ -216,40 +183,22 @@ export function useVirtualGrid({
     -1,
   );
 
-  // 恢复是否已完成（见下方一次性恢复 layout effect）
-  const [restored, setRestored] = useState(false);
-  // 有恢复目标且尚未完成恢复时，先不渲染卡片：避免先挂载顶部窗口再跳到恢复位置（白挂一整窗）
-  const restorePending = initialRestoreIndex > 0 && !restored;
-
-  // 一次性恢复：容器就绪且有数据时，若保存位置在当前数据范围内则把滚动位置对齐过去，否则保持顶部。
-  // scrollElement 由 ref 回调里的 setState 提供，因此恢复落在「容器就绪且 count > 0 的首个 commit」，
-  // 而非路由挂载的那个 commit。restoredRef 保证只执行一次（同时吸收 StrictMode 双跑）。
-  // 用 useLayoutEffect 在该 commit 内、绘制前完成跳转，避免「先绘制顶部再跳转」的可见跳动。
+  // 恢复滚动位置：一次挂载只做一次。
+  // initialOffset 已交给 useVirtualizer（首帧窗口即按目标位置计算），这里再把 DOM 与实例
+  // 内部 offset 一起对齐：库只在 scroll 事件里异步更新内部 scrollOffset，若只写 DOM，
+  // 本次提交仍会按旧位置算范围 → 先白挂一整窗卡片。
+  // 内部 offset 取回读值：内容比记忆位置短时（分页缓存已过期、只加载了第一页）浏览器会把
+  // scrollTop clamp 到可滚动最远处，照抄原始 offset 会让可视区间落在尚未加载的分页之外
+  // ——整屏空白且触底加载也不会被触发。
   const restoredRef = useRef(false);
   useLayoutEffect(() => {
     if (restoredRef.current) return;
-    if (!scrollElement || count === 0) return;
+    if (!scrollElement || initialOffset == null || initialOffset <= 0) return;
     restoredRef.current = true;
-    if (initialRestoreIndex > 0 && initialRestoreIndex < count) {
-      const info = virtualizer.getOffsetForIndex(initialRestoreIndex, 'start');
-      if (info) {
-        const [offset] = info;
-        // 必须先把 DOM 与实例内部 offset 一起对齐：
-        // 库只在 scroll 事件里更新内部 scrollOffset（异步），若只写 DOM，
-        // 本次提交仍会按旧位置算范围 → 先白挂一整窗卡片
-        scrollElement.scrollTop = offset;
-        virtualizer.scrollOffset = offset;
-      }
-    }
-    // 解锁卡片渲染。该 setState 发生在 layout effect 中，React 会在绘制前完成重渲染，
-    // 因此那一帧空网格不会被用户看到。
-    // react-x/set-state-in-effect 会在这一行告警，但本处是刻意的：挪到被动 effect 会先绘制一帧空网格，
-    // 而「effect 里多渲染一趟」正是用来换掉「先挂顶部窗口再跳到恢复位置」的那一整窗白挂（见 restorePending）。
-    // eslint-disable-next-line react-x/set-state-in-effect
-    setRestored(true);
-    // 通知调用方消费掉恢复锚点（见 onRestoreDone 的说明）
-    notifyRestoreDone();
-  }, [scrollElement, count, initialRestoreIndex, virtualizer]);
+    scrollElement.scrollTop = initialOffset;
+    virtualizer.scrollOffset = scrollElement.scrollTop;
+    onOffsetRestored?.();
+  }, [initialOffset, onOffsetRestored, scrollElement, virtualizer]);
 
   useEffect(() => {
     // 占位数据属于上一组筛选条件，它的 nextCursor 与新条件不匹配：
@@ -276,6 +225,5 @@ export function useVirtualGrid({
     layout,
     virtualItems,
     totalSize: virtualizer.getTotalSize(),
-    restorePending,
   };
 }

@@ -2,6 +2,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { StorageDriver } from './storage-driver.interface.js';
 
+/** 本地磁盘存储驱动配置 */
 export interface LocalStorageDriverConfig {
   /** storage 根目录，默认 process.env.UPLOAD_DIR ?? 'uploads' */
   dir?: string;

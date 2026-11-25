@@ -14,7 +14,6 @@ import type {
 } from '@/api/types';
 import type { CursorPageResult } from '@lucy/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { keepPrevious } from './lib/infinite-cache';
 
 export const aiKeys = {
   all: ['ai'] as const,
@@ -31,8 +30,6 @@ export function useConversationList() {
   return useQuery<CursorPageResult<ConversationItem>>({
     queryKey: aiKeys.conversationList(),
     queryFn: () => listConversationsApi(),
-    placeholderData: keepPrevious,
-    staleTime: 0,
     refetchOnWindowFocus: false,
   });
 }
@@ -42,7 +39,6 @@ export function useConversation(id: string | undefined) {
     queryKey: aiKeys.conversation(id ?? ''),
     queryFn: () => getConversationApi(id!),
     enabled: !!id,
-    staleTime: 0,
     refetchOnWindowFocus: false,
   });
 }

@@ -7,4 +7,5 @@ export { LocalStorageDriver } from './storage/local-storage.driver.js';
 export type { LocalStorageDriverConfig } from './storage/local-storage.driver.js';
 export type { StorageDriver } from './storage/storage-driver.interface.js';
 
+/** 包版本号 */
 export const FILE_NEST_VERSION = '0.1.0';

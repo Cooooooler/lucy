@@ -42,6 +42,20 @@ function makeSizedElement(clientWidth: number): HTMLDivElement {
   return element;
 }
 
+/** scrollTop 可读写的滚动容器（jsdom 的 setter 不保存值） */
+function makeScrollableElement(): HTMLDivElement {
+  const element = document.createElement('div');
+  let scrollTop = 0;
+  Object.defineProperty(element, 'scrollTop', {
+    get: () => scrollTop,
+    set: (value: number) => {
+      scrollTop = value;
+    },
+    configurable: true,
+  });
+  return element;
+}
+
 function renderGrid(overrides: Partial<GridProps> = {}) {
   const props: GridProps = {
     scrollElement: null,
@@ -236,83 +250,26 @@ describe('VirtualCardGrid', () => {
     await waitFor(() => expect(props.fetchNextPage).toHaveBeenCalled());
   });
 
-  it('把 initialRestoreIndex 透传给虚拟化并恢复到保存位置', () => {
-    const items = [probeItem('a', '条目 A'), probeItem('b', '条目 B')];
-    renderGrid({
-      scrollElement: document.createElement('div'),
-      items,
-      hasNextPage: false,
-      initialRestoreIndex: 1,
-    });
-    // 恢复改用 getOffsetForIndex（返回目标 offset，可同步对齐实例内部 offset），
-    // 不再走只写 DOM 的 scrollToIndex
-    expect(virtualizerStub.getOffsetForIndex).toHaveBeenCalledWith(1, 'start');
-    expect(virtualizerStub.scrollOffset).toBe(123);
-    expect(virtualizerStub.scrollToIndex).not.toHaveBeenCalled();
-  });
-
-  it('恢复完成前不渲染条目（不白挂顶部那一窗）；容器就绪后解锁渲染', () => {
+  it('传入滚动记忆时把锚点交给虚拟化并恢复，随后消费掉', () => {
     const items = [probeItem('a', '条目 A')];
     makeFirstItemVisible();
-    virtualizerStub.getTotalSize.mockReturnValue(200);
-    const props = {
-      items,
-      isLoading: false,
-      isError: false,
-      error: null,
-      hasNextPage: false,
-      isFetchingNextPage: false,
-      isFetchNextPageError: false,
-      isPlaceholderData: false,
-      fetchNextPage: vi.fn(),
-      refetch: vi.fn(),
-      hasFilter: false,
-      emptyLabel: { filtered: '没有匹配的条目', initial: '暂无条目' },
-      renderItem: renderProbe,
-      // 恢复目标超出当前条数：不滚动，但仍要走完「解锁渲染」
-      initialRestoreIndex: 5,
-    };
-
-    const { container, rerender } = render(
-      <VirtualCardGrid {...props} scrollElement={null} />,
-    );
-
-    // scrollElement 还没就绪 → 虚拟化的可视区间仍按顶部算，此时渲染条目等于白挂一整窗
-    expect(container.querySelector('[data-index]')).toBeNull();
-    expect(screen.queryByText('条目 A')).not.toBeInTheDocument();
-    // 容器高度（totalSize）与 footer 保持原样：几何不受影响
-    const wrapper = container.querySelector(
-      'div[style*="position: relative"]',
-    ) as HTMLElement | null;
-    expect(wrapper?.style.height).toBe('200px');
-    expect(screen.getByText('已加载全部')).toBeInTheDocument();
-
-    rerender(
-      <VirtualCardGrid
-        {...props}
-        scrollElement={document.createElement('div')}
-      />,
-    );
-    expect(screen.getByText('条目 A')).toBeInTheDocument();
-  });
-
-  it('把首可见项变化回调透传给虚拟化', () => {
-    const items = [probeItem('a', '条目 A')];
-    const onFirstVisibleItemChange = vi.fn();
+    const scrollElement = makeScrollableElement();
+    const consumeRestore = vi.fn();
     renderGrid({
-      scrollElement: document.createElement('div'),
       items,
-      hasNextPage: false,
-      onFirstVisibleItemChange,
+      scrollElement,
+      scrollMemory: {
+        restoreOffset: 480,
+        consumeRestore,
+        resetToTop: vi.fn(),
+      },
     });
-    const options = useVirtualizerMock.mock.calls[0][0] as {
-      onChange: (instance: { getVirtualItems: () => unknown[] }) => void;
-    };
-    options.onChange({
-      getVirtualItems: () => [
-        { index: 0, start: 0, size: 200, lane: 0, key: 0 },
-      ],
-    });
-    expect(onFirstVisibleItemChange).toHaveBeenCalledWith(0);
+
+    expect(
+      (useVirtualizerMock.mock.calls.at(-1)?.[0] as { initialOffset?: number })
+        .initialOffset,
+    ).toBe(480);
+    expect(scrollElement.scrollTop).toBe(480);
+    expect(consumeRestore).toHaveBeenCalledTimes(1);
   });
 });

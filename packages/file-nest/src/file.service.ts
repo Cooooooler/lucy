@@ -20,6 +20,7 @@ export interface StoredFile {
   storage: string;
 }
 
+/** 文件服务：把字节交给存储驱动并返回 key/哈希/元数据；不落库，元数据由调用方持久化。 */
 @Injectable()
 export class FileService {
   constructor(
@@ -29,7 +30,12 @@ export class FileService {
     private readonly options: FileModuleOptions,
   ) {}
 
-  /** 写入对象存储并返回描述（key = `<uuid><ext>`，hash = sha256）；元数据落库由消费方负责 */
+  /**
+   * 写入对象存储并返回描述（key = `<uuid><ext>`，hash = sha256）。
+   *
+   * @param input 文件字节、扩展名与 MIME 类型
+   * @returns 已存储文件的描述；元数据落库由消费方负责
+   */
   async save(input: {
     buffer: Buffer;
     ext: string;
@@ -43,10 +49,21 @@ export class FileService {
     return { key, ext: input.ext, mime: input.mime, size, hash, storage };
   }
 
+  /**
+   * 读取对象内容。
+   *
+   * @param key 存储相对路径 key
+   * @returns 文件字节
+   */
   async read(key: string): Promise<Buffer> {
     return this.storage.read(key);
   }
 
+  /**
+   * 删除对象；驱动实现可对不存在的 key 静默。
+   *
+   * @param key 存储相对路径 key
+   */
   async remove(key: string): Promise<void> {
     await this.storage.delete(key);
   }

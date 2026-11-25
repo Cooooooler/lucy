@@ -13,6 +13,7 @@ import {
   useModelProvider,
   useModelProviderDefaults,
   useModelProvidersByType,
+  useRefreshModelProviderList,
   useTestModelProviderConnection,
   useUpdateModelProvider,
   useUpdateModelProviderDefaults,
@@ -52,12 +53,6 @@ function cursorPage<T>(list: T[], nextCursor: string | null = null) {
   return { list, nextCursor };
 }
 
-function infiniteCache<T>(
-  pages: Array<{ list: T[]; nextCursor: string | null }>,
-) {
-  return { pages, pageParams: pages.map((_, i) => (i === 0 ? null : `c${i}`)) };
-}
-
 function createWrapperWithClient(client: QueryClient) {
   return ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
@@ -68,14 +63,6 @@ function createTestQueryClient() {
   return new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-}
-
-/** 从无限列表缓存里取某一页的 list */
-function listOf(client: QueryClient, query: Record<string, unknown>) {
-  const data = client.getQueryData<{ pages: { list: ModelProvider[] }[] }>(
-    modelProviderKeys.list(query),
-  );
-  return data?.pages.flatMap((p) => p.list) ?? [];
 }
 
 describe('use-model-provider', () => {
@@ -104,9 +91,8 @@ describe('use-model-provider', () => {
     });
   });
 
-  it('换筛选后切回已缓存的筛选命中缓存，不重放历史分页', async () => {
-    // 回归守卫：staleTime 若退回 0，换筛选会经 QueryObserver.setOptions 判定新 query 过期
-    // 而 refetch，useInfiniteQuery 的 refetch 会把已加载的分页从头重放（下面第 4 次请求）。
+  it('换筛选后切回在 staleTime 内复用缓存，不再请求', async () => {
+    // staleTime 为 3 分钟：切回已看过的筛选直接复用缓存，不重放已加载分页
     api.listModelProvidersApi.mockImplementation(
       (query: { type?: string; cursor?: string } = {}) => {
         if (query.type === 'llm') {
@@ -135,27 +121,49 @@ describe('use-model-provider', () => {
     await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
     expect(api.listModelProvidersApi).toHaveBeenCalledTimes(2);
 
-    // 切到 LLM：新条件无缓存，正常请求一次
+    // 切到 LLM：新条件正常请求一次
     rerender({ type: 'llm' });
-    await waitFor(() => expect(result.current.isPlaceholderData).toBe(false));
-    expect(api.listModelProvidersApi).toHaveBeenCalledTimes(3);
+    await waitFor(() =>
+      expect(api.listModelProvidersApi).toHaveBeenCalledTimes(3),
+    );
+    expect(result.current.isPlaceholderData).toBe(false);
 
-    // 切回全部：命中已有缓存，不得把两页历史分页重放一遍
+    // 切回「全部」：缓存仍在 staleTime 内，直接复用两页，不再请求
     rerender({});
     await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
-    await new Promise((resolve) => setTimeout(resolve, 30));
     expect(api.listModelProvidersApi).toHaveBeenCalledTimes(3);
+    expect(
+      client.getQueryCache().findAll({ queryKey: modelProviderKeys.listAll() }),
+    ).toHaveLength(2);
   });
 
-  it('create 成功后把新模型插入匹配过滤条件的列表首页', async () => {
+  it('useRefreshModelProviderList 丢弃全部列表缓存并重新加载', async () => {
+    api.listModelProvidersApi.mockResolvedValue(
+      cursorPage([makeModel()], null),
+    );
+    const client = createTestQueryClient();
+    const wrapper = createWrapperWithClient(client);
+    const { result } = renderHook(() => useInfiniteModelProviderList({}), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const { result: refresh } = renderHook(
+      () => useRefreshModelProviderList(),
+      { wrapper },
+    );
+    await act(async () => {
+      await refresh.current();
+    });
+
+    expect(api.listModelProvidersApi).toHaveBeenCalledTimes(2);
+  });
+
+  it('create 成功后按「刷新」处理：resetQueries 从第一页重取', async () => {
     const created = makeModel({ id: 'm-new', name: 'new-model' });
     api.createModelProviderApi.mockResolvedValue(created);
     const client = createTestQueryClient();
-    // 至少要有一页（空页也可）作为插入目标：无页的无限缓存会被 prepend 直接跳过
-    client.setQueryData(
-      modelProviderKeys.list({ limit: 20 }),
-      infiniteCache([{ list: [], nextCursor: null }]),
-    );
+    const reset = vi.spyOn(client, 'resetQueries');
 
     const { result } = renderHook(() => useCreateModelProvider(), {
       wrapper: createWrapperWithClient(client),
@@ -171,22 +179,28 @@ describe('use-model-provider', () => {
       });
     });
 
-    expect(listOf(client, { limit: 20 }).map((m) => m.id)).toContain('m-new');
+    expect(api.createModelProviderApi).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(reset).toHaveBeenCalledWith({
+        queryKey: modelProviderKeys.listAll(),
+      }),
+    );
   });
 
-  it('update 乐观更新且绝不把明文 apiKey 写入缓存', async () => {
+  it('update 乐观改写详情与列表，且不写入明文 apiKey', async () => {
     const existing = makeModel();
-    const updated = makeModel({
-      name: 'renamed',
-      updatedAt: '2024-02-02T00:00:00Z',
+    const listKey = modelProviderKeys.list({
+      limit: MODEL_PROVIDER_PAGE_SIZE,
     });
-    api.updateModelProviderApi.mockResolvedValue(updated);
-    const client = createTestQueryClient();
-    client.setQueryData(
-      modelProviderKeys.list({ limit: 20 }),
-      infiniteCache([{ list: [existing], nextCursor: null }]),
+    api.updateModelProviderApi.mockResolvedValue(
+      makeModel({ name: 'renamed' }),
     );
+    const client = createTestQueryClient();
     client.setQueryData(modelProviderKeys.item('m1'), existing);
+    client.setQueryData(listKey, {
+      pages: [{ list: [existing], nextCursor: null }],
+      pageParams: [null],
+    });
 
     const { result } = renderHook(() => useUpdateModelProvider(), {
       wrapper: createWrapperWithClient(client),
@@ -198,44 +212,130 @@ describe('use-model-provider', () => {
       });
     });
 
-    const item = client.getQueryData<ModelProvider>(
-      modelProviderKeys.item('m1'),
-    );
-    expect(item?.name).toBe('renamed');
+    // 成功后用服务端值收敛详情与列表
+    expect(
+      client.getQueryData<ModelProvider>(modelProviderKeys.item('m1'))?.name,
+    ).toBe('renamed');
+    expect(
+      client.getQueryData<{ pages: { list: ModelProvider[] }[] }>(listKey)
+        ?.pages[0].list[0]?.name,
+    ).toBe('renamed');
     // 明文 API Key 绝不能进入缓存
-    expect(JSON.stringify(item)).not.toContain('sk-plaintext-secret');
-    expect(item).not.toHaveProperty('apiKey');
+    expect(
+      JSON.stringify(client.getQueryData(modelProviderKeys.item('m1'))),
+    ).not.toContain('sk-plaintext-secret');
+    expect(JSON.stringify(client.getQueryData(listKey))).not.toContain(
+      'sk-plaintext-secret',
+    );
   });
 
-  it('update 失败回滚', async () => {
+  it('update 在请求返回前就改写缓存（乐观）', async () => {
     const existing = makeModel();
-    api.updateModelProviderApi.mockRejectedValue(new Error('boom'));
+    let resolveUpdate: (value: ModelProvider) => void = () => {};
+    api.updateModelProviderApi.mockImplementation(
+      () =>
+        new Promise<ModelProvider>((resolve) => {
+          resolveUpdate = resolve;
+        }),
+    );
     const client = createTestQueryClient();
     client.setQueryData(modelProviderKeys.item('m1'), existing);
 
     const { result } = renderHook(() => useUpdateModelProvider(), {
       wrapper: createWrapperWithClient(client),
     });
+    let pending: Promise<ModelProvider>;
+    act(() => {
+      pending = result.current.mutateAsync({
+        id: 'm1',
+        input: { name: 'renamed' },
+      });
+    });
+
+    await waitFor(() =>
+      expect(
+        client.getQueryData<ModelProvider>(modelProviderKeys.item('m1'))?.name,
+      ).toBe('renamed'),
+    );
+
     await act(async () => {
-      await result.current
-        .mutateAsync({ id: 'm1', input: { name: 'changed' } })
-        .catch(() => undefined);
+      resolveUpdate(makeModel({ name: 'renamed' }));
+      await pending;
+    });
+  });
+
+  it('update 改名后不再满足当前筛选：列表里的条目立即移除', async () => {
+    const existing = makeModel({ name: 'gpt-4o-mini' });
+    const listKey = modelProviderKeys.list({ name: 'gpt' });
+    api.updateModelProviderApi.mockResolvedValue(
+      makeModel({ name: 'claude-x' }),
+    );
+    const client = createTestQueryClient();
+    client.setQueryData(listKey, {
+      pages: [{ list: [existing], nextCursor: null }],
+      pageParams: [null],
+    });
+
+    const { result } = renderHook(() => useUpdateModelProvider(), {
+      wrapper: createWrapperWithClient(client),
+    });
+    await act(async () => {
+      await result.current.mutateAsync({
+        id: 'm1',
+        input: { name: 'claude-x' },
+      });
+    });
+
+    expect(
+      client.getQueryData<{ pages: { list: ModelProvider[] }[] }>(listKey)
+        ?.pages[0].list,
+    ).toHaveLength(0);
+  });
+
+  it('update 失败时回滚并失效列表与详情', async () => {
+    const existing = makeModel();
+    const listKey = modelProviderKeys.list({
+      limit: MODEL_PROVIDER_PAGE_SIZE,
+    });
+    api.updateModelProviderApi.mockRejectedValue(new Error('boom'));
+    api.listModelProvidersApi.mockResolvedValue(cursorPage([existing], null));
+    const client = createTestQueryClient();
+    client.setQueryData(modelProviderKeys.item('m1'), existing);
+    client.setQueryData(listKey, {
+      pages: [{ list: [existing], nextCursor: null }],
+      pageParams: [null],
+    });
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+
+    const { result } = renderHook(() => useUpdateModelProvider(), {
+      wrapper: createWrapperWithClient(client),
+    });
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({ id: 'm1', input: { name: 'nope' } }),
+      ).rejects.toThrow('boom');
     });
 
     expect(
       client.getQueryData<ModelProvider>(modelProviderKeys.item('m1'))?.name,
     ).toBe('gpt-4o-mini');
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: modelProviderKeys.listAll(),
+    });
   });
 
-  it('delete 成功后从列表与详情缓存移除', async () => {
+  it('delete 乐观移除列表条目，成功后清详情缓存', async () => {
     const existing = makeModel();
+    const listKey = modelProviderKeys.list({
+      limit: MODEL_PROVIDER_PAGE_SIZE,
+    });
     api.deleteModelProviderApi.mockResolvedValue(null);
     const client = createTestQueryClient();
-    client.setQueryData(
-      modelProviderKeys.list({ limit: 20 }),
-      infiniteCache([{ list: [existing], nextCursor: null }]),
-    );
     client.setQueryData(modelProviderKeys.item('m1'), existing);
+    client.setQueryData(listKey, {
+      pages: [{ list: [existing], nextCursor: null }],
+      pageParams: [null],
+    });
 
     const { result } = renderHook(() => useDeleteModelProvider(), {
       wrapper: createWrapperWithClient(client),
@@ -244,7 +344,42 @@ describe('use-model-provider', () => {
       await result.current.mutateAsync('m1');
     });
 
-    expect(listOf(client, { limit: 20 })).toEqual([]);
+    expect(
+      client.getQueryData<{ pages: { list: ModelProvider[] }[] }>(listKey)
+        ?.pages[0].list,
+    ).toHaveLength(0);
+    expect(client.getQueryData(modelProviderKeys.item('m1'))).toBeUndefined();
+  });
+
+  it('delete 失败时把条目放回列表并失效', async () => {
+    const existing = makeModel();
+    const listKey = modelProviderKeys.list({
+      limit: MODEL_PROVIDER_PAGE_SIZE,
+    });
+    api.deleteModelProviderApi.mockRejectedValue(new Error('boom'));
+    api.listModelProvidersApi.mockResolvedValue(cursorPage([existing], null));
+    const client = createTestQueryClient();
+    client.setQueryData(modelProviderKeys.item('m1'), existing);
+    client.setQueryData(listKey, {
+      pages: [{ list: [existing], nextCursor: null }],
+      pageParams: [null],
+    });
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+
+    const { result } = renderHook(() => useDeleteModelProvider(), {
+      wrapper: createWrapperWithClient(client),
+    });
+    await act(async () => {
+      await expect(result.current.mutateAsync('m1')).rejects.toThrow('boom');
+    });
+
+    expect(
+      client.getQueryData<{ pages: { list: ModelProvider[] }[] }>(listKey)
+        ?.pages[0].list,
+    ).toHaveLength(1);
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: modelProviderKeys.listAll(),
+    });
   });
 
   it('useTestModelProviderConnection 以 id 调用接口', async () => {

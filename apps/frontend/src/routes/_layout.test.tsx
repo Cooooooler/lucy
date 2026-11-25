@@ -1,5 +1,4 @@
 import { logoutApi } from '@/api/auth.ts';
-import { resetClientCaches } from '@/reset-client-caches.ts';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -32,8 +31,7 @@ vi.mock('@/theme/switch/theme-switcher', () => ({
   ThemeSwitcher: () => <button type="button" aria-label="切换主题" />,
 }));
 
-// 登出漏斗的两个外部副作用：真实实现会打网络 / 清空 QueryClient，这里替换为 spy
-vi.mock('@/reset-client-caches.ts', () => ({ resetClientCaches: vi.fn() }));
+// 登出漏斗的外部副作用：真实实现会打网络，这里替换为 spy
 vi.mock('@/api/auth.ts', () => ({ logoutApi: vi.fn(async () => null) }));
 
 // vi.mock 工厂会提升到文件顶部，工厂内引用的变量必须用 vi.hoisted 定义
@@ -49,7 +47,6 @@ vi.mock('@tanstack/react-router', async (importOriginal) => ({
   useNavigate: () => navigateMock,
 }));
 
-const resetCachesMock = vi.mocked(resetClientCaches);
 const logoutApiMock = vi.mocked(logoutApi);
 
 const LayoutComponent = (
@@ -59,7 +56,6 @@ const LayoutComponent = (
 describe('routes/_layout', () => {
   beforeEach(() => {
     // 本测试文件未启用 clearMocks，显式清理，避免用例间串味
-    resetCachesMock.mockClear();
     logoutApiMock.mockClear();
     navigateMock.mockClear();
   });
@@ -79,7 +75,7 @@ describe('routes/_layout', () => {
     expect(typeof menuData).toBe('function');
   });
 
-  it('显式登出：调用 logoutApi + 复位客户端缓存（先）+ 跳转登录页（后）', async () => {
+  it('显式登出：调用 logoutApi + 跳转登录页', async () => {
     render(<LayoutComponent />);
 
     // 「退出登录」在用户下拉弹层里：先点开用户菜单（aria-label="用户菜单"）
@@ -87,17 +83,12 @@ describe('routes/_layout', () => {
     const logoutButton = await screen.findByText('退出登录');
 
     fireEvent.click(logoutButton);
-    // fireEvent 自带 act 冲刷；这里只需等异步登出链路（logoutApi → 复位缓存 → 跳转）跑完
+    // fireEvent 自带 act 冲刷；这里只需等异步登出链路（logoutApi → 跳转）跑完
     await waitFor(() =>
       expect(navigateMock).toHaveBeenCalledWith({ to: '/login' }),
     );
 
     expect(logoutApiMock).toHaveBeenCalledTimes(1);
-    expect(resetCachesMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledWith({ to: '/login' });
-    // 缓存复位必须发生在导航之前（否则跳转后列表会命中上一个账号的残留缓存）
-    expect(resetCachesMock.mock.invocationCallOrder[0]).toBeLessThan(
-      navigateMock.mock.invocationCallOrder[0],
-    );
   });
 });

@@ -1,6 +1,7 @@
 import type { ModuleMetadata } from '@nestjs/common';
 import type { StorageDriver } from './storage/storage-driver.interface.js';
 
+/** forRoot 的模块选项 */
 export interface FileModuleOptions {
   /** storage 根目录（LocalStorageDriver 用），默认 process.env.UPLOAD_DIR ?? 'uploads' */
   dir?: string;
@@ -10,6 +11,7 @@ export interface FileModuleOptions {
   driver?: StorageDriver;
 }
 
+/** forRootAsync 的异步配置：useFactory 可注入依赖（如 ConfigService）读取选项 */
 export interface FileModuleAsyncOptions {
   imports?: ModuleMetadata['imports'];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

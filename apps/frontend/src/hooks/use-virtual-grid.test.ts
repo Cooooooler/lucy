@@ -24,29 +24,11 @@ type VirtualItemStub = {
 const virtualizerStub = {
   getVirtualItems: vi.fn<() => VirtualItemStub[]>(),
   getTotalSize: vi.fn(() => 0),
-  scrollToIndex: vi.fn(),
-  /** 恢复路径：返回 [目标 offset, align]；库没测量到该项时返回 undefined */
-  getOffsetForIndex: vi.fn<() => readonly [number, string] | undefined>(),
-  /** 实例内部 offset：恢复时由本 hook 直接对齐（库自身只在 scroll 事件里更新它） */
   scrollOffset: null as number | null,
 };
 
 function makeVirtualItem(index: number): VirtualItemStub {
   return { index, start: index * 200, size: 200, lane: 0, key: index };
-}
-
-/**
- * jsdom 没有布局盒，`Element.prototype.scrollTop` 的 getter 恒返回 0、setter 是空操作，
- * 因此把它改写成可读写的普通数据属性，才能断言恢复真的写入了滚动位置。
- */
-function makeScrollElement(): HTMLDivElement {
-  const el = document.createElement('div');
-  Object.defineProperty(el, 'scrollTop', {
-    value: 0,
-    writable: true,
-    configurable: true,
-  });
-  return el;
 }
 
 /** 容器宽度可控的滚动元素（jsdom 无布局盒，clientWidth 恒为 0） */
@@ -61,6 +43,20 @@ function makeSizedScrollElement(initialWidth: number): {
     configurable: true,
   });
   return { element, setWidth: (width) => (clientWidth = width) };
+}
+
+/** scrollTop 可读写的滚动元素（jsdom 的 setter 不保存值） */
+function makeScrollableElement(initialTop = 0): HTMLDivElement {
+  const element = document.createElement('div');
+  let scrollTop = initialTop;
+  Object.defineProperty(element, 'scrollTop', {
+    get: () => scrollTop,
+    set: (value: number) => {
+      scrollTop = value;
+    },
+    configurable: true,
+  });
+  return element;
 }
 
 /**
@@ -109,9 +105,6 @@ describe('useVirtualGrid', () => {
     useVirtualizerMock.mockReturnValue(virtualizerStub);
     virtualizerStub.getVirtualItems.mockReturnValue([]);
     virtualizerStub.getTotalSize.mockReturnValue(0);
-    virtualizerStub.scrollToIndex.mockReset();
-    virtualizerStub.getOffsetForIndex.mockReset();
-    virtualizerStub.getOffsetForIndex.mockReturnValue([123, 'start']);
     virtualizerStub.scrollOffset = null;
   });
 
@@ -130,7 +123,7 @@ describe('useVirtualGrid', () => {
     );
   });
 
-  it('关闭库内部的 flushSync：恢复在 layout effect 里调用 scrollToIndex，强制同步刷新会报错且卡顿', () => {
+  it('关闭库内部的 flushSync：同步通知路径不强制同步重渲染', () => {
     renderHook(() =>
       useVirtualGrid({
         scrollElement: null,
@@ -241,259 +234,6 @@ describe('useVirtualGrid', () => {
       scrollMargin?: number;
     };
     expect(options.scrollMargin).toBeUndefined();
-  });
-
-  it('通过 onChange 上报首可见项索引', () => {
-    const onFirstVisibleItemChange = vi.fn();
-    renderHook(() =>
-      useVirtualGrid({
-        scrollElement: null,
-        count: 6,
-        hasNextPage: false,
-        isFetchingNextPage: false,
-        fetchNextPage: vi.fn(),
-        onFirstVisibleItemChange,
-      }),
-    );
-    const options = useVirtualizerMock.mock.calls[0][0] as {
-      onChange: (instance: {
-        getVirtualItems: () => VirtualItemStub[];
-      }) => void;
-    };
-    options.onChange({ getVirtualItems: () => [makeVirtualItem(4)] });
-    expect(onFirstVisibleItemChange).toHaveBeenCalledWith(4);
-  });
-
-  it('上报视口顶部所在的行，剔除 overscan 提前渲染的、已滚过的行', () => {
-    const onFirstVisibleItemChange = vi.fn();
-    renderHook(() =>
-      useVirtualGrid({
-        scrollElement: null,
-        count: 8,
-        hasNextPage: false,
-        isFetchingNextPage: false,
-        fetchNextPage: vi.fn(),
-        onFirstVisibleItemChange,
-      }),
-    );
-    const options = useVirtualizerMock.mock.calls[0][0] as {
-      onChange: (instance: {
-        scrollOffset: number | null;
-        getVirtualItems: () => VirtualItemStub[];
-      }) => void;
-    };
-    // 虚拟项 start 依次为 200 / 400 / 600（前两项是被 overscan 提前渲染的、已滚过的行）。
-    // 视口起点 500 → 顶部落在 start=400 的那一行内部，落点为 index 2；
-    // 若沿用 getVirtualItems()[0] 会上报 1。
-    options.onChange({
-      scrollOffset: 500,
-      getVirtualItems: () => [
-        makeVirtualItem(1),
-        makeVirtualItem(2),
-        makeVirtualItem(3),
-      ],
-    });
-    expect(onFirstVisibleItemChange).toHaveBeenCalledTimes(1);
-    expect(onFirstVisibleItemChange).toHaveBeenCalledWith(2);
-  });
-
-  it('视口顶部落在行内部时上报该行，而不是下一行（恢复不会整卡下移）', () => {
-    const onFirstVisibleItemChange = vi.fn();
-    renderHook(() =>
-      useVirtualGrid({
-        scrollElement: null,
-        count: 8,
-        hasNextPage: false,
-        isFetchingNextPage: false,
-        fetchNextPage: vi.fn(),
-        onFirstVisibleItemChange,
-      }),
-    );
-    const options = useVirtualizerMock.mock.calls[0][0] as {
-      onChange: (instance: {
-        scrollOffset: number | null;
-        getVirtualItems: () => VirtualItemStub[];
-      }) => void;
-    };
-    // 行高 220px、scrollTop=100：第 0 行（start=0）仍部分可见，才是首可见项；
-    // 「首个 start >= offset」会跳过它返回第 1 行，返回恢复时把该卡滚出视口。
-    options.onChange({
-      scrollOffset: 100,
-      getVirtualItems: () => [makeVirtualItem(0), makeVirtualItem(1)],
-    });
-    expect(onFirstVisibleItemChange).toHaveBeenCalledWith(0);
-  });
-
-  it('没有可见项时不调用上报回调', () => {
-    const onFirstVisibleItemChange = vi.fn();
-    renderHook(() =>
-      useVirtualGrid({
-        scrollElement: null,
-        count: 6,
-        hasNextPage: false,
-        isFetchingNextPage: false,
-        fetchNextPage: vi.fn(),
-        onFirstVisibleItemChange,
-      }),
-    );
-    const options = useVirtualizerMock.mock.calls[0][0] as {
-      onChange: (instance: {
-        scrollOffset: number | null;
-        getVirtualItems: () => VirtualItemStub[];
-      }) => void;
-    };
-    options.onChange({ scrollOffset: 0, getVirtualItems: () => [] });
-    expect(onFirstVisibleItemChange).not.toHaveBeenCalled();
-  });
-
-  it('每次渲染都把手头最新的回调交给虚拟化器（不再有 ref + 被动 effect 的陈旧窗口）', () => {
-    const onA = vi.fn();
-    const onB = vi.fn();
-    const { rerender } = renderHook(
-      ({ onChange }: { onChange: (index: number) => void }) =>
-        useVirtualGrid({
-          scrollElement: null,
-          count: 6,
-          hasNextPage: false,
-          isFetchingNextPage: false,
-          fetchNextPage: vi.fn(),
-          onFirstVisibleItemChange: onChange,
-        }),
-      { initialProps: { onChange: onA } },
-    );
-
-    rerender({ onChange: onB });
-
-    // 库每次渲染都会 setOptions：它持有的是**最后一次**渲染的 options，
-    // 因此这里取最新一次调用即可拿到最新回调。旧实现用 ref 在被动 effect 里补写，
-    // 同一 commit 内（被动 effect 冲刷前）触发的 onChange 仍会拿到旧回调。
-    const options = useVirtualizerMock.mock.calls.at(-1)?.[0] as {
-      onChange: (instance: {
-        scrollOffset: number | null;
-        getVirtualItems: () => VirtualItemStub[];
-      }) => void;
-    };
-    options.onChange({
-      scrollOffset: 0,
-      getVirtualItems: () => [makeVirtualItem(2)],
-    });
-
-    expect(onB).toHaveBeenCalledWith(2);
-    expect(onA).not.toHaveBeenCalled();
-  });
-
-  it('挂载时把首可见项恢复到保存的索引：DOM 与实例内部 offset 一起对齐', () => {
-    const scrollElement = makeScrollElement();
-    renderHook(() =>
-      useVirtualGrid({
-        scrollElement,
-        count: 20,
-        hasNextPage: false,
-        isFetchingNextPage: false,
-        fetchNextPage: vi.fn(),
-        initialRestoreIndex: 7,
-      }),
-    );
-    expect(virtualizerStub.getOffsetForIndex).toHaveBeenCalledWith(7, 'start');
-    // 两者必须一起写：库只在 scroll 事件（异步）里更新内部 scrollOffset，
-    // 只写 DOM 的话本次提交仍按旧位置（顶部）算范围 → 白挂一整窗卡片
-    expect(scrollElement.scrollTop).toBe(123);
-    expect(virtualizerStub.scrollOffset).toBe(123);
-    // scrollToIndex 只经 scrollToFn 写 DOM、不返回 offset，也不再是恢复路径
-    expect(virtualizerStub.scrollToIndex).not.toHaveBeenCalled();
-  });
-
-  it('有恢复目标时 restorePending 首帧为 true、恢复完成后为 false', () => {
-    const scrollElement = makeScrollElement();
-    // 记录每次渲染读到的值：首帧必须为 true（此时不渲染卡片），否则会先挂顶部那一窗
-    const renderSnapshots: boolean[] = [];
-    const { result } = renderHook(() => {
-      const grid = useVirtualGrid({
-        scrollElement,
-        count: 20,
-        hasNextPage: false,
-        isFetchingNextPage: false,
-        fetchNextPage: vi.fn(),
-        initialRestoreIndex: 7,
-      });
-      renderSnapshots.push(grid.restorePending);
-      return grid;
-    });
-    expect(renderSnapshots[0]).toBe(true);
-    expect(result.current.restorePending).toBe(false);
-  });
-
-  it('没有恢复目标（initialRestoreIndex 为 0）时 restorePending 始终为 false', () => {
-    const scrollElement = makeScrollElement();
-    const renderSnapshots: boolean[] = [];
-    const { result } = renderHook(() => {
-      const grid = useVirtualGrid({
-        scrollElement,
-        count: 20,
-        hasNextPage: false,
-        isFetchingNextPage: false,
-        fetchNextPage: vi.fn(),
-        initialRestoreIndex: 0,
-      });
-      renderSnapshots.push(grid.restorePending);
-      return grid;
-    });
-    expect(renderSnapshots.every((pending) => pending === false)).toBe(true);
-    expect(result.current.restorePending).toBe(false);
-  });
-
-  it('容器未就绪时不置位（等下一次提交）：restorePending 保持 true', () => {
-    const { result, rerender } = renderHook(
-      ({ scrollElement }: { scrollElement: HTMLElement | null }) =>
-        useVirtualGrid({
-          scrollElement,
-          count: 20,
-          hasNextPage: false,
-          isFetchingNextPage: false,
-          fetchNextPage: vi.fn(),
-          initialRestoreIndex: 7,
-        }),
-      { initialProps: { scrollElement: null as HTMLElement | null } },
-    );
-    // scrollElement 由路由的 ref 回调 setState 提供：就绪前恢复无从谈起，也不能提前解锁渲染
-    expect(result.current.restorePending).toBe(true);
-    expect(virtualizerStub.getOffsetForIndex).not.toHaveBeenCalled();
-
-    rerender({ scrollElement: makeScrollElement() });
-    expect(result.current.restorePending).toBe(false);
-    expect(virtualizerStub.getOffsetForIndex).toHaveBeenCalledWith(7, 'start');
-  });
-
-  it('等容器宽度确定后再恢复：恢复时的 lanes 已按实测宽度计算', () => {
-    const scrollElement = makeScrollElement();
-    // computeGridLayout(1600).columns === 4
-    Object.defineProperty(scrollElement, 'clientWidth', {
-      value: 1600,
-      configurable: true,
-    });
-
-    let lanesAtRestore: number | undefined;
-    virtualizerStub.getOffsetForIndex.mockImplementation(() => {
-      const options = useVirtualizerMock.mock.calls.at(-1)?.[0] as {
-        lanes: number;
-      };
-      lanesAtRestore = options.lanes;
-      return [123, 'start'] as const;
-    });
-
-    renderHook(() =>
-      useVirtualGrid({
-        scrollElement,
-        count: 20,
-        hasNextPage: false,
-        isFetchingNextPage: false,
-        fetchNextPage: vi.fn(),
-        initialRestoreIndex: 7,
-      }),
-    );
-
-    expect(virtualizerStub.getOffsetForIndex).toHaveBeenCalledWith(7, 'start');
-    expect(lanesAtRestore).toBe(4);
   });
 
   it('ResizeObserver 触发后按新宽度重算 lanes', () => {
@@ -620,128 +360,98 @@ describe('useVirtualGrid', () => {
     expect(fetchNextPage).toHaveBeenCalledTimes(2);
   });
 
-  it('恢复结束时回调一次 onRestoreDone（调用方据此消费锚点）', () => {
-    const scrollElement = makeScrollElement();
-    const onRestoreDone = vi.fn();
-    const { rerender } = renderHook(
-      ({ count }: { count: number }) =>
-        useVirtualGrid({
-          scrollElement,
-          count,
-          hasNextPage: false,
-          isFetchingNextPage: false,
-          fetchNextPage: vi.fn(),
-          initialRestoreIndex: 7,
-          onRestoreDone,
-        }),
-      { initialProps: { count: 20 } },
-    );
-    expect(onRestoreDone).toHaveBeenCalledTimes(1);
-
-    rerender({ count: 40 });
-    expect(onRestoreDone).toHaveBeenCalledTimes(1);
-  });
-
-  it('容器未就绪时不回调 onRestoreDone（等真正恢复的那次提交）', () => {
-    const onRestoreDone = vi.fn();
+  it('把 initialOffset 交给虚拟化器：首帧就按恢复位置算可视窗口', () => {
     renderHook(() =>
       useVirtualGrid({
         scrollElement: null,
-        count: 20,
+        count: 3,
         hasNextPage: false,
         isFetchingNextPage: false,
         fetchNextPage: vi.fn(),
-        initialRestoreIndex: 7,
-        onRestoreDone,
+        initialOffset: 480,
       }),
     );
-    expect(onRestoreDone).not.toHaveBeenCalled();
+    expect(useVirtualizerMock).toHaveBeenCalledWith(
+      expect.objectContaining({ initialOffset: 480 }),
+    );
   });
 
-  it('只恢复一次，重渲染不重复滚动', () => {
-    const scrollElement = makeScrollElement();
+  it('挂载后对齐 DOM 与虚拟化器内部 offset，并回调一次 onOffsetRestored', () => {
+    const element = makeScrollableElement();
+    const onOffsetRestored = vi.fn();
     const { rerender } = renderHook(
-      ({ count }: { count: number }) =>
+      ({ initialOffset }: { initialOffset: number | null }) =>
         useVirtualGrid({
-          scrollElement,
-          count,
+          scrollElement: element,
+          count: 10,
           hasNextPage: false,
           isFetchingNextPage: false,
           fetchNextPage: vi.fn(),
-          initialRestoreIndex: 7,
+          initialOffset,
+          onOffsetRestored,
         }),
-      { initialProps: { count: 20 } },
+      { initialProps: { initialOffset: 480 as number | null } },
     );
-    rerender({ count: 40 });
-    expect(virtualizerStub.getOffsetForIndex).toHaveBeenCalledTimes(1);
+
+    expect(element.scrollTop).toBe(480);
+    // 库只在 scroll 事件里更新内部 offset：不手动对齐，本次提交仍按旧位置算范围
+    expect(virtualizerStub.scrollOffset).toBe(480);
+    expect(onOffsetRestored).toHaveBeenCalledTimes(1);
+
+    // 锚点被消费后（initialOffset 置空）不再滚动、不再回调
+    element.scrollTop = 0;
+    rerender({ initialOffset: null });
+    expect(element.scrollTop).toBe(0);
+    expect(onOffsetRestored).toHaveBeenCalledTimes(1);
   });
 
-  it('保存位置超出已加载条数时不滚动', () => {
-    const scrollElement = makeScrollElement();
-    const { result } = renderHook(() =>
+  it('没有恢复目标时不写 scrollTop、不回调', () => {
+    const element = makeScrollableElement();
+    const onOffsetRestored = vi.fn();
+    renderHook(() =>
       useVirtualGrid({
-        scrollElement,
-        count: 20,
+        scrollElement: element,
+        count: 1,
         hasNextPage: false,
         isFetchingNextPage: false,
         fetchNextPage: vi.fn(),
-        initialRestoreIndex: 42,
+        initialOffset: 0,
+        onOffsetRestored,
       }),
     );
-    expect(virtualizerStub.getOffsetForIndex).not.toHaveBeenCalled();
-    expect(scrollElement.scrollTop).toBe(0);
-    // 不滚动也要解锁渲染，否则整张网格永远是空的
-    expect(result.current.restorePending).toBe(false);
+
+    expect(element.scrollTop).toBe(0);
+    expect(onOffsetRestored).not.toHaveBeenCalled();
   });
 
-  it('保存位置等于已加载条数时不滚动', () => {
-    const scrollElement = makeScrollElement();
-    const { result } = renderHook(() =>
+  it('记忆位置超出内容高度时按回读值 clamp（否则可视区间落在未加载分页外，整屏空白）', () => {
+    // 模拟真实浏览器：scrollTop 会被 clamp 到 [0, max]
+    const maxScrollTop = 400;
+    const element = document.createElement('div');
+    let scrollTop = 0;
+    Object.defineProperty(element, 'scrollTop', {
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = Math.max(0, Math.min(value, maxScrollTop));
+      },
+      configurable: true,
+    });
+    const onOffsetRestored = vi.fn();
+
+    renderHook(() =>
       useVirtualGrid({
-        scrollElement,
-        count: 20,
+        scrollElement: element,
+        count: 4,
         hasNextPage: false,
         isFetchingNextPage: false,
         fetchNextPage: vi.fn(),
-        initialRestoreIndex: 20,
+        initialOffset: 3000,
+        onOffsetRestored,
       }),
     );
-    expect(virtualizerStub.getOffsetForIndex).not.toHaveBeenCalled();
-    expect(result.current.restorePending).toBe(false);
-  });
 
-  it('保存位置为 0 时不滚动', () => {
-    const scrollElement = makeScrollElement();
-    const { result } = renderHook(() =>
-      useVirtualGrid({
-        scrollElement,
-        count: 20,
-        hasNextPage: false,
-        isFetchingNextPage: false,
-        fetchNextPage: vi.fn(),
-        initialRestoreIndex: 0,
-      }),
-    );
-    expect(virtualizerStub.getOffsetForIndex).not.toHaveBeenCalled();
-    expect(scrollElement.scrollTop).toBe(0);
-    expect(result.current.restorePending).toBe(false);
-  });
-
-  it('库返回 undefined（测量未就绪）时不写 offset，但仍解锁渲染', () => {
-    const scrollElement = makeScrollElement();
-    virtualizerStub.getOffsetForIndex.mockReturnValue(undefined);
-    const { result } = renderHook(() =>
-      useVirtualGrid({
-        scrollElement,
-        count: 20,
-        hasNextPage: false,
-        isFetchingNextPage: false,
-        fetchNextPage: vi.fn(),
-        initialRestoreIndex: 7,
-      }),
-    );
-    expect(scrollElement.scrollTop).toBe(0);
-    expect(virtualizerStub.scrollOffset).toBeNull();
-    expect(result.current.restorePending).toBe(false);
+    expect(element.scrollTop).toBe(maxScrollTop);
+    expect(virtualizerStub.scrollOffset).toBe(maxScrollTop);
+    expect(onOffsetRestored).toHaveBeenCalledTimes(1);
   });
 });

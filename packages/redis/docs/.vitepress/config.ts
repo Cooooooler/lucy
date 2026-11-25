@@ -8,6 +8,7 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: '指南', link: '/guide/getting-started' },
+      { text: 'API', link: '/api/' },
       { text: '路线图', link: '/guide/roadmap' },
     ],
     sidebar: [
@@ -22,6 +23,10 @@ export default defineConfig({
           { text: '多数据源（forFeature）', link: '/guide/for-feature' },
           { text: '工具', link: '/guide/utilities' },
         ],
+      },
+      {
+        text: 'API 参考',
+        items: [{ text: 'API 索引', link: '/api/' }],
       },
       {
         text: '项目',

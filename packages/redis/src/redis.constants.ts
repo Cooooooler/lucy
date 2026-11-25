@@ -13,7 +13,12 @@ export const REDIS_MODULE_OPTIONS = Symbol('REDIS_MODULE_OPTIONS');
 /** 内部 DI token：命名客户端注册表（Set），供 onModuleDestroy 统一关闭 */
 export const REDIS_NAMED_CLIENTS = Symbol('REDIS_NAMED_CLIENTS');
 
-/** 生成命名客户端 DI token：`REDIS_CLIENT:<name>`（Symbol.for 全局共享，跨模块解析到同一实例） */
+/**
+ * 生成命名客户端 DI token：`REDIS_CLIENT:<name>`（Symbol.for 全局共享，跨模块解析到同一实例）。
+ *
+ * @param name 命名连接标识
+ * @returns 该命名连接的 DI token
+ */
 export function getNamedClientToken(name: string): symbol {
   return Symbol.for(`REDIS_CLIENT:${name}`);
 }

@@ -67,6 +67,8 @@ components.json
 .claude
 .commandcode
 **/.vitepress/cache
+# TypeDoc 从源码生成的 API 参考（docs:api 产物，构建前自动生成）
+**/docs/api/
 /apps/backend/uploads/
 # OpenPencil 组件库 catalog（体积大，可由 designs/antd-resources.fig 重新发布生成）
 /designs/library/

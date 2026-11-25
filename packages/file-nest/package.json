@@ -25,8 +25,9 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --clean --dts --tsconfig tsconfig.build.json",
     "dev": "tsup src/index.ts --format esm,cjs --clean --dts --watch --tsconfig tsconfig.build.json",
-    "docs:build": "vitepress build docs",
-    "docs:dev": "vitepress dev docs",
+    "docs:api": "typedoc",
+    "docs:build": "pnpm run docs:api && vitepress build docs",
+    "docs:dev": "pnpm run docs:api && vitepress dev docs",
     "lint": "eslint \"src/**/*.ts\" --fix",
     "lint:ci": "eslint \"src/**/*.ts\" --max-warnings 0",
     "prepublishOnly": "pnpm run build && pnpm run test",
@@ -38,6 +39,8 @@
     "@nestjs/common": "catalog:",
     "@nestjs/core": "catalog:",
     "@types/node": "^24.0.0",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.14.1",
     "vitepress": "^1.6.4"
   },
   "peerDependencies": {

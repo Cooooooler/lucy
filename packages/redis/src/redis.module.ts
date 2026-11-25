@@ -46,7 +46,7 @@ export interface RedisFeatureOptions {
  */
 @Module({})
 export class RedisModule implements OnModuleDestroy {
-  /** client 可选：forFeature 命名作用域模块不提供默认连接，故 @Optional 允许缺省 */
+  /** client 可选：forFeature 命名作用域模块不提供默认连接，故 `@Optional` 允许缺省 */
   constructor(
     @Optional()
     @Inject(REDIS_CLIENT)
@@ -57,7 +57,12 @@ export class RedisModule implements OnModuleDestroy {
     private readonly namedClients?: Set<RedisClient>,
   ) {}
 
-  /** 同步注册全局 Redis 连接（连接在模块初始化时惰性建立） */
+  /**
+   * 同步注册全局 Redis 连接（连接在模块初始化时惰性建立）。
+   *
+   * @param options 连接选项（standalone / sentinel / cluster 判别联合）
+   * @returns 全局 DynamicModule：导出 `RedisService` 与相关 DI token
+   */
   static forRoot(options: RedisModuleOptions): DynamicModule {
     const client = createClient(options);
     const serializer = options.serializer ?? defaultJsonSerializer;
@@ -79,7 +84,12 @@ export class RedisModule implements OnModuleDestroy {
     };
   }
 
-  /** 异步注册全局连接：useFactory 只调用一次，解析后的配置派生出 client 与 serializer */
+  /**
+   * 异步注册全局连接：`useFactory` 只调用一次，解析后的配置派生出 client 与 serializer。
+   *
+   * @param options 异步选项（imports / inject / useFactory）
+   * @returns 全局 DynamicModule：导出 `RedisService` 与相关 DI token
+   */
   static forRootAsync(options: RedisModuleAsyncOptions): DynamicModule {
     return {
       module: RedisModule,
@@ -115,7 +125,11 @@ export class RedisModule implements OnModuleDestroy {
     };
   }
 
-  /** 应用关闭时断开连接，避免悬挂连接句柄（含命名 feature 客户端，一次性关闭后清空避免重复） */
+  /**
+   * 应用关闭时断开连接，避免悬挂连接句柄。
+   *
+   * 含命名 feature 客户端：一次性关闭后清空注册表，避免重复关闭。
+   */
   async onModuleDestroy(): Promise<void> {
     await this.client?.quit();
     if (this.namedClients && this.namedClients.size > 0) {
@@ -125,7 +139,13 @@ export class RedisModule implements OnModuleDestroy {
     }
   }
 
-  /** 返回模块作用域的 feature RedisService：namespace 加 key 前缀；name+options 用独立命名连接 */
+  /**
+   * 返回模块作用域的 feature RedisService。
+   *
+   * @param options `namespace` 给 key 加前缀；同时给 `name` + `options` 时创建独立命名连接，
+   * 否则共享默认连接
+   * @returns 模块作用域的 DynamicModule（导出该作用域的 `RedisService`）
+   */
   static forFeature(options: RedisFeatureOptions): DynamicModule {
     const { name, namespace, options: connOptions } = options;
     const isNamed = connOptions !== undefined;

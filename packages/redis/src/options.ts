@@ -52,7 +52,12 @@ export const DEFAULT_OPTIONS = {
   keepAlive: 60_000,
 };
 
-/** 默认指数退避重连，上限 2s */
+/**
+ * 默认指数退避重连，上限 2s。
+ *
+ * @param times 已重试次数（ioredis 传入）
+ * @returns 下一次重试的等待毫秒数
+ */
 export function defaultRetryStrategy(times: number): number {
   return Math.min(times * 50, 2_000);
 }
@@ -62,7 +67,12 @@ export type NormalizedRedisOptions = RedisModuleOptions & {
   retryStrategy: (times: number) => number | void | null;
 };
 
-/** 合并生产默认参数与用户选项，用户未提供 retryStrategy 时注入默认指数退避 */
+/**
+ * 合并生产默认参数与用户选项，用户未提供 retryStrategy 时注入默认指数退避。
+ *
+ * @param options 用户提供的连接选项
+ * @returns 补齐默认值后的连接选项（retryStrategy 必有值）
+ */
 export function normalizeOptions(
   options: RedisModuleOptions,
 ): NormalizedRedisOptions {

@@ -211,6 +211,27 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  react-view-state-tests:
+    name: React-view-state package tests with coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          # 本包没有内部包依赖，测试直接跑源码
+          build-internal-packages: 'false'
+      - name: React-view-state package tests with coverage
+        run: pnpm --filter @coool/react-view-state test:cov
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: react-view-state-coverage
+          path: packages/react-view-state/coverage
+          if-no-files-found: error
+          retention-days: 1
+
   # 契约生成物漂移校验：packages/shared/src/generated/openapi.ts 是提交进仓库的生成产物，
   # 改后端 DTO/实体后必须重新生成。pre-commit 会跑 typegen，但 --no-verify 或忘记提交
   # 都会让契约静默落后；这里以「重新生成后是否有 diff」为准。
@@ -242,6 +263,7 @@ jobs:
       - redis-tests
       - shared-tests
       - file-nest-tests
+      - react-view-state-tests
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -272,6 +294,11 @@ jobs:
         with:
           name: file-nest-coverage
           path: packages/file-nest/coverage
+      - name: Download react-view-state coverage report
+        uses: actions/download-artifact@v8
+        with:
+          name: react-view-state-coverage
+          path: packages/react-view-state/coverage
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v8
         env:
