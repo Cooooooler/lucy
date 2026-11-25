@@ -16,10 +16,16 @@ import { pendingIdOf } from '@/hooks/pending-id';
 import {
   useDeleteModelProvider,
   useInfiniteModelProviderList,
+  useRefreshModelProviderList,
   useTestModelProviderConnection,
   useUpdateModelProvider,
   type ModelProviderListFilter,
 } from '@/hooks/use-model-provider';
+import {
+  PageStateCache,
+  usePageState,
+  useScrollMemory,
+} from '@coool/react-view-state';
 import { createFileRoute } from '@tanstack/react-router';
 import { App } from 'antd';
 import { useCallback, useMemo, useState } from 'react';
@@ -39,17 +45,21 @@ const EMPTY_LABEL: CardGridEmptyLabel = {
 const ModelProviderComponent = () => {
   const { message, modal } = App.useApp();
 
-  // 页面状态缓存已移除：不再保存/恢复上次的筛选与滚动位置，
-  // 每次进入都是空筛选、从列表顶部开始。
+  // 筛选条件与滚动位置都按「再次进入要恢复」的页面状态处理：
+  // 筛选由 <PageStateCache> 承载，滚动偏移由 useScrollMemory 记住；
+  // 虚拟网格还要对齐自身内部 offset，因此恢复交给它（restoreMode: 'delegate'）。
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
     null,
   );
-  const resetToTop = useCallback(() => {
-    scrollElement?.scrollTo({ top: 0 });
-  }, [scrollElement]);
+  const scrollMemory = useScrollMemory({
+    cacheKey: 'model-provider-list',
+    scrollElement,
+    restoreMode: 'delegate',
+  });
+  const resetToTop = scrollMemory.resetToTop;
 
-  const [committedName, setCommittedName] = useState('');
-  const [vendor, setVendor] = useState<ModelVendorFilter>('all');
+  const [committedName, setCommittedName] = usePageState('name', '');
+  const [vendor, setVendor] = usePageState<ModelVendorFilter>('vendor', 'all');
   /** 单例表单抽屉的目标：create / edit(model) / 关闭(null) */
   const [formTarget, setFormTarget] = useState<
     { mode: 'create' } | { mode: 'edit'; model: ModelProvider } | null
@@ -69,6 +79,7 @@ const ModelProviderComponent = () => {
     () => query.data?.pages.flatMap((page) => page.list) ?? [],
     [query.data],
   );
+  const refreshList = useRefreshModelProviderList();
 
   // 变更操作在路由各持有一份：卡片只上报意图（避免每张卡片各挂一套 mutation）
   // 编辑提交在表单抽屉内完成，路由只需 pending 态用于禁用卡片按钮
@@ -156,7 +167,7 @@ const ModelProviderComponent = () => {
       setCommittedName(value);
       resetToTop();
     },
-    [resetToTop],
+    [resetToTop, setCommittedName],
   );
 
   const handleVendorChange = useCallback(
@@ -164,8 +175,14 @@ const ModelProviderComponent = () => {
       setVendor(value);
       resetToTop();
     },
-    [resetToTop],
+    [resetToTop, setVendor],
   );
+
+  /** 刷新：重新加载当前筛选，并回到列表顶部 */
+  const handleRefresh = useCallback(() => {
+    resetToTop();
+    void refreshList();
+  }, [refreshList, resetToTop]);
 
   // 卡片只接收该条目自己的 pending 标记；回调用 useCallback 包裹让引用在
   // 「未经 React Compiler 的路径」（vitest、未启用 compiler 的 dev 配置）下也保持稳定
@@ -190,7 +207,8 @@ const ModelProviderComponent = () => {
         vendor={vendor}
         onVendorChange={handleVendorChange}
         onSearch={handleSearch}
-        defaultKeyword=""
+        onRefresh={handleRefresh}
+        defaultKeyword={committedName}
         onCreate={handleCreate}
         onOpenDefaults={handleOpenDefaults}
       />
@@ -211,6 +229,7 @@ const ModelProviderComponent = () => {
           hasFilter={Boolean(filter.name || filter.vendor)}
           emptyLabel={EMPTY_LABEL}
           renderItem={renderItem}
+          scrollMemory={scrollMemory}
         />
         <ModelProviderFormDrawer
           open={!!formTarget}
@@ -227,6 +246,13 @@ const ModelProviderComponent = () => {
   );
 };
 
+/** 缓存作用域只包页面本体：表单抽屉等临时状态不经过 usePageState，因此不会被恢复 */
+const ModelProviderRoute = () => (
+  <PageStateCache cacheKey="model-provider-list">
+    <ModelProviderComponent />
+  </PageStateCache>
+);
+
 export const Route = createFileRoute('/_layout/integration/model-provider')({
-  component: ModelProviderComponent,
+  component: ModelProviderRoute,
 });

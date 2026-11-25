@@ -10,18 +10,27 @@ import {
 } from '@/api/model-provider';
 import type {
   CreateModelProviderRequest,
+  ModelProvider,
   ModelProviderType,
   ModelProviderVendor,
   UpdateModelProviderRequest,
 } from '@/api/types';
 import type { ModelProviderListQuery } from '@lucy/shared';
 import {
+  type QueryClient,
+  type QueryKey,
   useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
+import { type CachePatch, applyOptimistic } from './lib/optimistic';
+import {
+  patchCursorPageItem,
+  patchOrRemoveCursorPageItem,
+  removeCursorPageItem,
+} from './lib/query-shapes';
 
 /** 默认每页条数（游标分页，同时是列表 queryKey 的一部分） */
 export const MODEL_PROVIDER_PAGE_SIZE = 20;
@@ -45,13 +54,131 @@ export const modelProviderKeys = {
   item: (id: string) => [...modelProviderKeys.all, id] as const,
 };
 
+// ==== 乐观更新 ============================================================
+
+type UpdateVariables = {
+  id: string;
+  input: UpdateModelProviderRequest;
+};
+
+/** 写回缓存：详情（精确 key）+ 所有筛选条件的列表分页（前缀），不触发 refetch */
+function patchModelInCache(
+  queryClient: QueryClient,
+  id: string,
+  patch: Partial<ModelProvider>,
+) {
+  queryClient.setQueryData<ModelProvider>(modelProviderKeys.item(id), (old) =>
+    old?.id === id ? { ...old, ...patch } : old,
+  );
+  queryClient.setQueriesData(
+    { queryKey: modelProviderKeys.listAll() },
+    patchCursorPageItem<ModelProvider>(id, patch),
+  );
+}
+
+/** 列表 key 约定为 [...listAll(), 查询参数]（见 modelProviderKeys.list） */
+function listFilterOf(queryKey: QueryKey): ModelProviderListQuery | undefined {
+  return queryKey.at(-1) as ModelProviderListQuery | undefined;
+}
+
+/** 改写后的条目是否仍能满足列表筛选（name 为后端 ILIKE 的子串匹配） */
+function matchesListFilter(
+  filter: ModelProviderListQuery | undefined,
+  item: Pick<ModelProvider, 'name' | 'type' | 'vendor'>,
+) {
+  if (filter?.type && filter.type !== item.type) return false;
+  if (filter?.vendor && filter.vendor !== item.vendor) return false;
+  return !(
+    filter?.name && !item.name.toLowerCase().includes(filter.name.toLowerCase())
+  );
+}
+
+/**
+ * 编辑表单提交的字段（后端 UpdateModelProviderDto）。
+ * 刻意不含 apiKey：明文只随请求发送，绝不进入任何缓存。
+ */
+function updateFields(
+  input: UpdateModelProviderRequest,
+): Partial<ModelProvider> {
+  return {
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.type !== undefined ? { type: input.type } : {}),
+    ...(input.vendor !== undefined ? { vendor: input.vendor } : {}),
+    ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
+    ...(input.protocol !== undefined ? { protocol: input.protocol } : {}),
+    ...(input.contextLength !== undefined
+      ? { contextLength: input.contextLength }
+      : {}),
+  };
+}
+
+/**
+ * 编辑：详情就地改写，列表按改写后的 name/type/vendor 重新判断是否仍满足筛选，
+ * 不再满足的条目从该列表移除（与知识库同一策略）。
+ */
+function updateCachePatches(
+  id: string,
+  fields: Partial<ModelProvider>,
+): CachePatch<UpdateVariables>[] {
+  return [
+    {
+      queryKey: modelProviderKeys.item(id),
+      exact: true,
+      apply: (old) => {
+        const model = old as ModelProvider | undefined;
+        return model?.id === id ? { ...model, ...fields } : model;
+      },
+    },
+    {
+      queryKey: modelProviderKeys.listAll(),
+      apply: (old, _vars, queryKey) =>
+        patchOrRemoveCursorPageItem<ModelProvider>(
+          id,
+          (next) => matchesListFilter(listFilterOf(queryKey), next),
+          fields,
+        )(old),
+    },
+  ];
+}
+
+function deleteCachePatches(id: string): CachePatch<string>[] {
+  return [
+    {
+      queryKey: modelProviderKeys.listAll(),
+      apply: removeCursorPageItem<ModelProvider>(id),
+    },
+  ];
+}
+
+/**
+ * 失败收尾：回滚快照 + 失效一次。
+ *
+ * 快照是整份列表数组，同缓存上并发写多个条目时，后失败那次的回滚会连带撤销先前
+ * 成功的乐观写入，因此需要失效让缓存收敛到服务端真相（只在失败路径，避免成功路径
+ * 重放已加载的分页）。
+ */
+async function rollbackAndRevalidate(
+  queryClient: QueryClient,
+  rollback: (() => void) | undefined,
+  id: string,
+) {
+  rollback?.();
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: modelProviderKeys.listAll() }),
+    queryClient.invalidateQueries({
+      queryKey: modelProviderKeys.item(id),
+      exact: true,
+    }),
+  ]);
+}
+
 // ==== 查询 ================================================================
 
 /**
  * 游标分页模型列表（无限滚动）。
  *
- * gcTime 继承基础配置（5 分钟）；staleTime 继承基础配置（0），重新挂载会重新请求，
- * infinite query 按已加载页数逐页重放。
+ * `staleTime: 3 分钟`：3 分钟内视为新鲜，重新进入页面直接复用缓存、不重放已加载分页。
+ * gcTime 继承基础配置（5 分钟）：离开页面后缓存短期保留，回来仍可命中。
  */
 export function useInfiniteModelProviderList(
   filter: ModelProviderListFilter = {},
@@ -68,9 +195,18 @@ export function useInfiniteModelProviderList(
       }),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    refetchOnWindowFocus: false,
+    staleTime: 3 * 60 * 1000,
     enabled,
   });
+}
+
+/** 手动「刷新」：丢弃所有筛选的列表缓存并让当前筛选从第一页重新加载 */
+export function useRefreshModelProviderList() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    () => queryClient.resetQueries({ queryKey: modelProviderKeys.listAll() }),
+    [queryClient],
+  );
 }
 
 /**
@@ -137,52 +273,66 @@ export function useLlmModelProviders(limit = 100) {
   return { models, isLoading: query.isLoading };
 }
 
-/** 创建模型，成功后失效列表（重新拉取首页）。 */
+/** 创建模型，成功后执行与刷新按钮相同的重置（见 useRefreshModelProviderList）。 */
 export function useCreateModelProvider() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateModelProviderRequest) =>
       createModelProviderApi(input),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
+      await queryClient.resetQueries({
         queryKey: modelProviderKeys.listAll(),
       });
     },
   });
 }
 
-/** 更新模型，成功后失效详情与列表（不把明文 apiKey 写入任何缓存）。 */
+/**
+ * 更新模型：乐观改写详情与列表，成功后用服务端值收敛。
+ * 改名/改类型/改供应商后可能不再满足当前筛选，对应列表里的条目会立即移除。
+ * 明文 apiKey 只随请求发送，不写入任何缓存。
+ */
 export function useUpdateModelProvider() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (variables: {
-      id: string;
-      input: UpdateModelProviderRequest;
-    }) => updateModelProviderApi(variables.id, variables.input),
-    onSuccess: async (_data, { id }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: modelProviderKeys.item(id),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: modelProviderKeys.listAll(),
-        }),
-      ]);
-    },
+    mutationFn: (variables: UpdateVariables) =>
+      updateModelProviderApi(variables.id, variables.input),
+    onMutate: async (variables) => ({
+      rollback: await applyOptimistic(
+        queryClient,
+        updateCachePatches(variables.id, updateFields(variables.input)),
+        variables,
+      ),
+    }),
+    onSuccess: (updated) =>
+      patchModelInCache(queryClient, updated.id, {
+        name: updated.name,
+        type: updated.type,
+        vendor: updated.vendor,
+        baseUrl: updated.baseUrl,
+        protocol: updated.protocol,
+        contextLength: updated.contextLength,
+        apiKeyMasked: updated.apiKeyMasked,
+        updatedAt: updated.updatedAt,
+      }),
+    onError: (_error, variables, context) =>
+      rollbackAndRevalidate(queryClient, context?.rollback, variables.id),
   });
 }
 
-/** 删除模型，成功后清掉详情缓存并失效列表。 */
+/** 删除模型：先从列表移除（可回滚），成功后清掉详情缓存 */
 export function useDeleteModelProvider() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteModelProviderApi(id),
-    onSuccess: async (_data, id) => {
+    onMutate: async (id) => ({
+      rollback: await applyOptimistic(queryClient, deleteCachePatches(id), id),
+    }),
+    onSuccess: (_data, id) => {
       queryClient.removeQueries({ queryKey: modelProviderKeys.item(id) });
-      await queryClient.invalidateQueries({
-        queryKey: modelProviderKeys.listAll(),
-      });
     },
+    onError: (_error, id, context) =>
+      rollbackAndRevalidate(queryClient, context?.rollback, id),
   });
 }
 

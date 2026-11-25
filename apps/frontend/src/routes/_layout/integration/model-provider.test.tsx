@@ -1,10 +1,16 @@
 import type { ModelProvider } from '@/api/types.ts';
+import { VirtualCardGrid } from '@/components/card-list/VirtualCardGrid.tsx';
 import { makeModel } from '@/components/model-provider/model-provider-test-fixture.ts';
 import {
   useInfiniteModelProviderList,
   useModelProviderDefaults,
   useModelProvidersByType,
 } from '@/hooks/use-model-provider';
+import {
+  clearAllScrollOffsets,
+  clearPageStateCaches,
+  writeScrollOffset,
+} from '@coool/react-view-state';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
@@ -47,8 +53,12 @@ const mutationMocks = vi.hoisted(() => {
   };
 });
 
+/** 刷新回调（丢弃全部列表缓存并重载）：由路由持有的 hook 提供 */
+const refreshList = vi.hoisted(() => vi.fn());
+
 vi.mock('@/hooks/use-model-provider', () => ({
   useInfiniteModelProviderList: vi.fn(),
+  useRefreshModelProviderList: vi.fn(() => refreshList),
   useCreateModelProvider: vi.fn(() => mutationMocks.create),
   useUpdateModelProvider: vi.fn(() => mutationMocks.update),
   useDeleteModelProvider: vi.fn(() => mutationMocks.delete),
@@ -86,6 +96,7 @@ vi.mock('@/components/card-list/VirtualCardGrid.tsx', async () => {
 const mockedList = vi.mocked(useInfiniteModelProviderList);
 const mockedDefaults = vi.mocked(useModelProviderDefaults);
 const mockedModelsByType = vi.mocked(useModelProvidersByType);
+const mockedGrid = vi.mocked(VirtualCardGrid);
 
 function noopQuery() {
   return {
@@ -119,9 +130,21 @@ function renderRoute() {
   );
 }
 
+/** 最近一次传给通用网格的 props（React 可能以 (props, context) 调用） */
+function lastGridProps() {
+  return mockedGrid.mock.calls.at(-1)?.[0] as unknown as Record<
+    string,
+    unknown
+  >;
+}
+
 describe('routes/_layout/integration/model-provider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 筛选条件现在由 <PageStateCache> 会话内缓存，滚动位置由 useScrollMemory 模块级缓存：
+    // 两者都会跨用例残留，必须复位
+    clearPageStateCaches();
+    clearAllScrollOffsets();
     mockedList.mockReturnValue(noopQuery());
     for (const mutation of Object.values(mutationMocks)) {
       mutation.isPending = false;
@@ -144,6 +167,29 @@ describe('routes/_layout/integration/model-provider', () => {
       vendor: undefined,
     });
     expect(screen.getByPlaceholderText('按名称搜索模型')).toHaveValue('');
+    expect(lastGridProps()).toMatchObject({
+      hasFilter: false,
+      emptyLabel: { filtered: '没有匹配的模型', initial: '暂无模型' },
+    });
+  });
+
+  it('把 isPlaceholderData 透传给网格（换筛选时列表保持可见，不换骨架）', () => {
+    mockedList.mockReturnValue({
+      ...noopQuery(),
+      isPlaceholderData: true,
+    } as unknown as ReturnType<typeof useInfiniteModelProviderList>);
+
+    renderRoute();
+
+    expect(lastGridProps().isPlaceholderData).toBe(true);
+  });
+
+  it('把会话内记住的滚动位置交给网格恢复', () => {
+    writeScrollOffset('model-provider-list', 480);
+
+    renderRoute();
+
+    expect(lastGridProps().scrollMemory).toMatchObject({ restoreOffset: 480 });
   });
 
   it('点击「新增模型」打开单例表单抽屉', async () => {
@@ -271,6 +317,57 @@ describe('routes/_layout/integration/model-provider', () => {
         vendor: 'openai',
       }),
     );
+  });
+
+  it('重新进入页面时恢复上次的筛选（关键词 + 供应商）', async () => {
+    const first = renderRoute();
+
+    await userEvent.click(screen.getByText('OpenAI'));
+    const input = screen.getByPlaceholderText('按名称搜索模型');
+    await userEvent.type(input, 'gpt{Enter}');
+    await waitFor(() =>
+      expect(mockedList.mock.calls.at(-1)?.[0]).toEqual({
+        name: 'gpt',
+        vendor: 'openai',
+      }),
+    );
+    first.unmount();
+
+    renderRoute();
+
+    expect(mockedList).toHaveBeenLastCalledWith({
+      name: 'gpt',
+      vendor: 'openai',
+    });
+    expect(screen.getByPlaceholderText('按名称搜索模型')).toHaveValue('gpt');
+  });
+
+  it('点击刷新：走刷新 hook 重新加载并回到顶部', async () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    try {
+      renderRoute();
+
+      await userEvent.click(screen.getByRole('button', { name: '刷新' }));
+
+      await waitFor(() => expect(refreshList).toHaveBeenCalledTimes(1));
+      expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
+    } finally {
+      scrollTo.mockRestore();
+    }
+  });
+
+  it('挂载不归零，改筛选才回到列表顶部', async () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    try {
+      renderRoute();
+
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByText('OpenAI'));
+      await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 0 }));
+    } finally {
+      scrollTo.mockRestore();
+    }
   });
 
   it('把 mutation 的 pending 态落到对应卡片的禁用态', () => {

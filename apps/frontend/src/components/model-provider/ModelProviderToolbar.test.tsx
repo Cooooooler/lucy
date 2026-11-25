@@ -10,6 +10,7 @@ function renderToolbar(overrides: Partial<ToolbarProps> = {}) {
     vendor: 'all',
     onVendorChange: vi.fn(),
     onSearch: vi.fn(),
+    onRefresh: vi.fn(),
     defaultKeyword: '',
     onCreate: vi.fn(),
     onOpenDefaults: vi.fn(),
@@ -44,6 +45,12 @@ describe('ModelProviderToolbar', () => {
     const { props } = renderToolbar();
     await userEvent.click(screen.getByText('OpenAI'));
     expect(props.onVendorChange).toHaveBeenCalledWith('openai');
+  });
+
+  it('点击刷新触发 onRefresh', async () => {
+    const { props } = renderToolbar();
+    await userEvent.click(screen.getByRole('button', { name: '刷新' }));
+    expect(props.onRefresh).toHaveBeenCalledTimes(1);
   });
 
   it('defaultKeyword 作为搜索框初始值', () => {
